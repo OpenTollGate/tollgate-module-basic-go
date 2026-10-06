@@ -1,7 +1,6 @@
 package merchant
 
 import (
-	"bytes"
 	"errors"
 	"log"
 	"strings"
@@ -120,19 +119,46 @@ func TestUnmeterableSessionIsStillClosedWhenNdsctlRecovers(t *testing.T) {
 }
 
 // captureMerchantLog redirects the standard logger the merchant writes with into
-// a buffer, so a test can assert what an operator would see.
-func captureMerchantLog(t *testing.T) *bytes.Buffer {
+// a buffer, so a test can assert what an operator would see. The buffer is the
+// concurrency-safe syncLogs: a goroutine left over from an earlier test (a
+// MintHealthTracker probe still winding down) may write through the swapped
+// logger while this test reads the capture, and an unsynchronized buffer made
+// that a data race (the intermittent "race detected during execution of test"
+// from the #619 review).
+func captureMerchantLog(t *testing.T) *syncLogs {
 	t.Helper()
+	return captureSyncLogs(t)
+}
 
-	buffer := &bytes.Buffer{}
-	previousOut, previousFlags := log.Writer(), log.Flags()
-	log.SetOutput(buffer)
-	log.SetFlags(0)
-	t.Cleanup(func() {
-		log.SetOutput(previousOut)
-		log.SetFlags(previousFlags)
-	})
-	return buffer
+// TestCaptureMerchantLogIsSafeToReadWhileGoroutinesLog pins the contract that
+// made `go test -race -tags testenv ./...` fail intermittently with "race
+// detected during execution of test" during the #619 review: a MintHealthTracker
+// goroutine left over from an earlier test (an aggressive-retry probe still in
+// flight when its tracker was stopped) writes through the standard logger that
+// THIS test swapped in, while the test reads the capture. A capture the package
+// hands out must therefore be safe to read while other goroutines may still be
+// writing it — the same contract captureSyncLogs already honours.
+func TestCaptureMerchantLogIsSafeToReadWhileGoroutinesLog(t *testing.T) {
+	buf := captureMerchantLog(t)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			log.Printf("stray goroutine line %d", i)
+		}
+	}()
+
+	// Read the capture while the stray writer is still logging: under -race,
+	// an unsynchronized buffer here is the reported data race.
+	for i := 0; i < 500; i++ {
+		_ = buf.String()
+	}
+	<-done
+
+	if !strings.Contains(buf.String(), "stray goroutine line 499") {
+		t.Fatal("the capture did not observe the stray writer's lines")
+	}
 }
 
 // linesMentioning returns the lines of logs that name macAddress and contain

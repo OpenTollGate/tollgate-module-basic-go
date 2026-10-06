@@ -101,7 +101,7 @@ Source lives under [src/](src/). Go tooling runs from there
 | [config_manager](src/config_manager/) | Schema, loading, migrations, validation, backups of `/etc/tollgate/config.json`. |
 | [tollwallet](src/tollwallet/) | Cashu wallet operations (mint client, balance tracking, melt). |
 | [lightning](src/lightning/) | LNURL-p / Lightning address resolution and invoice fetching for payouts. |
-| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, and health. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
+| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, health, and SSL/TLS certificates. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
 | [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
 
 ## Installation
@@ -124,20 +124,110 @@ For local packaging experiments use
 the target binaries locally, stages the canonical `packaging/` recipe into the
 OpenWrt SDK, and can produce either `apk` or `ipk` artifacts.
 
+### Supported devices
+
+Whether a package exists for a router at all is decided by the CI build
+matrix in
+[.github/workflows/build-package.yml](.github/workflows/build-package.yml):
+a router is covered when its OpenWrt *target* and `DISTRIB_ARCH` match one of
+the rows in that matrix (check them with `ubus call system board`, or
+`cat /etc/openwrt_release`). That is the machine-true definition of
+"supported" — there is no per-model board list in the package.
+
+**Cudy WR3000 v1** (MediaTek MT7981B, 256 MB RAM) matches the matrix on
+`mediatek/filogic` / `aarch64_cortex-a53`, board name `cudy,wr3000-v1`, so the
+`arm64` package built for that row installs on it. It was exercised on real
+hardware against mainline OpenWrt 25.12.5 (`r33051-f5dae5ece4`): the full
+dependency closure (37 packages, including `nodogsplash` 5.0.2-r2 and its
+kmods) installs and `nodogsplash` runs with the module's keepalive contract
+live (trusted MAC plus `allow tcp port 22`).
+
+**Caveat — reproduce the install against current feeds with care
+([#552](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/552)).**
+`nodogsplash`'s `iptables-*` dependencies live in the **base target feed**
+(`releases/25.12.x/targets/<arch>/packages/`), not the arch `packages` feed —
+a repositories list that omits the target feed (typical of some
+ImageBuilder-built images) cannot resolve the closure, and apk-tools 2.x
+cannot read the 25.12 index format at all. The bench install above ran with
+a complete feed set; if `apk add` reports the `iptables-*` names missing,
+check `/etc/apk/repositories` lists the target feed before concluding the
+packages are gone.
+
+**Caveat — 16 MB of flash, and the compressed variant that nonetheless fits.**
+The WR3000 v1 has 16 MB of SPI-NOR, which is ~15.1 MB of firmware area and
+leaves roughly 4.6 MB of free overlay. The default build does not fit: its
+payload is ~20 MB uncompressed (`usr/bin/tollgate-wrt` 12,361,280 B plus
+`usr/bin/tollgate` 7,373,632 B) / ~8.5 MB compressed, `apk add` fails with
+`failed to extract usr/bin/tollgate-wrt: No space left on device`, and a custom
+ImageBuilder image does not fit either. The **`upx-ultra-brute` variant that
+this repo's CI already builds for `aarch64_cortex-a53`** does fit: it shrinks
+the payload to **5.34 MiB** (`usr/bin/tollgate-wrt` 3,389.5 KiB plus
+`usr/bin/tollgate` 1,823.8 KiB, plus ~256 KiB of config and captive-portal
+files). A real WR3000 v1 was taken through it on 2026-09-27 — installed from the
+compressed `.apk`, rebooted, and came back with `tollgate-wrt` running and no
+volatile helper, so a **persistent** install is possible on a 16 MB device with
+this variant. Two notes for such devices:
+
+- the 1.78 MiB `tollgate` CLI is only needed for provisioning, so on this class
+  of device it can be dropped after the first boot to leave room for the
+  `nodogsplash` dependency closure;
+- install the dependency closure in **one** `apk add` transaction. `apk add
+  --force-non-repository <file>` performs a world sync and removes packages that
+  were previously installed from files, which silently takes `nodogsplash` back
+  out.
+
+A volatile (tmpfs) install remains the fallback for bench work that cannot free
+the space. (Measured with the `upx-ultra-brute` dev-channel build
+`main.200.4469994`, sha256 `29bb68adbb26e67c…`; publishing that variant in the
+feed release is tracked with the packaging feed, not here.)
+
+**COMFAST CF-WR632AX** (MediaTek MT7981-class SoC, compact Wi-Fi 6 travel
+router) matches the matrix on the *same* `mediatek/filogic` /
+`aarch64_cortex-a53` row as the WR3000 v1, so the `arm64` package built for
+that row installs on it unchanged — no matrix row was added for it. OpenWrt
+supports it officially since 25.12.0 (upstream keeps
+`target/linux/mediatek/dts/mt7981b-comfast-cf-wr632ax.dts` and publishes the
+image as `openwrt-<version>-mediatek-filogic-comfast_cf-wr632ax-*`; see the
+[device page](https://openwrt.org/toh/comfast/cf-wr632ax)).
+
+**No flash-capacity caveat.** The CF-WR632AX carries 128 MiB of SPI NAND
+(Winbond W25N01GV), unlike the 16 MB WR3000 v1 above, so the default build has
+room and the `upx-ultra-brute` variant is *not* required for it.
+
+**Requires OpenWrt 25.12.5 or newer with the OpenWrt U-Boot layout.** A
+memory-speed stability issue affected that layout in 25.12.0–25.12.4 and was
+fixed in 25.12.5 (upstream PRs
+[#22929](https://github.com/openwrt/openwrt/pull/22929) /
+[#23416](https://github.com/openwrt/openwrt/pull/23416)); the stock layout is
+unaffected. Use 25.12.5 or newer.
+
+**Not yet exercised on real hardware.** Unlike the WR3000 v1 above, no
+CF-WR632AX has been in hand: this paragraph rests on upstream OpenWrt support
+and the shared target/architecture row, not on a measured result on this
+device. A tester with the unit is being lined up; the text here will be
+replaced with results when there are some. There is no persistent-install
+caveat for this device — the only known gap is the compressed-variant
+publication one, which applies to `aarch64_cortex-a53` generally (only default
+builds are released) and is tracked with the packaging feed, not here.
+
 ## Configuration
 
 TollGate writes a default `/etc/tollgate/config.json` on first boot.
-The current schema version is **`v0.0.8`**. An abridged example:
+The current schema version is **`v0.0.9`**. An abridged example:
 
 ```json
 {
-  "config_version": "v0.0.8",
+  "config_version": "v0.0.9",
   "log_level": "info",
   "metric": "bytes",
   "step_size": 22020096,
   "margin": 0.1,
   "show_setup": true,
   "reseller_mode": false,
+  "private_ssid": "",
+  "private_key": "",
+  "private_encryption": "psk2+ccmp",
+  "admin_access": "both",
   "accepted_mints": [
     {
       "url": "https://mint.coinos.io",
@@ -197,6 +287,42 @@ Key fields:
 `ignore_interfaces` and `only_interfaces` gate which WAN-side interfaces
 are probed. `ignore_interfaces` typically needs to list any wireless
 interfaces *the router itself serves on* to prevent self-probing.
+
+### Network settings (`v0.0.9`)
+
+Four fields configure the router's own networks. They are **declared intent**:
+the service converges them onto the router (UCI `/etc/config/wireless` for the
+credentials, a generated `/etc/nftables.d/34-admin-access-scope.nft` for the
+scope) after every `config set`/`config save`, on `tollgate config apply`, and
+at service start. All four are also on the admin board's Settings page.
+
+| Field | Values | Meaning |
+|---|---|---|
+| `private_ssid` | any SSID, ≤ 32 bytes | Name of the private (management) network, on both private radios. **Empty keeps the SSID the router minted at setup** — `<nym>-<code>`, built from your nym and the router's one stored device code, the same code that names the hostname and the captive SSID. |
+| `private_key` | 8-63 characters | WPA passphrase of the private network. **Empty keeps the passphrase the router has.** Write-only: no read path ever returns it. |
+| `private_encryption` | `psk2+ccmp` (default), `psk2+tkip+ccmp`, `psk-mixed+ccmp` | Encryption mode of the private network. WPA3-SAE is not offered: the shipped `wpad` has no SAE support and selecting it would leave the management network unable to start. |
+| `admin_access` | `both` (default), `br-private`, `br-mgmt`, `loopback-only` | Which network may reach the administration surfaces — the board (`:8090`, `:8443`) and LuCI (`:8080`, `:443`). Since the physical LAN ports moved onto it, `br-private` is the private SSID **and the cable**. The guest network the customers pay on is **never** an administration path, whatever this says. |
+
+Notes that matter when you change them:
+
+- The default, `admin_access=both`, adds no firewall rule at all: a router that
+  upgrades onto this release is reachable exactly where it was — the private
+  bridge (the private SSID and the physical LAN ports, since the wired ports
+  moved onto `br-private`) plus loopback.
+- `br-mgmt` is refused while that bridge does not exist on the router, because
+  naming it would drop `br-private` — which carries the private SSID and the
+  cable, i.e. every administration path — and leave no network able to reach
+  the board. The value stays in `config.json` and takes effect once the bridge
+  exists.
+- `loopback-only` is strict: every interface except `lo` loses the
+  administration ports, including a VPN or uplink interface you administer
+  over — and the physical LAN ports.
+- Changing the passphrase from the router's shell
+  (`tollgate network private set-password`) also updates `config.json`, so the
+  two writers cannot disagree. Setting `private_ssid` to a custom name stops
+  the setup script's `<nym>-<code>` re-derivation for that SSID (a
+  machine-shaped one is re-derived from the stored code, a custom one is left
+  alone), so the applier and the setup writer agree on what you chose.
 
 ## Testing
 

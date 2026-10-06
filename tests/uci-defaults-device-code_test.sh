@@ -114,6 +114,10 @@ done
 ok "setup script sources in lib-only mode and defines the device-identity functions"
 
 BRAND_HOSTNAME="TollGate"
+# The default brand, pinned explicitly so the recognition assertions below do
+# not depend on whether the MACHINE running this suite happens to carry an
+# /etc/tollgate/brand file: with BRAND set, brand_token() does not read it.
+BRAND="tollgate"
 
 seed() { # seed "pkg.sec=type" "pkg.sec.opt=value" ...
     : > "$UCI_STATE"
@@ -137,7 +141,11 @@ eq "empty stays empty"            "$(normalize_device_code '')"   ""
 echo "== code_from_name (adoption reads machine-shaped names only)"
 eq "installer hostname"           "$(code_from_name tollgate-OQ3Q)" "OQ3Q"
 eq "module SSID, brand case"      "$(code_from_name TollGate-0GLK)" "0GLK"
-eq "other brand"                  "$(code_from_name Net4sats-AB12)" "AB12"
+# A whitelabel build's name is recognized because the BRAND FILE says so, never
+# because a brand is listed in the script: the same name is adopted under that
+# build's brand token and ignored under any other.
+eq "whitelabel brand token"       "$(BRAND=otherbrand code_from_name Otherbrand-AB12)" "AB12"
+eq "a brand that is not configured" "$(code_from_name Otherbrand-AB12)" ""
 eq "custom hostname yields none"  "$(code_from_name myrouter)"      ""
 eq "short suffix yields none"     "$(code_from_name tollgate-abc)"  ""
 eq "empty yields none"            "$(code_from_name '')"            ""
@@ -246,7 +254,7 @@ echo "== the captive SSID on the repair path keeps an operator's own name"
 DEVICE_SSID="TollGate-OQ3Q"
 eq "a machine-shaped SSID converges"       "$(captive_ssid_for_code 'tollgate-0GLK')" "TollGate-OQ3Q"
 eq "the brand case converges too"          "$(captive_ssid_for_code 'TollGate-0GLK')" "TollGate-OQ3Q"
-eq "the other brand converges"             "$(captive_ssid_for_code 'Net4sats-AB12')" "TollGate-OQ3Q"
+eq "a whitelabel brand converges too"     "$(BRAND=otherbrand captive_ssid_for_code 'Otherbrand-AB12')" "TollGate-OQ3Q"
 eq "an operator's own name survives"       "$(captive_ssid_for_code 'CafeWiFi')" "CafeWiFi"
 eq "a brand word without a code survives"  "$(captive_ssid_for_code 'TollGate-CafeNet')" "TollGate-CafeNet"
 eq "a missing SSID is built from the code" "$(captive_ssid_for_code '')" "TollGate-OQ3Q"

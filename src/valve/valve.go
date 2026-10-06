@@ -581,17 +581,22 @@ func authorizeMAC(macAddress string) error {
 // left to close and no retry can ever converge; there the client is still
 // Authenticated and still holds the open gate.
 //
-// The match is deliberately narrow — the phrase "not found" together with the
-// MAC or the word "client" — so unrelated ndsctl failures ("Socket is not ready
-// for communication : Bad file descriptor", "Could not connect to server") can
-// never be mistaken for it.
+// The match requires the MAC the module asked about to be NAMED in the answer.
+// ndsctl is asked about exactly one MAC, so "not found" on its own is not
+// evidence about that client: an answer naming a different MAC (or no MAC at
+// all) leaves the close unconfirmed, and retiring the gate on it would drop a
+// client that may still be Authenticated. The MAC is therefore the whole of the
+// match — the word "client" is not sufficient and is not needed, because
+// NoDogSplash's answer for a MAC it does not know names that MAC. Requiring it
+// also keeps unrelated ndsctl failures out ("Socket is not ready for
+// communication : Bad file descriptor", "Could not connect to server": neither
+// names the client it was asked about).
 func ndsctlUnknownClient(macAddress, output string) bool {
 	lowered := strings.ToLower(output)
 	if !strings.Contains(lowered, "not found") {
 		return false
 	}
-	return strings.Contains(lowered, strings.ToLower(macAddress)) ||
-		strings.Contains(lowered, "client")
+	return strings.Contains(lowered, strings.ToLower(macAddress))
 }
 
 // deauthorizeMAC deauthorizes a MAC address using ndsctl.

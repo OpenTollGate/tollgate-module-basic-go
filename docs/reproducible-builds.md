@@ -41,6 +41,16 @@ up in an artifact derives from it:
 Override by exporting `SOURCE_DATE_EPOCH` before any build script; that
 also enables strict-inputs mode (`TG_STRICT_INPUTS=1`).
 
+A build with no git metadata — an ngit-ci `act` job checkout, a clean-root copy
+— gets the same commit timestamp through `scripts/ngit-commit-epoch.sh`, which
+fetches *exactly that commit* (depth 1) from the git transport the build came
+from. That script is the only supported CI derivation, and it **fails** rather
+than substituting the runner clock: a wall-clock epoch makes two builds of one
+commit differ, which is the one thing this document claims cannot happen. The
+ngit release lane (`.ngit/act/workflows/build-package-binaries.yml`,
+`determine-versioning` → `build-portal`, and the shards' `resolve-inputs`) calls
+it for exactly that reason.
+
 ## Where everything lives
 
 - `packaging/build-inputs.json` — the manifest of pinned inputs.

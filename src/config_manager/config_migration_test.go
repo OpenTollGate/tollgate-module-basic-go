@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestConfigMigration_v007_to_v008(t *testing.T) {
+func TestConfigMigration_v007_to_current(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
 
@@ -46,8 +46,24 @@ func TestConfigMigration_v007_to_v008(t *testing.T) {
 		t.Fatalf("EnsureDefaultConfig failed: %v", err)
 	}
 
-	if migrated.ConfigVersion != "v0.0.8" {
-		t.Errorf("config_version: got %s, want v0.0.8", migrated.ConfigVersion)
+	if migrated.ConfigVersion != "v0.0.9" {
+		t.Errorf("config_version: got %s, want v0.0.9", migrated.ConfigVersion)
+	}
+
+	// v0.0.9 added the operator-settable network settings. A pre-v0.0.9 file
+	// has neither key, so the migration must fill the two enum-valued ones in —
+	// and must leave the two "empty means keep what the router has" fields
+	// EMPTY, or the applier would overwrite a router's private SSID/passphrase
+	// with an empty string at the first start after an upgrade.
+	if migrated.AdminAccess != "both" {
+		t.Errorf("admin_access: got %q, want %q (default filled in on upgrade)", migrated.AdminAccess, "both")
+	}
+	if migrated.PrivateEncryption != "psk2+ccmp" {
+		t.Errorf("private_encryption: got %q, want %q (default filled in on upgrade)", migrated.PrivateEncryption, "psk2+ccmp")
+	}
+	if migrated.PrivateSSID != "" || migrated.PrivateKey != "" {
+		t.Errorf("private_ssid/private_key: got %q/%q, want empty (empty means 'keep what the router has')",
+			migrated.PrivateSSID, migrated.PrivateKey)
 	}
 
 	if migrated.UpstreamWifi.ScanIntervalSeconds != 300 {
@@ -98,8 +114,48 @@ func TestConfigMigration_v007_to_v008(t *testing.T) {
 	if err := json.Unmarshal(savedData, &saved); err != nil {
 		t.Fatalf("saved config is invalid JSON: %v", err)
 	}
-	if saved.ConfigVersion != "v0.0.8" {
-		t.Errorf("saved config_version: got %s, want v0.0.8", saved.ConfigVersion)
+	if saved.ConfigVersion != "v0.0.9" {
+		t.Errorf("saved config_version: got %s, want v0.0.9", saved.ConfigVersion)
+	}
+}
+
+// TestConfigMigration_keepsDeclaredOperatorSettings pins the other half of the
+// v0.0.9 upgrade: a router that already declares the operator settings keeps
+// them. The migration fills defaults into EMPTY values only.
+func TestConfigMigration_keepsDeclaredOperatorSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	oldConfigJSON := `{
+		"config_version": "v0.0.8",
+		"private_ssid": "c08r4d0r-7F3A",
+		"private_key": "Hotel-November-Zulu-42",
+		"private_encryption": "psk-mixed+ccmp",
+		"admin_access": "loopback-only",
+		"accepted_mints": [],
+		"profit_share": [{"factor": 1.0, "identity": "owner"}]
+	}`
+
+	if err := os.WriteFile(configPath, []byte(oldConfigJSON), 0644); err != nil {
+		t.Fatalf("failed to write old config: %v", err)
+	}
+
+	migrated, err := EnsureDefaultConfig(configPath)
+	if err != nil {
+		t.Fatalf("EnsureDefaultConfig failed: %v", err)
+	}
+
+	if migrated.PrivateSSID != "c08r4d0r-7F3A" {
+		t.Errorf("private_ssid: got %q, want the declared value preserved", migrated.PrivateSSID)
+	}
+	if migrated.PrivateKey != "Hotel-November-Zulu-42" {
+		t.Errorf("private_key: got %q, want the declared value preserved", migrated.PrivateKey)
+	}
+	if migrated.PrivateEncryption != "psk-mixed+ccmp" {
+		t.Errorf("private_encryption: got %q, want the declared value preserved", migrated.PrivateEncryption)
+	}
+	if migrated.AdminAccess != "loopback-only" {
+		t.Errorf("admin_access: got %q, want the declared value preserved", migrated.AdminAccess)
 	}
 }
 

@@ -301,28 +301,66 @@ setup_marker_decision() {
 
 # -- setup steps ------------------------------------------------------------
 
-# load_brand: whitelabel selector — 'tollgate' (default) or 'net4sats'. The
-# two brands differ only in naming; the brand file is written by whitelabel
-# installers before first boot, and everything derived from it — system
-# hostname (and thus <hostname>.lan DNS), AP SSIDs, NDS gateway name —
-# follows this single selector.
+# load_brand: the whitelabel selector. `/etc/tollgate/brand` — written by a
+# whitelabel installer before first boot — holds ONE token naming the build's
+# brand; 'tollgate' when the file is absent. Everything derived from it follows
+# this single selector: the system hostname (and thus <hostname>.lan DNS), the
+# AP SSIDs, and the NDS gateway name.
+#
+# GENERIC ON PURPOSE. The brand is a build INPUT, never a literal in this repo: a
+# re-brand ships its own image, docroot and naming from its own organisation and
+# passes its token here. Hard-coding a second brand is exactly how this module
+# grew a brand-gated SECOND :8090 admin writer (a legacy configUI section that
+# fought the portal-staged board for the port), so any single alphanumeric token
+# is accepted and nothing below names a particular brand.
 #
 # Called AFTER the log truncation in both the short and full paths: anything
-# logged before `: > "$LOGFILE"` is wiped, which silently ate the
-# coercion line when this ran at the top of the script.
+# logged before `: > "$LOGFILE"` is wiped, which silently ate the coercion line
+# when this ran at the top of the script.
 #
 # read -r strips the trailing newline and leading/trailing IFS whitespace
 # (verified on BusyBox ash). Do NOT use `tr -d '[:space:]'` here: BusyBox tr
 # treats the character class as a literal set and deletes every s/p/a/c/e
-# from the value — "net4sats" became "nt4t" and coerced to the default.
+# from the value — a nine-character brand collapsed to a four-character
+# fragment and coerced to the default.
 load_brand() {
     read -r BRAND < /etc/tollgate/brand 2>/dev/null || BRAND=""
     case "$BRAND" in
-        net4sats) BRAND_HOSTNAME="Net4sats" ;;
-        *) BRAND_HOSTNAME="TollGate"
-           [ -n "$BRAND" ] && log "Brand '${BRAND}' not recognized — coercing to default 'tollgate' (expected: net4sats)"
-           ;;
+        # A brand reaches a hostname and an SSID: one alphanumeric token only.
+        # Anything else — an empty file, stray whitespace, punctuation — is not
+        # a brand and falls back to the default.
+        ''|*[!A-Za-z0-9]*)
+            [ -n "$BRAND" ] && log "Brand '${BRAND}' is not a single alphanumeric token — coercing to the default 'tollgate'"
+            BRAND="tollgate"
+            ;;
     esac
+    # The display spelling. 'TollGate' is THIS project's own spelling and is
+    # pinned; any whitelabel token is spelled by capitalising its first letter,
+    # so a new brand needs no edit here (and this repo carries no other brand's
+    # name to copy from — a whitelabel build's own spelling is its own build
+    # input, and the installer and this script both read the same brand file).
+    case "$BRAND" in
+        tollgate) BRAND_HOSTNAME="TollGate" ;;
+        *) BRAND_HOSTNAME="$(printf '%s' "${BRAND%"${BRAND#?}"}" | tr 'a-z' 'A-Z')${BRAND#?}" ;;
+    esac
+}
+
+# The brand token this router runs, lowercased — the spelling a machine-written
+# name carries (hostnames are lowercased; the captive SSID keeps BRAND_HOSTNAME).
+# Falls back to reading /etc/tollgate/brand directly, so the adoption helpers
+# below also behave when this script is sourced on its own (the offline tests),
+# and to 'tollgate' when there is no brand file at all: an absent brand file must
+# behave exactly like the default build.
+brand_token() {
+    local brand="${BRAND:-}"
+    if [ -z "$brand" ]; then
+        read -r brand < /etc/tollgate/brand 2>/dev/null || brand=""
+    fi
+    brand=$(printf '%s' "$brand" | tr 'A-Z' 'a-z')
+    case "$brand" in
+        ''|*[!a-z0-9]*) brand="tollgate" ;;
+    esac
+    printf '%s' "$brand"
 }
 
 # -- the router's device code, minted once and never re-minted ----------------
@@ -393,17 +431,18 @@ normalize_device_code() {
     esac
 }
 
-# The code carried by a machine-written name: "tollgate-OQ3Q", "TollGate-OQ3Q",
-# "Net4sats-OQ3Q". Any other name — an operator's own hostname or SSID — yields
-# nothing, which is what keeps custom names out of the adoption path.
+# The code carried by a machine-written name: "<brand>-<code>", where <brand> is
+# the default 'tollgate' or THIS router's own brand token (brand_token above) —
+# the same prefix the installer and this script write into the name. Any other
+# name — an operator's own hostname or SSID — yields nothing, which is what keeps
+# custom names out of the adoption path. A whitelabel name is recognized because
+# the brand file says so, never because a brand is listed here.
 code_from_name() {
-    local name="$1" prefix suffix
+    local name="$1" prefix suffix brand
     prefix=$(printf '%s' "${name%%-*}" | tr 'A-Z' 'a-z')
     suffix=${name#*-}
-    case "$prefix" in
-        tollgate|net4sats) : ;;
-        *) return 0 ;;
-    esac
+    brand=$(brand_token)
+    [ "$prefix" = "tollgate" ] || [ "$prefix" = "$brand" ] || return 0
     normalize_device_code "$suffix"
 }
 
@@ -505,21 +544,19 @@ private_ssid_for_code() {
 # the operator named. The full path still writes the brand's name, which is what
 # it has always done.
 captive_ssid_for_code() {
-    local current="$1" prefix suffix
+    local current="$1" prefix suffix brand
     if [ -z "$current" ]; then
         printf '%s\n' "$DEVICE_SSID"
         return 0
     fi
     prefix=$(printf '%s' "${current%%-*}" | tr 'A-Z' 'a-z')
     suffix=${current#*-}
-    case "$prefix" in
-        tollgate|net4sats)
-            if [ "$suffix" != "$current" ] && is_minted_suffix "$suffix"; then
-                printf '%s\n' "$DEVICE_SSID"
-                return 0
-            fi
-            ;;
-    esac
+    brand=$(brand_token)
+    if { [ "$prefix" = "tollgate" ] || [ "$prefix" = "$brand" ]; } &&
+       [ "$suffix" != "$current" ] && is_minted_suffix "$suffix"; then
+        printf '%s\n' "$DEVICE_SSID"
+        return 0
+    fi
     printf '%s\n' "$current"
 }
 
@@ -663,13 +700,26 @@ cert_covers_router() {
     "$TOLLGATE_CLI" ssl covers "$cert" >/dev/null 2>&1
 }
 
+# Is this cert/key pair on disk AND non-empty? Readability alone is satisfied by
+# a file uhttpd cannot parse, and empty is what makes uhttpd crash-loop when it
+# sees listen_https with no TLS configuration behind it.
+tls_pair_readable() {
+    [ -n "${1:-}" ] && [ -r "$1" ] && [ -s "$1" ] &&
+    [ -n "${2:-}" ] && [ -r "$2" ] && [ -s "$2" ]
+}
+
 # uhttpd.main's TLS identity, and the redirect derived from it.
 #
-# The identity is the PROVISIONED certificate when it exists — that is the one
-# built to cover this router — and the image's own cert/key pair otherwise, as a
-# fallback so a router that cannot provision still gets its :443 listener instead
-# of losing it. The image's certificate is never treated as an identity though:
-# nothing but coverage turns the redirect on.
+# Candidates, best first: the identity uhttpd.main ALREADY presents, the identity
+# this script provisions, then the image's own cert/key pair as a bare listener
+# fallback. A pair that COVERS this router wins outright, whichever candidate it
+# is — but when it is the configured one, it belongs to the OPERATOR: a CA-signed
+# certificate installed by hand, or the pair their own
+# `tollgate ssl apply <cert> <key>` installed, must survive an install rather than
+# be replaced by the self-signed identity generated here. Only when no candidate
+# covers the router is the first READABLE pair used, which keeps the :443 listener
+# alive on a router that cannot be verified. The image's certificate is never
+# treated as an identity: nothing but coverage turns the redirect on.
 #
 # uhttpd.main.redirect_https is a DERIVED value, not a configured one: LuCI's
 # :8080 is redirected to the TLS listener only when that listener can actually
@@ -680,18 +730,43 @@ cert_covers_router() {
 # same value derived from a weaker premise). See
 # docs/architecture/uhttpd-redirect-https-ownership-decision.md.
 setup_uhttpd_tls_identity() {
-    local cert="" key=""
+    local cert="" key="" covers="0"
+    local configured_cert configured_key pair candidate_cert candidate_key
 
-    # Only enable HTTPS when cert and key are readable and non-empty; otherwise
-    # uhttpd crash-loops because it sees listen_https but has no TLS config.
-    if [ -r "$PROVISIONED_CERT" ] && [ -s "$PROVISIONED_CERT" ] &&
-       [ -r "$PROVISIONED_KEY" ] && [ -s "$PROVISIONED_KEY" ]; then
-        cert="$PROVISIONED_CERT"
-        key="$PROVISIONED_KEY"
-    elif [ -r "$UHTTPD_IMAGE_CERT" ] && [ -s "$UHTTPD_IMAGE_CERT" ] &&
-         [ -r "$UHTTPD_IMAGE_KEY" ] && [ -s "$UHTTPD_IMAGE_KEY" ]; then
-        cert="$UHTTPD_IMAGE_CERT"
-        key="$UHTTPD_IMAGE_KEY"
+    configured_cert="$(uci -q get uhttpd.main.cert 2>/dev/null)"
+    configured_key="$(uci -q get uhttpd.main.key 2>/dev/null)"
+
+    # Pass 1: the first candidate that covers this router.
+    for pair in "$configured_cert|$configured_key" \
+                "$PROVISIONED_CERT|$PROVISIONED_KEY" \
+                "$UHTTPD_IMAGE_CERT|$UHTTPD_IMAGE_KEY"; do
+        candidate_cert="${pair%%|*}"
+        candidate_key="${pair#*|}"
+        tls_pair_readable "$candidate_cert" "$candidate_key" || continue
+        if cert_covers_router "$candidate_cert"; then
+            cert="$candidate_cert"
+            key="$candidate_key"
+            covers="1"
+            break
+        fi
+    done
+
+    # Pass 2: nothing covers this router (no CLI to ask, no identity yet, or only
+    # the image's placeholder). The first readable pair still arms the :443
+    # listener — uhttpd crash-loops on listen_https with no TLS config behind it —
+    # and the derived value below stays 0, so :8080 is never pointed at an
+    # identity nobody checked.
+    if [ -z "$cert" ]; then
+        for pair in "$configured_cert|$configured_key" \
+                    "$PROVISIONED_CERT|$PROVISIONED_KEY" \
+                    "$UHTTPD_IMAGE_CERT|$UHTTPD_IMAGE_KEY"; do
+            candidate_cert="${pair%%|*}"
+            candidate_key="${pair#*|}"
+            tls_pair_readable "$candidate_cert" "$candidate_key" || continue
+            cert="$candidate_cert"
+            key="$candidate_key"
+            break
+        done
     fi
 
     uci -q delete uhttpd.main.listen_https
@@ -704,7 +779,7 @@ setup_uhttpd_tls_identity() {
         uci set uhttpd.main.key="$key"
     fi
 
-    if [ -n "$cert" ] && cert_covers_router "$cert"; then
+    if [ "$covers" = "1" ]; then
         uci set uhttpd.main.redirect_https='1'
         log "uhttpd.main TLS identity ${cert} covers this router — redirect_https=1"
     else
@@ -733,12 +808,27 @@ setup_uhttpd_tls_identity() {
 # installed. Neither is an error — the router keeps whatever identity it has and
 # the derived redirect stays off unless that identity covers it.
 provision_tls_identity() {
+    local configured_cert
+
     # An operator who removed the identity asked for a router that serves no
     # identity. `tollgate ssl remove` records that decision and this honours it:
     # the uhttpd contract is still repaired below, but the router is not
     # re-keyed behind the owner's back. `tollgate ssl apply` ends the opt-out.
     if [ -f "$TLS_IDENTITY_OPTOUT" ]; then
         log "TLS identity was removed by the operator (${TLS_IDENTITY_OPTOUT}) — not provisioning; run 'tollgate ssl apply' to end the opt-out"
+        return 0
+    fi
+
+    # The identity uhttpd.main already presents is the OPERATOR's when it covers
+    # this router: a CA-signed certificate installed by hand, or the pair their own
+    # `tollgate ssl apply <cert> <key>` installed. Re-keying it would replace a
+    # trusted certificate with a self-signed one on every reinstall — so
+    # provisioning is idempotent on the CERTIFICATE uhttpd.main serves, not on the
+    # path this script happens to write. An unverifiable or non-covering identity
+    # (the image's placeholder included) is not the operator's and is replaced.
+    configured_cert="$(uci -q get uhttpd.main.cert 2>/dev/null)"
+    if [ -n "$configured_cert" ] && cert_covers_router "$configured_cert"; then
+        log "uhttpd.main already serves a covering identity (${configured_cert}) — nothing to provision"
         return 0
     fi
 
@@ -918,57 +1008,57 @@ EOF
 #
 # uhttpd.main's docroot is /www, and LuCI's /www/index.html meta-refreshes
 # to cgi-bin/luci — so ANY port added to uhttpd.main serves "redirect to
-# LuCI". Repair attempts that add 8090 there (instead of creating the
-# dedicated configUI section below) produce exactly the reported
-# ":8090 redirects to LuCI instead of the configUI" symptom. Runs in both
-# setup paths so the misconfiguration cannot survive a reinstall.
+# LuCI". Repair attempts that add 8090 there produce exactly the reported
+# ":8090 redirects to LuCI instead of the board" symptom: the board is reached
+# on a section whose docroot IS the board (uhttpd.admin, below), never through
+# LuCI's. Runs in both setup paths so the misconfiguration cannot survive a
+# reinstall.
 sanitize_uhttpd_main_configui_port() {
     uci -q del_list uhttpd.main.listen_http='0.0.0.0:8090'
     uci -q del_list uhttpd.main.listen_http='[::]:8090'
 }
 
-# Whitelabel config UI on :8090 (net4sats brand).
-#
-# The whitelabel admin/config UI lives in /www/net4sats — installed by the
-# whitelabel installer, never shipped by this package — and is served by a
-# DEDICATED uhttpd section, never by uhttpd.main (see
-# sanitize_uhttpd_main_configui_port). Mirrors the known-good deployed
-# layout exactly so upgrades of already-configured routers converge
-# instead of duplicating sections. Only created when the branded docroot
-# actually exists; stock tollgate routers get nothing on :8090.
-#
-# Deliberately NOT added to nodogsplash users_to_router: the config UI is
-# owner-facing and reached over the private network (br-private, not
-# NDS-gated). Pre-auth public-SSID guests must not reach an admin UI.
-setup_uhttpd_configui() {
-    # Self-contained brand check: read /etc/tollgate/brand directly (written
-    # by whitelabel installers) so this repair works regardless of whether
-    # the surrounding script defines a BRAND variable.
-    local cfgui_brand
-    # read (not `tr -d '[:space:]'`): busybox tr on some OpenWrt builds
-    # lacks character classes and would delete the literal chars
-    # [ : s p a c e — mangling "net4sats" into "nt4t". POSIX read strips
-    # leading/trailing IFS whitespace and the trailing newline itself.
-    read -r cfgui_brand < /etc/tollgate/brand || cfgui_brand=""
-    [ "$cfgui_brand" = "net4sats" ] || return 0
-    [ -d /www/net4sats ] || return 0
+# Is this uhttpd section one this module writes or co-exists with? uhttpd.main
+# is LuCI's, uhttpd.portal serves the captive SPA, uhttpd.trusted is the :80
+# entry point, and uhttpd.admin is the portal-staged admin board — the ONLY
+# :8090 owner. Anything else on the router was written by another build.
+owned_uhttpd_section() {
+    case "$1" in
+        main|portal|trusted|admin) return 0 ;;
+    esac
+    return 1
+}
 
-    uci -q get uhttpd.net4sats >/dev/null 2>&1 || uci set uhttpd.net4sats=uhttpd
-    local cfgui_listen
-    cfgui_listen=$(uci -q get uhttpd.net4sats.listen_http 2>/dev/null || echo "")
-    if ! echo "$cfgui_listen" | grep -q "0.0.0.0:8090"; then
-        uci add_list uhttpd.net4sats.listen_http='0.0.0.0:8090'
-    fi
-    if ! echo "$cfgui_listen" | grep -q "\[::\]:8090"; then
-        uci add_list uhttpd.net4sats.listen_http='[::]:8090'
-    fi
-    uci set uhttpd.net4sats.home='/www/net4sats'
-    uci set uhttpd.net4sats.ubus_prefix='/ubus'
-    uci set uhttpd.net4sats.script_timeout='60'
-    uci set uhttpd.net4sats.network_timeout='30'
-    uci set uhttpd.net4sats.max_requests='3'
-    uci set uhttpd.net4sats.tcp_keepalive='1'
-    log "Whitelabel configUI uhttpd section ensured on :8090 (home=/www/net4sats)"
+# Exactly ONE uhttpd section owns :8090: the portal-staged admin board
+# (uhttpd.admin — home = the build's admin webroot, written by the feed's
+# 92-tollgate-admin-setup and staged by packaging/portal-build.sh). This package
+# writes NO :8090 listener of its own.
+#
+# It used to: a legacy whitelabel configUI writer created a DEDICATED second
+# section on :8090, gated on the brand file and a branded docroot, for whichever
+# brand was installed. That writer is gone — a re-brand ships its board from its
+# own organisation now — but a router upgraded from a build that carried it still
+# has that section, and two sections claiming :8090 are a bind fight in which one
+# of the two admin UIs disappears (D4 of
+# docs/architecture/default-ui-and-entry-port-decision.md).
+#
+# The stale section is DELETED, not merely port-stripped: the portal-staged 92
+# already strips :8090/:8443 from every other section, so a box that once ran the
+# legacy writer keeps a branded uhttpd instance with NO listener — invisible to
+# any port-based check, and still a docroot this build does not serve.
+#
+# So a section is judged by SHAPE (a uhttpd instance this module does not own),
+# never by a brand literal: this tree carries no brand name, and the same sweep
+# catches the next second writer anyone adds. Idempotent — a converged router has
+# nothing to delete. Runs in BOTH setup paths, because the router that carries
+# the stale section is exactly the one taking the verify/repair path.
+purge_foreign_configui_sections() {
+    local section
+    for section in $(uci -q show uhttpd 2>/dev/null | sed -n 's/^uhttpd\.\([^.]*\)=uhttpd$/\1/p'); do
+        owned_uhttpd_section "$section" && continue
+        uci -q delete "uhttpd.$section"
+        log "Deleted stale uhttpd section '${section}' — it is not this build's board owner (uhttpd.admin)"
+    done
 }
 
 # -- admin credential gate ---------------------------------------------------
@@ -1027,12 +1117,18 @@ admin_credential_state() {
 
 # 20 characters from a 32-character alphabet — no l/o/0/1 look-alikes and
 # nothing a shell or a password prompt would eat — read straight from the
-# kernel CSPRNG. 256 is an exact multiple of 32, so the byte->character
-# mapping is uniform.
+# kernel CSPRNG. The mapping is uniform: each byte is reduced modulo 32; the
+# 32-alphabet size means the bias is exactly 0 because 256 = 32 * 8.
+# Historically this called `od`, but OpenWrt 25.12.5 images ship a stripped
+# busybox where `od` is not built in (and `hostname` is absent too), so `od`
+# produced no output, the generator returned an empty string, and no root
+# password could be applied. `hexdump` is present on those images and is
+# already used elsewhere in this script (mint_device_code, random_octet).
 generate_admin_password() {
     local alphabet="abcdefghijkmnpqrstuvwxyz23456789"  # pragma: allowlist secret
-    od -An -N 20 -tu1 /dev/urandom | awk -v a="$alphabet" \
-        '{ for (i = 1; i <= NF; i++) printf "%s", substr(a, ($i % 32) + 1, 1) }'
+    hexdump -n 20 -e '20/1 " %u"' /dev/urandom 2>/dev/null \
+        | awk -v a="$alphabet" \
+            '{ for (i = 1; i <= NF; i++) printf "%s", substr(a, ($i % 32) + 1, 1) }'
 }
 
 # BusyBox `passwd` reading the new password twice from stdin is the
@@ -1042,13 +1138,13 @@ set_admin_password() {
 }
 
 # Drop every admin-board listener this package can own or repair. uhttpd.admin
-# is the portal-staged :8090/:8443 instance, uhttpd.net4sats this package's own
-# whitelabel configUI on the same port, and uhttpd.main is repaired because a
-# stray :8090 entry there has survived reinstalls before. Nothing else is
-# touched: the portal (:2050/:2051), the :80 guest entry point and the backend
-# (:2121) are not admin surfaces, and LuCI's own :8080/:443 listeners are a
-# separate control — they stay configured (the management path needs them) and
-# are kept off the captive bridge by
+# is the portal-staged :8090/:8443 instance, a foreign section on :8090 is a
+# legacy second writer (purge_foreign_configui_sections DELETES it), and
+# uhttpd.main is repaired because a stray :8090 entry there has survived
+# reinstalls before. Nothing else is touched: the portal (:2050/:2051), the :80
+# guest entry point and the backend (:2121) are not admin surfaces, and LuCI's
+# own :8080/:443 listeners are a separate control — they stay configured (the
+# management path needs them) and are kept off the captive bridge by
 # packaging/files/etc/nftables.d/32-luci-not-guest-reachable.nft plus the
 # allow-list removal in assert_nodogsplash_allow_entries, not by being dropped
 # from uhttpd.main here.
@@ -1057,8 +1153,7 @@ drop_admin_listeners() {
     uci -q del_list uhttpd.admin.listen_http='[::]:8090'
     uci -q del_list uhttpd.admin.listen_https='0.0.0.0:8443'
     uci -q del_list uhttpd.admin.listen_https='[::]:8443'
-    uci -q del_list uhttpd.net4sats.listen_http='0.0.0.0:8090'
-    uci -q del_list uhttpd.net4sats.listen_http='[::]:8090'
+    purge_foreign_configui_sections
     sanitize_uhttpd_main_configui_port
 }
 
@@ -1318,19 +1413,22 @@ setup_public_wifi() {
 # writing its own.
 #
 # #444 still holds: the rewrite is one-way and known-shape-only. A hostname that
-# is neither a brand default nor machine-shaped (tollgate-XXXX / Net4sats-XXXX)
-# is the operator's own and is never touched.
+# is neither a brand default nor machine-shaped (`<brand>-XXXX`) is the
+# operator's own and is never touched.
 setup_hostname() {
     local current_hostname
     current_hostname=$(uci -q get system.@system[0].hostname)
     if [ "$current_hostname" = "$DEVICE_HOSTNAME" ]; then
         log "Hostname '${current_hostname}' already carries this router's device code"
-    elif [ "$current_hostname" = "OpenWrt" ] || [ "$current_hostname" = "TollGate" ] || [ "$current_hostname" = "Net4sats" ] || \
+    elif [ "$current_hostname" = "OpenWrt" ] || [ "$current_hostname" = "$BRAND_HOSTNAME" ] || \
+         [ "$current_hostname" = "TollGate" ] || \
          [ -n "$(code_from_name "$current_hostname")" ]; then
-        # Fresh install (OpenWrt), a brand default from either brand, or a name
-        # a writer already built from a code (the installer's tollgate-OQ3Q) —
-        # all machine-managed, so they converge on THIS router's code. An
-        # operator's custom hostname falls to the else branch (#444).
+        # Fresh install (OpenWrt), a brand default (this build's BRAND_HOSTNAME —
+        # 'TollGate' for the default brand, kept explicitly because a whitelabel
+        # build's BRAND_HOSTNAME is its own token), or a name a writer already
+        # built from a code (the installer's tollgate-OQ3Q) — all machine-
+        # managed, so they converge on THIS router's code. An operator's custom
+        # hostname falls to the else branch (#444).
         uci set system.@system[0].hostname="$DEVICE_HOSTNAME"
         log "Hostname changed to $DEVICE_HOSTNAME (was '${current_hostname}')"
     else
@@ -1356,8 +1454,12 @@ setup_hostname() {
 # allow list the previous install left behind.
 #
 # The list says what a PRE-AUTHENTICATION client may reach ON THE ROUTER, and
-# nothing else belongs on it: the portal itself (:2050 NDS gateway, :2051 SPA)
-# and the backend API (:2121). Every ADMIN surface — the :8090 board and LuCI's
+# nothing else belongs on it: the portal itself (:2050 NDS gateway, :2051 SPA),
+# the backend API (:2121) and the gateway's own NTP service (udp/123 — see
+# setup_ntp_server below; a client with a wrong clock cannot pay honestly:
+# Cashu proofs carry timestamps, keysets expire, sessions are time-boxed, and a
+# downstream TollGate in reseller mode joins the open portal with whatever
+# clock it boots with). Every ADMIN surface — the :8090 board and LuCI's
 # :8080/:443 — is deliberately absent and actively removed below; a guest is
 # answered by the portal, never by a login form.
 #
@@ -1383,6 +1485,12 @@ assert_nodogsplash_allow_entries() {
     fi
     if ! uci_list_has_port 2051; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
+    fi
+    # The gateway's own time service: the one thing a pre-auth client needs
+    # that is not the portal or the payment API. sysntpd must be told to
+    # listen (setup_ntp_server below) for this rule to answer anything.
+    if ! uci_list_has_port 123; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow udp port 123'
     fi
     # LuCI (:8080 plain HTTP, and the :443 TLS listener uhttpd.main opens
     # whenever a cert/key pair exists) is an ADMIN surface, the same class as the
@@ -1414,10 +1522,9 @@ assert_nodogsplash_allow_entries() {
     # is the half that does not depend on this list being in the intended state.
     #
     # The admin board (uhttpd.admin: :8090 HTTP, opt-in :8443 HTTPS) is
-    # OWNER-facing, exactly like the whitelabel configUI in
-    # setup_uhttpd_configui above: the owner reaches it over the private
-    # network (br-private, which nodogsplash does not gate). A pre-auth guest
-    # on the open public SSID must not reach an admin UI, so :8090/:8443 are
+    # OWNER-facing: the owner reaches it over the private network (br-private,
+    # which nodogsplash does not gate). A pre-auth guest on the open public SSID
+    # must not reach an admin UI, so :8090/:8443 are
     # deliberately NOT part of the customer journey and are kept OUT of
     # users_to_router — this list is nodogsplash's PRE-AUTHENTICATION allow
     # list, and :8090 serves the board's root-capable login over plain HTTP
@@ -1465,6 +1572,31 @@ assert_nodogsplash_allow_entries() {
 # every rerun (#516).
 uci_list_has_port() {
     printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])port $1([[:space:]]|'|\$)"
+}
+
+# The gateway serves time to its own clients, pre-authentication (#627).
+# OpenWrt's sysntpd (busybox ntpd) listens when system.ntp.enable_server is
+# set — that one option is the whole server half; the client half (polling
+# upstream servers) keeps whatever the image shipped. Bench-verified on the
+# ws3915i fleet bring-up: units sat months off, and nothing on the open
+# portal face could correct them before payment.
+#
+# Restart discipline follows the script's rule (see converge_nodogsplash_
+# runtime): a FRESH boot never restarts anything — procd starts sysntpd
+# after uci-defaults, with this config already committed — and a RUNNING
+# router gets the one cheap restart, because sysntpd reads its config once
+# at start. Unlike the wireless or firewall services, bouncing sysntpd
+# drops no customer: it is a stateless UDP responder.
+setup_ntp_server() {
+    if ! uci -q get system.ntp >/dev/null 2>&1; then
+        uci set system.ntp=timeserver
+    fi
+    if [ "$(uci -q get system.ntp.enable_server 2>/dev/null || echo 0)" != "1" ]; then
+        uci set system.ntp.enable_server='1'
+    fi
+    if pidof sysntpd >/dev/null 2>&1; then
+        /etc/init.d/sysntpd restart >/dev/null 2>&1 || true
+    fi
 }
 
 setup_nodogsplash() {
@@ -2006,6 +2138,163 @@ setup_private_network() {
     uci set firewall.private_forwarding.dest='wan'
 }
 
+# -- the wired LAN ports: moved onto the operator's private bridge ----------
+#
+# The wired LAN ports are the one network this writer MOVES. The base image
+# puts them on the CAPTIVE bridge (network.lan.device, br-lan) — the same
+# layer-2 domain as the open guest SSID and the captive portal — so a cabled
+# client was a guest: it paid at the portal, and the two administration
+# guards (31-admin-board-not-guest-reachable.nft, 32-luci-not-guest-reachable
+# .nft, both `iifname "br-lan"`-literal) dropped the admin board
+# (:8090/:8443) and LuCI (:8080/:443) for it. The operator's criterion for
+# this release is the opposite: the physical LAN port is the operator's own
+# trusted access — free internet, the admin board, and LuCI, with no payment
+# step. br-private is exactly that network (firewall.private_zone is input/
+# forward ACCEPT and carries a private -> wan forwarding, and both admin
+# guards answer there because they only drop on the captive bridge), so the
+# ports MOVE onto it:
+#
+#   * internet: firewall.private_forwarding (private -> wan) is written by
+#     setup_private_network above;
+#   * the admin board and LuCI answer: the guards' `iifname "br-lan"` scope
+#     keeps them OFF only for the captive bridge — on br-private a client is
+#     owner-class, deliberately (see the PR body for the trust discussion);
+#   * the public TollGate-* SSIDs stay on the captive bridge behind the
+#     portal, unchanged, and guests still cannot reach the board or LuCI.
+#
+# DISCOVERED, NEVER NAMED. The port list is IMAGE-OWNED (/bin/config_generate
+# writes `list ports` from board.json — `eth1` on the MT3000, `lan1…lan5`
+# elsewhere), so no port name appears here: the writer reads the ports the
+# captive bridge's device section lists RIGHT NOW and moves that set. The
+# section itself is anonymous in a shipped config, so it is located by NAME
+# (bridge_device_section), never by a guessed index.
+#
+# IDEMPOTENT AND CONVERGENT BY CONSTRUCTION. A factory reset or a
+# `sysupgrade -n` puts the ports back on the captive bridge; this writer is
+# re-run on every setup path (full setup and the same-version verify/repair
+# path), so a converged router is a no-op, a reset router is repaired, and a
+# port is never added twice (the target's existing list is checked first).
+# A port also never sits on two bridges at once: the captive section's port
+# list is CLEARED after the private bridge's is written, so the move cannot
+# leave a port in two layer-2 domains.
+#
+# FAIL LOUDLY, CHANGE NOTHING. The preconditions are checked before the
+# first `uci set`: no private bridge (setup_private_network skipped — no
+# usable radio), or no captive device section to read the ports from, or no
+# port listed anywhere (nothing to move). Each logs an ERROR and leaves the
+# ports where they are — a writer that guessed would move the operator's
+# only cable access onto a network he cannot reach.
+#
+# UPGRADE SURVIVAL. The placement lives in /etc/config/network, which
+# packaging/files/lib/upgrade/keep.d/tollgate already lists, so a settings-
+# keeping sysupgrade carries it; the writer's convergence then repairs the
+# reset (non-keeping) cases.
+
+# The device SECTION that carries <bridge-name>. Device sections are
+# anonymous in a shipped config (/bin/config_generate writes
+# `add network device` + `option name 'br-lan'`), so the section is located
+# by NAME, never by an index we guess.
+bridge_device_section() { # <bridge-name> -> the section path, or nothing
+    local want="$1" idx=0
+    while [ "$idx" -lt 64 ]; do
+        if [ "$(uci -q get "network.@device[$idx].name" 2>/dev/null)" = "$want" ]; then
+            printf 'network.@device[%s]\n' "$idx"
+            return 0
+        fi
+        idx=$((idx + 1))
+    done
+    return 1
+}
+
+# Every port listed on <section>, in order, each one once.
+ports_of_section() { # <section>
+    local p seen=""
+    for p in $(uci -q get "$1.ports" 2>/dev/null); do
+        case "$seen" in
+            *" $p "*) continue ;;
+        esac
+        seen="$seen $p"
+        printf '%s\n' "$p"
+    done
+}
+
+setup_lan_ports_private() {
+    local lan_dev private_dev captive_sec ports p target_ports landed missing from=""
+
+    lan_dev=$(uci -q get network.lan.device 2>/dev/null)
+    [ -n "$lan_dev" ] || lan_dev="br-lan"
+    private_dev=$(uci -q get network.private_bridge.name 2>/dev/null)
+    [ -n "$private_dev" ] || private_dev="br-private"
+
+    # Precondition: the private network must exist (setup_private_network
+    # writes the bridge; it is skipped on a router with no usable radio).
+    if ! uci -q get network.private_bridge >/dev/null 2>&1; then
+        log "ERROR: skipping the wired-LAN port move — no private bridge (network.private_bridge is absent; setup_private_network skipped?), so the wired LAN ports stay on ${lan_dev}. Nothing was changed."
+        return 1
+    fi
+
+    # The ports to move are DISCOVERED from the captive bridge's device
+    # section (image-owned, board-specific names).
+    captive_sec=$(bridge_device_section "$lan_dev" 2>/dev/null)
+    if [ -z "$captive_sec" ]; then
+        log "ERROR: skipping the wired-LAN port move — no device section for the captive bridge ${lan_dev} (the base image writes one from the board definition), so there is no port list to read. Nothing was changed."
+        return 1
+    fi
+    ports=$(ports_of_section "$captive_sec")
+    target_ports=$(uci -q get network.private_bridge.ports 2>/dev/null)
+    if [ -z "$ports" ]; then
+        # MEASURE, do not infer: an empty source list is a no-op only when the
+        # target really lists the ports. If neither bridge lists them the
+        # operator's cable is on no network at all, and reporting success
+        # there would hide it.
+        if [ -n "$target_ports" ]; then
+            log "Wired LAN ports already on ${private_dev} — nothing to move"
+            return 0
+        fi
+        log "ERROR: the wired LAN ports are on neither bridge — ${lan_dev} and ${private_dev} both list no ports, so there is nothing to move and nothing to repair. Nothing was changed."
+        return 1
+    fi
+
+    # Write the target first (the target is never the section cleared
+    # below), adding each port exactly once. A write failure is not acted on
+    # here: the read-back below is the authority, because a silent failure
+    # and a success are indistinguishable at this point.
+    for p in $ports; do
+        case " $(echo $target_ports) " in
+            *" $p "*) : ;;
+            *)
+                uci add_list "network.private_bridge.ports=$p" 2>/dev/null
+                target_ports="$target_ports $p"
+                ;;
+        esac
+    done
+
+    # VERIFY BEFORE CLEARING. Clearing the source on an unverified write is
+    # how a port ends up on NO bridge and the operator's only cable access
+    # dies. Re-read the target and require every port to be present, matched
+    # on whole words (a target list of lan10 must not satisfy a port lan1).
+    landed=$(uci -q get network.private_bridge.ports 2>/dev/null)
+    missing=""
+    for p in $ports; do
+        case " $(echo $landed) " in
+            *" $p "*) : ;;
+            *) missing="$missing $p" ;;
+        esac
+    done
+    if [ -n "$missing" ]; then
+        log "ERROR: the wired LAN ports did not land on ${private_dev} (missing:$(printf ' %s' $missing)) — ${lan_dev} keeps its ports and nothing was cleared. The move is retried on the next setup run."
+        return 1
+    fi
+
+    # Then CLEAR the source: a port on two bridges is a port on two
+    # layer-2 domains. Safe only because the target is verified above.
+    uci -q delete "$captive_sec.ports" 2>/dev/null
+    from="$lan_dev"
+
+    log "Wired LAN ports moved from ${from} to ${private_dev} ($(echo $ports | tr '\n' ' '))"
+    return 0
+}
+
 commit_all() {
     uci commit system
     uci commit network
@@ -2135,9 +2424,10 @@ if [ "$BRANCH" != "FULL" ]; then
     setup_uhttpd_trusted_entry
     # Reinstall must also repair the :8090 layout — a repair that added
     # 8090 to uhttpd.main (LuCI docroot) survives same-version reinstalls
-    # otherwise, and the configUI section is never re-ensured.
+    # otherwise, and a foreign second writer left by an older build is never
+    # removed. Both are idempotent: a converged router changes nothing.
     sanitize_uhttpd_main_configui_port
-    setup_uhttpd_configui
+    purge_foreign_configui_sections
     # The board's credential is re-asserted with the rest of the uhttpd
     # contract: this path runs on every reinstall whose version string is
     # unchanged, and a credential-less router must not keep serving an admin
@@ -2168,6 +2458,21 @@ if [ "$BRANCH" != "FULL" ]; then
         log "nodogsplash allow list re-asserted (missing pre-auth entries repaired)"
     else
         log "nodogsplash allow list already complete — nothing to commit"
+    fi
+
+    # The wired LAN ports' placement is re-asserted here for the same reason
+    # the uhttpd contract and the allow list are: the port list is IMAGE-
+    # OWNED, so a factory reset or a `sysupgrade -n` puts the wired ports
+    # back on the captive bridge — and a router that was merely reinstalled
+    # would leave the operator's cable back on the guest network. The writer
+    # is idempotent (a converged router changes nothing), and its config is
+    # committed only when the export actually differs.
+    net_before=$(uci export network)
+    setup_lan_ports_private
+    net_after=$(uci export network)
+    if [ -z "$net_before" ] || [ "$net_before" != "$net_after" ]; then
+        uci commit network
+        log "network config re-asserted (wired LAN ports re-placed on br-private)"
     fi
 
     # The #428 loop guard must also fire here: a device upgrading from a
@@ -2221,18 +2526,20 @@ setup_uhttpd
 setup_uhttpd_portal
 setup_uhttpd_trusted_entry
 sanitize_uhttpd_main_configui_port
-setup_uhttpd_configui
+purge_foreign_configui_sections
 enforce_admin_credential
 setup_dns_dnsmasq
 setup_hostname
 detect_band_radios
 setup_public_wifi            # consumes DEVICE_SSID; exports GATEWAY_NAME
+setup_ntp_server             # serves time pre-auth (udp/123, issue #627)
 setup_nodogsplash
 setup_tollgate_firewall_rules
 setup_profile_hook
 setup_disable_ipv6_lan
 enable_modems
 setup_private_network        # consumes CODE/NYM, R2G/R5G
+setup_lan_ports_private      # moves the wired LAN ports onto br-private
 commit_all
 
 # The router's TLS identity is provisioned and re-derived LAST on this path, after

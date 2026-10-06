@@ -79,6 +79,7 @@ type renewalNdsctl struct {
 	failPath      string
 	forgottenPath string
 	authFailPath  string
+	authStatePath string
 }
 
 func installRenewalNdsctl(t *testing.T) *renewalNdsctl {
@@ -92,6 +93,7 @@ func installRenewalNdsctl(t *testing.T) *renewalNdsctl {
 		failPath:      filepath.Join(dir, "ndsctl.deauthfail"),
 		forgottenPath: filepath.Join(dir, "ndsctl.deauthforgotten"),
 		authFailPath:  filepath.Join(dir, "ndsctl.authfail"),
+		authStatePath: filepath.Join(dir, "ndsctl.authstate"),
 	}
 
 	script := fmt.Sprintf(`#!/bin/sh
@@ -101,6 +103,7 @@ USAGE=%q
 FAIL=%q
 FORGOTTEN=%q
 AUTHFAIL=%q
+AUTHSTATE=%q
 mac="$2"
 case "$1" in
   auth)
@@ -137,7 +140,11 @@ case "$1" in
         down=$(awk '{print $1}' "$USAGE")
         up=$(awk '{print $2}' "$USAGE")
       fi
-      printf '{"id":1,"ip":"192.0.2.50","mac":"%%s","added":1,"active":1,"duration":60,"token":"t","state":"Authenticated","downloaded":%%s,"avg_down_speed":0,"uploaded":%%s,"avg_up_speed":0}\n' "$mac" "$down" "$up"
+      ndsstate="Authenticated"
+      if [ -r "$AUTHSTATE" ] && [ "$(cat "$AUTHSTATE")" = "preauth" ]; then
+        ndsstate="Preauth"
+      fi
+      printf '{"id":1,"ip":"192.0.2.50","mac":"%%s","added":1,"active":1,"duration":60,"token":"t","state":"%%s","downloaded":%%s,"avg_down_speed":0,"uploaded":%%s,"avg_up_speed":0}\n' "$mac" "$ndsstate" "$down" "$up"
     else
       echo '{}'
     fi
@@ -146,7 +153,7 @@ case "$1" in
 esac
 echo OK
 exit 0
-`, n.logPath, n.statePath, n.usagePath, n.failPath, n.forgottenPath, n.authFailPath)
+`, n.logPath, n.statePath, n.usagePath, n.failPath, n.forgottenPath, n.authFailPath, n.authStatePath)
 
 	if err := os.WriteFile(filepath.Join(dir, "ndsctl"), []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake ndsctl: %v", err)
@@ -213,6 +220,22 @@ func (n *renewalNdsctl) forgetClient(t *testing.T) {
 
 	if err := os.WriteFile(n.forgottenPath, []byte("forgotten\n"), 0o644); err != nil {
 		t.Fatalf("write deauth-forgotten marker: %v", err)
+	}
+}
+
+// setAuthenticated models whether `ndsctl json <mac>` reports the client as
+// Authenticated (default, matching every pre-existing use of this fake) or
+// as still pre-authenticating — a registered client whose authorisation the
+// valve cannot treat as already-open.
+func (n *renewalNdsctl) setAuthenticated(t *testing.T, authenticated bool) {
+	t.Helper()
+
+	state := "authenticated"
+	if !authenticated {
+		state = "preauth"
+	}
+	if err := os.WriteFile(n.authStatePath, []byte(state), 0o644); err != nil {
+		t.Fatalf("write ndsctl auth state: %v", err)
 	}
 }
 
