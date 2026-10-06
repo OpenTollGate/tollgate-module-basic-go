@@ -410,12 +410,19 @@ paste it into a report as advice.
 ### The two admin UIs, and what a certificate warning means
 
 Two admin UIs answer on this build, on two listener pairs — different webroots
-on different uhttpd instances, and **not** the same URL:
+on different `uhttpd` instances, and **not** the same URL. The canonical
+contract is recorded in [docs/access-urls.md](access-urls.md).
 
 | UI | URL on this build | Answers from |
 | --- | --- | --- |
-| **LuCI** (OpenWrt's own administration UI) | `https://<hostname>.lan/` (or `https://<LAN IP>/`) — `http://<router>:8080/` when no identity exists | `uhttpd.main`, webroot `/www` |
-| **The TollGate board** (the router's dashboard) | `http://<router>:8090/` — `https://<router>:8443/` while a certificate file exists | `uhttpd.admin`, webroot `/www/<brand>` |
+| **LuCI** (OpenWrt's own administration UI) | `http://<router>:8080/` → `https://<hostname>.lan/` (or `https://<LAN IP>/`) | `uhttpd.main`, webroot `/www` |
+| **The TollGate board** (the router's dashboard) | `http://<router>:8090/` → `https://<router>:8443/` while a certificate file exists | `uhttpd.admin`, webroot `/www/<brand>` |
+
+The two `uhttpd` instances have a strict single-port-owner design: each plain-HTTP
+port speaks only HTTP, and each TLS port speaks only TLS. That means
+`https://<router>:8080` and `https://<router>:8090` cannot work — the TLS
+listeners are `:443` (LuCI) and `:8443` (board), respectively. Type the
+plain-HTTP URL and let `uhttpd` redirect you.
 
 So on this build the **entry point `https://<hostname>.lan/` answers LuCI**, not
 the board. Inverting that is the operator decision recorded in
