@@ -1454,8 +1454,12 @@ setup_hostname() {
 # allow list the previous install left behind.
 #
 # The list says what a PRE-AUTHENTICATION client may reach ON THE ROUTER, and
-# nothing else belongs on it: the portal itself (:2050 NDS gateway, :2051 SPA)
-# and the backend API (:2121). Every ADMIN surface — the :8090 board and LuCI's
+# nothing else belongs on it: the portal itself (:2050 NDS gateway, :2051 SPA),
+# the backend API (:2121) and the gateway's own NTP service (udp/123 — see
+# setup_ntp_server below; a client with a wrong clock cannot pay honestly:
+# Cashu proofs carry timestamps, keysets expire, sessions are time-boxed, and a
+# downstream TollGate in reseller mode joins the open portal with whatever
+# clock it boots with). Every ADMIN surface — the :8090 board and LuCI's
 # :8080/:443 — is deliberately absent and actively removed below; a guest is
 # answered by the portal, never by a login form.
 #
@@ -1481,6 +1485,12 @@ assert_nodogsplash_allow_entries() {
     fi
     if ! uci_list_has_port 2051; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
+    fi
+    # The gateway's own time service: the one thing a pre-auth client needs
+    # that is not the portal or the payment API. sysntpd must be told to
+    # listen (setup_ntp_server below) for this rule to answer anything.
+    if ! uci_list_has_port 123; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow udp port 123'
     fi
     # LuCI (:8080 plain HTTP, and the :443 TLS listener uhttpd.main opens
     # whenever a cert/key pair exists) is an ADMIN surface, the same class as the
@@ -1562,6 +1572,31 @@ assert_nodogsplash_allow_entries() {
 # every rerun (#516).
 uci_list_has_port() {
     printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])port $1([[:space:]]|'|\$)"
+}
+
+# The gateway serves time to its own clients, pre-authentication (#627).
+# OpenWrt's sysntpd (busybox ntpd) listens when system.ntp.enable_server is
+# set — that one option is the whole server half; the client half (polling
+# upstream servers) keeps whatever the image shipped. Bench-verified on the
+# ws3915i fleet bring-up: units sat months off, and nothing on the open
+# portal face could correct them before payment.
+#
+# Restart discipline follows the script's rule (see converge_nodogsplash_
+# runtime): a FRESH boot never restarts anything — procd starts sysntpd
+# after uci-defaults, with this config already committed — and a RUNNING
+# router gets the one cheap restart, because sysntpd reads its config once
+# at start. Unlike the wireless or firewall services, bouncing sysntpd
+# drops no customer: it is a stateless UDP responder.
+setup_ntp_server() {
+    if ! uci -q get system.ntp >/dev/null 2>&1; then
+        uci set system.ntp=timeserver
+    fi
+    if [ "$(uci -q get system.ntp.enable_server 2>/dev/null || echo 0)" != "1" ]; then
+        uci set system.ntp.enable_server='1'
+    fi
+    if pidof sysntpd >/dev/null 2>&1; then
+        /etc/init.d/sysntpd restart >/dev/null 2>&1 || true
+    fi
 }
 
 setup_nodogsplash() {
@@ -2497,6 +2532,7 @@ setup_dns_dnsmasq
 setup_hostname
 detect_band_radios
 setup_public_wifi            # consumes DEVICE_SSID; exports GATEWAY_NAME
+setup_ntp_server             # serves time pre-auth (udp/123, issue #627)
 setup_nodogsplash
 setup_tollgate_firewall_rules
 setup_profile_hook

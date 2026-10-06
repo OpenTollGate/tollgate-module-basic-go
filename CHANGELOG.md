@@ -11,6 +11,22 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ## [v0.6.0-rc1] - 2026-10-05
+### Added
+
+- **The gateway now serves time to its own clients, before authentication
+  (#627).** A client on the open portal joins with whatever clock it boots
+  with — the ws3915i fleet sat months off — and a wrong clock cannot pay
+  honestly: Cashu proofs carry timestamps, keysets expire, sessions are
+  time-boxed, and a downstream TollGate in reseller mode needs accurate time
+  before it can pay *us*. `setup_ntp_server` enables busybox sysntpd's
+  listener (`system.ntp.enable_server='1'`, idempotently, creating the
+  section when the image shipped none), the pre-auth allow list gains
+  `allow udp port 123` beside the portal and the payment API, and a RUNNING
+  router gets exactly one cheap restart of the stateless UDP responder —
+  never a fresh boot, where procd starts sysntpd after uci-defaults with the
+  config already committed. Bench-side verified on the fleet bring-up
+  (79b1 answers NTP on the portal face; clients sync from the gateway).
+  ([#648](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/648))
 
 ### Fixed
 
