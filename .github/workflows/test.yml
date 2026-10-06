@@ -290,6 +290,9 @@ jobs:
           go-version-file: src/go.mod
       - name: Dependency sync check
         run: python3 tests/contract/check-deps-sync.py
+
+      - name: Toolchain parity (manifest is the single source of truth)
+        run: python3 tests/contract/check-toolchain-parity.py
       - name: Stale import path check
         run: python3 tests/contract/check-import-paths.py
 
