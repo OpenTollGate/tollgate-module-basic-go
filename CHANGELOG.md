@@ -192,6 +192,15 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The hardware-fleet tests no longer ship credentials.** Router and
+  Wi-Fi passwords and the install IPK URL were default values (and
+  template values) in a public repository; they are now required from the
+  environment or the gitignored `tests/.env`, with fail-fast guidance
+  (`conftest.py` refuses collection naming every missing variable).
+  Previously committed values must be rotated as part of the fix, not
+  optionally.
+  ([#528](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/528))
+
 - **The wired LAN ports move onto `br-private`: a cabled client is an
   owner-class client with internet, the admin board and LuCI, and no payment
   step.** The base image puts the physical LAN ports on the *captive* bridge
@@ -1452,7 +1461,6 @@ and [Semantic Versioning](https://semver.org/).
   ([#574](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/574)).
 
 ### Changed / Internal
-
 - **A MAC rotation no longer restarts the byte meter or extends paid time.**
   Sessions are addressed by a server-signed, memory-only ticket carrying only a
   session handle (no allotment, no metric, no MAC), issued and verified by the
