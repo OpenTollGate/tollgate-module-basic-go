@@ -1,17 +1,22 @@
 package config_manager
 
 type FieldSchema struct {
-	Name        string        `json:"name"`
-	Type        string        `json:"type"`
-	Description string        `json:"description,omitempty"`
-	Default     interface{}   `json:"default,omitempty"`
-	Required    bool          `json:"required"`
-	Enum        []string      `json:"enum,omitempty"`
-	Min         interface{}   `json:"min,omitempty"`
-	Max         interface{}   `json:"max,omitempty"`
-	Children    []FieldSchema `json:"children,omitempty"`
-	JSONKey     string        `json:"json_key"`
-	Editable    bool          `json:"editable"`
+	Name        string      `json:"name"`
+	Type        string      `json:"type"`
+	Description string      `json:"description,omitempty"`
+	Default     interface{} `json:"default,omitempty"`
+	Required    bool        `json:"required"`
+	Enum        []string    `json:"enum,omitempty"`
+	Min         interface{} `json:"min,omitempty"`
+	Max         interface{} `json:"max,omitempty"`
+	// MinLength/MaxLength bound a string field's length. An EMPTY value is
+	// always allowed: for the fields that carry them (private_key), empty is
+	// the documented "keep what the router has" sentinel, not a violation.
+	MinLength int           `json:"min_length,omitempty"`
+	MaxLength int           `json:"max_length,omitempty"`
+	Children  []FieldSchema `json:"children,omitempty"`
+	JSONKey   string        `json:"json_key"`
+	Editable  bool          `json:"editable"`
 	// Secret marks a field whose VALUE is never returned. A read path must emit
 	// an empty value for it (and may emit nothing else), and a write path must
 	// treat an empty incoming value as "unchanged" rather than "clear". The
@@ -71,7 +76,7 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "MinPayoutAmount", JSONKey: "min_payout_amount", Type: "uint64", Description: "Minimum payout amount in sats", Default: uint64(128), Required: true, Editable: true},
 				{Name: "PricePerStep", JSONKey: "price_per_step", Type: "uint64", Description: "Price per step in sats", Default: uint64(1), Required: true, Editable: true, Min: uint64(1)},
 				{Name: "PriceUnit", JSONKey: "price_unit", Type: "string", Description: "Price unit", Default: "sat", Required: true, Editable: true},
-				{Name: "MinPurchaseSteps", JSONKey: "purchase_min_steps", Type: "uint64", Description: "Minimum number of steps per purchase", Default: uint64(0), Required: true, Editable: true},
+				{Name: "MinPurchaseSteps", JSONKey: "purchase_min_steps", Type: "uint64", Description: "Minimum number of steps per purchase (clients reject min_steps=0; the parser also floors absent/0 to 1 for legacy configs)", Default: uint64(1), Required: true, Editable: true, Min: uint64(1)},
 			},
 		},
 		{
@@ -155,6 +160,7 @@ func GetConfigSchema() []FieldSchema {
 			Name: "PrivateKey", JSONKey: "private_key", Type: "string",
 			Description: "Private network WPA passphrase (8-63 characters). Empty keeps the passphrase the router already has. Write-only: the value is never returned by any read path.",
 			Default:     "", Required: false, Editable: true, Secret: true,
+			MinLength: 8, MaxLength: 63,
 		},
 		{
 			Name: "PrivateEncryption", JSONKey: "private_encryption", Type: "string",

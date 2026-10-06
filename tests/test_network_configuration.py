@@ -5,9 +5,9 @@ import re
 import socket
 import os
 
-ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD", "c08r4d0r123")
-WIFI_SSID = os.environ.get("WIFI_SSID", "c08r4d0r")
-WIFI_PASSWORD = os.environ.get("WIFI_PASSWORD", "c08r4d0r123")
+ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD")
+WIFI_SSID = os.environ.get("WIFI_SSID")
+WIFI_PASSWORD = os.environ.get("WIFI_PASSWORD")
 
 def wait_for_network_stability(router_ip, router_password, timeout=30):
     """Wait for the network to become stable after configuration changes."""

@@ -301,28 +301,66 @@ setup_marker_decision() {
 
 # -- setup steps ------------------------------------------------------------
 
-# load_brand: whitelabel selector — 'tollgate' (default) or 'net4sats'. The
-# two brands differ only in naming; the brand file is written by whitelabel
-# installers before first boot, and everything derived from it — system
-# hostname (and thus <hostname>.lan DNS), AP SSIDs, NDS gateway name —
-# follows this single selector.
+# load_brand: the whitelabel selector. `/etc/tollgate/brand` — written by a
+# whitelabel installer before first boot — holds ONE token naming the build's
+# brand; 'tollgate' when the file is absent. Everything derived from it follows
+# this single selector: the system hostname (and thus <hostname>.lan DNS), the
+# AP SSIDs, and the NDS gateway name.
+#
+# GENERIC ON PURPOSE. The brand is a build INPUT, never a literal in this repo: a
+# re-brand ships its own image, docroot and naming from its own organisation and
+# passes its token here. Hard-coding a second brand is exactly how this module
+# grew a brand-gated SECOND :8090 admin writer (a legacy configUI section that
+# fought the portal-staged board for the port), so any single alphanumeric token
+# is accepted and nothing below names a particular brand.
 #
 # Called AFTER the log truncation in both the short and full paths: anything
-# logged before `: > "$LOGFILE"` is wiped, which silently ate the
-# coercion line when this ran at the top of the script.
+# logged before `: > "$LOGFILE"` is wiped, which silently ate the coercion line
+# when this ran at the top of the script.
 #
 # read -r strips the trailing newline and leading/trailing IFS whitespace
 # (verified on BusyBox ash). Do NOT use `tr -d '[:space:]'` here: BusyBox tr
 # treats the character class as a literal set and deletes every s/p/a/c/e
-# from the value — "net4sats" became "nt4t" and coerced to the default.
+# from the value — a nine-character brand collapsed to a four-character
+# fragment and coerced to the default.
 load_brand() {
     read -r BRAND < /etc/tollgate/brand 2>/dev/null || BRAND=""
     case "$BRAND" in
-        net4sats) BRAND_HOSTNAME="Net4sats" ;;
-        *) BRAND_HOSTNAME="TollGate"
-           [ -n "$BRAND" ] && log "Brand '${BRAND}' not recognized — coercing to default 'tollgate' (expected: net4sats)"
-           ;;
+        # A brand reaches a hostname and an SSID: one alphanumeric token only.
+        # Anything else — an empty file, stray whitespace, punctuation — is not
+        # a brand and falls back to the default.
+        ''|*[!A-Za-z0-9]*)
+            [ -n "$BRAND" ] && log "Brand '${BRAND}' is not a single alphanumeric token — coercing to the default 'tollgate'"
+            BRAND="tollgate"
+            ;;
     esac
+    # The display spelling. 'TollGate' is THIS project's own spelling and is
+    # pinned; any whitelabel token is spelled by capitalising its first letter,
+    # so a new brand needs no edit here (and this repo carries no other brand's
+    # name to copy from — a whitelabel build's own spelling is its own build
+    # input, and the installer and this script both read the same brand file).
+    case "$BRAND" in
+        tollgate) BRAND_HOSTNAME="TollGate" ;;
+        *) BRAND_HOSTNAME="$(printf '%s' "${BRAND%"${BRAND#?}"}" | tr 'a-z' 'A-Z')${BRAND#?}" ;;
+    esac
+}
+
+# The brand token this router runs, lowercased — the spelling a machine-written
+# name carries (hostnames are lowercased; the captive SSID keeps BRAND_HOSTNAME).
+# Falls back to reading /etc/tollgate/brand directly, so the adoption helpers
+# below also behave when this script is sourced on its own (the offline tests),
+# and to 'tollgate' when there is no brand file at all: an absent brand file must
+# behave exactly like the default build.
+brand_token() {
+    local brand="${BRAND:-}"
+    if [ -z "$brand" ]; then
+        read -r brand < /etc/tollgate/brand 2>/dev/null || brand=""
+    fi
+    brand=$(printf '%s' "$brand" | tr 'A-Z' 'a-z')
+    case "$brand" in
+        ''|*[!a-z0-9]*) brand="tollgate" ;;
+    esac
+    printf '%s' "$brand"
 }
 
 # -- the router's device code, minted once and never re-minted ----------------
@@ -393,17 +431,18 @@ normalize_device_code() {
     esac
 }
 
-# The code carried by a machine-written name: "tollgate-OQ3Q", "TollGate-OQ3Q",
-# "Net4sats-OQ3Q". Any other name — an operator's own hostname or SSID — yields
-# nothing, which is what keeps custom names out of the adoption path.
+# The code carried by a machine-written name: "<brand>-<code>", where <brand> is
+# the default 'tollgate' or THIS router's own brand token (brand_token above) —
+# the same prefix the installer and this script write into the name. Any other
+# name — an operator's own hostname or SSID — yields nothing, which is what keeps
+# custom names out of the adoption path. A whitelabel name is recognized because
+# the brand file says so, never because a brand is listed here.
 code_from_name() {
-    local name="$1" prefix suffix
+    local name="$1" prefix suffix brand
     prefix=$(printf '%s' "${name%%-*}" | tr 'A-Z' 'a-z')
     suffix=${name#*-}
-    case "$prefix" in
-        tollgate|net4sats) : ;;
-        *) return 0 ;;
-    esac
+    brand=$(brand_token)
+    [ "$prefix" = "tollgate" ] || [ "$prefix" = "$brand" ] || return 0
     normalize_device_code "$suffix"
 }
 
@@ -505,21 +544,19 @@ private_ssid_for_code() {
 # the operator named. The full path still writes the brand's name, which is what
 # it has always done.
 captive_ssid_for_code() {
-    local current="$1" prefix suffix
+    local current="$1" prefix suffix brand
     if [ -z "$current" ]; then
         printf '%s\n' "$DEVICE_SSID"
         return 0
     fi
     prefix=$(printf '%s' "${current%%-*}" | tr 'A-Z' 'a-z')
     suffix=${current#*-}
-    case "$prefix" in
-        tollgate|net4sats)
-            if [ "$suffix" != "$current" ] && is_minted_suffix "$suffix"; then
-                printf '%s\n' "$DEVICE_SSID"
-                return 0
-            fi
-            ;;
-    esac
+    brand=$(brand_token)
+    if { [ "$prefix" = "tollgate" ] || [ "$prefix" = "$brand" ]; } &&
+       [ "$suffix" != "$current" ] && is_minted_suffix "$suffix"; then
+        printf '%s\n' "$DEVICE_SSID"
+        return 0
+    fi
     printf '%s\n' "$current"
 }
 
@@ -971,57 +1008,57 @@ EOF
 #
 # uhttpd.main's docroot is /www, and LuCI's /www/index.html meta-refreshes
 # to cgi-bin/luci — so ANY port added to uhttpd.main serves "redirect to
-# LuCI". Repair attempts that add 8090 there (instead of creating the
-# dedicated configUI section below) produce exactly the reported
-# ":8090 redirects to LuCI instead of the configUI" symptom. Runs in both
-# setup paths so the misconfiguration cannot survive a reinstall.
+# LuCI". Repair attempts that add 8090 there produce exactly the reported
+# ":8090 redirects to LuCI instead of the board" symptom: the board is reached
+# on a section whose docroot IS the board (uhttpd.admin, below), never through
+# LuCI's. Runs in both setup paths so the misconfiguration cannot survive a
+# reinstall.
 sanitize_uhttpd_main_configui_port() {
     uci -q del_list uhttpd.main.listen_http='0.0.0.0:8090'
     uci -q del_list uhttpd.main.listen_http='[::]:8090'
 }
 
-# Whitelabel config UI on :8090 (net4sats brand).
-#
-# The whitelabel admin/config UI lives in /www/net4sats — installed by the
-# whitelabel installer, never shipped by this package — and is served by a
-# DEDICATED uhttpd section, never by uhttpd.main (see
-# sanitize_uhttpd_main_configui_port). Mirrors the known-good deployed
-# layout exactly so upgrades of already-configured routers converge
-# instead of duplicating sections. Only created when the branded docroot
-# actually exists; stock tollgate routers get nothing on :8090.
-#
-# Deliberately NOT added to nodogsplash users_to_router: the config UI is
-# owner-facing and reached over the private network (br-private, not
-# NDS-gated). Pre-auth public-SSID guests must not reach an admin UI.
-setup_uhttpd_configui() {
-    # Self-contained brand check: read /etc/tollgate/brand directly (written
-    # by whitelabel installers) so this repair works regardless of whether
-    # the surrounding script defines a BRAND variable.
-    local cfgui_brand
-    # read (not `tr -d '[:space:]'`): busybox tr on some OpenWrt builds
-    # lacks character classes and would delete the literal chars
-    # [ : s p a c e — mangling "net4sats" into "nt4t". POSIX read strips
-    # leading/trailing IFS whitespace and the trailing newline itself.
-    read -r cfgui_brand < /etc/tollgate/brand || cfgui_brand=""
-    [ "$cfgui_brand" = "net4sats" ] || return 0
-    [ -d /www/net4sats ] || return 0
+# Is this uhttpd section one this module writes or co-exists with? uhttpd.main
+# is LuCI's, uhttpd.portal serves the captive SPA, uhttpd.trusted is the :80
+# entry point, and uhttpd.admin is the portal-staged admin board — the ONLY
+# :8090 owner. Anything else on the router was written by another build.
+owned_uhttpd_section() {
+    case "$1" in
+        main|portal|trusted|admin) return 0 ;;
+    esac
+    return 1
+}
 
-    uci -q get uhttpd.net4sats >/dev/null 2>&1 || uci set uhttpd.net4sats=uhttpd
-    local cfgui_listen
-    cfgui_listen=$(uci -q get uhttpd.net4sats.listen_http 2>/dev/null || echo "")
-    if ! echo "$cfgui_listen" | grep -q "0.0.0.0:8090"; then
-        uci add_list uhttpd.net4sats.listen_http='0.0.0.0:8090'
-    fi
-    if ! echo "$cfgui_listen" | grep -q "\[::\]:8090"; then
-        uci add_list uhttpd.net4sats.listen_http='[::]:8090'
-    fi
-    uci set uhttpd.net4sats.home='/www/net4sats'
-    uci set uhttpd.net4sats.ubus_prefix='/ubus'
-    uci set uhttpd.net4sats.script_timeout='60'
-    uci set uhttpd.net4sats.network_timeout='30'
-    uci set uhttpd.net4sats.max_requests='3'
-    uci set uhttpd.net4sats.tcp_keepalive='1'
-    log "Whitelabel configUI uhttpd section ensured on :8090 (home=/www/net4sats)"
+# Exactly ONE uhttpd section owns :8090: the portal-staged admin board
+# (uhttpd.admin — home = the build's admin webroot, written by the feed's
+# 92-tollgate-admin-setup and staged by packaging/portal-build.sh). This package
+# writes NO :8090 listener of its own.
+#
+# It used to: a legacy whitelabel configUI writer created a DEDICATED second
+# section on :8090, gated on the brand file and a branded docroot, for whichever
+# brand was installed. That writer is gone — a re-brand ships its board from its
+# own organisation now — but a router upgraded from a build that carried it still
+# has that section, and two sections claiming :8090 are a bind fight in which one
+# of the two admin UIs disappears (D4 of
+# docs/architecture/default-ui-and-entry-port-decision.md).
+#
+# The stale section is DELETED, not merely port-stripped: the portal-staged 92
+# already strips :8090/:8443 from every other section, so a box that once ran the
+# legacy writer keeps a branded uhttpd instance with NO listener — invisible to
+# any port-based check, and still a docroot this build does not serve.
+#
+# So a section is judged by SHAPE (a uhttpd instance this module does not own),
+# never by a brand literal: this tree carries no brand name, and the same sweep
+# catches the next second writer anyone adds. Idempotent — a converged router has
+# nothing to delete. Runs in BOTH setup paths, because the router that carries
+# the stale section is exactly the one taking the verify/repair path.
+purge_foreign_configui_sections() {
+    local section
+    for section in $(uci -q show uhttpd 2>/dev/null | sed -n 's/^uhttpd\.\([^.]*\)=uhttpd$/\1/p'); do
+        owned_uhttpd_section "$section" && continue
+        uci -q delete "uhttpd.$section"
+        log "Deleted stale uhttpd section '${section}' — it is not this build's board owner (uhttpd.admin)"
+    done
 }
 
 # -- admin credential gate ---------------------------------------------------
@@ -1101,13 +1138,13 @@ set_admin_password() {
 }
 
 # Drop every admin-board listener this package can own or repair. uhttpd.admin
-# is the portal-staged :8090/:8443 instance, uhttpd.net4sats this package's own
-# whitelabel configUI on the same port, and uhttpd.main is repaired because a
-# stray :8090 entry there has survived reinstalls before. Nothing else is
-# touched: the portal (:2050/:2051), the :80 guest entry point and the backend
-# (:2121) are not admin surfaces, and LuCI's own :8080/:443 listeners are a
-# separate control — they stay configured (the management path needs them) and
-# are kept off the captive bridge by
+# is the portal-staged :8090/:8443 instance, a foreign section on :8090 is a
+# legacy second writer (purge_foreign_configui_sections DELETES it), and
+# uhttpd.main is repaired because a stray :8090 entry there has survived
+# reinstalls before. Nothing else is touched: the portal (:2050/:2051), the :80
+# guest entry point and the backend (:2121) are not admin surfaces, and LuCI's
+# own :8080/:443 listeners are a separate control — they stay configured (the
+# management path needs them) and are kept off the captive bridge by
 # packaging/files/etc/nftables.d/32-luci-not-guest-reachable.nft plus the
 # allow-list removal in assert_nodogsplash_allow_entries, not by being dropped
 # from uhttpd.main here.
@@ -1116,8 +1153,7 @@ drop_admin_listeners() {
     uci -q del_list uhttpd.admin.listen_http='[::]:8090'
     uci -q del_list uhttpd.admin.listen_https='0.0.0.0:8443'
     uci -q del_list uhttpd.admin.listen_https='[::]:8443'
-    uci -q del_list uhttpd.net4sats.listen_http='0.0.0.0:8090'
-    uci -q del_list uhttpd.net4sats.listen_http='[::]:8090'
+    purge_foreign_configui_sections
     sanitize_uhttpd_main_configui_port
 }
 
@@ -1377,19 +1413,22 @@ setup_public_wifi() {
 # writing its own.
 #
 # #444 still holds: the rewrite is one-way and known-shape-only. A hostname that
-# is neither a brand default nor machine-shaped (tollgate-XXXX / Net4sats-XXXX)
-# is the operator's own and is never touched.
+# is neither a brand default nor machine-shaped (`<brand>-XXXX`) is the
+# operator's own and is never touched.
 setup_hostname() {
     local current_hostname
     current_hostname=$(uci -q get system.@system[0].hostname)
     if [ "$current_hostname" = "$DEVICE_HOSTNAME" ]; then
         log "Hostname '${current_hostname}' already carries this router's device code"
-    elif [ "$current_hostname" = "OpenWrt" ] || [ "$current_hostname" = "TollGate" ] || [ "$current_hostname" = "Net4sats" ] || \
+    elif [ "$current_hostname" = "OpenWrt" ] || [ "$current_hostname" = "$BRAND_HOSTNAME" ] || \
+         [ "$current_hostname" = "TollGate" ] || \
          [ -n "$(code_from_name "$current_hostname")" ]; then
-        # Fresh install (OpenWrt), a brand default from either brand, or a name
-        # a writer already built from a code (the installer's tollgate-OQ3Q) —
-        # all machine-managed, so they converge on THIS router's code. An
-        # operator's custom hostname falls to the else branch (#444).
+        # Fresh install (OpenWrt), a brand default (this build's BRAND_HOSTNAME —
+        # 'TollGate' for the default brand, kept explicitly because a whitelabel
+        # build's BRAND_HOSTNAME is its own token), or a name a writer already
+        # built from a code (the installer's tollgate-OQ3Q) — all machine-
+        # managed, so they converge on THIS router's code. An operator's custom
+        # hostname falls to the else branch (#444).
         uci set system.@system[0].hostname="$DEVICE_HOSTNAME"
         log "Hostname changed to $DEVICE_HOSTNAME (was '${current_hostname}')"
     else
@@ -1415,8 +1454,12 @@ setup_hostname() {
 # allow list the previous install left behind.
 #
 # The list says what a PRE-AUTHENTICATION client may reach ON THE ROUTER, and
-# nothing else belongs on it: the portal itself (:2050 NDS gateway, :2051 SPA)
-# and the backend API (:2121). Every ADMIN surface — the :8090 board and LuCI's
+# nothing else belongs on it: the portal itself (:2050 NDS gateway, :2051 SPA),
+# the backend API (:2121) and the gateway's own NTP service (udp/123 — see
+# setup_ntp_server below; a client with a wrong clock cannot pay honestly:
+# Cashu proofs carry timestamps, keysets expire, sessions are time-boxed, and a
+# downstream TollGate in reseller mode joins the open portal with whatever
+# clock it boots with). Every ADMIN surface — the :8090 board and LuCI's
 # :8080/:443 — is deliberately absent and actively removed below; a guest is
 # answered by the portal, never by a login form.
 #
@@ -1442,6 +1485,12 @@ assert_nodogsplash_allow_entries() {
     fi
     if ! uci_list_has_port 2051; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
+    fi
+    # The gateway's own time service: the one thing a pre-auth client needs
+    # that is not the portal or the payment API. sysntpd must be told to
+    # listen (setup_ntp_server below) for this rule to answer anything.
+    if ! uci_list_has_port 123; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow udp port 123'
     fi
     # LuCI (:8080 plain HTTP, and the :443 TLS listener uhttpd.main opens
     # whenever a cert/key pair exists) is an ADMIN surface, the same class as the
@@ -1473,10 +1522,9 @@ assert_nodogsplash_allow_entries() {
     # is the half that does not depend on this list being in the intended state.
     #
     # The admin board (uhttpd.admin: :8090 HTTP, opt-in :8443 HTTPS) is
-    # OWNER-facing, exactly like the whitelabel configUI in
-    # setup_uhttpd_configui above: the owner reaches it over the private
-    # network (br-private, which nodogsplash does not gate). A pre-auth guest
-    # on the open public SSID must not reach an admin UI, so :8090/:8443 are
+    # OWNER-facing: the owner reaches it over the private network (br-private,
+    # which nodogsplash does not gate). A pre-auth guest on the open public SSID
+    # must not reach an admin UI, so :8090/:8443 are
     # deliberately NOT part of the customer journey and are kept OUT of
     # users_to_router — this list is nodogsplash's PRE-AUTHENTICATION allow
     # list, and :8090 serves the board's root-capable login over plain HTTP
@@ -1524,6 +1572,31 @@ assert_nodogsplash_allow_entries() {
 # every rerun (#516).
 uci_list_has_port() {
     printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])port $1([[:space:]]|'|\$)"
+}
+
+# The gateway serves time to its own clients, pre-authentication (#627).
+# OpenWrt's sysntpd (busybox ntpd) listens when system.ntp.enable_server is
+# set — that one option is the whole server half; the client half (polling
+# upstream servers) keeps whatever the image shipped. Bench-verified on the
+# ws3915i fleet bring-up: units sat months off, and nothing on the open
+# portal face could correct them before payment.
+#
+# Restart discipline follows the script's rule (see converge_nodogsplash_
+# runtime): a FRESH boot never restarts anything — procd starts sysntpd
+# after uci-defaults, with this config already committed — and a RUNNING
+# router gets the one cheap restart, because sysntpd reads its config once
+# at start. Unlike the wireless or firewall services, bouncing sysntpd
+# drops no customer: it is a stateless UDP responder.
+setup_ntp_server() {
+    if ! uci -q get system.ntp >/dev/null 2>&1; then
+        uci set system.ntp=timeserver
+    fi
+    if [ "$(uci -q get system.ntp.enable_server 2>/dev/null || echo 0)" != "1" ]; then
+        uci set system.ntp.enable_server='1'
+    fi
+    if pidof sysntpd >/dev/null 2>&1; then
+        /etc/init.d/sysntpd restart >/dev/null 2>&1 || true
+    fi
 }
 
 setup_nodogsplash() {
@@ -2351,9 +2424,10 @@ if [ "$BRANCH" != "FULL" ]; then
     setup_uhttpd_trusted_entry
     # Reinstall must also repair the :8090 layout — a repair that added
     # 8090 to uhttpd.main (LuCI docroot) survives same-version reinstalls
-    # otherwise, and the configUI section is never re-ensured.
+    # otherwise, and a foreign second writer left by an older build is never
+    # removed. Both are idempotent: a converged router changes nothing.
     sanitize_uhttpd_main_configui_port
-    setup_uhttpd_configui
+    purge_foreign_configui_sections
     # The board's credential is re-asserted with the rest of the uhttpd
     # contract: this path runs on every reinstall whose version string is
     # unchanged, and a credential-less router must not keep serving an admin
@@ -2452,12 +2526,13 @@ setup_uhttpd
 setup_uhttpd_portal
 setup_uhttpd_trusted_entry
 sanitize_uhttpd_main_configui_port
-setup_uhttpd_configui
+purge_foreign_configui_sections
 enforce_admin_credential
 setup_dns_dnsmasq
 setup_hostname
 detect_band_radios
 setup_public_wifi            # consumes DEVICE_SSID; exports GATEWAY_NAME
+setup_ntp_server             # serves time pre-auth (udp/123, issue #627)
 setup_nodogsplash
 setup_tollgate_firewall_rules
 setup_profile_hook

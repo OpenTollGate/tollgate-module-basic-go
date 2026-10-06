@@ -36,8 +36,8 @@ audit 2026-08-26 (task T7).
   `deploy-backup-20260730/`) and force-pushed; the legitimate #358/#359
   changes are preserved as rewritten commits `5e904a1` / `1e70bca`.
 - No remote branch or tag other than `main` carried the directory
-  (verified via `git ls-remote`); `net4sats/tollgate-module-basic-go`
-  was hard-reset separately by Amperstrand.
+  (verified via `git ls-remote`); the pre-rename fork of
+  `tollgate-module-basic-go` was hard-reset separately by Amperstrand.
 
 ### Residual exposure
 

@@ -117,6 +117,32 @@ jobs:
           # negative control fails if the comparison ever goes back to equality.
           bash tests/uci-defaults-setup-marker-order_test.sh
 
+      - name: Exactly one owner of :8090, and LuCI alone on :8080
+        run: |
+          # Offline (no router, no SDK, no network): the portal-staged board
+          # (uhttpd.admin, written by the feed's 92-tollgate-admin-setup) is the
+          # ONE section that may claim :8090, and the module writes no :8090
+          # listener of its own. It used to: a brand-gated legacy configUI
+          # writer created a second section on the port, so two admin UIs bound
+          # the same port and one of them disappeared. The suite drives the
+          # shipped uci-defaults script end to end through the four install
+          # scenarios - fresh, upgrade, reinstall-over-marker, and a box whose
+          # legacy section had its listeners stripped by an older build (which
+          # is why the stale section must be DELETED, not port-stripped) - and
+          # carries detector controls so a passing assertion cannot be vacuous.
+          bash tests/packaging/configui-8090-single-owner_test.sh
+
+      - name: No re-brand literal anywhere in the tree
+        run: |
+          # Offline and tree-only: upstream carries no commercial re-brand's
+          # name - not in the setup script, not in the docs, not in the
+          # CHANGELOG. The gutter fails the moment a literal reappears, and
+          # scans itself: the pattern is a bracket expression, so this file does
+          # not carry the name it bans. A planted-occurrence control proves the
+          # scan is not inert. This is a working-tree gutter, not a history
+          # rewrite: the literal legitimately survives in old commits.
+          bash tests/packaging/rebrand-literal-gutter_test.sh
+
       - name: Admin TLS identity (HTTPS is not inherited from the image)
         run: |
           # Offline (no router, no SDK, no network): the install path must

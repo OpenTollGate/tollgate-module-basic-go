@@ -134,8 +134,13 @@ CLI_LDFLAGS="$(cli_ldflags "$PACKAGE_VERSION")"
 printf '%s\n' 'Building target binaries locally before invoking the OpenWrt SDK.'
 (
     cd "$REPO_ROOT/src"
+    # Build the whole package (.), not main.go alone: package main grew
+    # sibling files (startup_gate.go, the api boot ordering) whose symbols
+    # main.go references — single-file compilation has failed with
+    # "undefined: requireStarted & co" since they landed, and nothing on
+    # the SDK-local path had exercised the script since.
     env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
-        "$GO_BIN" build -o "$STAGE_DIR/tollgate-wrt" -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
+        "$GO_BIN" build -o "$STAGE_DIR/tollgate-wrt" -trimpath -buildvcs=false -ldflags="$LDFLAGS" .
 )
 (
     cd "$REPO_ROOT/src/cmd/tollgate-cli"

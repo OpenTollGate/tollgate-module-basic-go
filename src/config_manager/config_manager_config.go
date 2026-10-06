@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -73,6 +74,38 @@ type MintConfig struct {
 	PricePerStep            uint64 `json:"price_per_step"`
 	PriceUnit               string `json:"price_unit"`
 	MinPurchaseSteps        uint64 `json:"purchase_min_steps"`
+}
+
+// UnmarshalJSON accepts both "purchase_min_steps" (the Go field tag) and
+// "min_purchase_steps" (the key shipped in early FreedomTechFeed package
+// configs) for backward compatibility, and defaults MinPurchaseSteps to 1
+// when absent or zero — a purchase of fewer than one step is meaningless
+// and clients (cashud, wally) reject advertisements with min_steps=0.
+func (m *MintConfig) UnmarshalJSON(data []byte) error {
+	type MintConfigAlias MintConfig
+	var alias MintConfigAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*m = MintConfig(alias)
+	if m.MinPurchaseSteps == 0 {
+		// Probed through a raw map, not a tagged struct: the schema contract
+		// (js-schema-lint) counts every struct json tag in this package as a
+		// config surface, and the legacy key is an input spelling, not one.
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err == nil {
+			if legacy, ok := raw["min_purchase_steps"]; ok {
+				var legacySteps uint64
+				if err := json.Unmarshal(legacy, &legacySteps); err == nil && legacySteps > 0 {
+					m.MinPurchaseSteps = legacySteps
+				}
+			}
+		}
+	}
+	if m.MinPurchaseSteps == 0 {
+		m.MinPurchaseSteps = 1
+	}
+	return nil
 }
 
 // ProfitShareConfig defines how profits are shared.
@@ -176,12 +209,81 @@ func LoadConfig(filePath string) (*Config, error) {
 }
 
 // SaveConfig saves config.json.
+// SaveConfig persists the config atomically: a plain os.WriteFile killed
+// mid-write (power loss, procd respawn in the write window — the #402
+// incident class) leaves a truncated file, which the loader then routes into
+// the backup-and-defaults path: the operator's accepted mints silently become
+// the factory set. Temp file + rename in the same directory means a reader
+// always sees either the whole previous file or the whole new one.
 func SaveConfig(filePath string, config *Config) error {
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filePath, data, 0600)
+	tmp, err := os.CreateTemp(filepath.Dir(filePath), ".config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp config: %w", err)
+	}
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write temp config: %w", err)
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("chmod temp config: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sync temp config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp config: %w", err)
+	}
+	if err := renameConfigIntoPlace(tmpName, filePath); err != nil {
+		// A pinned inode (single-file bind mount) cannot be renamed over.
+		// Fall back to the durable in-place write rather than refusing to
+		// save; the temp file is removed by the deferred cleanup.
+		if inErr := writeConfigInPlaceDurably(filePath, data); inErr != nil {
+			return fmt.Errorf("rename temp config into place: %v (in-place fallback also failed: %v)", err, inErr)
+		}
+		return nil
+	}
+	cleanup = false
+	return nil
+}
+
+// renameConfigIntoPlace is os.Rename, overridable by tests to model the
+// environments where a rename onto the config path is impossible.
+var renameConfigIntoPlace = os.Rename
+
+// writeConfigInPlaceDurably is the fallback for environments a rename cannot
+// serve: a single-file bind mount (the cloud-lab lane mounts
+// runtime-config.json at /etc/tollgate/config.json; containerized deploys do
+// the same) has its inode pinned, so rename(2) answers EBUSY no matter how
+// the temp file is prepared. There, truncating and rewriting the mounted file
+// is the best atomicity available — the same guarantee the pre-#402 writer
+// gave — and strictly better than refusing to save the config at all.
+func writeConfigInPlaceDurably(filePath string, data []byte) error {
+	f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func defaultProductionMints() []MintConfig {
@@ -194,7 +296,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.minibits.cash/Bitcoin",
@@ -204,7 +306,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.lnserver.com",
@@ -214,7 +316,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.macadamia.cash",
@@ -224,7 +326,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.westernbtc.com",
@@ -234,7 +336,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://kashu.me",
@@ -244,7 +346,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 		{
 			URL:                     "https://mint.cubabitcoin.org",
@@ -254,7 +356,7 @@ func defaultProductionMints() []MintConfig {
 			MinPayoutAmount:         128,
 			PricePerStep:            1,
 			PriceUnit:               "sat",
-			MinPurchaseSteps:        0,
+			MinPurchaseSteps:        1,
 		},
 	}
 }
@@ -268,7 +370,7 @@ func defaultTestMint() MintConfig {
 		MinPayoutAmount:         999999,
 		PricePerStep:            1,
 		PriceUnit:               "sat",
-		MinPurchaseSteps:        0,
+		MinPurchaseSteps:        1,
 	}
 }
 
@@ -374,7 +476,11 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// File does not exist, save the default config
+			// The #402 forensics flagged this as the one default-write path
+			// with zero forensics: a config that vanishes between the read
+			// and here silently reverts the router to factory mints. Say it
+			// loudly so an operator reading the log can restore a backup.
+			log.Printf("WARNING: %s does not exist — writing factory defaults; if this router was configured, restore from config_backups and investigate what removed the file", filePath)
 			return defaultConfig, SaveConfig(filePath, defaultConfig)
 		}
 		return nil, err // Other read error

@@ -29,7 +29,15 @@ def _load_env():
 _load_env()
 
 INTERFACES = ["enx00e04c683d2d", "enx00e04c6812d4"]
-ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD", "c08r4d0r123")
+ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD")
+# Standalone script: conftest's gate never runs here, so carry the same
+# fail-closed contract (#509) — no shipped defaults, ever.
+if not ROUTER_PASSWORD:
+    raise SystemExit(
+        "flash_routers.py needs ROUTER_PASSWORD and no longer ships a "
+        "default (#509): copy tests/.env.example to tests/.env (loaded "
+        "automatically by _load_env) and fill in your values."
+    )
 IMAGE_FILE = "78ccda8fdbd71df9143fb41aff75d2104fbb56313d2c1ba8ce56c8ab951e5d26.bin"
 
 

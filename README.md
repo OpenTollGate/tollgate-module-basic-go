@@ -101,7 +101,7 @@ Source lives under [src/](src/). Go tooling runs from there
 | [config_manager](src/config_manager/) | Schema, loading, migrations, validation, backups of `/etc/tollgate/config.json`. |
 | [tollwallet](src/tollwallet/) | Cashu wallet operations (mint client, balance tracking, melt). |
 | [lightning](src/lightning/) | LNURL-p / Lightning address resolution and invoice fetching for payouts. |
-| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, and health. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
+| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, health, and SSL/TLS certificates. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
 | [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
 
 ## Installation
@@ -141,6 +141,17 @@ hardware against mainline OpenWrt 25.12.5 (`r33051-f5dae5ece4`): the full
 dependency closure (37 packages, including `nodogsplash` 5.0.2-r2 and its
 kmods) installs and `nodogsplash` runs with the module's keepalive contract
 live (trusted MAC plus `allow tcp port 22`).
+
+**Caveat — reproduce the install against current feeds with care
+([#552](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/552)).**
+`nodogsplash`'s `iptables-*` dependencies live in the **base target feed**
+(`releases/25.12.x/targets/<arch>/packages/`), not the arch `packages` feed —
+a repositories list that omits the target feed (typical of some
+ImageBuilder-built images) cannot resolve the closure, and apk-tools 2.x
+cannot read the 25.12 index format at all. The bench install above ran with
+a complete feed set; if `apk add` reports the `iptables-*` names missing,
+check `/etc/apk/repositories` lists the target feed before concluding the
+packages are gone.
 
 **Caveat — 16 MB of flash, and the compressed variant that nonetheless fits.**
 The WR3000 v1 has 16 MB of SPI-NOR, which is ~15.1 MB of firmware area and

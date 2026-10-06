@@ -95,6 +95,7 @@ docker compose down
 | `test_external_mints.py` | Opt-in live lane via `./run-external-mints.sh` (`EXTERNAL_MINTS=1` gates it out of default runs; skips with a reason when the mint is down): real-mint keyset fees verified, a 1-sat token terminated by the #409 below-swap-fee pre-check, and a fee-deducted session credit — all against `testnut.cashu.exchange` (nutshell main, FakeWallet; real-money mints never probed) |
 | `test_mint_failure.py` | Kill mint mid-session → TollGate degrades gracefully (no crash) → restart mint → TollGate recovers and accepts payments again |
 | `test_two_router_autopay.py` | Two-router chain: reseller processes payment without crashing, both TollGates stay alive |
+| `conformance/` | Fast-subset conformance lane (#503) via `./conformance/run-conformance.sh`: duplicate/timeout/kill-at-boundary/alias scenarios from the co-owned PRTA matrix, driven through the PRTA fault proxy; emits a per-invariant verdict table. Skips cleanly without docker or a PRTA checkout |
 
 ## What This Tests vs What It Doesn't
 

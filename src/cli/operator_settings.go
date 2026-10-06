@@ -33,12 +33,14 @@ package cli
 // the decision, the rejected alternatives and the assertions.
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/sirupsen/logrus"
@@ -367,11 +369,26 @@ func applyAdminAccess(scope string) SettingResult {
 
 // reloadFirewall applies a freshly written include. Best-effort by design: a
 // host without fw4 (development, host mode) is not an error.
+// firewallReloadTimeout bounds `fw4 reload` (#637): the operator-settings
+// convergence runs on the daemon start path (after the API listener binds,
+// before Serve), and an unbounded reload on a wedged fw4 stalled the whole
+// service — procd would respawn it into the same stall, keeping the payment
+// API down. The bound is generous (a healthy reload is sub-second); past it
+// the reload is treated exactly like any other reload failure: the fragment
+// file is the durable half, fw4 reads it at its next start. A var, not a
+// const, so a test can tighten it instead of sleeping the full bound.
+var firewallReloadTimeout = 30 * time.Second
+
 func reloadFirewall() error {
 	if _, err := exec.LookPath("fw4"); err != nil {
 		return fmt.Errorf("fw4 is not installed on this host")
 	}
-	out, err := exec.Command("fw4", "reload").CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), firewallReloadTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "fw4", "reload").CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("fw4 reload did not finish within %s (wedged fw4?): the fragment stays on disk and applies at the next firewall reload or reboot", firewallReloadTimeout)
+	}
 	if err != nil {
 		return fmt.Errorf("fw4 reload: %v: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -626,6 +643,43 @@ func secretJSONKeys() []string {
 		}
 	}
 	return keys
+}
+
+// redactIdentitySecrets returns a copy of identities whose owned entries'
+// Nostr private keys are blanked (#635). Whoever reads the `config get`
+// payload must be able to render and round-trip identity settings without
+// being handed the keys that sign payouts and advertisements — the same
+// contract redactSecretFields gives the WPA passphrase, for material that is
+// strictly more damaging than the passphrase. The blanked payload round-trips
+// through save-identities, which preserves the stored key for a name whose
+// incoming key is empty.
+func redactIdentitySecrets(identities *config_manager.IdentitiesConfig) *config_manager.IdentitiesConfig {
+	if identities == nil {
+		return nil
+	}
+	redacted := *identities
+	redacted.OwnedIdentities = make([]config_manager.OwnedIdentity, len(identities.OwnedIdentities))
+	copy(redacted.OwnedIdentities, identities.OwnedIdentities)
+	for i := range redacted.OwnedIdentities {
+		redacted.OwnedIdentities[i].PrivateKey = ""
+	}
+	return &redacted
+}
+
+// identitySecretState names the secret_set markers for owned identities that
+// hold a private key, so a UI can say the key is set — one marker per
+// identity, keyed "identities.<name>".
+func identitySecretState(identities *config_manager.IdentitiesConfig) []string {
+	if identities == nil {
+		return nil
+	}
+	var markers []string
+	for _, owned := range identities.OwnedIdentities {
+		if owned.PrivateKey != "" {
+			markers = append(markers, "identities."+owned.Name)
+		}
+	}
+	return markers
 }
 
 // applySummary renders the applier's results as one line for a CLI message.

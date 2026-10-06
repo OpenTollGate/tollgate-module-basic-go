@@ -38,12 +38,18 @@ tollgate upstream scan                    Scan all radios for networks
 tollgate upstream connect <SSID> [pass]   Connect to an upstream network
 tollgate upstream list                    Show configured upstream STAs
 tollgate upstream remove <SSID>           Remove a disabled upstream STA
+tollgate upstream known                   Show discovered TollGate APs
 
 tollgate config get                       Print current config + identities
 tollgate config set <key> <value>         Set one value by dot-path
 tollgate config schema                    Print the full config schema
 tollgate config save <json>               Replace config.json wholesale
 tollgate config save-identities <json>    Replace identities.json wholesale
+
+tollgate ssl status                       Admin HTTPS identity and coverage
+tollgate ssl apply [<cert> [key]]         Install a real cert, or self-signed
+tollgate ssl remove                       Revert an apply (records an opt-out)
+tollgate ssl covers [<cert-file>]         Does the certificate cover this router?
 ```
 
 Every command accepts the global `--json` (`-j`) flag for
@@ -487,6 +493,28 @@ upstreams cannot be removed — disable or switch away first. This is
 housekeeping: removing an entry does not affect connectivity, it just
 stops the daemon from ever considering that SSID again.
 
+### Known TollGates
+
+```sh
+tollgate upstream known
+```
+
+A summary of the TollGate access points discovered across the scans
+the background [wireless gateway
+manager](wireless_gateway_manager.md) has logged — the same history a
+reseller-mode router uses to recognise upstream TollGates. Prints a
+headline (`3 TollGates discovered across 27 scans`) and one entry per
+access point: SSID and BSSID, first and last seen, best and worst
+signal, sample count, the advertised pricing (`price_per_step`,
+`step_size`) when the AP publishes it, and gateway RTT and probe
+statistics when probes ran.
+
+The history lives in `/etc/tollgate/discovery_log.jsonl` and is
+reloaded at startup, so the summary also covers scans from before the
+last reboot. The plain-text rendering prints the raw fields in no
+stable order; `tollgate --json upstream known` returns the same data
+with stable field names for scripting.
+
 ## Configuration management
 
 TollGate stores its configuration in `/etc/tollgate/config.json` and
@@ -600,6 +628,92 @@ a router from a known-good template.
 
 Both commands reload the in-memory config after writing, but a restart
 is still needed for the change to take full effect.
+
+## SSL / HTTPS management
+
+These commands manage the HTTPS identity of the **admin path** — the
+LuCI interface uhttpd serves on the management network. The captive
+portal itself keeps its HTTP interception and is not affected. The
+`ssl` commands run locally (they talk to uci and the filesystem), so
+unlike most of the CLI they do not need the TollGate service to be
+running.
+
+### Check status
+
+```sh
+tollgate ssl status
+```
+
+When an identity is configured, prints where it came from
+(self-signed or real), the domain, the certificate's subject, issuer,
+validity window and SANs, and — the part that decides whether the
+`:8080` → `https://` hop is safe — whether the certificate **covers
+this router**. When it is not configured, the command distinguishes
+the two very different causes: nobody ever provisioned an identity,
+or an operator ran `ssl remove` and the install path is holding that
+decision. It also names the certificate uhttpd is actually serving
+and why it does not cover the router — a stock OpenWrt image ships a
+placeholder (`CN=OpenWrt`) that covers no router's own name or
+address, which is what a browser shows a hard certificate error for.
+
+### Apply a certificate
+
+```sh
+tollgate ssl apply                     # generate a self-signed certificate
+tollgate ssl apply combined.pem        # one file holding cert + key
+tollgate ssl apply cert.pem key.pem    # separate certificate and key
+```
+
+Without arguments, generates a self-signed certificate for the
+router's own hostname (RSA 2048, valid ten years, SANs for the
+hostname, its `<hostname>.lan` alias, and the LAN IP). A browser will
+still show a warning for it — self-signed is for encryption, not for
+trust. With file arguments, installs a real certificate; a combined
+PEM is split automatically, and an expired certificate is warned
+about but installed if you confirm.
+
+`apply` prints the plan first (install to `/etc/tollgate/ssl/`,
+point uhttpd at the new cert/key, allow TCP 443 through the
+pre-authentication firewall for the admin listener) and asks for
+confirmation; `-y` skips the prompt. The previous state is backed up
+to `/etc/tollgate/ssl/backup/` so `ssl remove` can restore it — if a
+backup already exists, `apply` warns and asks before overwriting.
+Afterwards uhttpd and nodogsplash are reloaded (dnsmasq too, for a
+real certificate), and `redirect_https` is derived from the
+[coverage check](#check-whether-a-certificate-covers-this-router) —
+the same rule the unattended setup path applies. `--no-restart`
+leaves the service reload to the caller; the setup path uses it
+because uci-defaults runs before the services start.
+
+### Remove the identity
+
+```sh
+tollgate ssl remove
+```
+
+Restores the state from before the last `apply` (uhttpd's previous
+certificate, the firewall entry). Removal is also **recorded** in
+`/etc/tollgate/ssl/tls-identity-removed`: a reinstall or upgrade will
+not silently re-key a router whose operator asked for no HTTPS
+identity. Running `ssl apply` ends the opt-out — asking for an
+identity is the way back in.
+
+### Check whether a certificate covers this router
+
+```sh
+tollgate ssl covers                    # the certificate uhttpd is configured to serve
+tollgate ssl covers /path/to/cert.pem  # a candidate before installing it
+```
+
+A certificate covers the router when its SANs validate the configured
+hostname, the `<hostname>.lan` alias, or the LAN IP — the CommonName
+alone is not enough, because browsers ignore it once the certificate
+carries no SAN extension, and an expired certificate is not coverage
+either. The exit status is `0` when it covers and `1` when it does
+not, with the reason printed either way, so a shell can branch on it;
+the setup path derives `redirect_https` from exactly this verdict.
+Under `--json` the verdict is one object whose `success` mirrors the
+exit status, so a caller parsing stdout cannot read a "no" as green.
 
 ## JSON output
 

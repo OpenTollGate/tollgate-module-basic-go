@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	gonutsclient "github.com/OpenTollGate/gonuts-tollgate/wallet/client"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
@@ -278,6 +279,44 @@ func receiveReference(token tollwallet.Token) string {
 	return utils.TokenFingerprint(serialized)
 }
 
+// beginReceive marks one note's Receive as in flight and reports whether the
+// caller is the first to do so. A false return means the same note is already
+// being processed by another PurchaseSession on this router: the caller must
+// refuse WITHOUT touching the mint — the in-flight Receive may already have
+// spent the proofs, and a second submission is at best a wasted round trip and
+// at worst a second grant when both swaps race past the mint's spend-state
+// (#639). An empty reference means the note could not be serialised; the guard
+// is then unusable and the payment proceeds (the mint still refuses a
+// sequential resubmit as spent) rather than failing commerce over guard
+// machinery.
+func (m *Merchant) beginReceive(reference string) bool {
+	if reference == "" {
+		return true
+	}
+	m.receiveInFlightMu.Lock()
+	defer m.receiveInFlightMu.Unlock()
+	if m.receiveInFlight == nil {
+		m.receiveInFlight = make(map[string]struct{})
+	}
+	if _, inFlight := m.receiveInFlight[reference]; inFlight {
+		return false
+	}
+	m.receiveInFlight[reference] = struct{}{}
+	return true
+}
+
+// endReceive releases the in-flight mark once the Receive outcome has been
+// consumed — by the main path or, on the outcome-unknown timeout path, by the
+// late recorder that owns the result channel from the deadline onward.
+func (m *Merchant) endReceive(reference string) {
+	if reference == "" {
+		return
+	}
+	m.receiveInFlightMu.Lock()
+	delete(m.receiveInFlight, reference)
+	m.receiveInFlightMu.Unlock()
+}
+
 // MerchantInterface defines the interface for merchant payment operations
 type MerchantInterface interface {
 	CreatePaymentToken(mintURL string, amount uint64) (string, error)
@@ -314,6 +353,26 @@ type Merchant struct {
 	customerSessions  map[string]*CustomerSession
 	expiredSessions   map[string]int64
 	sessionMu         sync.RWMutex
+	// receiveInFlight holds the receiveReference of every PurchaseSession
+	// whose money-moving Receive has started and whose outcome has not been
+	// consumed yet (including the outcome-unknown window past the deadline,
+	// where the late recorder owns the result). It exists because the mint's
+	// spend-state is the only sequential-duplicate guard, and two concurrent
+	// Receives of the same note both pass it before either swap settles —
+	// measured by the #535 conformance lane as a double grant (issue #639).
+	// The guard is per note, not per MAC: a household may buy twice from two
+	// devices, and only the same note twice is the customer's double-click or
+	// double-tab. Guarded by receiveInFlightMu; lazily initialised so
+	// `&Merchant{}` literals keep working.
+	receiveInFlightMu sync.Mutex
+	receiveInFlight   map[string]struct{}
+	// Owed entitlements (#403): purchases whose Receive succeeded but whose
+	// grant failed. Keyed by the note's receive reference; durably persisted
+	// through owedGrantStore so a restart cannot erase an already-received
+	// customer's claim. See owed_grant.go.
+	owedGrantsMu      sync.Mutex
+	owedGrants        map[string]*owedGrantRecord
+	owedGrantStore    *owedGrantStore
 	unmeteredMu       sync.Mutex
 	unmeteredSessions map[string]*unmeteredSession
 	staleBindings     staleBindingJanitor
@@ -459,9 +518,12 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		expiredSessions:   make(map[string]int64),
 		lightningQuotes:   make(map[string]*lightningQuoteRecord),
 		quoteStore:        newQuoteStore(filepath.Join(walletDirPath, "quotes.json")),
+		owedGrants:        make(map[string]*owedGrantRecord),
+		owedGrantStore:    newOwedGrantStore(filepath.Join(walletDirPath, "owed-grants.json")),
 	}
 
 	m.loadLightningQuotesFromDisk()
+	m.loadOwedGrantsFromDisk()
 	m.StartPayoutRoutine()
 	m.StartDataUsageMonitoring()
 	m.startLightningQuoteJanitor()
@@ -1412,8 +1474,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Pre-check the mint's swap fee: a token whose value is entirely consumed
 	// by the fee fails the swap with an opaque mint error. Fail fast with a
 	// clear message. If the fee can't be determined (cdk adapter, mint
-	// unreachable), fall through and let Receive classify the error.
-	if fee, feeErr := m.tollwallet.SwapFeeSats(paymentCashuToken); feeErr == nil && fee > 0 {
+	// unreachable — or the precheck overruns its budget against a wedged
+	// mint, #525), fall through and let Receive classify the error.
+	if fee, feeErr, ok := swapFeeSatsBounded(m.tollwallet.SwapFeeSats, paymentCashuToken); ok && feeErr == nil && fee > 0 {
 		if amount := paymentCashuToken.Amount(); amount <= fee {
 			msg := fmt.Sprintf(
 				"This e-cash note is %d sat but mint %s charges a %d sat swap fee, so there is nothing left to spend. Use a larger token or a mint without fees.",
@@ -1456,6 +1519,25 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	log.Printf("PurchaseSession: calling Receive for mint=%s token_amount=%d mac=%s", paymentCashuToken.Mint(), paymentCashuToken.Amount(), macAddress)
 
+	// The same note may already be in flight from a concurrent POST (a
+	// double-click, two tabs, a portal retry). From here to the consumption of
+	// the Receive result — including the outcome-unknown window past the
+	// deadline — the note is marked; a second submission is refused locally,
+	// before any money moves, because the mint's spend-state cannot arbitrate
+	// two concurrent swaps of the same proofs (#639, measured by the #535
+	// conformance lane: both concurrent POSTs granted, allotment 2x, four
+	// derivation digests re-exposed).
+	reference := receiveReference(paymentCashuToken)
+	if !m.beginReceive(reference) {
+		log.Printf("PurchaseSession: refusing concurrent duplicate of an in-flight note for mac=%s reference=%s — no second Receive was sent to the mint", macAddress, reference)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-duplicate-inflight",
+			"This e-cash note is already being processed by this TollGate. Do not send it again — if the mint has taken it, a second attempt will be refused as already spent. Reload this page in a couple of minutes.", macAddress)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("duplicate in-flight note and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
+	}
+
 	ch := make(chan receiveResult, 1)
 	go func() {
 		// A panic can only fire before the normal send, so this never
@@ -1475,6 +1557,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	case res := <-ch:
 		amountAfterSwap = res.amount
 		err = res.err
+		m.endReceive(reference)
 		log.Printf("PurchaseSession: Receive completed, amount=%d, err=%v", amountAfterSwap, err)
 	case <-time.After(receiveTimeout):
 		// A money-moving request has been sent and its outcome is not known yet:
@@ -1490,7 +1573,6 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		// The journal that will collect a late outcome and grant it is a separate
 		// piece of work; until it exists, this branch grants nothing and says so
 		// by not claiming that access will arrive on its own.
-		reference := receiveReference(paymentCashuToken)
 		log.Printf("PurchaseSession: Receive outcome unknown after %s for mint=%s mac=%s reference=%s — no session was granted; the customer was told not to resubmit the note",
 			receiveTimeout, paymentCashuToken.Mint(), macAddress, reference)
 
@@ -1499,8 +1581,14 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		// worth quoting. Nothing else reads the channel once this branch
 		// returns, so without the recorder the outcome of a `Receive` that
 		// completed at t+1s was discarded in silence and the notice handed the
-		// customer a reference that led the operator nowhere.
-		go recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference)
+		// customer a reference that led the operator nowhere. The recorder also
+		// owns the in-flight mark now: the note stays guarded until the outcome
+		// is consumed, so a resubmission arriving after the deadline but before
+		// the mint answers is refused exactly like a concurrent one.
+		go func() {
+			recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference)
+			m.endReceive(reference)
+		}()
 
 		message := "Your payment has not been confirmed yet: the mint has not answered this TollGate. Do not send this e-cash note again — if the mint did receive it, the note is already spent and a second attempt will be refused. Reload this page in a couple of minutes."
 		if reference != "" {
@@ -1516,6 +1604,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		mintURL := paymentCashuToken.Mint()
 
 		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) &&
+			!errors.Is(err, tollwallet.ErrOutcomeUnknown) &&
 			!isExpiredKeysetError(err) &&
 			!isRateLimitError(err) {
 			// A rate-limit answer means the mint is UP and telling us to slow
@@ -1525,7 +1614,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			// i.e. one rate-limited request stopped every sale on the router
 			// (a revenue DoS). The edge quota on POST /ln-invoice in main.go is
 			// the other half of this fix: it keeps our own flood from being
-			// what provokes the 429.
+			// what provokes the 429. An unanswered request (outcome unknown)
+			// is likewise not evidence the mint is down — it may be happily
+			// processing the swap whose response was dropped (#640).
 			m.mintHealthTracker.MarkUnreachable(mintURL)
 		}
 
@@ -1535,6 +1626,18 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
 			errorCode = "payment-error-token-spent"
 			errorMessage = "Token has already been spent"
+		} else if errors.Is(err, tollwallet.ErrOutcomeUnknown) {
+			// The mint never answered a request it may have processed: the
+			// note may already be spent, so the customer must not resubmit
+			// it — the same guidance the deadline branch above gives, reached
+			// here when the client surfaces the ambiguity as an error before
+			// the merchant deadline fires (#640).
+			errorCode = "payment-outcome-unknown"
+			reference := receiveReference(paymentCashuToken)
+			errorMessage = "Your payment has not been confirmed yet: the mint has not answered this TollGate. Do not send this e-cash note again — if the mint did receive it, the note is already spent and a second attempt will be refused. Reload this page in a couple of minutes."
+			if reference != "" {
+				errorMessage += fmt.Sprintf(" If access does not start, show the operator this reference: %s.", reference)
+			}
 		} else if isRateLimitError(err) {
 			errorCode = "mint-rate-limited"
 			errorMessage = "Mint is rate-limiting requests. Please try again in a moment."
@@ -1582,14 +1685,18 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Add allotment to the session and only persist the update if gate access opens.
 	session, err := m.grantSessionAccess(macAddress, allotment)
 	if err != nil {
-		errorCode := "session-error"
-		errorMessage := fmt.Sprintf("Failed to manage session: %v", err)
-		if strings.Contains(err.Error(), "failed to open gate:") {
-			errorCode = "session-error"
-			errorMessage = err.Error()
+		// The customer's value is already in the operator's wallet: Receive
+		// succeeded, and only the grant failed (#403). What is owed is the
+		// grant, so it is recorded durably and retried until it succeeds or
+		// its window passes — the customer is told their access will start,
+		// never to pay again.
+		m.recordOwedGrant(reference, macAddress, paymentCashuToken.Mint(), amountAfterSwap, allotment)
+
+		message := fmt.Sprintf("Your payment was received, but this TollGate could not open your access just now (the portal manager did not answer). Your access will start automatically — you do NOT need to pay again. Reload this page in a minute. Reference: %s", reference)
+		if reference == "" {
+			message = "Your payment was received, but this TollGate could not open your access just now (the portal manager did not answer). Your access will start automatically — you do NOT need to pay again. Reload this page in a minute."
 		}
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode,
-			errorMessage, macAddress)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-received-grant-pending", message, macAddress)
 		if noticeErr != nil {
 			return nil, fmt.Errorf("failed to manage session and failed to create notice: %w", noticeErr)
 		}
@@ -1610,6 +1717,38 @@ func isRateLimitError(err error) bool {
 	return strings.Contains(msg, "429") ||
 		strings.Contains(msg, "rate limit") ||
 		strings.Contains(msg, "too many requests")
+}
+
+// swapFeePrecheckBudget bounds the fee precheck (#525): the wallet client's
+// retry ladder (30 s per attempt, up to 5 attempts, chained endpoints) means
+// a wedged mint — one that accepts nothing, docker pause reproduces it —
+// parks SwapFeeSats for minutes, freezing the payment lane before anything
+// with a deadline runs. The fee check is an optimization, not a gate: past
+// the budget the payment proceeds and Receive's own error classification
+// (or its receive timeout) governs.
+const swapFeePrecheckBudget = 3 * time.Second
+
+// swapFeeSatsBounded runs fee with swapFeePrecheckBudget. ok=false means the
+// budget expired without an answer — treat the fee as unknown. The parked
+// call is abandoned (it self-clears when the retry ladder exhausts); the
+// result channel is buffered so a late answer does not leak a goroutine.
+func swapFeeSatsBounded(fee func(tollwallet.Token) (uint64, error), token tollwallet.Token) (feeSats uint64, err error, ok bool) {
+	type feeResult struct {
+		fee uint64
+		err error
+	}
+	res := make(chan feeResult, 1)
+	go func() {
+		f, err := fee(token)
+		res <- feeResult{f, err}
+	}()
+	select {
+	case r := <-res:
+		return r.fee, r.err, true
+	case <-time.After(swapFeePrecheckBudget):
+		log.Printf("PurchaseSession: fee precheck overran its %s budget (wedged mint?) — proceeding without the fee check", swapFeePrecheckBudget)
+		return 0, nil, false
+	}
 }
 
 // isBelowSwapFeeError reports whether err is the "the token cannot cover the
@@ -1672,7 +1811,18 @@ func isMintUnreachableError(err error) bool {
 // balance check, while the confident one costs the customer their note, which
 // the mint then refuses as already spent (#498).
 func isAmbiguousMintOutcomeError(err error) bool {
-	return err != nil && !isDefinitiveMintRefusal(err)
+	if err == nil {
+		return false
+	}
+	// The wallet client's explicit no-answer verdict is ambiguous by
+	// construction (gonuts-tollgate v0.13.0): the request may have been
+	// processed and its signatures lost. Matched positively so a future
+	// tightening of the refusal list below can never flip it silently.
+	var ambiguous *gonutsclient.AmbiguousOutcomeError
+	if errors.As(err, &ambiguous) {
+		return true
+	}
+	return !isDefinitiveMintRefusal(err)
 }
 
 // isDefinitiveMintRefusal reports whether err is a refusal the mint itself

@@ -65,7 +65,9 @@ func (s *CLIServer) handleConfigCommand(args []string, flags map[string]string) 
 // handleConfigGet returns the whole configuration. Schema fields marked
 // `secret` are blanked and their state is reported separately: this payload is
 // rendered by the board's Settings page and merged back into a wholesale
-// `config save`, so it must never carry the private network's passphrase.
+// `config save`, so it must never carry the private network's passphrase —
+// nor the identities' Nostr private keys, which sign payouts and
+// advertisements and are strictly more damaging than the passphrase (#635).
 func (s *CLIServer) handleConfigGet() CLIResponse {
 	if s.configManager == nil {
 		return CLIResponse{
@@ -78,13 +80,18 @@ func (s *CLIServer) handleConfigGet() CLIResponse {
 	cfg := s.configManager.GetConfig()
 	identities := s.configManager.GetIdentities()
 
+	secretSet := secretFieldState(cfg)
+	for _, marker := range identitySecretState(identities) {
+		secretSet[marker] = true
+	}
+
 	return CLIResponse{
 		Success: true,
 		Message: "Configuration retrieved",
 		Data: map[string]interface{}{
 			"config":     redactSecretFields(cfg),
-			"identities": identities,
-			"secret_set": secretFieldState(cfg),
+			"identities": redactIdentitySecrets(identities),
+			"secret_set": secretSet,
 		},
 		Timestamp: time.Now(),
 	}
@@ -312,6 +319,22 @@ func (s *CLIServer) handleIdentitiesSave(jsonStr string) CLIResponse {
 			Success:   false,
 			Error:     fmt.Sprintf("Invalid JSON: %v", err),
 			Timestamp: time.Now(),
+		}
+	}
+
+	// Preserve-on-save for identity secrets (#635): `config get` hands out
+	// owned identities with blanked private keys, and a board that merges
+	// that payload and sends it back here must not wipe the stored keys. An
+	// incoming empty key for a known name keeps the stored one; an incoming
+	// key (new identity, or an intentional rotation) is taken as given.
+	stored := s.configManager.GetIdentities()
+	storedKeys := make(map[string]string, len(stored.OwnedIdentities))
+	for _, owned := range stored.OwnedIdentities {
+		storedKeys[owned.Name] = owned.PrivateKey
+	}
+	for i := range identities.OwnedIdentities {
+		if identities.OwnedIdentities[i].PrivateKey == "" {
+			identities.OwnedIdentities[i].PrivateKey = storedKeys[identities.OwnedIdentities[i].Name]
 		}
 	}
 
