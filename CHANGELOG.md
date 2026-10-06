@@ -9,6 +9,41 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
+### Changed / Internal
+
+- **An authorisation NoDogSplash holds that this module never made is closed by
+  the usage sweep — the inverse of the zombie-session drift.** The startup
+  reconciliation (#595, #596) closes the window a module *restart* creates, but a
+  startup pass can only ever see the drift that exists at the instant it runs.
+  A client NoDogSplash reports as `Authenticated` that entered its list without
+  going through this module at all — an `ndsctl auth` run by hand or by a script,
+  a record restored from NoDogSplash's own state file when the *service* restarts
+  (`state_file_import`, nodogsplash 5.0.2), or a box whose merchant came up
+  degraded so the startup pass never ran — held an open, **unmetered** gate with
+  no session, no metering baseline, no allotment and no `/balance` record, for as
+  long as NoDogSplash's own session timeout (configured here at 86400 s, because
+  the Go backend is meant to be the sole authority on when a session ends). The
+  usage sweep now reads the client list (`valve.ListClients`, `ndsctl json` with
+  no argument) on the same ~30 s cadence as the stale-binding reconciliation and
+  closes the gate of every such client, FAIL CLOSED, naming each MAC and the fact
+  that the customer must buy again. A client this module knows — a session, or a
+  gate the valve still tracks, which includes one whose close is still
+  unconfirmed — is left alone, and the membership test folds MAC case on both
+  sides (the session map is lower-case while ndsctl's own lookup is
+  case-sensitive, so a differently-spelled MAC of the module's OWN customer would
+  otherwise be read as inherited and have a paying customer's gate closed). Every
+  state other than `Authenticated` is left alone deliberately: a
+  `Preauthenticated` record is a client on its way through the captive portal —
+  splash page, FAS, `/nodogsplash_auth/` — which cannot pass traffic and is a
+  legitimate record, so it is never deauthorised; `Trusted`/`Blocked` are the
+  operator's own `trustedmaclist`/`blockedmaclist`. A client list the module
+  cannot READ changes nothing and is reported once per outage, and the pass never
+  reports a refused close as done. `ClientRecord.Authorised()` remains the only
+  authorisation test, so `#545`/`#595`'s "a failed probe is never evidence" holds
+  unchanged.
+  ([#619](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/619))
+  ([#619](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/619))
+
 
 ### Fixed
 
