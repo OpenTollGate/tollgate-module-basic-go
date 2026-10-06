@@ -91,6 +91,23 @@ and [Semantic Versioning](https://semver.org/).
   `.lan` alias as the alternative.
   ([#612](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/612))
 
+
+- **A concurrent duplicate of one e-cash note is refused before the mint, not
+  raced past its spend-state.** The mint's own "already spent" refusal is the
+  payment path's only duplicate guard, and two concurrent POSTs of the same
+  note both pass it before either swap settles: measured by the #535
+  conformance lane (2026-10-05) as both POSTs answering a kind-1022 session
+  with a 2x allotment delta and four derivation digests each sighted twice —
+  one note, two sessions (#639). `PurchaseSession` now marks the note in
+  flight (keyed by the salted fingerprint already given to the customer as the
+  outcome-unknown reference) from the moment the money-moving call starts
+  until its result is consumed — on the outcome-unknown timeout path the late
+  recorder owns the mark, so a resubmission arriving after the deadline but
+  before the mint answers is refused exactly like a concurrent one, which is
+  what the "do not send this note again" notice already promises. The refusal
+  (`payment-duplicate-inflight`) moves no money and reaches no mint; a note
+  whose fingerprint cannot be computed is never refused.
+  ([#641](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/641))
 - **`generate_admin_password()` no longer depends on `od`, which is absent from
   the stripped busybox shipped on OpenWrt 25.12.5 base images.** On those
   images the old `od -An -N 20 -tu1 /dev/urandom` pipeline produced no output,
