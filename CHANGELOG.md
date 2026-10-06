@@ -9,6 +9,52 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
+### Changed / Internal
+
+- **CHANGELOG duplicate entries are now a checked contract.** Resolving a
+  CHANGELOG conflict with a section-level "take ours" can resurrect an entry a
+  branch had already moved or reworded, leaving one change described twice (this
+  bit twice in one rebasing session). `tests/contract/check-changelog-duplicates.py`
+  — wired into `hooks/pre-commit` alongside the version-sync check, and into CI
+  beside the deps/import contract checks — fails when the same bold lead-in
+  appears in two sections and at least one of them is `[Unreleased]`; the same
+  lead-in inside already-released sections is history and is deliberately
+  tolerated
+  ([#581](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/581)).
+
+- **An authorisation NoDogSplash holds that this module never made is closed by
+  the usage sweep — the inverse of the zombie-session drift.** The startup
+  reconciliation (#595, #596) closes the window a module *restart* creates, but a
+  startup pass can only ever see the drift that exists at the instant it runs.
+  A client NoDogSplash reports as `Authenticated` that entered its list without
+  going through this module at all — an `ndsctl auth` run by hand or by a script,
+  a record restored from NoDogSplash's own state file when the *service* restarts
+  (`state_file_import`, nodogsplash 5.0.2), or a box whose merchant came up
+  degraded so the startup pass never ran — held an open, **unmetered** gate with
+  no session, no metering baseline, no allotment and no `/balance` record, for as
+  long as NoDogSplash's own session timeout (configured here at 86400 s, because
+  the Go backend is meant to be the sole authority on when a session ends). The
+  usage sweep now reads the client list (`valve.ListClients`, `ndsctl json` with
+  no argument) on the same ~30 s cadence as the stale-binding reconciliation and
+  closes the gate of every such client, FAIL CLOSED, naming each MAC and the fact
+  that the customer must buy again. A client this module knows — a session, or a
+  gate the valve still tracks, which includes one whose close is still
+  unconfirmed — is left alone, and the membership test folds MAC case on both
+  sides (the session map is lower-case while ndsctl's own lookup is
+  case-sensitive, so a differently-spelled MAC of the module's OWN customer would
+  otherwise be read as inherited and have a paying customer's gate closed). Every
+  state other than `Authenticated` is left alone deliberately: a
+  `Preauthenticated` record is a client on its way through the captive portal —
+  splash page, FAS, `/nodogsplash_auth/` — which cannot pass traffic and is a
+  legitimate record, so it is never deauthorised; `Trusted`/`Blocked` are the
+  operator's own `trustedmaclist`/`blockedmaclist`. A client list the module
+  cannot READ changes nothing and is reported once per outage, and the pass never
+  reports a refused close as done. `ClientRecord.Authorised()` remains the only
+  authorisation test, so `#545`/`#595`'s "a failed probe is never evidence" holds
+  unchanged.
+  ([#619](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/619))
+  ([#619](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/619))
+
 
 ### Fixed
 
@@ -29,6 +75,41 @@ and [Semantic Versioning](https://semver.org/).
   accumulating — `ForwardFirstProof` now refuses it. Watchdog and
   one-shot regression tests fail on the pre-fix tree and pass under
   `-race`. ([#678](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/678))
+- **The wallet seam generalised to any bearer instrument, with NUT-07 and
+  NUT-09 derived rather than assumed.** A bearer instrument is anything an
+  authority can both recognise and remember, so the port requires exactly three
+  things of a backend: what it signed (which makes recovery possible), what it
+  consumed (where spentness lives), and how it can answer — `query` (a read-only
+  state API), `probe` (none exists, so the state is learned by attempting the
+  consumption, which is a mutation and therefore cannot be a pre-flight), or
+  `none` (the port answers UNKNOWN and says why). Two rules are load-bearing and
+  each is now a test: `SPENT`/`UNSPENT` are only ever things the authority
+  *said*, so anything else fails closed; and a NUT-07 answer is about
+  **consumption, never existence** — a plain mint answers `UNSPENT` for a
+  nullifier it has never seen, which is how a forged note passes a naive
+  "spendable?" check. Receiving is necessarily a swap (a bearer instrument is
+  destroyed by being spent), and recovery is the same deterministic derivation
+  replayed against the authority's signing log. Working code, 15 tests and a
+  narrated demo are in [`research/bearer-port-demo/`](research/bearer-port-demo/)
+  (transcript in `DEMO-OUTPUT.txt`); the derivation is written up in
+  [`docs/architecture/bearer-instrument-port.md`](docs/architecture/bearer-instrument-port.md).
+  ([#631](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/631))
+
+- **Fedimint (fedi) findings added to the wallet-backend candidate mapping.**
+  Fedimint is Rust with no Go client, so it can only ever be a sidecar, and it
+  cannot build for mipsel at all (`ring 0.17` has no mips backend), which pins it
+  to the large tier. Measured on this fleet: 14.9 MiB stripped / 5.4 MiB with
+  `upx --lzma` (aarch64, worst-case tree) and 62.5 MiB peak RSS on that fat build
+  — the thin-client RSS is the deciding, still-unmeasured number. Licence MIT;
+  the reusable Go wrapper and `fedimint-clientd` are dead (0 of 6 live
+  federations accept the 2024 client), so the daemon would be ours. Running it
+  alongside CDK is supported by the existing sidecar/manifest/policy design and
+  blocked on two deliberate contract extensions: a federation-shaped target key
+  and a backend-scoped token decoder. See
+  [`docs/architecture/wallet-backend-fedimint.md`](docs/architecture/wallet-backend-fedimint.md)
+  and the extended table in
+  [`docs/architecture/walletport-contract.md`](docs/architecture/walletport-contract.md#5-candidate-mapping-first-pass).
+  ([#631](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/631))
 
 ### Changed / Internal
 
