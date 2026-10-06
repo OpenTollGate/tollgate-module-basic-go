@@ -297,6 +297,16 @@ and [Semantic Versioning](https://semver.org/).
   optionally.
   ([#528](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/528))
 
+- **A dependency-resolution smoke guards every release apk.** `tests/packaging/apk-install-resolution_test.sh`
+  resolves the freshly built package's full dependency closure against the
+  stock 25.12.x feed set inside an `openwrt/rootfs` container running
+  apk-tools 3 — the only tooling that reads the 25.12 index format; apk 2.x
+  silently resolves nothing against these feeds, which is how the September
+  #552 breakage went unnoticed between "artifact builds" and "a bench VM
+  cannot install it". The lane runs in the release gate ahead of the
+  happy-path suite (seconds, not minutes), skips cleanly without docker, and
+  exercises the feed-shape control (nodogsplash, the #552 dependency) when
+  run standalone.
 - **The wired LAN ports move onto `br-private`: a cabled client is an
   owner-class client with internet, the admin board and LuCI, and no payment
   step.** The base image puts the physical LAN ports on the *captive* bridge
