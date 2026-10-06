@@ -321,11 +321,12 @@ this stack that is a port decision.
 Considered seriously, because one writer cannot drift. Rejected: the board's
 webroot is a **build-time** substitution (`__ADMIN_HOME__` by the feed's
 Makefile, `portal-build.sh:37-38`), so the module would have to keep its own
-brand→webroot map — which already exists once by accident
-(`setup_uhttpd_configui`, `99-tollgate-setup:689-741`, hardcoding
-`/www/net4sats` for one brand) — and would bind `:443` to a docroot it merely
-believes is right. A wrong guess there is an entry point that answers nothing.
-Two writers that read one switch is the smaller risk, and D4's marker bounds it.
+brand→webroot map — a map that already existed once, in the legacy brand-gated
+configUI writer this record's D4 forbids (it hardcoded one brand's webroot and
+claimed `:8090` behind the board's back) — and would bind `:443` to a docroot it
+merely believes is right. A wrong guess there is an entry point that answers
+nothing. Two writers that read one switch is the smaller risk, and D4's marker
+bounds it.
 
 ### A5 — Gate the link per client, by the network the client came from
 

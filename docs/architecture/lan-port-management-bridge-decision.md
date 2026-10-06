@@ -226,9 +226,10 @@ would hand every wired client free internet — the exact hole this record exist
 to not create. The admin listeners need no change to be reachable: they bind
 `0.0.0.0`/`[::]` (`uhttpd.main` `:8080`/`:443`, `99-tollgate-setup:337-339,443-448`;
 `uhttpd.portal` `:2051`, `:364-365`; `uhttpd.trusted` `:80`, `:646-648`;
-`:8090` written here on `uhttpd.net4sats`/configUI, `:689-709`, and the opt-in
-`:8443` on `uhttpd.admin` written by the feed's `92-tollgate-admin-setup` —
-this script only clears that listener, `:804-805`).
+`:8090` on `uhttpd.admin`, written by the feed's `92-tollgate-admin-setup` — the
+ONE owner of the port; the module's own legacy second writer was removed with
+the re-brand purge, and `:8443` is the same instance's opt-in listener — this
+script only clears that listener, `:804-805`).
 
 **D3 — `br-mgmt` serves DHCP.** `dhcp.mgmt` (`interface 'mgmt'`), so the
 operator's laptop gets an address and the router has a lease to resolve it by —

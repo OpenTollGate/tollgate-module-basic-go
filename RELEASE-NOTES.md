@@ -88,7 +88,8 @@ The entries, tests and links are in [CHANGELOG.md](CHANGELOG.md).
 - **Portal on nodogsplash 5.0.2, whitelabel brand**
   ([#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428)):
   `gatewaydomainname` is no longer set (and is deleted on upgrade and
-  re-runs); the whitelabel hostname (`tollgate` or `net4sats`) comes
+  re-runs); the whitelabel hostname (`tollgate` by default, or the
+  whitelabel `brand` value) comes
   from `/etc/tollgate/brand` and now moves with the brand on upgrade
   while custom hostnames are kept.
 - **Packaging survives the real world**: upgrades no longer abort on
@@ -181,8 +182,8 @@ upgrades **and** same-version setup re-runs — fixing the NDS 5.0.2
 pre-auth redirect loop
 ([#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428)).
 The whitelabel hostname is selected by `/etc/tollgate/brand`
-(`tollgate` default, `net4sats`), drives hostname, DNS, SSIDs and the
-NDS gateway name, and moves with the brand on upgrade while
+(`tollgate` by default, or the whitelabel `brand` value), drives hostname, DNS,
+SSIDs and the NDS gateway name, and moves with the brand on upgrade while
 operator-chosen hostnames are preserved
 ([#444](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/444)).
 The whitelabel config UI is served by a dedicated `uhttpd` section on

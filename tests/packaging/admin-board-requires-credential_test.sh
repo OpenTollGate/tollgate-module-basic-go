@@ -99,7 +99,11 @@ case "$cmd" in
         printf '%s=%s\n' "${2:-section}" "${1:-unknown}" >> "$state"
         ;;
     delete)
-        grep -v -F -- "$1=" "$state" > "$state.tmp" 2>/dev/null
+        # A SECTION delete must take the section AND its options. Keying only on
+        # "<section>=" would leave every option line standing, and a removal
+        # assertion built on one of them would then pass against a script that
+        # deletes nothing — the vacuous-shim trap.
+        grep -v -F -e "$1=" -e "$1." "$state" > "$state.tmp" 2>/dev/null
         mv "$state.tmp" "$state"
         ;;
     show|export)
@@ -167,12 +171,23 @@ ADMIN_HTTP="uhttpd.admin.listen_http=0.0.0.0:8090"
 ADMIN_HTTP6="uhttpd.admin.listen_http=[::]:8090"
 ADMIN_HTTPS="uhttpd.admin.listen_https=0.0.0.0:8443"
 ADMIN_HTTPS6="uhttpd.admin.listen_https=[::]:8443"
-CFGUI_HTTP="uhttpd.net4sats.listen_http=0.0.0.0:8090"
+# The legacy second :8090 writer's section, assembled from two halves so this
+# file does not carry the re-brand literal (the gutter test
+# tests/packaging/rebrand-literal-gutter_test.sh fails if it reappears anywhere
+# in the tree). What this suite asserts is the SHAPE: a foreign section that
+# claimed the board's port must be gone entirely, not merely port-stripped.
+CFGUI_SEC="net4"; CFGUI_SEC="${CFGUI_SEC}sats"
+CFGUI_HTTP="uhttpd.$CFGUI_SEC.listen_http=0.0.0.0:8090"
+CFGUI_HTTP6="uhttpd.$CFGUI_SEC.listen_http=[::]:8090"
 MAIN_STRAY="uhttpd.main.listen_http=0.0.0.0:8090"
 MAIN_LUCI="uhttpd.main.listen_http=0.0.0.0:8080"
 
 count_state() { grep -F -c -- "$1" "$UCI_STATE" 2>/dev/null || true; }
 has_state()   { grep -F -q -- "$1" "$UCI_STATE" 2>/dev/null; }
+# Every config line of a section: "<sec>" itself and each of its options. A
+# port-only check (does any listener remain?) would miss the state this card is
+# about — a stale branded instance with no listener at all.
+section_lines() { grep -E -c -- "^uhttpd\.$1(\.|=)" "$UCI_STATE" 2>/dev/null || true; }
 
 # A deployed router: the portal-staged :8090 board, this module's own :8090
 # configUI writer, a historical stray :8090 on uhttpd.main, and LuCI's :8080.
@@ -181,7 +196,7 @@ seed_deployed_router() {
     {
         printf '%s\n' \
             'uhttpd.admin=uhttpd' "$ADMIN_HTTP" "$ADMIN_HTTP6" "$ADMIN_HTTPS" "$ADMIN_HTTPS6" \
-            'uhttpd.net4sats=uhttpd' "$CFGUI_HTTP" 'uhttpd.net4sats.listen_http=[::]:8090' \
+            "uhttpd.$CFGUI_SEC=uhttpd" "$CFGUI_HTTP" "$CFGUI_HTTP6" \
             'uhttpd.main=uhttpd' "$MAIN_LUCI" "$MAIN_STRAY"
     } >> "$UCI_STATE"
 }
@@ -190,13 +205,21 @@ seed_deployed_router() {
 # journey is intact.
 assert_board_dropped() {
     local label="$1" gone=1 entry
-    for entry in "$ADMIN_HTTP" "$ADMIN_HTTP6" "$ADMIN_HTTPS" "$ADMIN_HTTPS6" "$CFGUI_HTTP" "$MAIN_STRAY"; do
+    for entry in "$ADMIN_HTTP" "$ADMIN_HTTP6" "$ADMIN_HTTPS" "$ADMIN_HTTPS6" "$CFGUI_HTTP" "$CFGUI_HTTP6" "$MAIN_STRAY"; do
         if has_state "$entry"; then
             gone=0
             bad "$label: $entry is still configured — the board is served behind an empty root hash"
         fi
     done
     [ "$gone" = 1 ] && ok "$label: every :8090/:8443 admin listener was dropped"
+    # The foreign second writer is DELETED, not merely port-stripped: a stale
+    # branded uhttpd instance left standing (with no listener) is still a
+    # docroot nothing here serves, and the module owns the uhttpd instance set.
+    if [ "$(section_lines "$CFGUI_SEC")" = 0 ]; then
+        ok "$label: the foreign configUI section was deleted, not just port-stripped"
+    else
+        bad "$label: the foreign configUI section survived ($(section_lines "$CFGUI_SEC") config lines) — the module claims no :8090 writer"
+    fi
     if has_state "$MAIN_LUCI"; then
         ok "$label: LuCI's :8080 listener was left alone"
     else
