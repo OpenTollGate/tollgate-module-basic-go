@@ -339,6 +339,103 @@ func TestBootstrapStatusDefaultsToIdle(t *testing.T) {
 	}
 }
 
+// --- renewal-path regression (#629 post-merge review) -------------------------
+
+// callHandleRenewalUnderWatchdog fails the test when HandleRenewal does not
+// return within the deadline — the observable shape of the #629 deadlock:
+// the renewal goroutine hangs forever and every later tracker poll queues
+// another goroutine behind the stuck lock.
+func callHandleRenewalUnderWatchdog(t *testing.T, s *UpstreamSession, usage uint64) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- s.HandleRenewal(usage) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("HandleRenewal did not return within 5s — deadlock regression from #629 (candidate check re-entering paymentMu)")
+		return nil
+	}
+}
+
+func TestHandleRenewalColdStartResellerArmsBootstrapWithoutDeadlock(t *testing.T) {
+	s := coldStartSession(t, newBootstrapMerchant())
+	s.configManager = resellerConfigManager(t, true)
+
+	if err := callHandleRenewalUnderWatchdog(t, s, 0); err != nil {
+		t.Fatalf("cold-start reseller renewal must return nil with bootstrap armed, got %v", err)
+	}
+	if !s.BootstrapStatus().Active {
+		t.Fatal("HandleRenewal must leave bootstrap armed for a cold-start reseller")
+	}
+}
+
+func TestHandleRenewalWarmResellerReturnsWithoutDeadlock(t *testing.T) {
+	// A warm reseller with a nonzero but insufficient balance: above zero at
+	// the upstream's mint (so not a cold-start candidate), below what the
+	// pricing requires (so renewal takes the pre-existing insufficient-funds
+	// error path). Pre-fix, this hung forever inside the candidate check.
+	m := newBootstrapMerchant()
+	m.balances["https://mint.example"] = 1
+	s := coldStartSession(t, m)
+	s.configManager = resellerConfigManager(t, true)
+	s.AdvertisementInfo.PricingOptions = []tollgate_protocol.PricingOption{
+		{MintURL: "https://mint.example", PricePerStep: 1000, MinSteps: 1},
+	}
+	s.TotalAllotment = 10 * 1048576
+
+	if err := callHandleRenewalUnderWatchdog(t, s, 1048576); err == nil {
+		t.Fatal("expected the insufficient-funds error path, got nil")
+	}
+}
+
+func TestHandleRenewalDirectGatewayReturnsWithoutDeadlock(t *testing.T) {
+	s := coldStartSession(t, newBootstrapMerchant())
+	s.configManager = resellerConfigManager(t, false)
+
+	// No funds, reseller mode off: the pre-existing "no compatible pricing"
+	// error. The assertion that matters is that it returns at all.
+	if err := callHandleRenewalUnderWatchdog(t, s, 0); err == nil {
+		t.Fatal("expected an error for an unfunded direct gateway, got nil")
+	}
+}
+
+func TestForwardFirstProofRefusesSecondProofAfterComplete(t *testing.T) {
+	// The bootstrap forward is one-shot: after the first proof completed, a
+	// different proof must be refused — forwarded whole it would hand the
+	// upstream the full value of a later payment (no swap, no split) and
+	// overwrite the recorded allotment.
+	const proofA, proofB = "cashuAfirstCustomer", "cashuBsecondCustomer"
+	fwd := &fakeForwarder{allotment: 1048576}
+	s := coldStartSession(t, newBootstrapMerchant())
+	s.configManager = resellerConfigManager(t, true)
+	s.bootstrapForwarder = fwd.forward
+
+	if _, err := s.ForwardFirstProof(proofA); err != nil {
+		t.Fatalf("first forward: %v", err)
+	}
+	s.TotalAllotment = 10 * 1048576 // the session the first forward established
+
+	if _, err := s.ForwardFirstProof(proofB); err == nil {
+		t.Fatal("a second, different proof must be refused after bootstrap completed")
+	}
+	fwd.mu.Lock()
+	tokens := make([]string, 0, len(fwd.calls))
+	for _, c := range fwd.calls {
+		tokens = append(tokens, c.token)
+	}
+	fwd.mu.Unlock()
+	if len(tokens) != 1 || tokens[0] != proofA {
+		t.Fatalf("exactly the first proof must reach the wire, got %v", tokens)
+	}
+	if s.TotalAllotment != 10*1048576 {
+		t.Fatalf("a refused forward must not touch TotalAllotment: got %d, want %d", s.TotalAllotment, 10*1048576)
+	}
+	if st := s.BootstrapStatus(); st.Phase != BootstrapComplete {
+		t.Fatalf("phase must remain complete after a refused second forward, got %q", st.Phase)
+	}
+}
+
 // --- manager-level API --------------------------------------------------------
 
 func TestManagerForwardFirstProofUnknownGateway(t *testing.T) {
