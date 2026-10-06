@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
@@ -574,5 +575,43 @@ func TestApplyPrivateNetworkCredentialsAllEmpty(t *testing.T) {
 	results := applyPrivateNetworkCredentials(cfg)
 	if len(results) != 1 || results[0].Status != statusSkipped {
 		t.Fatalf("an empty declaration must produce one skipped result, got %+v", results)
+	}
+}
+
+// TestReloadFirewallIsBoundedAgainstAWedgedFw4 pins #637: `fw4 reload` runs
+// under a deadline because the operator-settings convergence sits on the
+// daemon start path (after the API binds, before Serve) — an unbounded reload
+// on a wedged fw4 stalled the service, and procd respawned it into the same
+// stall. A wedged fw4 must return within the bound with the timeout message,
+// not hang.
+func TestReloadFirewallIsBoundedAgainstAWedgedFw4(t *testing.T) {
+	dir := t.TempDir()
+	// exec sleep: the wedged process IS the script process (a real fw4 wedges
+	// in its own nftables call), so the deadline's kill lands on the process
+	// holding the output pipe — a child sleep would outlive the kill and hold
+	// the pipe open past every deadline.
+	script := "#!/bin/sh\nexec sleep 300\n"
+	if err := os.WriteFile(filepath.Join(dir, "fw4"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake fw4: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	prev := firewallReloadTimeout
+	firewallReloadTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { firewallReloadTimeout = prev })
+
+	done := make(chan error, 1)
+	go func() { done <- reloadFirewall() }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a wedged fw4 must surface as an error")
+		}
+		if !strings.Contains(err.Error(), "did not finish within") {
+			t.Fatalf("expected the bounded-timeout message, got: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("reloadFirewall is unbounded: a wedged fw4 stalled it past every deadline")
 	}
 }
