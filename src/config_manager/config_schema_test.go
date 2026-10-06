@@ -536,3 +536,34 @@ func TestSaveConfigFallsBackToInPlaceWhenRenameIsImpossible(t *testing.T) {
 		}
 	}
 }
+
+// TestSetDotPathPrivateKeyBounds pins #636: an out-of-bounds private_key is
+// refused at `config set` write time, with the WPA2-PSK 8-63 bounds the
+// applier enforces — a persisted-but-never-enforced credential used to be a
+// quiet dead end (secret_set reported true while every convergence refused).
+// Empty stays valid: it is the documented keep-current sentinel, and the
+// wholesale `config save` path validates stock configs where it is empty.
+func TestSetDotPathPrivateKeyBounds(t *testing.T) {
+	tempDir := t.TempDir()
+	cm, err := NewConfigManager(
+		tempDir+"/config.json",
+		tempDir+"/install.json",
+		tempDir+"/identities.json",
+	)
+	if err != nil {
+		t.Fatalf("Failed to create ConfigManager: %v", err)
+	}
+
+	if err := SetDotPath(cm, "private_key", "short"); err == nil {
+		t.Error("Expected error for a below-bounds private_key, got nil")
+	}
+	if err := SetDotPath(cm, "private_key", strings.Repeat("a", 64)); err == nil {
+		t.Error("Expected error for an above-bounds private_key, got nil")
+	}
+	if err := SetDotPath(cm, "private_key", "12345678"); err != nil {
+		t.Errorf("Expected an 8-character private_key to be accepted, got: %v", err)
+	}
+	if err := SetDotPath(cm, "private_key", ""); err != nil {
+		t.Errorf("Expected an empty private_key (keep-current sentinel) to be accepted, got: %v", err)
+	}
+}
