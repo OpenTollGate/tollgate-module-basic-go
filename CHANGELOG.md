@@ -1587,6 +1587,12 @@ and [Semantic Versioning](https://semver.org/).
   ([#574](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/574)).
 
 ### Changed / Internal
+- **The parent tests README is a map of the test estate again.** It
+  documented only the hardware data-measurement harness; it now points
+  at every environment (cloud-lab, hardware fleet, contract, packaging,
+  sim, happy-path) and names the cloud-lab as the default for
+  logic-level work.
+  ([#570](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/570))
 - **A MAC rotation no longer restarts the byte meter or extends paid time.**
   Sessions are addressed by a server-signed, memory-only ticket carrying only a
   session handle (no allotment, no metric, no MAC), issued and verified by the
