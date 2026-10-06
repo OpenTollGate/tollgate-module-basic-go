@@ -146,7 +146,30 @@ and [Semantic Versioning](https://semver.org/).
   ([#612](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/612))
 
 
-- **A wedged `fw4` can no longer stall the daemon's start path (#637).**
+- **`MintConfig` unmarshalling accepts the legacy `min_purchase_steps`
+  spelling and floors `MinPurchaseSteps` at 1 (#104, ported from the
+  disposition train).** A purchase of fewer than one step is meaningless
+  and clients (cashud, wally) reject advertisements with `min_steps=0`;
+  early FreedomTechFeed configs carried the legacy key, which parsed as
+  absent and left the field 0. The parser now accepts both spellings
+  (primary wins), defaults absent/0 to 1, and is pinned by a 6-case table.
+  The shipped mint templates also carry literal 1s, and the edit path has
+  kept its schema floor (`Min: 1`). The wire-spec side of the default
+  (TIP-02's tentative `default 0`) is tracked upstream in the spec repo
+  (OpenTollGate/tollgate#20) with a proposal to de-tentative to 1 — this
+  implementation already matches the field evidence that proposal cites.
+  ([#634](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/634),
+  [fork #104](https://github.com/Amperstrand/tollgate-module-basic-go/pull/104))
+
+- **The atomic config write falls back to a durable in-place write when
+  the inode is pinned.** A single-file bind mount (the conformance lab,
+  containerized deploys) cannot have its config renamed over — the
+  #402-hardened `SaveConfig` answered EBUSY there and brought the lab
+  daemon down at config migration. Where rename cannot serve, the save
+  falls back to `O_TRUNC`+write+fsync on the mounted file: the pre-#402
+  guarantee, strictly better than refusing to save.
+
+- **A wedged `fw4` can no longer stall- **A wedged `fw4` can no longer stall the daemon's start path (#637).**
   The operator-settings convergence (which runs after the API listener
   binds but before `Serve`) called `fw4 reload` with no deadline, so a
   wedged firewall reload on exactly the boots where drift exists (first
