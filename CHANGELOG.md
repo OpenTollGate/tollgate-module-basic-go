@@ -9,6 +9,18 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
+### Added
+
+- **`tollgate wallet recover`.** Checks every token in the drain journal
+  against its mint via NUT-07 proof state and reports which drained
+  tokens are still spendable (with full token strings), which are
+  already spent, and which could not be determined (mint unreachable,
+  unusable response, or a redemption in flight — exits non-zero). Read-only: the recovery path for tokens produced by
+  a drain whose response was lost to a crash or partial failure.
+  Protocol boundaries are annotated with verbatim NUT spec quotes
+  checked by the greatspectations CI job.
+  ([#549](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/549))
+
 
 ## [v0.6.0-rc1] - 2026-10-05
 ### Added
