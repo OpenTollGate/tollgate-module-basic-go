@@ -16,10 +16,9 @@ The cloud-lab is the default for anything logic-level (payments, fees,
 sessions, mints); the hardware fleet is the only place router-visible
 behavior (portal, Wi-Fi, gate) is real. Before running anything on a
 host shared with other sessions, read
-[cloud-lab/RUNBOOK.md](cloud-lab/RUNBOOK.md) (on the runner branch;
-until it merges, the short version: use per-checkout
+[cloud-lab/RUNBOOK.md](cloud-lab/RUNBOOK.md) — use per-checkout
 `COMPOSE_PROJECT_NAME`, strip host ports, tear down with
-`down -v --remove-orphans`).
+`down -v --remove-orphans`.
 
 ## Hardware fleet: data measurement test
 
