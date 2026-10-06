@@ -12,6 +12,41 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The module is no longer a second `:8090` writer, and the tree carries no
+  re-brand literal.** Two defects, one root: a brand-gated legacy configUI
+  writer in `99-tollgate-setup` created its OWN `uhttpd` section on `:8090`
+  (home = a branded webroot) whenever a brand file and a branded docroot were
+  present — a second claimant of the port the portal-staged board
+  (`uhttpd.admin`, written by the feed's `92-tollgate-admin-setup`, staged by
+  `packaging/portal-build.sh`) already owns, i.e. a bind fight in which one of
+  the two admin UIs disappears (`default-ui-and-entry-port-decision.md`, D4);
+  and the brand was a hard-coded literal in the module, in the docs and in the
+  tests, so upstream carried a commercial brand's name. The legacy writer and
+  the brand whitelist are GONE: `load_brand` accepts any single alphanumeric
+  token from `/etc/tollgate/brand` (default `tollgate`, display spelling
+  derived, no table), the machine-name recognisers (`code_from_name`,
+  `captive_ssid_for_code`) match the default prefix or THIS router's own brand
+  token instead of a hard-coded list, and `setup_hostname` compares against the
+  build's own `BRAND_HOSTNAME`. A router upgrading from a build that carried the
+  legacy writer CONVERGES: `purge_foreign_configui_sections` DELETES any
+  `uhttpd` section that is not one this module owns (`main`, `portal`,
+  `trusted`, `admin`) — not merely its `:8090` listeners, which the feed's `92`
+  already strips, leaving a listener-less branded instance behind — on BOTH
+  setup paths, so a same-version reinstall repairs it too. `sanitize_uhttpd_main_configui_port`
+  still strips a stray `:8090` from LuCI's instance. Net contract after an
+  install, an upgrade, a reinstall-over-marker or a legacy-left-behind box:
+  exactly ONE section owns `:8090` (`uhttpd.admin`, home `/www/tollgate`), LuCI
+  stays alone on `:8080` (home `/www`), and no build product is claimed or
+  renamed on the portal's side. Supersedes the module-side writer added in
+  [#451](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/451) for
+  the default build: the board is the portal bundle's, and a re-brand ships its
+  own webroot from its own organisation. Pinned RED-first by
+  `tests/packaging/configui-8090-single-owner_test.sh` (the four scenarios plus
+  detector controls) and `tests/packaging/rebrand-literal-gutter_test.sh` (a
+  gutter that fails if any re-brand literal reappears anywhere in the tracked
+  tree, with a planted-occurrence control). No history rewrite: the literal
+  survives in old commits, by design.
+  ([#649](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/649))
 - **The TLS review of #593, closed: the derived hop is committed before the
   reload, the operator's own identity survives an install, and the postinst runs
   the order the boot path uses.** Three defects in the change that made setup
@@ -1834,7 +1869,7 @@ same-version short branch.
 
 - **Upgrades move the hostname with the brand, and keep custom ones.**
   The upgrade path now migrates the system hostname together with the
-  whitelabel brand (`tollgate.lan` / `net4sats.lan`) instead of leaving a
+  whitelabel brand (`tollgate.lan` / `<brand>.lan`) instead of leaving a
   stale name behind, while a hostname the operator chose themselves is
   preserved untouched
   ([#444](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/444)).
@@ -2183,10 +2218,10 @@ same-version short branch.
   `ERR_TOO_MANY_REDIRECTS` and never reach the payment page. The
   friendly `<hostname>.lan` name keeps resolving without the option —
   dnsmasq serves the system hostname in the `lan` zone. The
-  whitelabel hostname is now brand-selected (`tollgate`, the default, or
-  `net4sats`) from a single `/etc/tollgate/brand` file, driving the
-  system hostname (and thus `tollgate.lan` / `net4sats.lan` DNS), AP
-  SSIDs, and the NDS gateway name; the two brands differ only in
+  whitelabel hostname is now brand-selected (`tollgate` by default, or the
+  whitelabel `brand` value) from a single `/etc/tollgate/brand` file, driving the
+  system hostname (and thus `tollgate.lan` / `<brand>.lan` DNS), AP
+  SSIDs, and the NDS gateway name; the brands differ only in
   naming. `tollgate ssl` no longer sets the option either and cleans
   it up on revert. ([#432](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/432), fixes [#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428))
 
@@ -2219,10 +2254,10 @@ same-version short branch.
   `ERR_TOO_MANY_REDIRECTS` and never reach the payment page. The
   friendly `<hostname>.lan` name keeps resolving without the option —
   dnsmasq serves the system hostname in the `lan` zone. The
-  whitelabel hostname is now brand-selected (`tollgate`, the default, or
-  `net4sats`) from a single `/etc/tollgate/brand` file, driving the
-  system hostname (and thus `tollgate.lan` / `net4sats.lan` DNS), AP
-  SSIDs, and the NDS gateway name; the two brands differ only in
+  whitelabel hostname is now brand-selected (`tollgate` by default, or the
+  whitelabel `brand` value) from a single `/etc/tollgate/brand` file, driving the
+  system hostname (and thus `tollgate.lan` / `<brand>.lan` DNS), AP
+  SSIDs, and the NDS gateway name; the brands differ only in
   naming. `tollgate ssl` no longer sets the option either and cleans
   it up on revert. ([#432](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/432), fixes [#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428))
 
@@ -2371,10 +2406,10 @@ same-version short branch.
   the shipped `tollgate` binary contained no version at all. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
 
 - **Whitelabel config UI on :8090 no longer degrades into a LuCI
-  redirect.** The net4sats whitelabel admin UI (docroot
-  `/www/net4sats`, installed by the whitelabel installer) is served by
-  a dedicated `uhttpd` section on port 8090; first-boot/reinstall
-  setup now re-ensures that section whenever the branded docroot is
+  redirect.** The whitelabel admin UI (a branded docroot installed by
+  the whitelabel installer) was served by a dedicated `uhttpd`
+  section on port 8090; first-boot/reinstall
+  setup then re-ensured that section whenever the branded docroot was
   present, mirroring the known-good deployed layout. Repair attempts
   that instead added `:8090` to `uhttpd.main` land on LuCI's docroot
   (`/www`, whose `index.html` meta-refreshes to `cgi-bin/luci` — the
