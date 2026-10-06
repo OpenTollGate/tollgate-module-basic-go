@@ -321,11 +321,12 @@ this stack that is a port decision.
 Considered seriously, because one writer cannot drift. Rejected: the board's
 webroot is a **build-time** substitution (`__ADMIN_HOME__` by the feed's
 Makefile, `portal-build.sh:37-38`), so the module would have to keep its own
-brand→webroot map — which already exists once by accident
-(`setup_uhttpd_configui`, `99-tollgate-setup:689-741`, hardcoding
-`/www/net4sats` for one brand) — and would bind `:443` to a docroot it merely
-believes is right. A wrong guess there is an entry point that answers nothing.
-Two writers that read one switch is the smaller risk, and D4's marker bounds it.
+brand→webroot map — a map that already existed once, in the legacy brand-gated
+configUI writer this record's D4 forbids (it hardcoded one brand's webroot and
+claimed `:8090` behind the board's back) — and would bind `:443` to a docroot it
+merely believes is right. A wrong guess there is an entry point that answers
+nothing. Two writers that read one switch is the smaller risk, and D4's marker
+bounds it.
 
 ### A5 — Gate the link per client, by the network the client came from
 
@@ -334,9 +335,16 @@ really about. The board's backend is rpcd over the uhttpd instance's
 `ubus_prefix`, and its plugin sees the **request payload only** (`openwrt/rpcd/tollgate`
 pipes it through `cat`), so the router cannot say which network the browser is
 on. The one place that *can* answer per socket is the module's own identity
-resolver, and the admin path cannot reach it: `30-backend-firewall.nft:21-22`
-drops `:2121` for `iifname != { "br-lan", "lo" }`, which is deliberate (the
-money API is a customer surface). So the design keeps liveness a router-wide
+resolver, and at the time of this decision the admin path could not reach it:
+`30-backend-firewall.nft` dropped `:2121` for
+`iifname != { "br-lan", "lo" }`. **Corrected 2026-10-04:** that exemption set
+now names `br-private` too (`iifname != { "br-lan", "br-private", "lo" }`),
+because the board is served on `br-private` and reads every value it shows from
+`:2121` — with the drop in place the board rendered while all of its data died,
+which is a defect, not a deliberate customer-surface boundary. The per-client
+mechanism is therefore no longer blocked by the packet filter; the rejection
+below rests on the cost of the mechanism itself, not on unreachability. So the
+design keeps liveness a router-wide
 fact and makes invariant 2 stand in for the per-client answer: a client that can
 load the board at all is a client inside the admin scope, and both UIs share
 that scope. If the scopes ever need to diverge, that is a change to this record
@@ -450,7 +458,7 @@ rules; `br-mgmt` needs PR #601's port move first)**
 
 | # | Repo | Change |
 |---|---|---|
-| 1 | `tollgate-module-basic-go` | `entry_ui` in `config.json` + schema + defaults + migration + version bump; `99`'s mapping writer and the D4 marker gate; the identity-follows-listener change in `setup_uhttpd_tls_identity` and `ssl.go`; the mode-aware rewrites of `drop_admin_listeners` / `setup_uhttpd_configui` / `sanitize_uhttpd_main_configui_port`; `tollgate ui links`; offline suite 1-10 above; this record. |
+| 1 | `tollgate-module-basic-go` | `entry_ui` in `config.json` + schema + defaults + migration + version bump; `99`'s mapping writer and the D4 marker gate; the identity-follows-listener change in `setup_uhttpd_tls_identity` and `ssl.go`; the mode-aware rewrites of `drop_admin_listeners` / `purge_foreign_configui_sections` / `sanitize_uhttpd_main_configui_port`; `tollgate ui links`; offline suite 1-10 above; this record. |
 | 2 | `tollgate-captive-portal-site` | `92` becomes mode-aware (entry vs secondary pair, marker, the provisioned identity, the pre-auth block removed, `:8443` no longer keyed off `/etc/uhttpd.crt`); the login page's `http://<host>:8080/` anchor replaced by the `ui links` render; the portal-side guard for invariant 5/7; portal tests. |
 | 3 | `FreedomTechFeed/packages` | Re-vendor the bundle and the `92` from slice 2 and re-pin the portal commit in the same release that turns `entry_ui=board` on by default (D4) — the atomicity boundary. |
 | 4 | bench | Card-sized: the bench assertions 11-18, on the artifact that carries slices 1-3. |

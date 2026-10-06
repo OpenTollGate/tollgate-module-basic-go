@@ -89,6 +89,15 @@ func (l *syncLogs) String() string {
 	return l.buf.String()
 }
 
+// Len reports the number of buffered bytes under the same lock as Write, so a
+// test can mark a position in the capture while goroutines may still be
+// logging (bytes read this way cannot race with the writers).
+func (l *syncLogs) Len() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Len()
+}
+
 func captureSyncLogs(t *testing.T) *syncLogs {
 	t.Helper()
 

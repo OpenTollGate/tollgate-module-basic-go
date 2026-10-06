@@ -99,14 +99,20 @@ login itself was never broken: `POST /ubus session.login` over `:8443` and
 ## Consequences
 
 - Neither script may hardcode this option again: both evaluate the rule above.
-  **The feed's `92-tollgate-admin-setup` still carries the superseded
-  existence-only guard and must be updated to the same rule** — this repository
-  cannot change it. ~~Until it is, correctness depends on install order: `99`
-  runs after `92` and lands the coverage-checked value last, so the shipped
-  combination is safe.~~ **Superseded by the measured install order further
-  down this record: `92` is the *last* writer, so install order does not save
-  this — the operator-visible defect stands until the feed's copy evaluates the
-  same premise.**
+  **This module's `92-tollgate-admin-setup` does since its portal pin advanced to
+  `4158030`** (portal #64/#65; the pin is resolved and asserted by
+  `tests/packaging/assert-portal-bundle-contract.sh` CHECK F). **The feed
+  repository's vendored copy still carries the superseded existence-only guard
+  and must be updated to the same rule** — this repository cannot change it
+  (re-verified 2026-09-27:
+  `net/tollgate-wrt/files/uci-defaults/92-tollgate-admin-setup` still derives
+  `uhttpd.main.redirect_https` from the readability of `/etc/uhttpd.crt`).
+  ~~Until it is, correctness depends on install order: `99` runs after `92` and
+  lands the coverage-checked value last, so the shipped combination is safe.~~
+  **Superseded twice: by the measured install order further down this record
+  (`92` was the *last* writer at install time), and then by the module's postinst
+  being moved onto the boot order. The operator-visible defect therefore stands
+  only on the feed's install path, until that copy evaluates the same premise.**
 - `99-tollgate-setup` **provisions** the router's TLS identity instead of
   inheriting the image's placeholder: on both the full-setup and the
   verify/repair path it drives the module's own generator
@@ -141,17 +147,27 @@ login itself was never broken: `POST /ubus session.login` over `:8443` and
 - The feed's companion change adds a fail-open post-restart check that turns
   the redirect back off when no listen socket exists on `:443`. Both writers
   must be updated together whenever this rule changes.
-- **Install order is NOT a safety net, and here is the measured order.**
-  `packaging/Makefile`'s postinst runs the uci-defaults explicitly as
-  `90-tollgate-captive-portal-symlink`, `99-tollgate-setup`, `92-tollgate-admin-setup`
-  — so on the module's own install/upgrade pass **`92` is the LAST writer of
-  `uhttpd.main.redirect_https`**. At boot they run numerically (`90, 92, 99`), so
-  `99` is last there. A writer that kept the superseded existence-only premise
-  therefore wins on the install pass: a router whose identity cannot be validated
-  (provisioning refused, or the image's placeholder as the fallback listener
-  identity) is derived to `0` by `99` and then put back to `1` by `92`, which is
-  the operator-visible defect this rule was hardened for. The two writers must
-  evaluate the same rule; they cannot rely on who runs last.
+- **Install order is not a safety net — and the module's postinst now uses the
+  boot path's order.** `/etc/init.d/boot` applies the uci-defaults numerically
+  (`90, 92, 99`); `packaging/Makefile`'s postinst used to run the same scripts as
+  `90, 99, 92`, so the LAST writer of `uhttpd.main.redirect_https` differed
+  between the install pass and the boot pass — an install converged to whatever
+  that order produced and only the next reboot re-ran them numerically. It now
+  runs `90, 92, 99`, so the value an install lands is the value the next boot
+  produces, whatever either script decides, and
+  `tests/packaging/uci-defaults-run-order_test.sh` pins the order (with the
+  pre-change order as its negative control). This is convergence, not
+  correctness: whichever of the two writers runs LAST decides the option, so both
+  must evaluate the same rule — this document's. The module's pinned
+  `92-tollgate-admin-setup` does (CHECK F above); the feed's vendored copy does
+  not, and its recipe still runs `92` last, so the operator-visible defect stands
+  on the feed's install path until that copy carries the same premise.
+- A writer that kept the superseded existence-only premise demonstrated why the
+  rule is stated as a premise and not as an order: a router whose identity cannot
+  be validated (provisioning refused, or the image's placeholder as the fallback
+  listener identity) is derived to `0` by `99` and was then put back to `1` by an
+  existence-only `92` whenever `92` ran last, which is the operator-visible
+  defect this rule was hardened for.
 
 ## Product decision: what answers the captive side (2026-09-26)
 

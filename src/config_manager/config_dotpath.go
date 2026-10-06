@@ -46,6 +46,15 @@ func SetDotPath(cm *ConfigManager, key, value string) error {
 	}
 }
 
+// ValidateValue runs the schema validation for one dotpath/value pair without
+// writing anything. It exists for the wholesale `config save` path, which
+// replaces the whole file and therefore never went through the per-key checks
+// SetDotPath applies: an enum field written that way used to be stored
+// unvalidated, and a bad value in one of them is a router that stops answering.
+func ValidateValue(key, value string) error {
+	return validateAgainstSchema(key, value)
+}
+
 func validateAgainstSchema(key, value string) error {
 	parts := strings.Split(key, ".")
 	if len(parts) == 0 {
@@ -103,6 +112,19 @@ func validateAgainstSchema(key, value string) error {
 	}
 
 	switch field.Type {
+	case "string":
+		if value == "" {
+			// Empty is the keep-current sentinel for the fields that carry
+			// length bounds (private_key); refusing it would break every
+			// wholesale `config save` of a stock config.
+			return nil
+		}
+		if field.MinLength > 0 && len(value) < field.MinLength {
+			return fmt.Errorf("value must be at least %d characters (got %d)", field.MinLength, len(value))
+		}
+		if field.MaxLength > 0 && len(value) > field.MaxLength {
+			return fmt.Errorf("value must be at most %d characters (got %d)", field.MaxLength, len(value))
+		}
 	case "uint64":
 		n, err := strconv.ParseUint(value, 10, 64)
 		if err != nil {

@@ -60,8 +60,9 @@ claimed to match (see "The nym charset differs between the two writers below"):
 
 1. `tollgate.device.code` from `/etc/config/tollgate` (validated as exactly four
    `[A-Z0-9]`; a junk value is re-derived, never trusted).
-2. a **machine-shaped hostname** (`tollgate-OQ3Q`, `TollGate-OQ3Q`,
-   `Net4sats-OQ3Q`) — this is what the installer has always written.
+2. a **machine-shaped hostname** (`tollgate-OQ3Q`, `TollGate-OQ3Q`, or a
+   whitelabel build's `<brand>-OQ3Q`) — this is what the installer has always
+   written.
 3. a **machine-shaped captive SSID** (`TollGate-OQ3Q`, `tollgate-0GLK`).
 4. **mint** — four characters of `[A-Z0-9]` from `/dev/urandom`, BusyBox
    `hexdump` idiom (no `od` on the target).
@@ -77,7 +78,8 @@ collecting a third one. That is what heals the bench box on the next install.
 default). It is stored in the same section so both writers agree, and it is
 adopted from an existing machine-shaped private SSID, so a module deployed under
 another nym keeps it. It is used for the **private** SSID only — the captive SSID
-keeps the brand prefix (`TollGate-` / `Net4sats-`), because reseller-mode
+keeps the brand prefix (`TollGate-` / a whitelabel build's `<brand>-`), because
+reseller-mode
 upstream discovery in `src/wireless_gateway_manager` matches `"TollGate-*"`
 **case-sensitively** (`discovery_log.go`, `vendor_element_manager.go`,
 `upstream_manager.go`).
