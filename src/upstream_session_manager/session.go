@@ -247,6 +247,25 @@ func (s *UpstreamSession) StopUsageTracker() {
 // HandleRenewal is called by the tracker when renewal is needed
 // This handles both initial payment (-1/-1) and actual renewals
 func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
+	// Cold start (reseller bootstrap, #239): a freshly configured reseller has
+	// no upstream session and no ecash balance, so the wallet-funded payment
+	// below can never succeed — it would log "no compatible pricing with funds"
+	// on every poll, forever, and the first customer would never get a link.
+	// Arm bootstrap mode instead and return: the first customer proof is
+	// forwarded whole by ForwardFirstProof, which establishes the upstream
+	// session; renewals then resume on the normal path.
+	//
+	// This is inert unless reseller mode is active, so direct gateways are
+	// unaffected.
+	//
+	// LOCKING: must run before paymentMu is taken. The candidate check
+	// re-enters paymentMu (hasEstablishedUpstreamSession reads TotalAllotment
+	// under it) and sync.Mutex is not reentrant: under the lock this call
+	// self-deadlocked every reseller-mode renewal.
+	if s.EnsureBootstrapForColdStart() {
+		return nil
+	}
+
 	// Acquire payment mutex to prevent concurrent payments
 	s.paymentMu.Lock()
 	defer s.paymentMu.Unlock()
@@ -276,20 +295,6 @@ func (s *UpstreamSession) HandleRenewal(currentUsage uint64) error {
 		"current_usage": currentUsage,
 		"allotment":     s.TotalAllotment,
 	}).Info("💳 Processing payment request (initial or renewal)")
-
-	// Cold start (reseller bootstrap, #239): a freshly configured reseller has
-	// no upstream session and no ecash balance, so the wallet-funded payment
-	// below can never succeed — it would log "no compatible pricing with funds"
-	// on every poll, forever, and the first customer would never get a link.
-	// Arm bootstrap mode instead and return: the first customer proof is
-	// forwarded whole by ForwardFirstProof, which establishes the upstream
-	// session; renewals then resume on the normal path.
-	//
-	// This is inert unless reseller mode is active, so direct gateways are
-	// unaffected.
-	if s.EnsureBootstrapForColdStart() {
-		return nil
-	}
 
 	// Calculate steps based on preferred increments
 	config := s.configManager.GetConfig()

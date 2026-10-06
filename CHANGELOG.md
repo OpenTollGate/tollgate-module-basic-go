@@ -10,6 +10,26 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reseller-mode renewals no longer self-deadlock on the payment lock
+  (#678, follow-up to #629).** The cold-start bootstrap merged in #629
+  evaluates its candidate check inside the `paymentMu` critical section
+  that `HandleRenewal` holds, and the check re-enters that same mutex
+  (`hasEstablishedUpstreamSession` reads `TotalAllotment` under it) —
+  `sync.Mutex` is not reentrant, so on every reseller-mode node the
+  first renewal poll hung forever and each later tracker poll leaked one
+  more goroutine behind the stuck lock; renewals never happened, cold
+  start and funded resellers alike. The candidate check now runs before
+  the lock is taken (an armed cold start also stops logging the
+  per-poll "processing payment request" line). The same PR fixes the
+  bootstrap forward's one-shot contract: after `BootstrapComplete` a
+  second, different proof was forwarded whole to the upstream (no swap,
+  no split, no margin) and overwrote the recorded allotment instead of
+  accumulating — `ForwardFirstProof` now refuses it. Watchdog and
+  one-shot regression tests fail on the pre-fix tree and pass under
+  `-race`. ([#678](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/678))
+
 ## [v0.6.0-rc1] - 2026-10-05
 ### Added
 
@@ -288,6 +308,14 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Changed / Internal
 
+- **The vendor-IE encoder has an explicit overflow policy instead of a silent
+  failure.** When the encoded body would exceed the 255-byte element cap the
+  mint TLV (the bulkiest optional field) is dropped and the truncation is
+  reported by `EncodeTollGateVendorIE` and logged by `EmitTollGateVendorIE`
+  — the element is an unsigned hint, and the signed advertisement on `:2121`
+  remains authoritative and complete. Only a pubkey that cannot fit even
+  without the mint TLV is an error. Round-trip tests now use realistic
+  32-byte keys (was 3 bytes). Found by the #618 design review.
 - **The discovery-signaling decision is recorded: v0.6 ships SSID-prefix
   recognition; the richer tiers are documented and deferred.**
   `docs/architecture/discovery-signaling-decision.md` separates the candidate

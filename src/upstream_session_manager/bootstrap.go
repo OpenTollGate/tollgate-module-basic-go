@@ -104,6 +104,10 @@ func (s *UpstreamSession) resellerModeEnabled() bool {
 
 // hasEstablishedUpstreamSession reports whether an upstream data session is
 // already up for this gateway.
+//
+// Takes paymentMu: callers must NOT already hold it (sync.Mutex is not
+// reentrant — the 629 merge deadlocked every reseller-mode HandleRenewal by
+// calling this through EnsureBootstrapForColdStart under the lock).
 func (s *UpstreamSession) hasEstablishedUpstreamSession() bool {
 	s.paymentMu.Lock()
 	defer s.paymentMu.Unlock()
@@ -215,6 +219,22 @@ func (s *UpstreamSession) ForwardFirstProof(token string) (uint64, error) {
 		logger.WithField("gateway", s.GatewayIP).
 			Info("bootstrap: replay of an already-forwarded proof — returning the recorded allotment, not forwarding again")
 		return allotment, nil
+	}
+	// The machine is one-shot: once bootstrap completed, the first customer's
+	// proof is spent upstream and this gateway is on the normal wallet-funded
+	// path. Forwarding a second proof whole would hand the upstream the full
+	// value of a later payment (no swap, no split, no margin) and overwrite
+	// the recorded allotment — the state machine must enforce "first proof
+	// only" itself, not rely on the caller that phase 2b has not written yet.
+	if s.bootstrap.phase == BootstrapComplete {
+		known := s.bootstrap.reference
+		s.bootstrap.mu.Unlock()
+		logger.WithFields(logrus.Fields{
+			"gateway":      s.GatewayIP,
+			"reference":    ref,
+			"known_record": known,
+		}).Warn("bootstrap already complete — refusing to forward another proof whole; later payments take the normal wallet-funded path")
+		return 0, fmt.Errorf("bootstrap already complete for gateway %s (recorded proof %s) — refusing to forward proof %s whole; later payments take the normal wallet-funded path", s.GatewayIP, known, ref)
 	}
 	// A proof that already went on the wire (even if the answer was lost —
 	// BootstrapError) is never re-sent: the upstream may have applied it, and a
