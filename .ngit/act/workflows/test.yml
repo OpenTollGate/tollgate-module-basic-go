@@ -57,6 +57,16 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+      # Changelog fragments: a change's entry is its own file under changelog.d/
+      # instead of a hunk in CHANGELOG.md, so two pull requests can never edit the
+      # same lines (docs/architecture/changelog-fragments-decision.md). This
+      # validates the fragments and the tool that folds them into the release
+      # section, and runs the tool's contract test.
+      - name: Changelog fragments (names, bodies, fold tool)
+        run: |
+          python3 scripts/changelog-assemble.py check
+          bash tests/contract/changelog-fragments_test.sh
+
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
