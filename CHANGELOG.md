@@ -46,6 +46,7 @@ and [Semantic Versioning](https://semver.org/).
   gutter that fails if any re-brand literal reappears anywhere in the tracked
   tree, with a planted-occurrence control). No history rewrite: the literal
   survives in old commits, by design.
+  ([#649](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/649))
 - **The TLS review of #593, closed: the derived hop is committed before the
   reload, the operator's own identity survives an install, and the postinst runs
   the order the boot path uses.** Three defects in the change that made setup

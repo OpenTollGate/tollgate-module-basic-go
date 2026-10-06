@@ -561,7 +561,7 @@ assert_board_kept "locked account"
 # then fail the suite for the wrong reason.)
 echo "== the full-setup path runs the same gate"
 if awk '/^log "Running full setup/{f=1} f && /^enforce_admin_credential$/{print "found"; exit}' "$ROOT/$SCRIPT" | grep -q found; then
-    ok "the full-setup driver calls enforce_admin_credential right after setup_uhttpd_configui"
+    ok "the full-setup driver calls enforce_admin_credential in its uhttpd section"
 else
     bad "the full-setup path does not call enforce_admin_credential — a first boot would leave an empty root hash behind the :8090 admin board"
 fi

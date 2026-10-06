@@ -458,7 +458,7 @@ rules; `br-mgmt` needs PR #601's port move first)**
 
 | # | Repo | Change |
 |---|---|---|
-| 1 | `tollgate-module-basic-go` | `entry_ui` in `config.json` + schema + defaults + migration + version bump; `99`'s mapping writer and the D4 marker gate; the identity-follows-listener change in `setup_uhttpd_tls_identity` and `ssl.go`; the mode-aware rewrites of `drop_admin_listeners` / `setup_uhttpd_configui` / `sanitize_uhttpd_main_configui_port`; `tollgate ui links`; offline suite 1-10 above; this record. |
+| 1 | `tollgate-module-basic-go` | `entry_ui` in `config.json` + schema + defaults + migration + version bump; `99`'s mapping writer and the D4 marker gate; the identity-follows-listener change in `setup_uhttpd_tls_identity` and `ssl.go`; the mode-aware rewrites of `drop_admin_listeners` / `purge_foreign_configui_sections` / `sanitize_uhttpd_main_configui_port`; `tollgate ui links`; offline suite 1-10 above; this record. |
 | 2 | `tollgate-captive-portal-site` | `92` becomes mode-aware (entry vs secondary pair, marker, the provisioned identity, the pre-auth block removed, `:8443` no longer keyed off `/etc/uhttpd.crt`); the login page's `http://<host>:8080/` anchor replaced by the `ui links` render; the portal-side guard for invariant 5/7; portal tests. |
 | 3 | `FreedomTechFeed/packages` | Re-vendor the bundle and the `92` from slice 2 and re-pin the portal commit in the same release that turns `entry_ui=board` on by default (D4) — the atomicity boundary. |
 | 4 | bench | Card-sized: the bench assertions 11-18, on the artifact that carries slices 1-3. |
