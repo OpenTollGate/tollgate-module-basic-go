@@ -2,7 +2,7 @@ name: gitleaks
 
 on:
   push:
-    branches: [ai-experimental-slop]
+    branches: [main]
   pull_request:
   schedule:
     - cron: "13 6 * * *"
