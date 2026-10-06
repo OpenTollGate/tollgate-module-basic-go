@@ -111,6 +111,19 @@ and [Semantic Versioning](https://semver.org/).
   [`docs/architecture/walletport-contract.md`](docs/architecture/walletport-contract.md#5-candidate-mapping-first-pass).
   ([#631](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/631))
 
+### Changed / Internal
+
+- **CONTRIBUTING now states the branch-refresh discipline: rebase in
+  place, never hand-carry `main`.** Merging `main` forward into a PR
+  branch (evil merges, a `go.sum` equal to neither parent, replayed
+  thousand-line diffs) and opening fresh "rebase of #N" PRs (zombie
+  originals nobody closes) are both named as anti-patterns, with the
+  in-place recipe: rebase onto current `main`, run the battery,
+  `--force-with-lease` the original PR branch, close what you supersede
+  in the same action, and keep carried CHANGELOG entries under
+  `[Unreleased]` with their PR link.
+  ([#693](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/693))
+
 ## [v0.6.0-rc1] - 2026-10-05
 ### Added
 

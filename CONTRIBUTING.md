@@ -234,6 +234,29 @@ running it yourself saves a review round trip.
 - **Commit message references the bug**: the symptom, the root cause
   in one sentence, and the fix shape.
 
+### Keeping a PR current: rebase in place, never hand-carry `main`
+
+Long-lived branches go stale, and the two common ways of refreshing them
+both damage the queue. Do not merge `main` forward into a PR branch — in
+this multi-module tree it breeds evil merges (a `go.sum` that equals
+neither parent) and, done as a squash, a single-parent "merge" commit that
+replays thousands of `main` lines into the PR diff. Do not open a fresh
+"rebase of #N" PR either — the original stays open as a zombie and nobody
+can tell which one is live. Instead, refresh the branch the PR already
+has:
+
+```bash
+git fetch origin
+git rebase origin/main   # or: git merge --squash <pr-head> onto a fresh main
+make go-battery          # plus the offline suites your diff touches
+git push --force-with-lease origin <pr-branch>
+```
+
+If a rebase-PR was already opened, close the superseded original in the
+same action. CHANGELOG entries carried by the rebased commits belong under
+`[Unreleased]` with their PR link — an entry landing inside an
+already-dated release section is the standard stale-rebase artifact.
+
 ### Merge mechanics
 
 PRs are merged via **squash-merge**. One logical change per PR becomes
