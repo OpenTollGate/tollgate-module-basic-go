@@ -224,6 +224,8 @@ services:
         condition: service_healthy
     volumes:
       - .:/tests
+      - ../../scripts:/clientd:ro
+      - clientd-wallets:/w
     working_dir: /tests
     networks:
       tollgate-lab:
@@ -231,10 +233,63 @@ services:
     entrypoint: ["pytest"]
     command: ["-sv", "--tb=short"]
 
+  # --- clientd scenario battery (run-clientd-scenarios.sh) -- profile "clientd"
+
+  upstream-bytes:
+    build:
+      context: ../..
+      dockerfile: tests/cloud-lab/Dockerfile.tollgate
+    container_name: tg-upstream-bytes
+    profiles: ["clientd"]
+    depends_on:
+      mint:
+        condition: service_healthy
+    environment:
+      - TOLLGATE_TEST_CONFIG_DIR=/etc/tollgate
+    volumes:
+      - ./configs/upstream-bytes-config.json:/etc/tollgate/config.json
+      - ./configs/install.json:/etc/tollgate/install.json
+      - ./configs/dhcp.leases:/tmp/dhcp.leases
+      - ./fake-ndsctl-filecounters.sh:/usr/local/bin/ndsctl:ro
+      - clientd-counters:/ndsctl-data
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.12
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:2121/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # Same static IP as `client` (172.28.0.20): the scenario battery never
+  # runs both concurrently, and /usage must resolve the daemon's MAC via
+  # dhcp.leases — keep them in sync if either IP changes.
+  client-ns:
+    build:
+      context: .
+      dockerfile: Dockerfile.client-ns
+    container_name: tg-client-ns
+    profiles: ["clientd"]
+    depends_on:
+      mint:
+        condition: service_healthy
+    environment:
+      - CASHU_DIR=/w
+    volumes:
+      - clientd-wallets:/w
+      - ../../scripts:/clientd:ro
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.20
+    entrypoint: ["pytest"]
+
 volumes:
   mint-data:
   mint-fees-data:
   mint-rotate-data:
+  clientd-wallets:
+  clientd-counters:
 
 networks:
   tollgate-lab:
