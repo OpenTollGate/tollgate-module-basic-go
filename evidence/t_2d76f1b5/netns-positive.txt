@@ -1,0 +1,8 @@
+$ bash run-netns-evidence.sh   # flock present, real nft in netns
+=== RUN   TestNetnsNftBackend
+    netns_test.go:89: leg1 ok: two auths, one element
+    netns_test.go:118: leg2 ok: concurrent auths left exactly one up + one dl rule
+    netns_test.go:129: leg3 ok: up=4103 KiB dl=0 KiB after 4 MiB
+    netns_test.go:148: leg4 ok: deauth removed element, rules and counters; json reads 0/0
+--- PASS: TestNetnsNftBackend (3.67s)
+PASS
