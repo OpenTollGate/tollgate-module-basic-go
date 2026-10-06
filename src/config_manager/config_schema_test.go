@@ -2,6 +2,10 @@ package config_manager
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -454,5 +458,81 @@ func TestSetDotPathSchemaUpstreamWifiValidation(t *testing.T) {
 	err = SetDotPath(cm, "upstream_wifi.signal_floor", "-70")
 	if err != nil {
 		t.Errorf("Valid signal_floor -70 should be accepted, got: %v", err)
+	}
+}
+
+// TestSaveConfigIsAtomicAndCleansUpItsTempFile pins the #402 hardening: a
+// save interrupted at any point leaves either the whole previous file or the
+// whole new one (temp + rename in the same directory), and no temp litter.
+func TestSaveConfigIsAtomicAndCleansUpItsTempFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg := NewDefaultConfig()
+	cfg.AcceptedMints = []MintConfig{{URL: "https://operator-mint.example.com", PricePerStep: 1, PriceUnit: "sat", MinPurchaseSteps: 1}}
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "config.json" {
+		t.Fatalf("SaveConfig left temp litter: %v", entries)
+	}
+
+	var reloaded Config
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if err := json.Unmarshal(data, &reloaded); err != nil {
+		t.Fatalf("the saved config must always be whole valid JSON: %v", err)
+	}
+	if len(reloaded.AcceptedMints) != 1 || reloaded.AcceptedMints[0].URL != "https://operator-mint.example.com" {
+		t.Fatalf("the operator's mints did not survive the round trip: %+v", reloaded.AcceptedMints)
+	}
+}
+
+// TestSaveConfigFallsBackToInPlaceWhenRenameIsImpossible pins the bind-mount
+// reality the conformance lane runs in: a single-file mount pins the inode, so
+// rename(2) onto config.json answers EBUSY and the atomic path cannot serve.
+// The save must fall back to a durable in-place write (the pre-#402 guarantee)
+// instead of failing the daemon's config migration outright.
+func TestSaveConfigFallsBackToInPlaceWhenRenameIsImpossible(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	prev := renameConfigIntoPlace
+	renameConfigIntoPlace = func(_, _ string) error { return syscall.EBUSY }
+	t.Cleanup(func() { renameConfigIntoPlace = prev })
+
+	cfg := NewDefaultConfig()
+	cfg.AcceptedMints = []MintConfig{{URL: "https://bind-mount-mint.example.com", PricePerStep: 1, PriceUnit: "sat", MinPurchaseSteps: 1}}
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatalf("SaveConfig must fall back, not fail: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	var reloaded Config
+	if err := json.Unmarshal(data, &reloaded); err != nil {
+		t.Fatalf("fallback must leave whole valid JSON: %v", err)
+	}
+	if len(reloaded.AcceptedMints) != 1 || reloaded.AcceptedMints[0].URL != "https://bind-mount-mint.example.com" {
+		t.Fatalf("fallback did not persist the config: %+v", reloaded.AcceptedMints)
+	}
+
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".config-") {
+			t.Fatalf("fallback left temp litter: %s", e.Name())
+		}
 	}
 }
