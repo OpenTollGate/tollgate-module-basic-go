@@ -33,17 +33,32 @@ keys, making them self-verifying (NUT-02).
 ## The 6 Combinations
 
 
-> **Era note (2026-10-06):** the per-NUT rows below were verified against
-> `gonuts-tollgate` **v0.7.6**. The fork is now at v0.13.0 (notably: the
-> no-same-body-retry ambiguity policy and spec-format NUT-20 quote
-> signatures postdate this matrix). Treat rows as the v0.7.6 snapshot and
-> the methodology as the durable part; a re-verification pass against the
-> current fork is tracked separately.
+> **Re-verified against `gonuts-tollgate` v0.13.0 (2026-10-06), code-level
+> plus the executable suite** (`src/tollwallet/compatibility_matrix_test.go`
+> and the round-trip/cross-vector tests, run under `-tags testenv` in
+> `make go-battery` — all green on the pinned baseline). What changed
+> since the v0.7.6 snapshot this matrix was written against:
+>
+> - **V1 (bare-JSON) tokens are no longer decoded by the master
+>   `DecodeToken` path** (it tries V4, then V3, and stops) — cells 1/2
+>   below are corrected accordingly. The executable suite skips the V1
+>   cells with that exact rationale.
+> - **NUT-13 keyset derivation was generalized** beyond the v0.7.6
+>   length-guard: `keysetIdToBigInt` now parses the FULL id (hex or
+>   base64) as a big integer mod 2^31−1 — no truncation at any length.
+> - **V4 tokens with short keyset IDs** (coinos/minibits-style mints) are
+>   resolved to full IDs in `Receive` before any swap
+>   (`resolveShortKeysetIds`) — a post-v0.7.6 fix noted in cells 5/6.
+>
+> Wallet-behavior deltas outside this matrix's token×keyset scope (the
+> fund-safety era: monotonic counters, canonical mint identity, the
+> ambiguity no-retry policy, NUT-20 quote signatures) live in the fork's
+> changelog, v0.8.0 → v0.13.0.
 
 | # | Token | Keyset | Status in gonuts v0.7.6 | Status in cdk-go | Production relevance |
 |---|-------|--------|------------------------|-------------------|---------------------|
-| 1 | V1 | V1 | ⚠️ Decode only (no V1 encoder) | ✅ | Rare — legacy wallets |
-| 2 | V1 | V2 | ⚠️ Decode only | ✅ | Very rare |
+| 1 | V1 | V1 | ❌ Not decoded by the master path (v0.13.0) | ✅ | Rare — legacy wallets |
+| 2 | V1 | V2 | ❌ Not decoded by the master path (v0.13.0) | ✅ | Very rare |
 | 3 | V3 | V1 | ✅ Full support | ✅ | **Most common today** |
 | 4 | V3 | V2 | ✅ Full support (fixed in v0.7.6) | ✅ | Growing — CDK 0.16+ mints |
 | 5 | V4 | V1 | ✅ Full support | ✅ | Modern wallets |
@@ -53,19 +68,22 @@ keys, making them self-verifying (NUT-02).
 
 #### Cell 1: V1 token + V1 keyset
 - **What**: Legacy bare JSON token with 8-byte keyset ID
-- **gonuts**: `DecodeToken` tries V4 (fails, no cashuB prefix), then V3 (fails,
-  no cashuA prefix), then the bare JSON fallback parses it. Keyset operations
-  use `BigEndian.Uint64(8_bytes)` which works correctly.
-- **Status**: Decode works. Encoding V1 tokens is not implemented (no `NewTokenV1`).
-  TollGate doesn't need to SEND V1 tokens — only receive them.
-- **Risk**: A V1 token from an old wallet would be received correctly.
+- **gonuts (v0.13.0)**: `DecodeToken` tries V4 (fails, no cashuB prefix), then
+  V3 (fails, no cashuA prefix) — and stops. The bare-JSON fallback that
+  existed in the v0.7.6 era is gone; a V1 token is refused as an invalid
+  token. The executable suite documents this exactly (the V1 cells skip
+  with the rationale).
+- **Status**: Not decoded. Encoding V1 tokens was never implemented. V1 is a
+  deprecated format; if a legacy wallet ever sends one today, the payment
+  fails visibly with `invalid token` rather than silently.
+- **Risk**: accepted — deprecated format, no known production sender.
 
 #### Cell 2: V1 token + V2 keyset
 - **What**: Legacy bare JSON token with 33-byte keyset ID
-- **gonuts**: Decode works (same V1 path). Swap would have used the V2 keyset
-  ID in `DeriveKeysetPath` — **fixed in v0.7.6** (was silently truncated).
-- **Status**: ✅ Fixed. Very rare in practice (V1 tokens + V2 keysets = old
-  wallet + new mint).
+- **gonuts (v0.13.0)**: not decoded (same master-path refusal as cell 1 —
+  the v0.7.6-era bare-JSON fallback is gone). The V2-keyset derivation bug
+  this cell originally tracked stays fixed for the formats that do decode.
+- **Status**: ❌ Not decoded. Vanishingly rare (old wallet + new mint).
 
 #### Cell 3: V3 token + V1 keyset ← MOST COMMON TODAY
 - **What**: `cashuA` base64(JSON) token with 8-byte keyset ID
@@ -92,6 +110,11 @@ keys, making them self-verifying (NUT-02).
   valid CBOR tokens. V1 keyset path works (same as Cell 3).
 - **Status**: ✅ Working. Modern wallets (cashu-ts v4+, CDK wallets) send V4
   tokens by default. TollGate receives them correctly.
+- **v0.13.0 nuance**: V4 tokens store keyset IDs as 8-byte short IDs;
+  mints of the coinos/minibits shape embed short IDs that must be
+  resolved to full IDs before any swap — `Receive` does this via
+  `resolveShortKeysetIds` (the fix behind the portal #517/#545-era
+  payment failures). No caller-side handling needed.
 
 #### Cell 6: V4 token + V2 keyset ← FUTURE STANDARD
 - **What**: `cashuB` base64(CBOR) token with 33-byte keyset ID
@@ -112,13 +135,12 @@ root cause was in `DeriveKeysetPath` (NUT-13), not in token decode:
 bigEndianBytes := binary.BigEndian.Uint64(keysetBytes)
 // For V2 IDs (33 bytes): reads first 8 bytes, ignores 25 bytes
 
-// FIXED (v0.7.6):
-if len(keysetBytes) <= 8 {
-    keysetIdInt = binary.BigEndian.Uint64(keysetBytes) % (1<<31 - 1)
-} else {
-    h := sha256.Sum256(keysetBytes)
-    keysetIdInt = binary.BigEndian.Uint64(h[:8]) % (1<<31 - 1)
-}
+// v0.7.6: length guard — ≤8 bytes reads direct, >8 bytes hashed first.
+
+// CURRENT (v0.13.0), keysetIdToBigInt: the whole ID, any length, hex or
+// base64, as one big integer — no truncation is possible by construction:
+result.SetString(id, 16)            // or base64-decode first
+result.Mod(result, big.NewInt(2147483647)) // 2^31 - 1
 ```
 
 The token format (V1/V3/V4) is irrelevant to the swap operation — the keyset
@@ -127,5 +149,16 @@ from the keyset ID regardless of how the token was serialized.
 
 ## How to test each cell
 
-All tests use the gonuts-tollgate library directly (no network needed for
-decode tests; network needed for swap tests against live mints).
+**Executable (no network, runs in every `make go-battery` under
+`-tags testenv`):**
+`TestCompatibilityMatrix` (all 6 cells through decode + field extraction —
+the V1 cells skip with the documented rationale),
+`TestV4RoundTripAllKeysets` / `TestV3RoundTripAllKeysets`
+(encode → decode → extract for both keyset versions), and
+`TestHashToCurveCrossVectors` (cross-implementation vectors).
+
+**Live-mint (network, still pending for this re-verification):** swap
+round-trips against a V2-keyset mint (CDK 0.16+) and a short-ID mint
+(coinos/minibits class) — tracked as the open checklist item; the
+code-level verification above covers the derivation and decode paths
+those swaps exercise.
