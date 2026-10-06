@@ -1,0 +1,49 @@
+# Nightly stress + pin-drift lane.
+#
+# Two failure classes that only surface over time, run on a schedule:
+#
+#   stress    — the suites with flake history (merchant log capture #622,
+#               owed-grant AUTH race #664) under -race -count=5: single CI
+#               runs pass races that parallel load finds in minutes;
+#   pin-drift — the internal test baseline policy, enforced: production
+#               code (src/, packaging/) moving past the pinned commit
+#               without a re-pin turns the lane red, so "verify owed" is a
+#               CI state instead of a memory.
+#
+# Driven by ngit-ci on schedule and on demand (workflow_dispatch). The act
+# lane mirrors the go-test job's setup (pinned Go from src/go.mod, full
+# history for the drift check's name-only log).
+name: Nightly stress + pin drift
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - src/merchant
+          - src/valve
+          - src/tollwallet
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+      - name: Stress (-race -count=5)
+        working-directory: ${{ matrix.module }}
+        run: go test -race -count=5 -tags testenv .
+
+  pin-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Baseline pin policy
+        run: python3 scripts/check-pin-drift.py

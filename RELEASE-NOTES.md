@@ -86,6 +86,10 @@ valid deployed config was already inside them.)
   unit-tested, not router-validated, not a supported backend.
 - Reseller/two-router mode and Lightning (LNURL-p) sales are shipped as
   before; hardware acceptance for this RC covers the Cashu path first.
+- **NTP pre-auth** (#648) and the **cold-start reseller bootstrap**
+  (#629, first-proof-whole forwarding) are in the pinned baseline as
+  lab-tested features awaiting router acceptance — treat both as
+  experimental until the campaign says otherwise.
 - `tollgate-clientd` is not part of this release.
 
 ## Known limitations
@@ -197,8 +201,17 @@ valid deployed config was already inside them.)
 
 ## Verification status
 
+- **Internal test baseline (pinned): commit
+  `fc639db1ed4d7d2c1eff432451db1ffdd7a9047b`.** main is a moving target
+  and no tag is cut, so all internal extensive testing — labgrid VM and
+  router campaigns, artifact installs, evidence — targets this exact
+  hash. Docs-only commits landing after the pin do not move it; only a
+  fresh pin does, with a fresh full gate run. The baseline carries the
+  release train, NTP pre-auth (#648), the cold-start reseller bootstrap
+  (#629), the signet-zoo/rootfs/SSID-pin test lanes, and the
+  rebrand-gutter scoping (#684) the pin's own gate run forced.
 - Unit/race across all 16 modules, contract, packaging and pipeline
-  suites: green on the release commit (`make release-check`).
+  suites: green on the pinned baseline (`make release-check`).
 - The three fund-safety invariants: pinned by dedicated regression tests
   (each reproduced red before its fix) and by the conformance fast
   subset lane.

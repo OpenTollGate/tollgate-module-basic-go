@@ -115,16 +115,34 @@ func (m *Merchant) ReconcileNdsAuthorisationsOnStartup() {
 // knowsClient reports whether this module has any record of macAddress — a
 // session, or a gate the valve is tracking. Either one means the client is the
 // module's own and the startup reconciliation must not touch it.
+//
+// The comparison is CASE-INSENSITIVE on every side, and that is load-bearing
+// rather than tidy. `ClientRecord.Authorised()` already folds case, so a payload
+// reporting an upper-case MAC for the module's OWN client would be reported as an
+// authorised client and then fail to match the module's lower-case records: the
+// pass would read the module's own paying customer as an inherited authorisation
+// and close their gate. The session map is written lower-case
+// (NormalizeMACAddress), so a plain `==` is only ever correct while NoDogSplash
+// happens to print lower-case — which the measured payload does, and which is not
+// a contract. For the startup pass that mistake happens once; for the PERIODIC
+// pass (nds_client_reconciliation.go) it happens on every cadence, on a client who
+// has paid.
+//
+// The MAC is still handed to ndsctl EXACTLY as NoDogSplash reported it (ndsctl's
+// own lookup is a case-sensitive strcmp, so normalising it could miss the record
+// being closed); only this membership test folds case.
 func (m *Merchant) knowsClient(macAddress string) bool {
-	m.sessionMu.RLock()
-	defer m.sessionMu.RUnlock()
+	normalized := NormalizeMACAddress(macAddress)
 
-	if _, exists := m.customerSessions[macAddress]; exists {
+	m.sessionMu.RLock()
+	_, exists := m.customerSessions[normalized]
+	m.sessionMu.RUnlock()
+	if exists {
 		return true
 	}
 
 	for _, tracked := range valve.TrackedGates() {
-		if tracked == macAddress {
+		if NormalizeMACAddress(tracked) == normalized {
 			return true
 		}
 	}

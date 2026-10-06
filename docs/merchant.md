@@ -134,6 +134,30 @@ graph TB
 
 **Note**: This is primarily for downstream customer payments, but affects balance available for upstream payments
 
+## Payment outcomes (customer-visible notices)
+
+A `POST /` payment resolves to exactly one of these kind-`1022`/kind-`21023`
+notices; every code is stable API for the portal:
+
+| Code | Kind | Meaning |
+|---|---|---|
+| (session event) | `1022` | Paid, session granted, gate open. |
+| `payment-duplicate-inflight` | `21023` | The same note is being processed right now (double-click, two tabs); refused locally before any money moves — reload in a couple of minutes, do not resend the note. |
+| `payment-outcome-unknown` | `21023` | The mint never answered a request it may have processed (dropped response, timeout). Do NOT resend the note — if the mint received it, a retry is refused as spent. Carries the operator-quotable reference. |
+| `payment-received-grant-pending` | `21023` | Payment received, but the gate could not open yet; a durable owed entitlement retries the grant (survives restarts) and access starts automatically — no second payment needed. |
+| `payment-error-token-spent` | `21023` | Sequential resubmit of a consumed note — the mint's own refusal. |
+| `client-not-registered` | `21023` | Pre-flight refusal: NDS holds no session for the paying MAC, so a gate could never open (renewals and known clients excepted — the valve's bounded auth retry re-registers them). |
+| `invalid-mac-address` | `21023` | The resolved client identity is not a valid MAC. |
+| `payment-processing-failed` | `21023` | Unclassified Receive failure (the residual bucket). |
+| `payment-error-below-swap-fee`, `payment-error-keyset-expired`, `payment-error-mint-unreachable`, `mint-rate-limited`, `payment-error-invalid-token`, `session-error` | `21023` | Classified refusals; see the merchant source for the exact conditions. |
+
+The owed-entitlement machinery (`owed-grants.json`, atomic + fsync, written
+before the response completes) is what makes `payment-received-grant-pending`
+trustworthy: the entitlement survives process death and converges when
+NoDogSplash accepts, exactly once per note (keyed by the receive reference).
+Refunding (returning the value) remains deliberately out of scope — an
+expired entitlement is an operator action, recorded and kept for audit.
+
 ## Sequence Diagrams
 
 ### Payment Token Creation Flow
