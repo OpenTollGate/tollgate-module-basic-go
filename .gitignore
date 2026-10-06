@@ -36,6 +36,8 @@ tests/cloud-lab/.env
 # Host-specific cloud-lab port overrides (auto-loaded by docker compose;
 # see "Gotchas" in tests/cloud-lab/README.md)
 tests/cloud-lab/docker-compose.override.yml
+tests/cloud-lab/zoo-mint-config.json
+tests/cloud-lab/matrix-wallets/
 
 # Router credentials (copy from routers.env.example)
 routers.env
@@ -85,3 +87,9 @@ scripts/token-recovery/token-recovery
 
 # pytest bytecode from local (possibly root-owned) cloud-lab runs
 tests/cloud-lab/__pycache__/
+scripts/__pycache__/
+tests/cloud-lab/conformance/__pycache__/
+
+# Conformance lane runtime state (tokens stashed between phases, generated
+# config, verdict parts, evidence logs) — see tests/cloud-lab/conformance/.
+tests/cloud-lab/.conformance/

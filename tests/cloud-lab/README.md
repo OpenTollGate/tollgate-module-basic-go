@@ -93,8 +93,11 @@ docker compose down
 | `test_swap_fees.py` | Fee-charging mint: fee visible in keysets, below-fee token refused before the swap (`payment-error-below-swap-fee`, token stays unspent), above-fee payment credited net of fee, free-mint path unchanged |
 | `test_keyset_rotation.py` | Two-phase run via `./run-keyset-rotation.sh` (the phase tests are gated on `ROTATION_LANE=1` and skip in a default `client` run): proofs minted on a pre-rotation keyset are **refused** after it expires (cdk-mintd rejects swaps on expired keysets outright) — currently surfacing *misclassified* as `payment-error-mint-unreachable` while the mint is healthy and the token is permanently dead (#447 lands the dedicated code, filed as #440); sum-then-ceil fee boundary pinned across proof counts (255/1023/2047 sats) |
 | `test_external_mints.py` | Opt-in live lane via `./run-external-mints.sh` (`EXTERNAL_MINTS=1` gates it out of default runs; skips with a reason when the mint is down): real-mint keyset fees verified, a 1-sat token terminated by the #409 below-swap-fee pre-check, and a fee-deducted session credit — all against `testnut.cashu.exchange` (nutshell main, FakeWallet; real-money mints never probed) |
+| `test_mint_matrix.py` | Opt-in matrix lane via `./run-mint-matrix.sh` (`MINT_MATRIX` gates it; defaults to the signet zoo's five mints): one payment suite against many mints — fee expectations derived live from each mint's `/v1/keysets`, floats funded once per session over real signet routing by the zoo's `pay-and-mint.sh`. `ZOO_VIA=public` (Cloudflare endpoints) or `local` (docker-network attach, tunnel-dark fallback) |
 | `test_mint_failure.py` | Kill mint mid-session → TollGate degrades gracefully (no crash) → restart mint → TollGate recovers and accepts payments again |
+| `run-crash-injection.sh` | #497 acceptance at the TollGate layer: a killer proxy swallows every `/v1/swap` response once the mint has signed (the wallet's retry ladder included), the tollgate is SIGKILLed mid-wait, and on restart the boot-time intent resume must recover the value — then a fresh payment must still succeed. Requires a tollgate built with the gonuts swap-intent machinery |
 | `test_two_router_autopay.py` | Two-router chain: reseller processes payment without crashing, both TollGates stay alive |
+| `conformance/` | Fast-subset conformance lane (#503) via `./conformance/run-conformance.sh`: duplicate/timeout/kill-at-boundary/alias scenarios from the co-owned PRTA matrix, driven through the PRTA fault proxy; emits a per-invariant verdict table. Skips cleanly without docker or a PRTA checkout |
 
 ## What This Tests vs What It Doesn't
 
@@ -150,6 +153,16 @@ cloud-lab-tests:
 
 The mint container build (cargo install cdk-mintd) takes ~5-8 minutes
 on first run. Docker layer caching makes subsequent runs fast.
+
+## Running on a shared host: lab.sh + RUNBOOK
+
+On a host used by more than one session at a time, drive the lab through
+[lab.sh](lab.sh): one command = one isolated run (own compose project,
+container names, subnet, images; no host ports), with managed taps,
+deterministic teardown and a crash-safe `reap`. The design and the
+lessons behind it — including the etiquette of sharing this host — are in
+[RUNBOOK.md](RUNBOOK.md). Read it before bringing up a second lab
+alongside someone else's.
 
 ## Per-checkout project isolation
 

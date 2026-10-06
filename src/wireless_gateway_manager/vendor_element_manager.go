@@ -22,7 +22,13 @@ const (
 	tlvTypePubkey  = 0x02
 )
 
-func EncodeTollGateVendorIE(adv TollGateAdvertisement) (string, error) {
+// EncodeTollGateVendorIE serializes the advertisement as one vendor IE.
+// The IE is an unsigned hint — the signed advertisement served on :2121 is
+// the authority — so when the body would exceed the 255-byte element cap
+// the mint TLV (the bulkiest optional field) is dropped and reported via
+// the truncated flag instead of failing or silently diverging. Only a
+// pubkey that cannot fit even without the mint TLV is an error.
+func EncodeTollGateVendorIE(adv TollGateAdvertisement) (string, bool, error) {
 	var flags uint8
 	if adv.IsReseller {
 		flags |= flagIsReseller
@@ -36,36 +42,45 @@ func EncodeTollGateVendorIE(adv TollGateAdvertisement) (string, error) {
 
 	oui, err := hex.DecodeString(tollgateOUI)
 	if err != nil {
-		return "", fmt.Errorf("invalid OUI hex: %w", err)
+		return "", false, fmt.Errorf("invalid OUI hex: %w", err)
 	}
 
 	elemType, _ := hex.DecodeString(tollgateElemType)
 	body := append(oui, elemType...)
 	body = append(body, adv.Version, flags)
 
+	truncated := false
+	pubkeyLen := len(adv.Pubkey)
+	mintBytes := []byte(adv.MintURL)
 	if adv.MintURL != "" {
-		mintBytes := []byte(adv.MintURL)
-		if len(mintBytes) > 255 {
-			return "", fmt.Errorf("mint_url too long: %d bytes (max 255)", len(mintBytes))
+		withMint := len(body) + 2 + len(mintBytes) + pubkeyTailLen(pubkeyLen)
+		if len(mintBytes) > 255 || withMint > 255 {
+			truncated = true
+		} else {
+			body = append(body, tlvTypeMintURL, uint8(len(mintBytes)))
+			body = append(body, mintBytes...)
 		}
-		body = append(body, tlvTypeMintURL, uint8(len(mintBytes)))
-		body = append(body, mintBytes...)
 	}
 
-	if len(adv.Pubkey) > 0 {
-		if len(adv.Pubkey) > 255 {
-			return "", fmt.Errorf("pubkey too long: %d bytes (max 255)", len(adv.Pubkey))
+	if pubkeyLen > 0 {
+		if len(body)+2+pubkeyLen > 255 {
+			return "", false, fmt.Errorf("vendor IE body too long: pubkey %d bytes cannot fit (body so far %d, max 255)", pubkeyLen, len(body))
 		}
-		body = append(body, tlvTypePubkey, uint8(len(adv.Pubkey)))
+		body = append(body, tlvTypePubkey, uint8(pubkeyLen))
 		body = append(body, adv.Pubkey...)
 	}
 
-	if len(body) > 255 {
-		return "", fmt.Errorf("vendor IE body too long: %d bytes (max 255)", len(body))
-	}
 	ie := append([]byte{0xDD, uint8(len(body))}, body...)
+	return hex.EncodeToString(ie), truncated, nil
+}
 
-	return hex.EncodeToString(ie), nil
+// pubkeyTailLen is the encoded size of the pubkey TLV for a key of n bytes
+// (0 when there is no key).
+func pubkeyTailLen(n int) int {
+	if n == 0 {
+		return 0
+	}
+	return 2 + n
 }
 
 func ParseTollGateVendorIE(raw []byte) *TollGateAdvertisement {
@@ -237,9 +252,15 @@ func NewVendorElementProcessor(connector *Connector) *VendorElementProcessor {
 }
 
 func EmitTollGateVendorIE(processor *VendorElementProcessor, adv TollGateAdvertisement) error {
-	ieHex, err := EncodeTollGateVendorIE(adv)
+	ieHex, truncated, err := EncodeTollGateVendorIE(adv)
 	if err != nil {
 		return fmt.Errorf("failed to encode vendor IE: %w", err)
+	}
+	if truncated {
+		logger.WithFields(logrus.Fields{
+			"mint_url_len": len(adv.MintURL),
+			"pubkey_len":   len(adv.Pubkey),
+		}).Warn("EmitTollGateVendorIE: body exceeded the 255-byte cap — mint TLV dropped; the signed advertisement on :2121 remains authoritative")
 	}
 
 	elements := map[string]string{"tollgate": ieHex}

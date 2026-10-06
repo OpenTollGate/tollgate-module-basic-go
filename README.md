@@ -101,7 +101,7 @@ Source lives under [src/](src/). Go tooling runs from there
 | [config_manager](src/config_manager/) | Schema, loading, migrations, validation, backups of `/etc/tollgate/config.json`. |
 | [tollwallet](src/tollwallet/) | Cashu wallet operations (mint client, balance tracking, melt). |
 | [lightning](src/lightning/) | LNURL-p / Lightning address resolution and invoice fetching for payouts. |
-| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, and health. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
+| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, health, and SSL/TLS certificates. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
 | [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
 
 ## Installation
@@ -141,6 +141,17 @@ hardware against mainline OpenWrt 25.12.5 (`r33051-f5dae5ece4`): the full
 dependency closure (37 packages, including `nodogsplash` 5.0.2-r2 and its
 kmods) installs and `nodogsplash` runs with the module's keepalive contract
 live (trusted MAC plus `allow tcp port 22`).
+
+**Caveat — reproduce the install against current feeds with care
+([#552](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/552)).**
+`nodogsplash`'s `iptables-*` dependencies live in the **base target feed**
+(`releases/25.12.x/targets/<arch>/packages/`), not the arch `packages` feed —
+a repositories list that omits the target feed (typical of some
+ImageBuilder-built images) cannot resolve the closure, and apk-tools 2.x
+cannot read the 25.12 index format at all. The bench install above ran with
+a complete feed set; if `apk add` reports the `iptables-*` names missing,
+check `/etc/apk/repositories` lists the target feed before concluding the
+packages are gone.
 
 **Caveat — 16 MB of flash, and the compressed variant that nonetheless fits.**
 The WR3000 v1 has 16 MB of SPI-NOR, which is ~15.1 MB of firmware area and
@@ -312,6 +323,32 @@ Notes that matter when you change them:
   the setup script's `<nym>-<code>` re-derivation for that SSID (a
   machine-shaped one is re-derived from the stored code, a custom one is left
   alone), so the applier and the setup writer agree on what you chose.
+
+## SSID conventions
+
+On first boot the router derives its Wi-Fi names from a single generated
+device code (see [#605](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/605)
+and `docs/architecture/one-device-code.md`).
+
+- **Public open AP** — `TollGate-XXXX`, e.g. `TollGate-9C3F`. The `XXXX` is
+  the four-character device code of `[A-Z0-9]`, minted once on first boot.
+  Both the 2.4 GHz and 5 GHz radios advertise the **same** SSID (band
+  steering), so clients are handed off between radios seamlessly.
+- **Private management AP** — `c08r4d0r-XXXX` (same `XXXX` device code as
+  the public AP), WPA2/PSK. Both radios share it. The passphrase is a
+  memorable `Word-Word-Word-NN` string set on first boot and preserved on
+  upgrade. The `c08r4d0r` prefix is the project's generic default nym —
+  every installation shares it, so it names the product rather than any
+  operator; an operator who personalizes the nym does so as a visible
+  choice. [#531](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/531)
+  proposed renaming this default and was closed as superseded by that
+  decision.
+- **nodogsplash name** — the captive-portal gate shows
+  `TollGate-XXXX Portal` as its `gatewayname`.
+
+Branding: a whitelabel installer can pin `/etc/tollgate/brand` to `net4sats`,
+which swaps the `TollGate` prefix for that brand's name everywhere. The
+public AP format is pinned by `tests/contract/check-ssid-format.sh`.
 
 ## Testing
 

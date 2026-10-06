@@ -1025,6 +1025,19 @@ jobs:
           python3 -m pip install --break-system-packages playwright
           python3 -m playwright install --with-deps chromium
 
+      # Dependency-resolution smoke: apk3 (the only tooling that reads 25.12
+      # indexes) must be able to select every name the package declares from
+      # the standard 25.12.x feed set. This is the gate the September #552
+      # breakage class would have tripped: a feed rebuild changed how the
+      # iptables family is provided, and nothing between "artifact builds"
+      # and "a bench VM cannot install it" noticed. Runs before the
+      # happy-path suite because it is seconds, not minutes.
+      - name: Apk dependency-resolution smoke
+        run: |
+          set -euo pipefail
+          export APK=$(ls /var/tmp/hp-artifact/*.apk | head -1)
+          bash tests/packaging/apk-install-resolution_test.sh
+
       # --strict is deliberate, not decoration: this artifact is built from a tip
       # that carries upstream #541 (/session-state) and a portal bundle that ships
       # the in-page renewal CTA (#60), so those surfaces are EXPECTED here and
