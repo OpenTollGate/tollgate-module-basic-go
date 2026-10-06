@@ -309,18 +309,21 @@ For implementation questions specific to your PR, ask in the PR
 itself. For design or roadmap questions that don't have a clear PR
 home yet, file a GitHub issue.
 
-## Branding, the operator nym, and net4sats
+## Branding, the operator nym, and the whitelabel brand
 
 Read this before filing a PR or an issue that mentions either of these —
 they are a recurring source of confusion.
 
 - **TollGate is the non-profit, reference implementation of the TollGate
-  protocol.** It does not adopt net4sats branding.
-- **`net4sats` is a commercial re-brand of TollGate.** It is shipped as a
-  separate whitelabel build (distinct `brand` value — hostname, DNS, AP SSIDs
-  and the admin webroot all derive from `brand`). Naming and branding decisions
-  for net4sats are made by the net4sats project, not by this repo. Do not treat
-  `net4sats` and `tollgate` as interchangeable; they are `$BRAND` variants.
+  protocol.** It does not adopt the whitelabel brand's naming.
+- **The whitelabel brand is a commercial re-brand of TollGate.** It is shipped
+  as a separate build (distinct `brand` value — hostname, DNS, AP SSIDs and the
+  admin webroot all derive from `brand`). Naming and branding decisions for that
+  build are made by that project, not by this repo, and **its name is not a
+  literal anywhere in this tree**: `tests/packaging/rebrand-literal-gutter_test.sh`
+  fails if it reappears. Do not treat the re-brand's name and `tollgate` as
+  interchangeable; they are `$BRAND` variants, and the module reads the brand
+  from `/etc/tollgate/brand` generically (any single alphanumeric token).
 - **`c08r4d0r` is a shared pseudonym for "a TollGate operator", not a personal
   identifier.** Everyone who runs a TollGate may go by the nym `c08r4d0r`. It
   deliberately names no real person. The codebase uses it as the representative
@@ -331,8 +334,8 @@ they are a recurring source of confusion.
   private (operator-owned) AP. Do not report it or a guard test on it as an
   "identity leak".
 
-When you see `c08r4d0r`, `net4sats`, or `tollgate` in a diff and suspect a
-naming bug, confirm the intent against the `brand` value and this section
+When you see `c08r4d0r`, `tollgate`, or a whitelabel brand in a diff and suspect
+a naming bug, confirm the intent against the `brand` value and this section
 before asserting a leak or a rebranding error.
 
 ## Further reading

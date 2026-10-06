@@ -117,6 +117,32 @@ jobs:
           # negative control fails if the comparison ever goes back to equality.
           bash tests/uci-defaults-setup-marker-order_test.sh
 
+      - name: Exactly one owner of :8090, and LuCI alone on :8080
+        run: |
+          # Offline (no router, no SDK, no network): the portal-staged board
+          # (uhttpd.admin, written by the feed's 92-tollgate-admin-setup) is the
+          # ONE section that may claim :8090, and the module writes no :8090
+          # listener of its own. It used to: a brand-gated legacy configUI
+          # writer created a second section on the port, so two admin UIs bound
+          # the same port and one of them disappeared. The suite drives the
+          # shipped uci-defaults script end to end through the four install
+          # scenarios - fresh, upgrade, reinstall-over-marker, and a box whose
+          # legacy section had its listeners stripped by an older build (which
+          # is why the stale section must be DELETED, not port-stripped) - and
+          # carries detector controls so a passing assertion cannot be vacuous.
+          bash tests/packaging/configui-8090-single-owner_test.sh
+
+      - name: No re-brand literal anywhere in the tree
+        run: |
+          # Offline and tree-only: upstream carries no commercial re-brand's
+          # name - not in the setup script, not in the docs, not in the
+          # CHANGELOG. The gutter fails the moment a literal reappears, and
+          # scans itself: the pattern is a bracket expression, so this file does
+          # not carry the name it bans. A planted-occurrence control proves the
+          # scan is not inert. This is a working-tree gutter, not a history
+          # rewrite: the literal legitimately survives in old commits.
+          bash tests/packaging/rebrand-literal-gutter_test.sh
+
       - name: Admin TLS identity (HTTPS is not inherited from the image)
         run: |
           # Offline (no router, no SDK, no network): the install path must
@@ -163,12 +189,28 @@ jobs:
           # bridge's port list cleared so a port is never on two layer-2
           # domains. The same-version verify/repair path re-asserts the
           # placement (a factory reset is repaired), the module keep-list
-          # still carries /etc/config/network, and all four guard fragments
-          # are pinned byte-identical to main and still br-lan-scoped - that
-          # literal is what keeps a guest off :8090/:8443 and LuCI while a
-          # br-private client gets in. A neutralised-writer negative control
-          # must go red.
+          # still carries /etc/config/network, and the guard fragments are
+          # pinned by digest (three byte-identical to main; the :2121
+          # backend-firewall guard updated on purpose so the owner network can
+          # read the admin board's data) and still br-lan-scoped - that literal
+          # is what keeps a guest off :8090/:8443 and LuCI while a br-private
+          # client gets in. A neutralised-writer negative control must go red.
           bash tests/uci-defaults-lan-private-wired_test.sh
+
+      - name: The backend API answers the owner network (admin board data path)
+        run: |
+          # Offline (no router, no daemon, no network): the :2121 API must be
+          # reachable from br-private as well as br-lan. The admin board is
+          # deliberately kept OFF the captive bridge, so br-private is the one
+          # network it is administered from - and the board is a thin shell
+          # whose every panel reads pricing/whoami/balance/ln-invoice from
+          # :2121. With the exemption missing, the board rendered on a freshly
+          # flashed GL-MT3000 (2026-10-04, alpha4-pre21) while each data call
+          # died with "TypeError: NetworkError when attempting to fetch
+          # resource" and retried forever. The suite pins the exemption set on
+          # both protocol families, that the rule is still a drop, that no
+          # foreign interface is exempted, and that the fragment compiles.
+          bash tests/packaging/backend-api-owner-network_test.sh
 
       - name: One device code (hostname, captive SSID and private SSID agree)
         run: |

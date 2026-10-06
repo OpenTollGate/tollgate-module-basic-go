@@ -217,6 +217,18 @@ func (startingMerchant) GetSessionState(string) (merchant.SessionState, error) {
 	return merchant.SessionStateNone, errMerchantStarting
 }
 
+// The boot gate holds every session-surface verb behind the same
+// errMerchantStarting: a ticket cannot be issued for a session that does not
+// exist yet, and a rebind moves a session, so neither may run before the
+// merchant (and its ticket signing key) has started.
+func (startingMerchant) IssueSessionTicket(string) (string, int64, error) {
+	return "", 0, errMerchantStarting
+}
+
+func (startingMerchant) RebindSession(string, string) (*merchant.CustomerSession, error) {
+	return nil, errMerchantStarting
+}
+
 func (startingMerchant) AddAllotment(string, string, uint64) (*merchant.CustomerSession, error) {
 	return nil, errMerchantStarting
 }

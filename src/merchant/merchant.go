@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	gonutsclient "github.com/OpenTollGate/gonuts-tollgate/wallet/client"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
@@ -28,6 +29,36 @@ type CustomerSession struct {
 	StartTime  int64  // Unix timestamp
 	Metric     string // "milliseconds" or "bytes"
 	Allotment  uint64 // Total allotment for this session
+
+	// Consumed is the byte total this session carries in from attachments it has
+	// already left behind: a MAC rotation (a rebind) carries it forward, so N
+	// rotations can never restart the meter. The session's effective usage is
+	// Consumed plus what the CURRENT attachment has used since its own baseline
+	// (sessionBytesUsage), which is why the per-MAC baseline stays a measurement
+	// detail rather than the ledger.
+	Consumed uint64
+
+	// attachmentUsage is the highest usage seen for the CURRENT attachment since
+	// its own baseline. It is what a rebind carries when the attachment's counters
+	// are already gone from NoDogSplash, so the last interval before a rotation
+	// cannot vanish. Unexported: it is the merchant's own bookkeeping, not part of
+	// the session's API.
+	attachmentUsage uint64
+
+	// ticketHandle is the session-ticket handle this record was issued for. A
+	// ticket names one session, and only the one it was issued for: a rebind
+	// through an older ticket cannot move a session this record never issued one
+	// for. Unexported, and never on the wire.
+	ticketHandle string
+
+	// ticketExpiresAt is the horizon (Unix seconds) of the ticket issued for this
+	// session; zero means no ticket was ever issued. It lives on the record rather
+	// than being read from the ticket store on purpose: the package's documented
+	// lock order is ts.mu then sessionMu, and the retirement paths below hold
+	// sessionMu alone, so consulting the store there would invert that order. It is
+	// what lets the janitor and the unmeterable-session path tell a session whose
+	// remainder is still claimable from one nobody can come back for.
+	ticketExpiresAt int64
 }
 
 // SessionState is the machine-readable lifecycle state of the session of one
@@ -88,6 +119,45 @@ func sessionHasExpired(session *CustomerSession, now time.Time) bool {
 func (m *Merchant) expireSessionLocked(macAddress string) {
 	delete(m.customerSessions, macAddress)
 	m.rememberExpiredSessionLocked(macAddress)
+}
+
+// retireSessionOrParkForTicketLocked retires the session record of macAddress —
+// unless the session still holds a LIVE session ticket, in which case the record is
+// PARKED: kept, with no access attached to it.
+//
+// Why parking exists. Entitlement is keyed to a MAC address, and the address
+// belongs to the device that chose it, so a device that rotates its address leaves
+// its record behind. The stale-binding janitor retires such a record ~60s after the
+// address drops off the NDS client list, and the unmeterable-session path does the
+// same when the meter cannot be read — which is what a departed client looks like on
+// the bytes metric. Both are right about ACCESS: the gate is closed either way and
+// nothing is left authorised. But retiring the record used to destroy the only
+// record of what the customer paid for, so a device that took longer than the grace
+// window to come back presented a perfectly valid ticket and got ErrTicketUnknown:
+// the remainder was gone. This branch exists to carry that remainder to the new
+// address, so retirement now yields to a live ticket.
+//
+// What parking does NOT do: it grants nothing. The gate is already deauthorised and
+// NoDogSplash no longer lists the address, and a rebind still has to authorise its
+// new attachment before the customer has any access. Parking only keeps the meter,
+// the StartTime and the handle mapping alive long enough to be carried.
+//
+// Bound: a parked record lives only until the ticket's own horizon
+// (defaultSessionTicketTTL, 12h). After that the next pass that asks retires it, so
+// parking cannot accumulate records indefinitely.
+//
+// Caller must hold sessionMu.
+func (m *Merchant) retireSessionOrParkForTicketLocked(macAddress string, now time.Time) (retired, parked bool) {
+	session, exists := m.customerSessions[macAddress]
+	if !exists {
+		return false, false
+	}
+	if session.ticketExpiresAt > now.Unix() {
+		return false, true
+	}
+
+	m.expireSessionLocked(macAddress)
+	return true, false
 }
 
 // rememberExpiredSessionLocked records an observed expiry. Caller must hold
@@ -209,6 +279,44 @@ func receiveReference(token tollwallet.Token) string {
 	return utils.TokenFingerprint(serialized)
 }
 
+// beginReceive marks one note's Receive as in flight and reports whether the
+// caller is the first to do so. A false return means the same note is already
+// being processed by another PurchaseSession on this router: the caller must
+// refuse WITHOUT touching the mint — the in-flight Receive may already have
+// spent the proofs, and a second submission is at best a wasted round trip and
+// at worst a second grant when both swaps race past the mint's spend-state
+// (#639). An empty reference means the note could not be serialised; the guard
+// is then unusable and the payment proceeds (the mint still refuses a
+// sequential resubmit as spent) rather than failing commerce over guard
+// machinery.
+func (m *Merchant) beginReceive(reference string) bool {
+	if reference == "" {
+		return true
+	}
+	m.receiveInFlightMu.Lock()
+	defer m.receiveInFlightMu.Unlock()
+	if m.receiveInFlight == nil {
+		m.receiveInFlight = make(map[string]struct{})
+	}
+	if _, inFlight := m.receiveInFlight[reference]; inFlight {
+		return false
+	}
+	m.receiveInFlight[reference] = struct{}{}
+	return true
+}
+
+// endReceive releases the in-flight mark once the Receive outcome has been
+// consumed — by the main path or, on the outcome-unknown timeout path, by the
+// late recorder that owns the result channel from the deadline onward.
+func (m *Merchant) endReceive(reference string) {
+	if reference == "" {
+		return
+	}
+	m.receiveInFlightMu.Lock()
+	delete(m.receiveInFlight, reference)
+	m.receiveInFlightMu.Unlock()
+}
+
 // MerchantInterface defines the interface for merchant payment operations
 type MerchantInterface interface {
 	CreatePaymentToken(mintURL string, amount uint64) (string, error)
@@ -231,6 +339,8 @@ type MerchantInterface interface {
 	GetUsage(macAddress string) (string, error)
 	Fund(cashuToken string) (uint64, error)
 	SetOnReachableSetChanged(callback func())
+	IssueSessionTicket(macAddress string) (string, int64, error)
+	RebindSession(ticket, macAddress string) (*CustomerSession, error)
 }
 
 // Merchant represents the financial decision maker for the tollgate
@@ -242,6 +352,26 @@ type Merchant struct {
 	customerSessions  map[string]*CustomerSession
 	expiredSessions   map[string]int64
 	sessionMu         sync.RWMutex
+	// receiveInFlight holds the receiveReference of every PurchaseSession
+	// whose money-moving Receive has started and whose outcome has not been
+	// consumed yet (including the outcome-unknown window past the deadline,
+	// where the late recorder owns the result). It exists because the mint's
+	// spend-state is the only sequential-duplicate guard, and two concurrent
+	// Receives of the same note both pass it before either swap settles —
+	// measured by the #535 conformance lane as a double grant (issue #639).
+	// The guard is per note, not per MAC: a household may buy twice from two
+	// devices, and only the same note twice is the customer's double-click or
+	// double-tab. Guarded by receiveInFlightMu; lazily initialised so
+	// `&Merchant{}` literals keep working.
+	receiveInFlightMu sync.Mutex
+	receiveInFlight   map[string]struct{}
+	// Owed entitlements (#403): purchases whose Receive succeeded but whose
+	// grant failed. Keyed by the note's receive reference; durably persisted
+	// through owedGrantStore so a restart cannot erase an already-received
+	// customer's claim. See owed_grant.go.
+	owedGrantsMu      sync.Mutex
+	owedGrants        map[string]*owedGrantRecord
+	owedGrantStore    *owedGrantStore
 	unmeteredMu       sync.Mutex
 	unmeteredSessions map[string]*unmeteredSession
 	staleBindings     staleBindingJanitor
@@ -279,6 +409,11 @@ type Merchant struct {
 	monitorStop chan struct{}
 	monitorDone chan struct{}
 	monitorOn   bool
+
+	// Session tickets (see session_ticket.go): a per-process signing key and the
+	// handle -> attachment store. Both are memory-only on purpose.
+	ticketMu sync.Mutex
+	tickets  *ticketState
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -382,9 +517,12 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		expiredSessions:   make(map[string]int64),
 		lightningQuotes:   make(map[string]*lightningQuoteRecord),
 		quoteStore:        newQuoteStore(filepath.Join(walletDirPath, "quotes.json")),
+		owedGrants:        make(map[string]*owedGrantRecord),
+		owedGrantStore:    newOwedGrantStore(filepath.Join(walletDirPath, "owed-grants.json")),
 	}
 
 	m.loadLightningQuotesFromDisk()
+	m.loadOwedGrantsFromDisk()
 	m.StartPayoutRoutine()
 	m.StartDataUsageMonitoring()
 	m.startLightningQuoteJanitor()
@@ -432,8 +570,11 @@ func (m *Merchant) GetUsage(macAddress string) (string, error) {
 	var usageStr string
 	switch session.Metric {
 	case "bytes":
-		// Get data usage since baseline
-		usage, err := valve.GetDataUsageSinceBaseline(macAddress)
+		// The usage reported is the session's whole ledger: what it carried in
+		// from attachments it has already left behind, plus what the current
+		// attachment has used since its own baseline. A MAC rotation therefore
+		// answers `consumed/allotment` instead of starting over at zero.
+		usage, _, err := m.sessionBytesUsage(macAddress, session)
 		if err != nil {
 			return "", fmt.Errorf("error getting data usage: %w", err)
 		}
@@ -701,7 +842,7 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 		return
 	}
 
-	usage, err := valve.GetDataUsageSinceBaseline(macAddress)
+	usage, attachmentUsage, err := m.sessionBytesUsage(macAddress, session)
 	if err != nil {
 		if errors.Is(err, valve.ErrDataBaselineMissing) {
 			m.establishBaseline(macAddress)
@@ -711,6 +852,9 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 		return
 	}
 	m.clearUnmetered(macAddress)
+	// Remember this attachment's highest reading: it is what a rebind carries
+	// when the attachment's counters are already gone by the time it happens.
+	m.noteAttachmentUsage(macAddress, attachmentUsage)
 
 	// Check if allotment is reached
 	if usage < session.Allotment {
@@ -750,6 +894,46 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 	m.expireSessionLocked(macAddress)
 	m.sessionMu.Unlock()
 	log.Printf("Removed expired session for %s", macAddress)
+}
+
+// sessionBytesUsage returns the bytes consumed by the bytes session of
+// macAddress: the total the session carried in from attachments it has already
+// left behind (`session.Consumed`), plus the usage of the CURRENT attachment
+// since its own baseline. The second return value is that attachment-local
+// figure, which the caller records as the highest observed
+// (noteAttachmentUsage).
+//
+// The attachment-local figure is the HIGHER of the live counter reading and the
+// highest reading already recorded. NoDogSplash's counters live in its own
+// process: a restart, or a client record that is dropped and re-created, walks
+// them back to zero, and a meter that followed them down would hand the customer
+// a fresh allotment without a rebind ever happening.
+func (m *Merchant) sessionBytesUsage(macAddress string, session *CustomerSession) (uint64, uint64, error) {
+	since, err := valve.GetDataUsageSinceBaseline(macAddress)
+	if err != nil {
+		return 0, 0, err
+	}
+	if since < session.attachmentUsage {
+		since = session.attachmentUsage
+	}
+	return session.Consumed + since, since, nil
+}
+
+// noteAttachmentUsage records the highest usage observed for the current
+// attachment of macAddress's session, so a rebind can carry it forward when the
+// counters are already gone by the time the rebind happens. A session that is no
+// longer tracked is skipped: there is nothing left to carry.
+func (m *Merchant) noteAttachmentUsage(macAddress string, since uint64) {
+	m.sessionMu.Lock()
+	defer m.sessionMu.Unlock()
+
+	session, exists := m.customerSessions[macAddress]
+	if !exists {
+		return
+	}
+	if since > session.attachmentUsage {
+		session.attachmentUsage = since
+	}
 }
 
 // establishBaseline gives a bytes session the metering baseline it needs, so the
@@ -816,7 +1000,7 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 	}
 
 	m.sessionMu.Lock()
-	m.expireSessionLocked(macAddress)
+	retired, parked := m.retireSessionOrParkForTicketLocked(macAddress, time.Now())
 	m.sessionMu.Unlock()
 	// The episode is over: the bookkeeping belongs to THIS unmeterable session,
 	// so it is forgotten with it. Leaving it behind would leave
@@ -826,6 +1010,13 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 	// the previous session's grace window instead of granting this one its own.
 	m.clearUnmetered(macAddress)
 	log.Printf("Removed unmeterable session for %s", macAddress)
+
+	switch {
+	case retired:
+		log.Printf("Removed unmeterable session for %s", macAddress)
+	case parked:
+		log.Printf("Parked the unmeterable session of %s instead of retiring it: its gate is closed and it cannot be metered, but it still holds a live session ticket, so a rebind can still carry the remainder the customer paid for to the address they moved to", macAddress)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1044,11 +1235,13 @@ func (m *Merchant) reconcileStaleBindings() {
 
 // reconcileStaleBinding tears down the binding of an address whose client is
 // gone: the gate is closed (and, only when that close is CONFIRMED, the session
-// record is retired, so the address cannot be inherited by a later holder). The
-// usage of the last covered sweep is reported, because the remainder the
-// customer paid for cannot travel to the address they moved to until entitlement
-// is carried by a session ticket rather than by the address — that is the
-// next-release work this pass does not pretend to do.
+// record is retired, so the address cannot be inherited by a later holder) —
+// unless the session still holds a live session ticket, in which case the record is
+// PARKED instead of retired, so the remainder the customer paid for can still be
+// carried to the address they moved to. Entitlement now travels with a session
+// ticket, which is the work this paragraph used to defer (see
+// retireSessionOrParkForTicketLocked). The usage of the last covered sweep is
+// reported either way.
 //
 // The close goes through ReconcileGateClose rather than CloseGate because this is
 // the one caller that brings EVIDENCE about the client (the probe above has just
@@ -1066,12 +1259,8 @@ func (m *Merchant) reconcileStaleBinding(macAddress string) {
 
 	m.forgetStaleBinding(macAddress)
 
-	retired := false
 	m.sessionMu.Lock()
-	if _, exists := m.customerSessions[macAddress]; exists {
-		m.expireSessionLocked(macAddress)
-		retired = true
-	}
+	retired, parked := m.retireSessionOrParkForTicketLocked(macAddress, time.Now())
 	m.sessionMu.Unlock()
 
 	lastUsage := "nothing was metered for it"
@@ -1079,8 +1268,12 @@ func (m *Merchant) reconcileStaleBinding(macAddress string) {
 		lastUsage = fmt.Sprintf("%s of covered usage", utils.BytesToHumanReadable(usage))
 	}
 
+	if parked {
+		log.Printf("Reconciled the stale binding of %s: its client is gone and the gate is deauthorised, but the session is PARKED rather than retired because it still holds a live session ticket (%s) — a rebind inside that ticket's horizon still carries the purchased remainder to the address the customer moved to, and the first pass after the horizon retires the record", macAddress, lastUsage)
+		return
+	}
 	if retired {
-		log.Printf("Reconciled the stale binding of %s: its client is gone, the gate is deauthorised and the session is retired (%s; the purchased remainder is not transferable until entitlement travels with a session ticket)", macAddress, lastUsage)
+		log.Printf("Reconciled the stale binding of %s: its client is gone, the gate is deauthorised and the session is retired (%s; a session with no live ticket has nothing left to claim — entitlement travels with a session ticket)", macAddress, lastUsage)
 		return
 	}
 	log.Printf("Reconciled the stale binding of %s: its client is gone and the gate is deauthorised, and there was no session record to retire (%s)", macAddress, lastUsage)
@@ -1280,8 +1473,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Pre-check the mint's swap fee: a token whose value is entirely consumed
 	// by the fee fails the swap with an opaque mint error. Fail fast with a
 	// clear message. If the fee can't be determined (cdk adapter, mint
-	// unreachable), fall through and let Receive classify the error.
-	if fee, feeErr := m.tollwallet.SwapFeeSats(paymentCashuToken); feeErr == nil && fee > 0 {
+	// unreachable — or the precheck overruns its budget against a wedged
+	// mint, #525), fall through and let Receive classify the error.
+	if fee, feeErr, ok := swapFeeSatsBounded(m.tollwallet.SwapFeeSats, paymentCashuToken); ok && feeErr == nil && fee > 0 {
 		if amount := paymentCashuToken.Amount(); amount <= fee {
 			msg := fmt.Sprintf(
 				"This e-cash note is %d sat but mint %s charges a %d sat swap fee, so there is nothing left to spend. Use a larger token or a mint without fees.",
@@ -1324,6 +1518,25 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	log.Printf("PurchaseSession: calling Receive for mint=%s token_amount=%d mac=%s", paymentCashuToken.Mint(), paymentCashuToken.Amount(), macAddress)
 
+	// The same note may already be in flight from a concurrent POST (a
+	// double-click, two tabs, a portal retry). From here to the consumption of
+	// the Receive result — including the outcome-unknown window past the
+	// deadline — the note is marked; a second submission is refused locally,
+	// before any money moves, because the mint's spend-state cannot arbitrate
+	// two concurrent swaps of the same proofs (#639, measured by the #535
+	// conformance lane: both concurrent POSTs granted, allotment 2x, four
+	// derivation digests re-exposed).
+	reference := receiveReference(paymentCashuToken)
+	if !m.beginReceive(reference) {
+		log.Printf("PurchaseSession: refusing concurrent duplicate of an in-flight note for mac=%s reference=%s — no second Receive was sent to the mint", macAddress, reference)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-duplicate-inflight",
+			"This e-cash note is already being processed by this TollGate. Do not send it again — if the mint has taken it, a second attempt will be refused as already spent. Reload this page in a couple of minutes.", macAddress)
+		if noticeErr != nil {
+			return nil, fmt.Errorf("duplicate in-flight note and failed to create notice: %w", noticeErr)
+		}
+		return noticeEvent, nil
+	}
+
 	ch := make(chan receiveResult, 1)
 	go func() {
 		// A panic can only fire before the normal send, so this never
@@ -1343,6 +1556,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	case res := <-ch:
 		amountAfterSwap = res.amount
 		err = res.err
+		m.endReceive(reference)
 		log.Printf("PurchaseSession: Receive completed, amount=%d, err=%v", amountAfterSwap, err)
 	case <-time.After(receiveTimeout):
 		// A money-moving request has been sent and its outcome is not known yet:
@@ -1358,7 +1572,6 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		// The journal that will collect a late outcome and grant it is a separate
 		// piece of work; until it exists, this branch grants nothing and says so
 		// by not claiming that access will arrive on its own.
-		reference := receiveReference(paymentCashuToken)
 		log.Printf("PurchaseSession: Receive outcome unknown after %s for mint=%s mac=%s reference=%s — no session was granted; the customer was told not to resubmit the note",
 			receiveTimeout, paymentCashuToken.Mint(), macAddress, reference)
 
@@ -1367,8 +1580,14 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		// worth quoting. Nothing else reads the channel once this branch
 		// returns, so without the recorder the outcome of a `Receive` that
 		// completed at t+1s was discarded in silence and the notice handed the
-		// customer a reference that led the operator nowhere.
-		go recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference)
+		// customer a reference that led the operator nowhere. The recorder also
+		// owns the in-flight mark now: the note stays guarded until the outcome
+		// is consumed, so a resubmission arriving after the deadline but before
+		// the mint answers is refused exactly like a concurrent one.
+		go func() {
+			recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference)
+			m.endReceive(reference)
+		}()
 
 		message := "Your payment has not been confirmed yet: the mint has not answered this TollGate. Do not send this e-cash note again — if the mint did receive it, the note is already spent and a second attempt will be refused. Reload this page in a couple of minutes."
 		if reference != "" {
@@ -1384,6 +1603,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		mintURL := paymentCashuToken.Mint()
 
 		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) &&
+			!errors.Is(err, tollwallet.ErrOutcomeUnknown) &&
 			!isExpiredKeysetError(err) &&
 			!isRateLimitError(err) {
 			// A rate-limit answer means the mint is UP and telling us to slow
@@ -1393,7 +1613,9 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			// i.e. one rate-limited request stopped every sale on the router
 			// (a revenue DoS). The edge quota on POST /ln-invoice in main.go is
 			// the other half of this fix: it keeps our own flood from being
-			// what provokes the 429.
+			// what provokes the 429. An unanswered request (outcome unknown)
+			// is likewise not evidence the mint is down — it may be happily
+			// processing the swap whose response was dropped (#640).
 			m.mintHealthTracker.MarkUnreachable(mintURL)
 		}
 
@@ -1403,6 +1625,18 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) {
 			errorCode = "payment-error-token-spent"
 			errorMessage = "Token has already been spent"
+		} else if errors.Is(err, tollwallet.ErrOutcomeUnknown) {
+			// The mint never answered a request it may have processed: the
+			// note may already be spent, so the customer must not resubmit
+			// it — the same guidance the deadline branch above gives, reached
+			// here when the client surfaces the ambiguity as an error before
+			// the merchant deadline fires (#640).
+			errorCode = "payment-outcome-unknown"
+			reference := receiveReference(paymentCashuToken)
+			errorMessage = "Your payment has not been confirmed yet: the mint has not answered this TollGate. Do not send this e-cash note again — if the mint did receive it, the note is already spent and a second attempt will be refused. Reload this page in a couple of minutes."
+			if reference != "" {
+				errorMessage += fmt.Sprintf(" If access does not start, show the operator this reference: %s.", reference)
+			}
 		} else if isRateLimitError(err) {
 			errorCode = "mint-rate-limited"
 			errorMessage = "Mint is rate-limiting requests. Please try again in a moment."
@@ -1450,14 +1684,18 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Add allotment to the session and only persist the update if gate access opens.
 	session, err := m.grantSessionAccess(macAddress, allotment)
 	if err != nil {
-		errorCode := "session-error"
-		errorMessage := fmt.Sprintf("Failed to manage session: %v", err)
-		if strings.Contains(err.Error(), "failed to open gate:") {
-			errorCode = "session-error"
-			errorMessage = err.Error()
+		// The customer's value is already in the operator's wallet: Receive
+		// succeeded, and only the grant failed (#403). What is owed is the
+		// grant, so it is recorded durably and retried until it succeeds or
+		// its window passes — the customer is told their access will start,
+		// never to pay again.
+		m.recordOwedGrant(reference, macAddress, paymentCashuToken.Mint(), amountAfterSwap, allotment)
+
+		message := fmt.Sprintf("Your payment was received, but this TollGate could not open your access just now (the portal manager did not answer). Your access will start automatically — you do NOT need to pay again. Reload this page in a minute. Reference: %s", reference)
+		if reference == "" {
+			message = "Your payment was received, but this TollGate could not open your access just now (the portal manager did not answer). Your access will start automatically — you do NOT need to pay again. Reload this page in a minute."
 		}
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode,
-			errorMessage, macAddress)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-received-grant-pending", message, macAddress)
 		if noticeErr != nil {
 			return nil, fmt.Errorf("failed to manage session and failed to create notice: %w", noticeErr)
 		}
@@ -1478,6 +1716,38 @@ func isRateLimitError(err error) bool {
 	return strings.Contains(msg, "429") ||
 		strings.Contains(msg, "rate limit") ||
 		strings.Contains(msg, "too many requests")
+}
+
+// swapFeePrecheckBudget bounds the fee precheck (#525): the wallet client's
+// retry ladder (30 s per attempt, up to 5 attempts, chained endpoints) means
+// a wedged mint — one that accepts nothing, docker pause reproduces it —
+// parks SwapFeeSats for minutes, freezing the payment lane before anything
+// with a deadline runs. The fee check is an optimization, not a gate: past
+// the budget the payment proceeds and Receive's own error classification
+// (or its receive timeout) governs.
+const swapFeePrecheckBudget = 3 * time.Second
+
+// swapFeeSatsBounded runs fee with swapFeePrecheckBudget. ok=false means the
+// budget expired without an answer — treat the fee as unknown. The parked
+// call is abandoned (it self-clears when the retry ladder exhausts); the
+// result channel is buffered so a late answer does not leak a goroutine.
+func swapFeeSatsBounded(fee func(tollwallet.Token) (uint64, error), token tollwallet.Token) (feeSats uint64, err error, ok bool) {
+	type feeResult struct {
+		fee uint64
+		err error
+	}
+	res := make(chan feeResult, 1)
+	go func() {
+		f, err := fee(token)
+		res <- feeResult{f, err}
+	}()
+	select {
+	case r := <-res:
+		return r.fee, r.err, true
+	case <-time.After(swapFeePrecheckBudget):
+		log.Printf("PurchaseSession: fee precheck overran its %s budget (wedged mint?) — proceeding without the fee check", swapFeePrecheckBudget)
+		return 0, nil, false
+	}
 }
 
 // isBelowSwapFeeError reports whether err is the "the token cannot cover the
@@ -1540,7 +1810,18 @@ func isMintUnreachableError(err error) bool {
 // balance check, while the confident one costs the customer their note, which
 // the mint then refuses as already spent (#498).
 func isAmbiguousMintOutcomeError(err error) bool {
-	return err != nil && !isDefinitiveMintRefusal(err)
+	if err == nil {
+		return false
+	}
+	// The wallet client's explicit no-answer verdict is ambiguous by
+	// construction (gonuts-tollgate v0.13.0): the request may have been
+	// processed and its signatures lost. Matched positively so a future
+	// tightening of the refusal list below can never flip it silently.
+	var ambiguous *gonutsclient.AmbiguousOutcomeError
+	if errors.As(err, &ambiguous) {
+		return true
+	}
+	return !isDefinitiveMintRefusal(err)
 }
 
 // isDefinitiveMintRefusal reports whether err is a refusal the mint itself
@@ -2043,6 +2324,17 @@ func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 
 	m.sessionMu.RLock()
 	session, exists := m.customerSessions[macAddress]
+	if exists {
+		// Clone INSIDE the read lock. `attachmentUsage` is written in place by the
+		// usage monitor on every sweep (noteAttachmentUsage), so a clone taken
+		// after RUnlock reads a field of a record that is still live: a data race
+		// (the shipped suites never polled concurrently with the monitor, which is
+		// how it stayed invisible) and, on the 32-bit mips/mipsel router targets, a
+		// torn uint64 read is a real misread. Cloning here keeps the invariant the
+		// rest of this method already assumes: nothing reads a shared record
+		// outside sessionMu.
+		session = cloneCustomerSession(session)
+	}
 	m.sessionMu.RUnlock()
 	if !exists {
 		return nil, fmt.Errorf("%w for MAC address: %s", ErrSessionNotFound, macAddress)
@@ -2060,7 +2352,8 @@ func (m *Merchant) GetSession(macAddress string) (*CustomerSession, error) {
 		return nil, fmt.Errorf("%w for MAC address: %s", ErrSessionExpired, macAddress)
 	}
 
-	return cloneCustomerSession(session), nil
+	// Already a clone: it was taken under the read lock above.
+	return session, nil
 }
 
 // GetSessionState reports the machine-readable session state of a MAC, so a
