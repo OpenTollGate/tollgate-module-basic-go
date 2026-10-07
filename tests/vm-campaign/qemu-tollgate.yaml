@@ -1,0 +1,27 @@
+images:
+  openwrt_image: /root/tollgate-vm/openwrt-25.12.0-x86-64-combined.img
+targets:
+  main:
+    resources:
+      NetworkService:
+        address: 127.0.0.1
+        port: 2222
+        username: root
+
+    drivers:
+      - QEMUDriver:
+          qemu_bin: qemu-system-x86_64
+          machine: pc
+          cpu: max
+          memory: 512M
+          disk: openwrt_image
+          disk_opts: snapshot=on
+          extra_args: >-
+            -display none
+            -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22
+            -device virtio-net-pci,netdev=net0
+          nic: ""
+      - ShellDriver:
+          login_prompt: 'activate this console'
+          username: root
+          prompt: 'root@[\w()]+:[^ ]+ '
