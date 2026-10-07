@@ -18,7 +18,12 @@ keeps them separate:
 **The v0.6 answer to (2) is the SSID prefix** (`TollGate-` / `Net4sats-`,
 case-insensitive — #618). It is the Tier-3 option below: zero client
 requirements, zero new dependencies, spoofable-but-harmless because it only
-selects candidates for the signed probe. Everything richer is deferred past
+selects candidates for the signed probe. The shipped captive SSID carries a
+leading `!` (`!TollGate-<code>`) purely so it sorts first in an alphabetically
+ordered WiFi list; the `!` is **presentation, not a signal** — every reader
+strips at most one and matches the brand prefix underneath, so the bare form
+already deployed (and the one third-party clients match) still verifies.
+Everything richer is deferred past
 v0.6 and recorded here so nobody re-researches it.
 
 ---
@@ -82,8 +87,9 @@ Boingo, whose client tool recognized partner APs **from the SSID** using an
 operator dictionary. Zero client requirements, 32-byte budget, spoofable,
 no security — acceptable exactly and only because it selects candidates for
 the signed probe rather than authenticating them. `TollGate-<code>` /
-`Net4sats-<code>` with the brand-prefix recognition set (`hasTollGateSSID`)
-is this tier, done deliberately.
+`Net4sats-<code>` (or the sort-decorated `!TollGate-<code>` / `!Net4sats-<code>`
+— the `!` is stripped before matching) with the brand-prefix recognition set
+(`hasTollGateSSID`) is this tier, done deliberately.
 
 **Deferred variant — checksum-in-SSID** (tabled 2026-09-28, considered for
 v0.6 and left out): appending a truncated key checksum to the captive SSID

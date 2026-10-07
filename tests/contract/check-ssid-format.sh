@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016  # SSID patterns below are literal text, not expansions
-# Contract: the open AP this package ships is named `<brand>-<device code>` —
-# four characters of [A-Z0-9], minted once and stored per #605 (one device
-# code: docs/architecture/one-device-code.md) — and nothing else:
-# `^TollGate-[A-Z0-9]{4}$` for the default brand.
+# Contract: the open AP this package ships is named `!<brand>-<device code>` —
+# a leading '!' sort decoration, then four characters of [A-Z0-9] minted once
+# and stored per #605 (one device code: docs/architecture/one-device-code.md) —
+# and nothing else: `^!TollGate-[A-Z0-9]{4}$` for the default brand.
+#
+# Why the leading '!': it is 0x21, so it sorts before digits and letters in an
+# alphabetically ordered WiFi list, putting the guest network first. It is
+# PRESENTATION, not part of the discovery contract — the bare `TollGate-<code>`
+# form is what already-deployed routers and third-party clients carry, and every
+# reader (Go `hasTollGateSSID`, the shell `code_from_name`/`captive_ssid_for_code`
+# via `strip_ssid_decoration`) accepts a leading '!' as optional decoration.
+# The PRIVATE SSID (`<nym>-<code>`) never carries the '!': guests never see it.
 #
 # Why the exact shape is pinned: the SSID is the gateway's public name. The Go
 # side keys on the brand prefixes (src/wireless_gateway_manager/brands.go
@@ -36,7 +44,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 ROOT="$(pwd)"
 SCRIPT="$ROOT/packaging/files/etc/uci-defaults/99-tollgate-setup"
-CONTRACT_DEFAULT_RE='^TollGate-[A-Z0-9]{4}$'
+CONTRACT_DEFAULT_RE='^!TollGate-[A-Z0-9]{4}$'
 # The 4-character device code, as minted by mint_device_code() / shared with
 # the installer (#605). The acceptance domain is the full [A-Z0-9] alphabet:
 # this side's mint happens to emit hex, the installer's emits all of [A-Z0-9],
@@ -200,9 +208,9 @@ if [ -r /etc/tollgate/brand ]; then
         net4sats) brand_prefix="Net4sats" ;;
         *) brand_prefix="TollGate" ;;
     esac
-    info "host has /etc/tollgate/brand='${brand}' -> expecting prefix '${brand_prefix}-'"
+    info "host has /etc/tollgate/brand='${brand}' -> expecting prefix '!${brand_prefix}-'"
 else
-    info "host has no /etc/tollgate/brand -> expecting default prefix 'TollGate-' (first-boot default-brand path)"
+    info "host has no /etc/tollgate/brand -> expecting default prefix '!TollGate-' (first-boot default-brand path)"
 fi
 
 # --- A. behavioural ---------------------------------------------------------
@@ -228,7 +236,7 @@ else
     fail "${n_apis} AP SSID write(s), expected one per radio (2)"
 fi
 
-expected_re="^${brand_prefix}-[A-Z0-9]{4}\$"
+expected_re="^!${brand_prefix}-[A-Z0-9]{4}\$"
 idx=0
 while IFS= read -r ssid; do
     idx=$((idx + 1))
@@ -287,14 +295,14 @@ if [ -n "$reuse_a" ] && [ "$reuse_a" = "$reuse_b" ]; then
 else
     fail "a same-store rerun re-minted: '${reuse_a:-<none>}' then '${reuse_b:-<none>}'"
 fi
-derived="$(printf '%s' "$reuse_b" | sed -E "s/^${brand_prefix}-//")"
+derived="$(printf '%s' "$reuse_b" | sed -E "s/^!?${brand_prefix}-//")"
 if printf '%s' "$stored_code" | grep -qE "$SUFFIX_RE" && [ "$stored_code" = "$derived" ]; then
     pass "the store carries the code ('${stored_code}') and the SSID is derived from it"
 else
     fail "store/SSID disagreement: stored='${stored_code}', SSID derives '${derived}'"
 fi
 
-suffix="$(printf '%s' "$ssid0" | sed -E "s/^${brand_prefix}-//")"
+suffix="$(printf '%s' "$ssid0" | sed -E "s/^!?${brand_prefix}-//")"
 if printf '%s' "$suffix" | grep -qE "$SUFFIX_RE"; then
     pass "device code '${suffix}' is exactly 4 characters from [A-Z0-9]"
 else
@@ -384,4 +392,4 @@ if [ "$fails" -ne 0 ]; then
     printf '%d SSID-format check(s) FAILED.\n' "$fails" >&2
     exit 1
 fi
-printf 'Shipped AP SSIDs match the contract (brand + 4-character [A-Z0-9] device code, one name for both radios).\n'
+printf 'Shipped AP SSIDs match the contract (!-prefixed brand + 4-character [A-Z0-9] device code, one name for both radios).\n'

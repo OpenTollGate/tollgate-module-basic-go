@@ -108,7 +108,7 @@ export LOGFILE
 
 for fn in setup_device_identity normalize_device_code code_from_name \
           is_minted_suffix safe_nym mint_device_code resolve_nym private_ssid_for_code \
-          captive_ssid_for_code; do
+          strip_ssid_decoration captive_ssid_for_code; do
     command -v "$fn" >/dev/null 2>&1 || { echo "FATAL: $fn not defined by the script" >&2; exit 1; }
 done
 ok "setup script sources in lib-only mode and defines the device-identity functions"
@@ -141,14 +141,30 @@ eq "empty stays empty"            "$(normalize_device_code '')"   ""
 echo "== code_from_name (adoption reads machine-shaped names only)"
 eq "installer hostname"           "$(code_from_name tollgate-OQ3Q)" "OQ3Q"
 eq "module SSID, brand case"      "$(code_from_name TollGate-0GLK)" "0GLK"
+# The sort decoration the shipped writer emits (!TollGate-<code>) is not part
+# of the name: adoption strips at most one leading '!' and reads the code
+# underneath, so a decorated captive SSID is still a machine-shaped source and
+# already-deployed bare names keep working.
+eq "decorated captive SSID"       "$(code_from_name '!TollGate-0GLK')" "0GLK"
+eq "decorated, lowercase legacy"  "$(code_from_name '!tollgate-0GLK')" "0GLK"
+eq "decorated foreign name yields none" "$(code_from_name '!FreeWifi')" ""
+eq "a doubled decoration is not stripped twice" "$(code_from_name '!!TollGate-0GLK')" ""
 # A whitelabel build's name is recognized because the BRAND FILE says so, never
 # because a brand is listed in the script: the same name is adopted under that
 # build's brand token and ignored under any other.
 eq "whitelabel brand token"       "$(BRAND=otherbrand code_from_name Otherbrand-AB12)" "AB12"
+eq "decorated whitelabel token"   "$(BRAND=otherbrand code_from_name '!Otherbrand-AB12')" "AB12"
 eq "a brand that is not configured" "$(code_from_name Otherbrand-AB12)" ""
 eq "custom hostname yields none"  "$(code_from_name myrouter)"      ""
 eq "short suffix yields none"     "$(code_from_name tollgate-abc)"  ""
 eq "empty yields none"            "$(code_from_name '')"            ""
+
+echo "== strip_ssid_decoration (one optional leading '!', never more)"
+eq "a decorated name is un-decorated" "$(strip_ssid_decoration '!TollGate-OQ3Q')" "TollGate-OQ3Q"
+eq "a bare name is untouched"         "$(strip_ssid_decoration 'TollGate-OQ3Q')"  "TollGate-OQ3Q"
+eq "only the first '!' is removed"    "$(strip_ssid_decoration '!!TollGate-OQ3Q')" "!TollGate-OQ3Q"
+eq "empty stays empty"                "$(strip_ssid_decoration '')"                ""
+eq "a lone '!' becomes empty"         "$(strip_ssid_decoration '!')"               ""
 
 echo "== is_minted_suffix (a machine's suffix converges, an operator's does not)"
 is_minted_suffix 0GLK   && ok "four chars is machine-shaped"   || bad "four chars is machine-shaped"
@@ -191,7 +207,7 @@ esac
 eq "the minted code is stored"           "$(state_get tollgate.device.code)" "$CODE"
 eq "the nym is stored"                   "$(state_get tollgate.device.nym)"  "c08r4d0r"
 eq "hostname carries the code"           "$DEVICE_HOSTNAME"                  "tollgate-$CODE"
-eq "captive SSID carries the code"       "$DEVICE_SSID"                      "TollGate-$CODE"
+eq "captive SSID carries the code"       "$DEVICE_SSID"                      "!TollGate-$CODE"
 log_has "Minted device code"             && ok "the mint is logged as a mint" || bad "the mint is logged as a mint"
 grep -q '^commit tollgate$' "$UCI_LOG"   && ok "the store is committed (not left as a session delta)" \
                                          || bad "the store is committed"
@@ -204,7 +220,7 @@ reset_log
 setup_device_identity
 eq "the stored code wins over hostname and SSID" "$CODE" "OQ3Q"
 eq "the hostname is derived from the stored code" "$DEVICE_HOSTNAME" "tollgate-OQ3Q"
-eq "the captive SSID is derived from the stored code" "$DEVICE_SSID" "TollGate-OQ3Q"
+eq "the captive SSID is derived from the stored code" "$DEVICE_SSID" "!TollGate-OQ3Q"
 log_has "Minted device code" && bad "the store was ignored and a code was re-minted" \
                              || ok "no mint happened while a code was stored"
 
@@ -217,7 +233,7 @@ reset_log
 setup_device_identity
 eq "hostname wins over the stale SSID"   "$CODE" "OQ3Q"
 eq "the adopted code is stored"          "$(state_get tollgate.device.code)" "OQ3Q"
-eq "the captive SSID converges on it"    "$DEVICE_SSID" "TollGate-OQ3Q"
+eq "the captive SSID converges on it"    "$DEVICE_SSID" "!TollGate-OQ3Q"
 log_has "adopted from hostname"          && ok "the adoption is logged with its source" \
                                          || bad "the adoption is logged with its source"
 log_has "Minted device code"             && bad "a code was minted instead of adopted" \
@@ -249,15 +265,24 @@ eq "a machine SSID converges (digits)"         "$(private_ssid_for_code 'c08r4d0
 eq "renamed SSID (no nym) is preserved"        "$(private_ssid_for_code 'MyNewNetwork')" "MyNewNetwork"
 eq "renamed SSID (other nym) is preserved"     "$(private_ssid_for_code 'office-lan')" "office-lan"
 eq "renamed SSID (nym + word) is preserved"    "$(private_ssid_for_code 'c08r4d0r-Office')" "c08r4d0r-Office"
+# The sort decoration belongs to the CAPTIVE SSID only. The private SSID is the
+# operator's management network and guests never see it, so it must never gain
+# a leading '!': a '!TollGate-…'-looking private value is not a nym+code and is
+# preserved as an operator name (the correct, unchanged behaviour).
+eq "the private SSID never gains the decoration" \
+   "$(private_ssid_for_code '!c08r4d0r-0GLK')" "!c08r4d0r-0GLK"
 
 echo "== the captive SSID on the repair path keeps an operator's own name"
-DEVICE_SSID="TollGate-OQ3Q"
-eq "a machine-shaped SSID converges"       "$(captive_ssid_for_code 'tollgate-0GLK')" "TollGate-OQ3Q"
-eq "the brand case converges too"          "$(captive_ssid_for_code 'TollGate-0GLK')" "TollGate-OQ3Q"
-eq "a whitelabel brand converges too"     "$(BRAND=otherbrand captive_ssid_for_code 'Otherbrand-AB12')" "TollGate-OQ3Q"
+DEVICE_SSID="!TollGate-OQ3Q"
+eq "a machine-shaped SSID converges"       "$(captive_ssid_for_code 'tollgate-0GLK')" "!TollGate-OQ3Q"
+eq "the brand case converges too"          "$(captive_ssid_for_code 'TollGate-0GLK')" "!TollGate-OQ3Q"
+eq "an already-decorated SSID converges"   "$(captive_ssid_for_code '!TollGate-0GLK')" "!TollGate-OQ3Q"
+eq "a decorated lowercase SSID converges"  "$(captive_ssid_for_code '!tollgate-0GLK')" "!TollGate-OQ3Q"
+eq "a whitelabel brand converges too"     "$(BRAND=otherbrand captive_ssid_for_code 'Otherbrand-AB12')" "!TollGate-OQ3Q"
 eq "an operator's own name survives"       "$(captive_ssid_for_code 'CafeWiFi')" "CafeWiFi"
+eq "a decorated operator name survives"    "$(captive_ssid_for_code '!CafeWiFi')" "!CafeWiFi"
 eq "a brand word without a code survives"  "$(captive_ssid_for_code 'TollGate-CafeNet')" "TollGate-CafeNet"
-eq "a missing SSID is built from the code" "$(captive_ssid_for_code '')" "TollGate-OQ3Q"
+eq "a missing SSID is built from the code" "$(captive_ssid_for_code '')" "!TollGate-OQ3Q"
 
 echo "== the nym is adopted from an existing machine-shaped private SSID"
 seed "tollgate.device=device" "tollgate.device.code=OQ3Q" \
@@ -287,6 +312,18 @@ grep -q 'RANDOM_SUFFIX' "$ROOT/$SCRIPT" \
 grep -q 'private_ssid="c08r4d0r-' "$ROOT/$SCRIPT" \
     && bad "the private SSID is hardcoded again instead of derived from the code" \
     || ok "the private SSID is derived from the code"
+
+echo "== the sort decoration ('!') is on the captive SSID and nowhere else"
+grep -q -F 'DEVICE_SSID="!${BRAND_HOSTNAME}-${CODE}"' "$ROOT/$SCRIPT" \
+    && ok "the captive SSID is written with the leading '!' (it sorts first in a WiFi list)" \
+    || bad "the captive SSID is not decorated with the leading '!'"
+# Exactly ONE assignment in the shipped script opens its value with '!': the
+# captive SSID. The private SSID is the operator's management network, guests
+# never see it, and it must not be renamed by this change.
+decorated_sites="$(grep -cE '="!' "$ROOT/$SCRIPT" || true)"
+[ "$decorated_sites" = 1 ] \
+    && ok "exactly one '!' -decorated assignment in the script (the captive SSID)" \
+    || bad "found $decorated_sites '!' -decorated assignments; only the captive SSID may carry one"
 
 echo "== the store is read on BOTH setup paths"
 grep -q '^    setup_device_identity$' "$ROOT/$SCRIPT" \

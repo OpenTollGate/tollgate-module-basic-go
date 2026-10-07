@@ -51,7 +51,7 @@ eq()  { # eq <label> <got> <want>
 SCRIPT="packaging/files/etc/uci-defaults/99-tollgate-setup"
 SHIPPED="v0.6.0-alpha5"
 OLDER="v0.6.0-alpha4"
-WANT="TollGate-OQ3Q Portal"
+WANT="!TollGate-OQ3Q Portal"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -322,7 +322,7 @@ eq "the repair path's banner is the SAME value the full path writes" "$repair_gw
 eq "no gatewayname op is left pending in the /tmp/.uci-style delta" \
    "$(pending_gw "$TMP/repair/uci.state")" "0"
 eq "the repair path's captive SSID converged on the same code" \
-   "$(state_opt "$TMP/repair/uci.state" 'wireless.tollgate_2g_open.ssid')" "TollGate-OQ3Q"
+   "$(state_opt "$TMP/repair/uci.state" 'wireless.tollgate_2g_open.ssid')" "!TollGate-OQ3Q"
 eq "the operator's PSK is untouched" \
    "$(state_opt "$TMP/repair/uci.state" 'wireless.private_radio0.key')" "Alpha-Bravo-Charlie-11"
 

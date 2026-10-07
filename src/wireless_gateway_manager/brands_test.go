@@ -25,6 +25,14 @@ func TestHasTollGateSSIDRecognitionSet(t *testing.T) {
 		"tollgate-0GLK",                                   // old-installer lowercase SSID, still deployed
 		strings.ToUpper(whitelabelCaptivePrefix) + "AA11", // case-insensitive whitelabel
 		"TollGate-", // bare prefix, code length is not this helper's concern
+		// The captive-SSID sort decoration: the shipped writer now emits
+		// !TollGate-<code> so the guest network sorts first in an
+		// alphabetically ordered WiFi list. Readers must treat the leading
+		// '!' as optional and match the name underneath it — both brands.
+		"!TollGate-OQ3Q",
+		"!TollGate-G7ZQ",
+		"!" + whitelabelCaptivePrefix + "OQ3Q", // decorated whitelabel (assembled, per the gutter)
+		"!tollgate-0GLK",                       // decorated legacy lowercase
 	}
 	for _, ssid := range recognized {
 		assert.True(t, hasTollGateSSID(ssid), "expected recognized: %s", ssid)
@@ -37,6 +45,9 @@ func TestHasTollGateSSIDRecognitionSet(t *testing.T) {
 		"MyTollGate-AB12", // prefix must be at the start
 		"FreeWifi",        // unrelated
 		"tollgate",        // bare brand, lowercase
+		"!FreeWifi",       // a '!' does not make a foreign name a TollGate
+		"!",               // decoration with nothing under it
+		"!!TollGate-OQ3Q", // at most ONE decoration is stripped
 	}
 	for _, ssid := range rejected {
 		assert.False(t, hasTollGateSSID(ssid), "expected rejected: %s", ssid)
