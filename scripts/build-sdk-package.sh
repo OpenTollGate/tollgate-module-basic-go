@@ -109,7 +109,9 @@ if [ "$ACTIVE_GO" != "go$GO_VERSION" ] && [ "${TG_ALLOW_GO_MISMATCH:-0}" != "1" 
     exit 1
 fi
 
-SDK_IMAGE="$(sdk_image_ref "$SDK_TAG")"
+# The packaging format selects the SDK era (25.12/apk vs 24.10/ipk)
+export TG_PACKAGE_FORMAT="$PACKAGE_FORMAT"
+SDK_IMAGE="$(sdk_image_ref "$SDK_TAG" "$PACKAGE_FORMAT")"
 
 mkdir -p "$ARTIFACT_DIR"
 rm -rf "$HOST_ARTIFACT_PATH"

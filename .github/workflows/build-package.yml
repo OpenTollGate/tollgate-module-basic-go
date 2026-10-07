@@ -74,12 +74,18 @@ jobs:
           # source of truth — so this matrix cannot drift from the manifest:
           # every row's digest is injected here, never hand-copied.
           jq --slurpfile inputs packaging/build-inputs.json -c '
+            # Both SDK eras are pinned in build-inputs.json (25.12/apk native,
+            # 24.10/ipk for the installed base); every row carries BOTH
+            # digest+release pairs and the format split below attaches the
+            # right one. Digests never hand-copied.
             .include |= map(
-              .sdk as $sdk
-              | ($inputs[0].openwrt_sdk.targets[$sdk].digest //
-                 (error("no SDK digest pinned for target \($sdk) in packaging/build-inputs.json")))
-              as $digest
-              | . + {digest: $digest}
+              . as $row
+              | ($inputs[0].openwrt_sdk.releases.apk.targets[$row.sdk].digest //
+                 (error("no apk-era SDK digest pinned for target \($row.sdk)"))) as $da
+              | ($inputs[0].openwrt_sdk.releases.ipk.targets[$row.sdk].digest //
+                 (error("no ipk-era SDK digest pinned for target \($row.sdk)"))) as $di
+              | . + { digest_apk: $da, release_apk: $inputs[0].openwrt_sdk.releases.apk.release,
+                     digest_ipk: $di, release_ipk: $inputs[0].openwrt_sdk.releases.ipk.release }
             )
           ' matrix.json > matrix.digests.json
           mv matrix.digests.json matrix.json
@@ -95,11 +101,11 @@ jobs:
           fi
 
           echo "matrix=$(jq -c '{include: [
-            (.include[] | select(.ipk) | del(.ipk, .apk) + {format: "ipk"}),
-            (.include[] | select(.apk) | del(.ipk, .apk) + {format: "apk"})
+            (.include[] | select(.ipk) | del(.ipk, .apk) + {format: "ipk", digest: .digest_ipk, sdk_release: .release_ipk}),
+            (.include[] | select(.apk) | del(.ipk, .apk) + {format: "apk", digest: .digest_apk, sdk_release: .release_apk})
           ]}' matrix.json)" >> $GITHUB_OUTPUT
-          echo "ipk_matrix=$(jq -c '{include: [.include[] | select(.ipk) | del(.ipk, .apk) + {format: "ipk"}]}' matrix.json)" >> $GITHUB_OUTPUT
-          echo "apk_matrix=$(jq -c '{include: [.include[] | select(.apk) | del(.ipk, .apk) + {format: "apk"}]}' matrix.json)" >> $GITHUB_OUTPUT
+          echo "ipk_matrix=$(jq -c '{include: [.include[] | select(.ipk) | del(.ipk, .apk, .digest_apk, .release_apk, .digest_ipk, .release_ipk) + {format: "ipk", digest: .digest_ipk, sdk_release: .release_ipk}]}' matrix.json)" >> $GITHUB_OUTPUT
+          echo "apk_matrix=$(jq -c '{include: [.include[] | select(.apk) | del(.ipk, .apk, .digest_apk, .release_apk, .digest_ipk, .release_ipk) + {format: "apk", digest: .digest_apk, sdk_release: .release_apk}]}' matrix.json)" >> $GITHUB_OUTPUT
 
   determine-versioning:
     runs-on: ubuntu-latest
@@ -645,7 +651,7 @@ jobs:
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
     container:
-      image: openwrt/sdk:${{ matrix.sdk }}-25.12.0@${{ matrix.digest }}
+      image: openwrt/sdk:${{ matrix.sdk }}-${{ matrix.sdk_release }}@${{ matrix.digest }}
       options: --user root
     strategy:
       # Fail fast: the happy-path gate runs after packaging, so there is nothing
