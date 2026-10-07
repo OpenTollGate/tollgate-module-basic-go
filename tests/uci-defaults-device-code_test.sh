@@ -120,7 +120,7 @@ export LOGFILE
 
 for fn in setup_device_identity normalize_device_code code_from_name \
           is_minted_suffix safe_nym mint_device_code resolve_nym private_ssid_for_code \
-          captive_ssid_for_code; do
+          strip_ssid_decoration captive_ssid_for_code; do
     command -v "$fn" >/dev/null 2>&1 || { echo "FATAL: $fn not defined by the script" >&2; exit 1; }
 done
 ok "setup script sources in lib-only mode and defines the device-identity functions"
@@ -161,6 +161,9 @@ eq "module SSID, brand case"      "$(code_from_name TollGate-0GLK)" "0GLK"
 eq "banged (installer) SSID"      "$(code_from_name '!TollGate-OQ3Q')" "OQ3Q"
 eq "banged lowercase SSID"        "$(code_from_name '!tollgate-0GLK')" "0GLK"
 eq "banged whitelabel SSID"       "$(BRAND=otherbrand code_from_name '!Otherbrand-AB12')" "AB12"
+# The decoration is PRESENTATION: stripping it must not make a foreign name a
+# machine-shaped source — the code underneath has to be one this stack wrote.
+eq "decorated foreign name yields none" "$(code_from_name '!FreeWifi')" ""
 # Exactly ONE '!' is decoration: a double is not a name this stack wrote, so it
 # adopts nothing (the same rule the Go matcher and the pinned acceptance table
 # carry — tests/contract/ssid-naming-fixtures.txt, 'nomatch !!TollGate-…').
@@ -169,11 +172,19 @@ eq "double bang yields none"      "$(code_from_name '!!TollGate-OQ3Q')" ""
 # because a brand is listed in the script: the same name is adopted under that
 # build's brand token and ignored under any other.
 eq "whitelabel brand token"       "$(BRAND=otherbrand code_from_name Otherbrand-AB12)" "AB12"
+eq "decorated whitelabel token"   "$(BRAND=otherbrand code_from_name '!Otherbrand-AB12')" "AB12"
 eq "a brand that is not configured" "$(code_from_name Otherbrand-AB12)" ""
 eq "custom hostname yields none"  "$(code_from_name myrouter)"      ""
 eq "a bang alone is not a name"   "$(code_from_name '!')"           ""
 eq "short suffix yields none"     "$(code_from_name tollgate-abc)"  ""
 eq "empty yields none"            "$(code_from_name '')"            ""
+
+echo "== strip_ssid_decoration (one optional leading '!', never more)"
+eq "a decorated name is un-decorated" "$(strip_ssid_decoration '!TollGate-OQ3Q')" "TollGate-OQ3Q"
+eq "a bare name is untouched"         "$(strip_ssid_decoration 'TollGate-OQ3Q')"  "TollGate-OQ3Q"
+eq "only the first '!' is removed"    "$(strip_ssid_decoration '!!TollGate-OQ3Q')" "!TollGate-OQ3Q"
+eq "empty stays empty"                "$(strip_ssid_decoration '')"                ""
+eq "a lone '!' becomes empty"         "$(strip_ssid_decoration '!')"               ""
 
 echo "== is_minted_suffix (a machine's suffix converges, an operator's does not)"
 is_minted_suffix 0GLK   && ok "four chars is machine-shaped"   || bad "four chars is machine-shaped"
@@ -313,6 +324,12 @@ eq "a machine SSID converges (digits)"         "$(private_ssid_for_code 'c08r4d0
 eq "renamed SSID (no nym) is preserved"        "$(private_ssid_for_code 'MyNewNetwork')" "MyNewNetwork"
 eq "renamed SSID (other nym) is preserved"     "$(private_ssid_for_code 'office-lan')" "office-lan"
 eq "renamed SSID (nym + word) is preserved"    "$(private_ssid_for_code 'c08r4d0r-Office')" "c08r4d0r-Office"
+# The sort decoration belongs to the CAPTIVE SSID only. The private SSID is the
+# operator's management network and guests never see it, so it must never gain
+# a leading '!': a '!TollGate-…'-looking private value is not a nym+code and is
+# preserved as an operator name (the correct, unchanged behaviour).
+eq "the private SSID never gains the decoration" \
+   "$(private_ssid_for_code '!c08r4d0r-0GLK')" "!c08r4d0r-0GLK"
 
 echo "== the captive SSID on the repair path keeps an operator's own name"
 DEVICE_SSID="!TollGate-OQ3Q"
@@ -363,6 +380,23 @@ grep -q 'RANDOM_SUFFIX' "$ROOT/$SCRIPT" \
 grep -q 'private_ssid="c08r4d0r-' "$ROOT/$SCRIPT" \
     && bad "the private SSID is hardcoded again instead of derived from the code" \
     || ok "the private SSID is derived from the code"
+
+echo "== the sort decoration ('!') is on the captive SSID and nowhere else"
+grep -q -F 'DEVICE_SSID="!${BRAND_HOSTNAME}-${CODE}"' "$ROOT/$SCRIPT" \
+    && ok "the captive SSID is written with the leading '!' (it sorts first in a WiFi list)" \
+    || bad "the captive SSID is not decorated with the leading '!'"
+# Exactly ONE assignment in the shipped script opens its value with '!': the
+# captive SSID. The private SSID is the operator's management network, guests
+# never see it, and it must not be renamed by this change.
+#
+# Comments are excluded from the count: doc prose legitimately quotes the
+# installer's own writer (`SSID="!TollGate-$CODE"`) and a bare grep would read
+# that quotation as a second written name, failing this guard for the wrong
+# reason while the script is correct.
+decorated_sites="$(grep -vE '^[[:space:]]*#' "$ROOT/$SCRIPT" | grep -cE '="!' || true)"
+[ "$decorated_sites" = 1 ] \
+    && ok "exactly one '!' -decorated assignment in the script (the captive SSID)" \
+    || bad "found $decorated_sites '!' -decorated assignments; only the captive SSID may carry one"
 
 echo "== the store is read on BOTH setup paths"
 grep -q '^    setup_device_identity$' "$ROOT/$SCRIPT" \
