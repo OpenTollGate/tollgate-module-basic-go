@@ -13,7 +13,11 @@ TOLLGATE_DISPLAY_VERSION:=$(if $(strip $(PACKAGE_VERSION)),$(PACKAGE_VERSION),0.
 ifeq ($(CONFIG_USE_APK),y)
 PKG_VERSION:=$(shell sh "$(PKG_MAKEFILE_DIR)normalize-apk-version.sh" "$(TOLLGATE_DISPLAY_VERSION)")
 else
-PKG_VERSION:=$(TOLLGATE_DISPLAY_VERSION)
+# opkg's Debian-style ordering: a bare `-rc1` suffix sorts AFTER the
+# release (rc > final → the final would install as a downgrade and be
+# refused); the tilde form `~rc1` sorts before it. Never ship the raw
+# tag as the ipk version.
+PKG_VERSION:=$(shell sh "$(PKG_MAKEFILE_DIR)normalize-ipk-version.sh" "$(TOLLGATE_DISPLAY_VERSION)")
 endif
 
 PKG_FLAGS:=overwrite
