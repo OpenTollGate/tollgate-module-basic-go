@@ -146,7 +146,6 @@ notices; every code is stable API for the portal:
 | `payment-outcome-unknown` | `21023` | The mint never answered a request it may have processed (dropped response, timeout). Do NOT resend the note — if the mint received it, a retry is refused as spent. Carries the operator-quotable reference. |
 | `payment-received-grant-pending` | `21023` | Payment received, but the gate could not open yet; a durable owed entitlement retries the grant (survives restarts) and access starts automatically — no second payment needed. |
 | `payment-error-token-spent` | `21023` | Sequential resubmit of a consumed note — the mint's own refusal. |
-| `client-not-registered` | `21023` | Pre-flight refusal: NDS holds no session for the paying MAC, so a gate could never open (renewals and known clients excepted — the valve's bounded auth retry re-registers them). |
 | `invalid-mac-address` | `21023` | The resolved client identity is not a valid MAC. |
 | `payment-processing-failed` | `21023` | Unclassified Receive failure (the residual bucket). |
 | `payment-error-below-swap-fee`, `payment-error-keyset-expired`, `payment-error-mint-unreachable`, `mint-rate-limited`, `payment-error-invalid-token`, `session-error` | `21023` | Classified refusals; see the merchant source for the exact conditions. |
