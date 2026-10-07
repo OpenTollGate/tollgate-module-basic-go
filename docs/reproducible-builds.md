@@ -5,10 +5,10 @@
 This repo deliberately maintains TWO build paths and gates them against
 each other, so neither can drift in versions or pinnings:
 
-| | Path A — SDK (canonical) | Path B — shortcut |
+| | Path A — FAST (iteration) | Path B — SDK (canonical, ships) |
 |---|---|---|
 | What | digest-pinned OpenWrt SDK package build (`.github/workflows/build-package.yml`, `scripts/build-sdk-package.sh`) | cloud-lab Docker images + host prebuild (`tests/cloud-lab/Dockerfile.*`, `packaging/local-build-ipk.sh`) |
-| Toolchain | `packaging/build-inputs.json` → `.go.version`, re-derived from the OpenWrt packages feed and enforced by `scripts/sdk-go-version.sh check` | the SAME manifest — `lab.sh` exports it into compose build args; Dockerfile `ARG GO_VERSION` defaults are lockstep fallbacks |
+| Toolchain | the manifest Go (`packaging/build-inputs.json` `.go.version`) compiles host-side prebuilts; `lab.sh` exports it into compose build args; Dockerfile `ARG GO_VERSION` defaults are lockstep fallbacks | the SAME manifest Go compiles the prebuilts the SDK packages — both **SDK eras** are digest-pinned in the manifest (`releases.apk` = 25.12 line, primary; `releases.ipk` = 24.10 line for the installed base) and the package format selects its era (`sdk_image_ref <target> <fmt>`) |
 | Flags | canonical: `-trimpath -buildvcs=false -ldflags=…` | the SAME canonical flags (Dockerfile.tollgate) |
 
 **The manifest is the single source of truth.** Every other reference is
@@ -18,6 +18,10 @@ or a literal kept in lockstep — and every literal is drift-gated by
 Bumping the toolchain is an intentional release decision: change the
 manifest, run `scripts/sdk-go-version.sh update` to refresh the feed map,
 and the parity gates will point at anything left behind.
+
+
+**Fast-path inventory** (one path, several doors — all manifest-pinned):
+`packaging/local-build-ipk.sh` (the canonical local entry: host prebuild + `build-ipk.sh` ar/tar packaging), CI's `package-ipk` job (the same steps inline — its unification onto the script is tracked), the cloud-lab images (test stacks; canonical flags; never published), and `scripts/shc-build-package.sh` (a short-lived-VM transport around `local-build-ipk.sh`, not a separate build).
 
 **Proof, not vibes:** `repro-check.yml`'s fast lane rebuilds the binaries
 in independent clean roots (identical SHA-256s required); the

@@ -23,6 +23,24 @@ map and configuration reference.
   firewall, Wi-Fi, `ndsctl`). Unit tests passing does not mean a
   router-visible change works — say so honestly in PR descriptions.
 
+## Build paths: exactly two, both pinned and reproducible
+
+Every build of this module goes through ONE of two paths. There is no third
+path; if you are typing build commands not named below, stop and pick a path.
+
+| | Path A — FAST (iteration) | Path B — SDK (canonical, what ships) |
+|---|---|---|
+| Entry | `packaging/local-build-ipk.sh` (host prebuild + `build-ipk.sh` packaging); cloud-lab images via `lab.sh` (tests only); `scripts/shc-build-package.sh` is a VM transport AROUND this path | `scripts/build-sdk-package.sh` (both package formats) |
+| Toolchain | the manifest Go (`packaging/build-inputs.json` `.go`), canonical flags | SAME manifest Go compiles host-side prebuilts; the SDK packages them (its feed Go never compiles our code) |
+| SDK eras | none needed | format-selected, both digest-pinned: `releases.apk` (25.12 line, primary) and `releases.ipk` (24.10 line, installed base) |
+| Reproducibility | deterministic given manifest pins (SOURCE_DATE_EPOCH, ldflags via `packaging/build-env.sh`) | same + digest-pinned SDK images; `repro-check.yml` proves byte-identity (clean-root x2 fast lane; `path-parity` job builds both paths and requires identical SHA-256s) |
+| Use when | iterating, CI's fast checks, cloud-lab test stacks | producing any artifact that installs on a router or gets published |
+
+Rules that keep the two paths one truth:
+- **The manifest is the single source of truth** (`packaging/build-inputs.json`): Go toolchain, SDK eras + digests, portal/UPX/Node pins. Nothing hand-copies a version; drift is gated by `tests/contract/check-toolchain-parity.py` and `scripts/sdk-go-version.sh check`.
+- The fast path may never diverge from the SDK path's bytes — the parity gates exist to catch it the day it happens, not after.
+- CI's package-ipk job is the fast path's CI expression (same host-prebuild + ar/tar packaging steps inline); unifying it to call `local-build-ipk.sh` directly is tracked work — until then, treat any divergence between them as a bug.
+
 ## Fund safety, crash consistency, and distributed transaction invariants
 
 Any change touching payments, wallets, sessions, gates, mints, payouts,
