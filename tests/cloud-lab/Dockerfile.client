@@ -3,13 +3,16 @@
 # Contains cdk-cli (for Cashu wallet operations), nak (for Nostr event
 # signing), and Python+pytest (for test execution).
 
+# Toolchain from the manifest — see Dockerfile.tollgate's header note.
+# Declared before the first FROM so every stage's FROM can interpolate it;
+# a stage-scoped ARG is invisible to subsequent FROM lines (issue #724).
+ARG GO_VERSION=1.26.8
+
 FROM rust:1.88-bookworm AS rust-builder
 
 # Build cdk-cli for wallet operations
 RUN cargo install cdk-cli --locked
 
-# Toolchain from the manifest — see Dockerfile.tollgate's header note.
-ARG GO_VERSION=1.26.8
 FROM golang:${GO_VERSION}-bookworm AS go-builder
 
 # Install nak (Nostr Swiss Army Knife)
