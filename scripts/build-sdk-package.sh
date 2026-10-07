@@ -213,11 +213,13 @@ printf '[preflight] Using parallel jobs=%s\n' "$JOBS"
 
 env PACKAGE_VERSION="$PACKAGE_VERSION" make -j"$JOBS" V=s package/tollgate-wrt/compile
 
-if [ "$PACKAGE_FORMAT" = "ipk" ]; then
-    test -d "/builder/bin/packages/$EXPECTED_ARCH"
-else
-    compgen -G "/builder/build_dir/target-${EXPECTED_ARCH}_*" > /dev/null
-fi
+# The packages dir uses the canonical arch name (underscores) for BOTH
+# formats; the build_dir spells feature sets with "+" (e.g. target-
+# arm_cortex-a7+neon-vfpv4_musl_eabi), so globbing it from EXPECTED_ARCH
+# can only match arches without "+" — bcm2709 failed here after a
+# successful build. The packages-dir test is the real "SDK produced
+# packages for our arch" gate in both eras.
+test -d "/builder/bin/packages/$EXPECTED_ARCH"
 
 mapfile -t PACKAGE_PATHS < <(find /builder/bin/packages /builder/bin/targets -type f -name "tollgate-wrt*.${PACKAGE_EXTENSION}" 2>/dev/null | sort)
 if [ "${#PACKAGE_PATHS[@]}" -eq 0 ]; then
