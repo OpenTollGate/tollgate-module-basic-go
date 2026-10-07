@@ -77,7 +77,13 @@ NPM_VERSION="$(jq -r '.npm.version' "$TG_BUILD_INPUTS")"
 UPX_VERSION="$(jq -r '.upx.version' "$TG_BUILD_INPUTS")"
 PORTAL_REPO="$(jq -r '.portal.repo' "$TG_BUILD_INPUTS")"
 PORTAL_COMMIT="$(jq -r '.portal.commit' "$TG_BUILD_INPUTS")"
-SDK_RELEASE="$(jq -r '.openwrt_sdk.release' "$TG_BUILD_INPUTS")"
+# Two pinned SDK eras (build-inputs.json .openwrt_sdk.releases): the apk-native
+# 25.12 line (primary — the .go.version pin and released-feed audit track it)
+# and the ipk/opkg 24.10 line for the installed base. Format selects the era.
+sdk_release_for() {
+    jq -r --arg f "${1:-apk}" '.openwrt_sdk.releases[$f].release // .openwrt_sdk.release // empty' "$TG_BUILD_INPUTS"
+}
+SDK_RELEASE="$(sdk_release_for "${TG_PACKAGE_FORMAT:-apk}")"
 
 [ -n "$GO_VERSION" ] && [ "$GO_VERSION" != "null" ] || tg_die "go version missing from manifest"
 [ -n "$PORTAL_COMMIT" ] && [ "$PORTAL_COMMIT" != "null" ] || tg_die "portal.commit missing from manifest"
@@ -115,16 +121,18 @@ export BUILD_TIME_UTC
 # ---- helpers ---------------------------------------------------------------
 
 sdk_image_ref() {
-    # Accepts either a bare target (e.g. mediatek-filogic) or a full tag
-    # (mediatek-filogic-25.12.0); normalizes to bare + pinned release.
+    # Accepts a bare target (e.g. mediatek-filogic) or a full tag; the SECOND
+    # arg selects the packaging era ("apk" default, "ipk" for the 24.10 line).
     _tgt="$1"
+    _fmt="${2:-${TG_PACKAGE_FORMAT:-apk}}"
+    _rel="$(sdk_release_for "$_fmt")"
     case "$_tgt" in
-        *-"$SDK_RELEASE") _tgt="${_tgt%-$SDK_RELEASE}" ;;
+        *-"$_rel") _tgt="${_tgt%-$_rel}" ;;
     esac
-    _digest="$(jq -r --arg t "$_tgt" '.openwrt_sdk.targets[$t].digest' "$TG_BUILD_INPUTS")"
+    _digest="$(jq -r --arg t "$_tgt" --arg f "$_fmt" '.openwrt_sdk.releases[$f].targets[$t].digest // .openwrt_sdk.targets[$t].digest // empty' "$TG_BUILD_INPUTS")"
     [ -n "$_digest" ] && [ "$_digest" != "null" ] \
-        || tg_die "no SDK digest pinned for target '$_tgt' in build-inputs.json"
-    printf '%s:%s@%s' "$(jq -r '.openwrt_sdk.image' "$TG_BUILD_INPUTS")" "$_tgt-$SDK_RELEASE" "$_digest"
+        || tg_die "no SDK digest pinned for target '$_tgt' (era $_fmt) in build-inputs.json"
+    printf '%s:%s@%s' "$(jq -r '.openwrt_sdk.image' "$TG_BUILD_INPUTS")" "$_tgt-$_rel" "$_digest"
 }
 
 # Release line ("series") of an OpenWrt release: the feed branch name
