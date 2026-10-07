@@ -11,6 +11,16 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 ### Changed / Internal
 
+- **The cloud-lab client container builds again.** #687 added the
+  manifest-driven `ARG GO_VERSION` note to `Dockerfile.client` but placed
+  the ARG after the first `FROM`, leaving it stage-scoped — the later
+  `FROM golang:${GO_VERSION}-bookworm` then interpolated an empty string
+  (`golang:-bookworm`, invalid reference) and every cloud-lab lane that
+  builds the client container failed. The ARG now sits before the first
+  `FROM` where FROM-interpolation can see it. Verified by running the
+  full conformance fast-subset lane to a green verdict table
+  ([#716](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/716)).
+
 - **CHANGELOG duplicate entries are now a checked contract.** Resolving a
   CHANGELOG conflict with a section-level "take ours" can resurrect an entry a
   branch had already moved or reworded, leaving one change described twice (this
