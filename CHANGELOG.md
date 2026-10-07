@@ -58,6 +58,17 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The rebrand gutter allows documented prose references to the commercial
+  re-brand.** `tests/packaging/rebrand-literal-gutter_test.sh` was red on
+  `main` (5 passed / 1 failed): the merged discovery-signaling decision
+  (#621) and the README's whitelabel paragraph legitimately name the
+  re-brand, while the gutter banned the literal everywhere in the tree. The
+  literal ban is now scoped to code, packaging, build and test surfaces;
+  `docs/`, `CHANGELOG.md` and `README.md` are exempt by name, and the
+  `uhttpd.<re-brand>` section check stays tree-wide — the
+  second-`:8090`-writer risk this gutter exists for is a brand-gated code
+  path, not prose.  ([#692](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/692))
+
 - **Reseller-mode renewals no longer self-deadlock on the payment lock
   (#678, follow-up to #629).** The cold-start bootstrap merged in #629
   evaluates its candidate check inside the `paymentMu` critical section

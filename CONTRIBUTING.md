@@ -348,8 +348,12 @@ they are a recurring source of confusion.
   as a separate build (distinct `brand` value — hostname, DNS, AP SSIDs and the
   admin webroot all derive from `brand`). Naming and branding decisions for that
   build are made by that project, not by this repo, and **its name is not a
-  literal anywhere in this tree**: `tests/packaging/rebrand-literal-gutter_test.sh`
-  fails if it reappears. Do not treat the re-brand's name and `tollgate` as
+  literal on any code, packaging, build or test surface in this tree**:
+  `tests/packaging/rebrand-literal-gutter_test.sh` fails if it reappears
+  there. Documented prose references (`docs/`, `CHANGELOG.md`, `README.md`)
+  are exempt — the discovery-signaling decision names the re-brand's SSID
+  prefix — while the `uhttpd.<re-brand>` section shape stays banned
+  tree-wide. Do not treat the re-brand's name and `tollgate` as
   interchangeable; they are `$BRAND` variants, and the module reads the brand
   from `/etc/tollgate/brand` generically (any single alphanumeric token).
 - **`c08r4d0r` is a shared pseudonym for "a TollGate operator", not a personal
