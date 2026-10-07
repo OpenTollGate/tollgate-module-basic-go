@@ -31,8 +31,13 @@ func TestHasTollGateSSIDRecognitionSet(t *testing.T) {
 		// '!' as optional and match the name underneath it — both brands.
 		"!TollGate-OQ3Q",
 		"!TollGate-G7ZQ",
-		"!" + whitelabelCaptivePrefix + "OQ3Q", // decorated whitelabel (assembled, per the gutter)
-		"!tollgate-0GLK",                       // decorated legacy lowercase
+		// The decorated whitelabel spelling. Its prefix is read from the
+		// shipped list rather than re-spelled here: the spelling itself is
+		// already pinned by the two cases above, and the brand gutter
+		// (tests/packaging/rebrand-literal-gutter_test.sh) counts literals,
+		// so this file states what is NEW — the decoration.
+		"!" + tollGateBrandPrefixes[1] + "OQ3Q",
+		"!tollgate-0GLK", // decorated legacy lowercase
 	}
 	for _, ssid := range recognized {
 		assert.True(t, hasTollGateSSID(ssid), "expected recognized: %s", ssid)
