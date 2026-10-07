@@ -18,6 +18,11 @@ if git diff --cached --name-only | grep -qE 'build-inputs\.json|tests/cloud-lab/
     python3 tests/contract/check-toolchain-parity.py
 fi
 
+if git diff --cached --name-only | grep -qE 'build-inputs\.json|scripts/.*\.sh|packaging/.*\.sh|tests/cloud-lab/Dockerfile|\.github/workflows/.*\.yml'; then
+    echo "🔍 Checking the two-path build surface (manifest, eras, allowlist, agnosticism)..."
+    python3 tests/contract/check-build-surface.py
+fi
+
 # Single source of truth for the release version (VERSION at the repo root).
 # Only runs when a file that carries the version is staged.
 if git diff --cached --name-only \
