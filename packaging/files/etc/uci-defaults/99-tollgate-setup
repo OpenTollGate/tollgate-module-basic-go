@@ -118,13 +118,17 @@ entry_ui_configured() {
     esac
 }
 
-# The mapping this run applies. D4: honour `board` only when the mode-aware 92
-# has announced the mapping it applied. Otherwise repair to `luci` (today's
-# mapping, the one a pre-switch 92 wrote) and warn ONCE, naming the feed
-# re-vendor that closes the gap. Cached in ENTRY_UI_MODE so the run resolves the
-# switch exactly once and the WARNING is emitted exactly once.
-resolve_entry_ui() {
-    [ -n "$ENTRY_UI_MODE" ] && { printf '%s' "$ENTRY_UI_MODE"; return 0; }
+# The mapping this run applies, set ONCE in the CALLING shell. D4: honour
+# `board` only when the mode-aware 92 has announced the mapping it applied.
+# Otherwise repair to `luci` (today's mapping, the one a pre-switch 92 wrote) and
+# warn ONCE, naming the feed re-vendor that closes the gap.
+#
+# Deliberately NOT a `$(...)`-returning resolver: a command substitution runs in
+# a subshell, whose ENTRY_UI_MODE assignment does not survive, so every lookup
+# would re-log the WARNING. Writers therefore call this first and then read
+# $ENTRY_UI_MODE directly (a subshell they spawn inherits it).
+ensure_entry_ui() {
+    [ -n "$ENTRY_UI_MODE" ] && return 0
     local configured marker
     configured="$(entry_ui_configured)"
     ENTRY_UI_MODE="$configured"
@@ -137,17 +141,19 @@ resolve_entry_ui() {
         fi
     fi
     log "entry_ui mapping: ${ENTRY_UI_MODE} (configured: ${configured})"
-    printf '%s' "$ENTRY_UI_MODE"
+    return 0
 }
 
-# In board mode uhttpd.main is LuCI on the SECONDARY pair; otherwise (luci mode,
-# and the D4 repair) it is LuCI on the entry pair — today's mapping.
-uhttpd_main_http_port()  { [ "$(resolve_entry_ui)" = board ] && printf 8090 || printf 8080; }
-uhttpd_main_https_port() { [ "$(resolve_entry_ui)" = board ] && printf 8443 || printf 443; }
-# The pair the BOARD (uhttpd.admin, written by 92) owns: the entry pair in board
-# mode, the secondary pair in luci mode.
-board_http_port()  { [ "$(resolve_entry_ui)" = board ] && printf 8080 || printf 8090; }
-board_https_port() { [ "$(resolve_entry_ui)" = board ] && printf 443  || printf 8443; }
+# Port helpers read the resolved mapping; they never resolve it themselves, so
+# they are safe inside `$(...)`. An unresolved value behaves like luci — today's
+# mapping, the conservative direction — but every caller resolves first, so that
+# branch is unreachable by construction.
+# In board mode uhttpd.main is LuCI on the SECONDARY pair; otherwise it is on the
+# entry pair. The board (uhttpd.admin, written by 92) owns the other pair.
+uhttpd_main_http_port()  { [ "$ENTRY_UI_MODE" = board ] && printf 8090 || printf 8080; }
+uhttpd_main_https_port() { [ "$ENTRY_UI_MODE" = board ] && printf 8443 || printf 443; }
+board_http_port()        { [ "$ENTRY_UI_MODE" = board ] && printf 8080 || printf 8090; }
+board_https_port()       { [ "$ENTRY_UI_MODE" = board ] && printf 443  || printf 8443; }
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
 # -- setup-marker ordering ---------------------------------------------------
@@ -710,6 +716,7 @@ setup_device_identity() {
 # point is the :80 redirect stub that setup_uhttpd_trusted_entry installs.
 setup_uhttpd() {
     local main_http
+    ensure_entry_ui
     main_http="$(uhttpd_main_http_port)"
     uci -q get uhttpd.main >/dev/null 2>&1 || uci set uhttpd.main=uhttpd
     uci -q delete uhttpd.main.listen_http
@@ -820,6 +827,7 @@ setup_uhttpd_tls_identity() {
     local cert="" key="" covers="0"
     local configured_cert configured_key pair candidate_cert candidate_key
     local https_port
+    ensure_entry_ui
     https_port="$(uhttpd_main_https_port)"
 
     configured_cert="$(uci -q get uhttpd.main.cert 2>/dev/null)"
@@ -1107,7 +1115,8 @@ EOF
 # setup paths so the misconfiguration cannot survive a reinstall.
 sanitize_uhttpd_main_configui_port() {
     local stray_http stray_https
-    if [ "$(resolve_entry_ui)" = board ]; then
+    ensure_entry_ui
+    if [ "$ENTRY_UI_MODE" = board ]; then
         stray_http=8080; stray_https=443
     else
         stray_http=8090; stray_https=8443
@@ -1158,7 +1167,8 @@ owned_uhttpd_section() {
 # the stale section is exactly the one taking the verify/repair path.
 purge_foreign_configui_sections() {
     local section mapping
-    mapping="$(resolve_entry_ui)"
+    ensure_entry_ui
+    mapping="$ENTRY_UI_MODE"
     # Deletion is by SHAPE, never by port, and that is deliberately
     # mode-independent: a foreign section is a second writer in either mode. In
     # luci mode the bind fight is over :8090 (the board's pair); in board mode it
@@ -1264,6 +1274,7 @@ set_admin_password() {
 # from uhttpd.main here.
 drop_admin_listeners() {
     local board_http board_https
+    ensure_entry_ui
     board_http="$(board_http_port)"
     board_https="$(board_https_port)"
     uci -q del_list "uhttpd.admin.listen_http=0.0.0.0:${board_http}"
@@ -2434,6 +2445,10 @@ commit_all() {
 if [ "${TOLLGATE_SETUP_LIB_ONLY:-0}" = "1" ]; then
     return 0 2>/dev/null || exit 0
 fi
+
+# Resolve the entry_ui mapping once, in THIS shell, before any writer spawns a
+# subshell: the D4 repair WARNING must be logged exactly once per run.
+ensure_entry_ui
 
 # Which branch this run takes, and why. The comparison is ORDER-aware (see
 # "-- setup-marker ordering" above): a roll-back must never be mistaken for an
