@@ -69,8 +69,11 @@ mkdir -p "$CONF_DIR/verdict-parts" "$CONF_DIR/evidence"
 
 python3 - "$PRTA_CONFORMANCE_DIR/matrix.yaml" <<'EOF'
 import sys, yaml
-fast = {"swap-timeout-retry", "duplicate-post-sequential", "duplicate-post-concurrent",
-        "mint-alias-spellings", "pay-kill-post-receive-pre-session"}
+# matrix vocabulary (drift guard): the scenarios this lane covers at the
+# matrix's current granularity — swap-timeout-retry is the lane's name for
+# the drop-response scenario; the alias phase covers both URL spellings.
+fast = {"swap-timeout-drop-response", "duplicate-post-sequential", "duplicate-post-concurrent",
+        "mint-url-host-case", "mint-url-trailing-slash", "pay-kill-post-receive-pre-session"}
 m = yaml.safe_load(open(sys.argv[1]))
 have = {s["id"] for s in m["scenarios"] if s.get("subset") == "fast"}
 missing = fast - have
