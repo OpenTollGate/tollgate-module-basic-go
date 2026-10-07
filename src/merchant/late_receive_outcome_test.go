@@ -204,6 +204,13 @@ func lateOutcomeRecord(lines []string) string {
 		if strings.Contains(line, "token_amount=") || strings.Contains(line, "outcome unknown") {
 			continue
 		}
+		// The late-success path logs the COMPLETED record and then,
+		// unconditionally, the owed-grant ERROR (owed_grant.go). Sampling
+		// "the last line" raced that second line: the pass depended on
+		// snapshotting between the two. Pick the outcome record by name.
+		if strings.Contains(line, "late Receive COMPLETED") {
+			return line
+		}
 		record = line
 	}
 	return record
