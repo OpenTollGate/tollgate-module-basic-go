@@ -1028,6 +1028,14 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDetails(w http.ResponseWriter, r *http.Request) {
+	// The advertisement is a JSON-encoded kind-10021 Nostr event, and the
+	// reseller clients that probe this endpoint negotiate on Content-Type —
+	// without an explicit header Go sniffs the body and answers
+	// `text/plain; charset=utf-8`, which strict r2r clients warn about on
+	// every probe cycle (#628). The exact value matters: our own prober
+	// (tollgate_prober) compares Content-Type against "application/json" as a
+	// whole string, so a charset suffix would keep the warning alive.
+	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, merchantProvider.inner.GetMerchant().GetAdvertisement())
 }
 
