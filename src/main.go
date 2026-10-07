@@ -696,7 +696,15 @@ func installMerchant(merchantInstance merchant.MerchantInterface) {
 	swapMerchant(merchantInstance)
 
 	if deg, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
-		mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
+		if deg.StorageIncompatible() {
+			// #583: a jffs2-overlay box can never initialize the wallet, so
+			// the historic banner ("will initialize when a mint becomes
+			// reachable") is a false promise that sent operators hunting
+			// the mints while every mint probed 200 OK.
+			mainLogger.Error("Merchant started in degraded mode — wallet storage does not support shared mmap (jffs2 overlay?); the wallet cannot initialize on this filesystem until wallet.db moves to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)")
+		} else {
+			mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
+		}
 		deg.OnUpgrade(func(full merchant.MerchantInterface) {
 			mainLogger.Info("Upgrading from degraded to full merchant")
 			swapMerchant(full)
