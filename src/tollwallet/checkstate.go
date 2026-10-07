@@ -18,6 +18,13 @@ import (
 // state is unknown, not spent — an in-flight redemption that later
 // fails returns the proofs to UNSPENT, so a definitive not-spendable
 // verdict here would misreport recoverable funds as gone.
+//
+// Verdict semantics are caller-dependent: "spendable" on a token we own
+// is stranded value to re-import; on a token handed to a third party it
+// means the recipient has not redeemed — a clawback window where
+// re-spending races the recipient's redemption, and "spent" means the
+// counterparty took the value. The mint cannot tell these apart; the
+// full contract lives on WalletPort.CheckTokenSpendable.
 
 // checkStateBudget bounds one mint checkstate round-trip. The gonuts
 // client takes no context, so a wedged mint (accepts the connection,

@@ -2319,7 +2319,10 @@ func NormalizeMACAddress(macAddress string) string {
 // CheckTokenSpendable reports whether every proof of the serialized token
 // is still UNSPENT at the token's mint (NUT-07). Used by drain recovery to
 // classify journaled tokens. An error means the state could not be
-// determined — treat as unknown, never as spent.
+// determined — treat as unknown, never as spent. The verdict means
+// different things for owned tokens (recoverable value) versus tokens
+// handed to a third party (unredeemed = open clawback window); the full
+// contract is on WalletPort.CheckTokenSpendable.
 func (m *Merchant) CheckTokenSpendable(token string) (bool, error) {
 	return m.tollwallet.CheckTokenSpendable(token)
 }

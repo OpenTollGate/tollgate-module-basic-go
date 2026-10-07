@@ -294,6 +294,16 @@ spendable:
 The command is read-only: it never moves funds and never modifies the
 wallet or the journal. Treat the printed token strings as cash.
 
+`wallet recover` classifies tokens that are **yours** — entries this
+router's drain journal recorded. It is not a clawback tool for tokens
+you have already handed to someone else (an upstream TollGate payment
+that errored after hand-off, a payout that may not have been claimed).
+For those, an `UNSPENT` verdict means the recipient never redeemed and
+the proof secrets are still in your wallet — re-spending them races the
+recipient's redemption and turns "already paid" into a dispute. That is
+a different operation with its own policy (`scripts/token-recovery`
+today), not this command.
+
 Cancellation and failure are distinguishable from success by exit
 code: `0` only when the whole drain succeeded; a declined or
 unanswerable prompt (e.g. stdin at EOF) and any full or partial drain

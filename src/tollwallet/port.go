@@ -223,6 +223,19 @@ type WalletPort interface {
 	// classify journaled tokens as live or already redeemed. An error
 	// means the state could not be determined (mint unreachable, token
 	// undecodable) — callers must treat that as unknown, not spent.
+	//
+	// Verdict semantics are caller-dependent: the mint cannot know who
+	// holds the proof secrets. For tokens we still own (drain-journal
+	// entries, reserved proofs), spendable means stranded value that can
+	// be re-imported without racing anyone. For tokens handed to a third
+	// party (payments whose outcome is unknown — scripts/token-recovery's
+	// tokens-to-recover.txt), spendable means the recipient has NOT
+	// redeemed: whoever holds the secrets may re-spend, so acting on the
+	// verdict is a clawback racing the recipient's redemption, and "spent"
+	// means "the counterparty took the value", not "secured". Recovering
+	// owned tokens and clawing back handed-out tokens are different
+	// operations with different risk and policy; this method is only the
+	// shared primitive and deliberately does not choose.
 	CheckTokenSpendable(tokenStr string) (bool, error)
 
 	// MeltToLightning pays a Lightning address from wallet funds.

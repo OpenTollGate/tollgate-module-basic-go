@@ -231,8 +231,13 @@ func (s *CLIServer) handleWalletCommand(args []string, flags map[string]string) 
 // mint (NUT-07) and reports which drained tokens are still spendable, so
 // tokens produced by a drain whose response was lost or discarded can be
 // secured. Read-only: neither wallet nor journal state is modified — a
-// "live" token is printed for the operator to redeem; re-issuing it is
-// safe because redemption is the token holder's action, not ours.
+// "live" token is printed for the operator to redeem. That safety leans
+// on ownership: drain-journal tokens are the operator's own copies, so
+// printing them races nobody. The same NUT-07 verdict means something
+// different for tokens handed to a third party — "unspent" there is an
+// open clawback window, not stranded value — and that case must never be
+// driven through this command (see WalletPort.CheckTokenSpendable and
+// scripts/token-recovery).
 func (s *CLIServer) handleWalletRecover() CLIResponse {
 	if s.merchantProvider == nil {
 		return CLIResponse{
