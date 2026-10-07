@@ -383,6 +383,10 @@ func assertFieldValue(t *testing.T, cfg *Config, jsonKey, value, typ string) {
 		if cfg.AdminAccess != value {
 			t.Errorf("admin_access: got %q, want %q", cfg.AdminAccess, value)
 		}
+	case "entry_ui":
+		if cfg.EntryUI != value {
+			t.Errorf("entry_ui: got %q, want %q", cfg.EntryUI, value)
+		}
 	}
 }
 

@@ -372,7 +372,11 @@ WPA3-SAE is deliberately not offered: the `wpad` the router ships with has no
 SAE support, so selecting it would leave the private network unable to start —
 a lockout, not a feature. An open (unencrypted) mode is refused for the same
 class of reason: the private network is how you reach the admin board, whose
-login is a root-capable login over plain HTTP on `:8090`.
+login is a root-capable login over plain HTTP on `:8090` — or on `:8080`, once
+`entry_ui` selects the mapping that puts the board on the entry pair (see the
+README's "Which UI answers the entry ports"; every release shipped so far
+answers on `:8090`, and the switch is applied only by a build whose feed carries
+both halves of the change).
 
 The three private-network commands above (rename, set-password, set-encryption)
 also record the new value in `/etc/tollgate/config.json`, which is the file the

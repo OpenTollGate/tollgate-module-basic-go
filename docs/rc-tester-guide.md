@@ -434,6 +434,20 @@ on-box only: the router's own firewall guards drop all four ports for ordinary
 dropped for a LAN client), so "connection refused" from a wired-LAN or guest-SSID
 client is that guard, not the UI.
 
+**Which UI owns which pair is now a setting, not a fixed fact of the build.**
+`config.json` carries `entry_ui` (`board` | `luci`, default `board`; the board's
+Settings page renders it). `board` means the board answers the entry pair —
+`https://<hostname>.lan/` — and LuCI moves to `:8090`/`:8443`; `luci` is the
+mapping in the table above. **Until the release whose feed carries both halves of
+the change, `board` is recorded and not applied.** The two listeners are written
+by two packages that install through different paths, so the module applies the
+new mapping only once the matching board-side writer is installed, and repairs to
+the legacy mapping (with one WARNING) otherwise — see
+`docs/architecture/default-ui-and-entry-port-decision.md`, D4. So: report the
+mapping you actually measured, and quote `tollgate config get entry_ui`. "The
+hostname opens the board" on a build carrying only half of the change is the one
+report we cannot act on.
+
 **Admin cross-links must be HTTPS.** The board's login page currently offers an
 `http://<router>:8080/` link to LuCI; a cleartext link to an admin login is a
 defect worth reporting. The intended form is an `https://` URL on the same host

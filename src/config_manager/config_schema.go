@@ -28,7 +28,7 @@ func GetConfigSchema() []FieldSchema {
 	return []FieldSchema{
 		{
 			Name: "ConfigVersion", JSONKey: "config_version", Type: "string",
-			Description: "Configuration file version", Default: "v0.0.9", Required: true, Editable: false,
+			Description: "Configuration file version", Default: "v0.0.10", Required: true, Editable: false,
 		},
 		{
 			Name: "LogLevel", JSONKey: "log_level", Type: "string",
@@ -173,6 +173,12 @@ func GetConfigSchema() []FieldSchema {
 			Description: "Which network may reach the administration surfaces (board :8090/:8443 and LuCI :8080/:443). br-private = the private SSID only; br-mgmt = the wired management bridge only; both = either (default, which changes nothing until br-mgmt exists); loopback-only = nothing off the router. The guest bridge is never in scope.",
 			Default:     "both", Required: true, Editable: true,
 			Enum: []string{"br-private", "br-mgmt", "both", "loopback-only"},
+		},
+		{
+			Name: "EntryUI", JSONKey: "entry_ui", Type: "string",
+			Description: "Which UI answers the router's entry ports (:8080 over HTTP and :443 over HTTPS). board = the TollGate board answers https://<hostname>.lan/ and LuCI moves to :8090/:8443 (the default); luci = LuCI answers the entry pair and the board stays on :8090/:8443, the mapping shipped before 0.6.0. The two packages that write the listeners are released separately, so a router carrying only the first half records this value and keeps serving the legacy mapping until the matching writer is installed.",
+			Default:     "board", Required: true, Editable: true,
+			Enum: []string{"board", "luci"},
 		},
 	}
 }

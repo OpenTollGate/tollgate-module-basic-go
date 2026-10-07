@@ -46,8 +46,8 @@ func TestConfigMigration_v007_to_current(t *testing.T) {
 		t.Fatalf("EnsureDefaultConfig failed: %v", err)
 	}
 
-	if migrated.ConfigVersion != "v0.0.9" {
-		t.Errorf("config_version: got %s, want v0.0.9", migrated.ConfigVersion)
+	if migrated.ConfigVersion != "v0.0.10" {
+		t.Errorf("config_version: got %s, want v0.0.10", migrated.ConfigVersion)
 	}
 
 	// v0.0.9 added the operator-settable network settings. A pre-v0.0.9 file
@@ -114,8 +114,8 @@ func TestConfigMigration_v007_to_current(t *testing.T) {
 	if err := json.Unmarshal(savedData, &saved); err != nil {
 		t.Fatalf("saved config is invalid JSON: %v", err)
 	}
-	if saved.ConfigVersion != "v0.0.9" {
-		t.Errorf("saved config_version: got %s, want v0.0.9", saved.ConfigVersion)
+	if saved.ConfigVersion != "v0.0.10" {
+		t.Errorf("saved config_version: got %s, want v0.0.10", saved.ConfigVersion)
 	}
 }
 
