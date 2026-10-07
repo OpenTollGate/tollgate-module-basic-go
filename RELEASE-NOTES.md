@@ -202,14 +202,15 @@ valid deployed config was already inside them.)
 ## Verification status
 
 - **Internal test baseline (pinned): commit
-  `fc639db1ed4d7d2c1eff432451db1ffdd7a9047b`.** main is a moving target
+  `09ea3af51e527f7b9247123ca9b0599548944c30`.** main is a moving target
   and no tag is cut, so all internal extensive testing — labgrid VM and
   router campaigns, artifact installs, evidence — targets this exact
   hash. Docs-only commits landing after the pin do not move it; only a
   fresh pin does, with a fresh full gate run. The baseline carries the
   release train, NTP pre-auth (#648), the cold-start reseller bootstrap
-  (#629), the signet-zoo/rootfs/SSID-pin test lanes, and the
-  rebrand-gutter scoping (#684) the pin's own gate run forced.
+  (#629), the signet-zoo/rootfs/SSID-pin test lanes, the rebrand-gutter
+  scoping (#684), and the business-transaction record (#502/#700) that
+  turned the last two conformance rows green.
 - Unit/race across all 16 modules, contract, packaging and pipeline
   suites: green on the pinned baseline (`make release-check`).
 - The three fund-safety invariants: pinned by dedicated regression tests
