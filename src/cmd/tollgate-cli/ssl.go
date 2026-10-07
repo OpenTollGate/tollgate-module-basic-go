@@ -859,10 +859,33 @@ func certCoversRouter(certPath string) (bool, string) {
 	return certCoverage(cert, hosts, ips)
 }
 
+// tlsListenPortOwner answers which uhttpd section answers the given TLS port —
+// the identity follows the listener, not the section name (D3 of
+// docs/architecture/default-ui-and-entry-port-decision.md). With entry_ui=board
+// the entry pair (:8080 + :443) is written by the portal's 92 onto
+// uhttpd.admin, so a rule that hardcoded uhttpd.main would keep provisioning
+// the SECONDARY listener while the entry answered with the OpenWrt image's
+// placeholder — the defect #593 removed, moved one port to the left.
+//
+// The owner is read from the live uci state, so the mapping needs no second
+// source of truth: whoever lists :443 owns it. Before any listener exists (a
+// fresh router, or `ssl apply` on an unconfigured image) the fallback is
+// uhttpd.main, which is today's behaviour.
+func tlsListenPortOwner(port string) string {
+	for _, section := range []string{"uhttpd.main", "uhttpd.admin"} {
+		for _, listen := range uciGetList(section + ".listen_https") {
+			if strings.HasSuffix(strings.TrimSpace(listen), ":"+port) {
+				return section
+			}
+		}
+	}
+	return "uhttpd.main"
+}
+
 // uhttpdCertPath is the certificate uhttpd.main will actually present — the one
 // a browser is offered, and therefore the one the derived redirect depends on.
 func uhttpdCertPath() string {
-	if path := strings.TrimSpace(uciGetOrEmpty("uhttpd.main.cert")); path != "" {
+	if path := strings.TrimSpace(uciGetOrEmpty(tlsListenPortOwner("443") + ".cert")); path != "" {
 		return path
 	}
 	return uhttpdCertDefault
@@ -874,6 +897,7 @@ func uhttpdCertPath() string {
 // docs/architecture/uhttpd-redirect-https-ownership-decision.md), so every
 // writer of the option computes the same value.
 func applyRedirectHTTPS() error {
+	section := tlsListenPortOwner("443")
 	value := "0"
 	path := uhttpdCertPath()
 	if covers, reason := certCoversRouter(path); covers {
@@ -882,7 +906,7 @@ func applyRedirectHTTPS() error {
 	} else {
 		fmt.Printf("  redirect_https=0 (%s does not: %s)\n", path, reason)
 	}
-	if err := uciSetScalar("uhttpd.main.redirect_https", value); err != nil {
+	if err := uciSetScalar(section+".redirect_https", value); err != nil {
 		return err
 	}
 	return uciCommitChecked("uhttpd")
@@ -1024,8 +1048,13 @@ func sslBackup(mode, domain, lanIP string) error {
 		return fmt.Errorf("failed to create backup dir: %w", err)
 	}
 
-	writeBackupFile(backupDir+"/uhttpd.cert", uciGetOrEmpty("uhttpd.main.cert"))
-	writeBackupFile(backupDir+"/uhttpd.key", uciGetOrEmpty("uhttpd.main.key"))
+	// The listener that answers :443 may be uhttpd.admin rather than uhttpd.main
+	// (D2/D3): back up whichever section actually carries the identity today, or
+	// a later `ssl remove` would restore the placeholder onto a listener that
+	// never held it and leave the entry's real identity replaced by nothing.
+	owner := tlsListenPortOwner("443")
+	writeBackupFile(backupDir+"/uhttpd.cert", uciGetOrEmpty(owner+".cert"))
+	writeBackupFile(backupDir+"/uhttpd.key", uciGetOrEmpty(owner+".key"))
 	writeBackupFile(backupDir+"/ssl.domain", domain)
 	writeBackupFile(backupDir+"/ssl.lan_ip", lanIP)
 	writeBackupFile(backupDir+"/ssl.mode", mode)
@@ -1055,21 +1084,22 @@ func sslInstallCerts(certFile, keyFile string) error {
 }
 
 func configureUhttpd() error {
-	if err := uciSetScalar("uhttpd.main.cert", certDest); err != nil {
+	owner := tlsListenPortOwner("443")
+	if err := uciSetScalar(owner+".cert", certDest); err != nil {
 		return err
 	}
-	if err := uciSetScalar("uhttpd.main.key", keyDest); err != nil {
+	if err := uciSetScalar(owner+".key", keyDest); err != nil {
 		return err
 	}
 
-	listenHTTPS := uciGetList("uhttpd.main.listen_https")
+	listenHTTPS := uciGetList(owner + ".listen_https")
 	if !listContains(listenHTTPS, "0.0.0.0:443") {
-		if err := runCommandChecked("uci", "add_list", "uhttpd.main.listen_https=0.0.0.0:443"); err != nil {
+		if err := runCommandChecked("uci", "add_list", owner+".listen_https=0.0.0.0:443"); err != nil {
 			return err
 		}
 	}
 	if !listContains(listenHTTPS, "[::]:443") {
-		if err := runCommandChecked("uci", "add_list", "uhttpd.main.listen_https=[::]:443"); err != nil {
+		if err := runCommandChecked("uci", "add_list", owner+".listen_https=[::]:443"); err != nil {
 			return err
 		}
 	}
@@ -1136,13 +1166,18 @@ func removeDnsmasqDomainIfExists(domain string) error {
 }
 
 func restoreUhttpd() error {
+	// Restore onto the listener that answers :443 NOW, the same rule every other
+	// writer in this file uses (D3): an operator who removed the identity in one
+	// mapping and restores it in the other must not have the certificate land on
+	// a section that does not serve the entry.
+	owner := tlsListenPortOwner("443")
 	prevCert := fileRead(backupDir + "/uhttpd.cert")
 	prevKey := fileRead(backupDir + "/uhttpd.key")
 	restored := false
 
 	if prevCert != "" {
 		if _, err := os.Stat(prevCert); err == nil {
-			if err := uciSetScalar("uhttpd.main.cert", prevCert); err != nil {
+			if err := uciSetScalar(owner+".cert", prevCert); err != nil {
 				return err
 			}
 			restored = true
@@ -1150,7 +1185,7 @@ func restoreUhttpd() error {
 	}
 	if prevKey != "" {
 		if _, err := os.Stat(prevKey); err == nil {
-			if err := uciSetScalar("uhttpd.main.key", prevKey); err != nil {
+			if err := uciSetScalar(owner+".key", prevKey); err != nil {
 				return err
 			}
 			restored = true
@@ -1160,22 +1195,22 @@ func restoreUhttpd() error {
 	if !restored {
 		if _, err := os.Stat("/etc/uhttpd.crt"); err == nil {
 			if _, err := os.Stat("/etc/uhttpd.key"); err == nil {
-				if err := uciSetScalar("uhttpd.main.cert", "/etc/uhttpd.crt"); err != nil {
+				if err := uciSetScalar(owner+".cert", "/etc/uhttpd.crt"); err != nil {
 					return err
 				}
-				if err := uciSetScalar("uhttpd.main.key", "/etc/uhttpd.key"); err != nil {
+				if err := uciSetScalar(owner+".key", "/etc/uhttpd.key"); err != nil {
 					return err
 				}
 				return nil
 			}
 		}
-		if err := runCommandChecked("uci", "-q", "delete", "uhttpd.main.cert"); err != nil {
+		if err := runCommandChecked("uci", "-q", "delete", owner+".cert"); err != nil {
 			return err
 		}
-		if err := runCommandChecked("uci", "-q", "delete", "uhttpd.main.key"); err != nil {
+		if err := runCommandChecked("uci", "-q", "delete", owner+".key"); err != nil {
 			return err
 		}
-		if err := runCommandChecked("uci", "-q", "delete", "uhttpd.main.listen_https"); err != nil {
+		if err := runCommandChecked("uci", "-q", "delete", owner+".listen_https"); err != nil {
 			return err
 		}
 	}
