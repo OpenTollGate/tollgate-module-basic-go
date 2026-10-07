@@ -199,9 +199,14 @@ echo "== restarting the tollgate; boot resume must replay the intent"
 sleep 5
 
 RECOVERED=""
+# Two recovery vocabularies, both a pass: the wallet layer may log
+# "pending swap/op ... recovered" (gonuts swap-intent resume), and the
+# #502/#700 merchant layer logs "Owed grant applied" — the receive-intent
+# resumed, NUT-07 proved the proofs SPENT, and the owed session landed.
+RECOVERED_RE='pending (swap|op) .* recovered|Owed grant applied'
 for i in $(seq 1 40); do
-    if docker logs "$PROJECT-upstream" 2>&1 | grep -qE 'pending (swap|op) .* recovered'; then
-        RECOVERED="$(docker logs "$PROJECT-upstream" 2>&1 | grep -E 'pending (swap|op) .* recovered' | tail -1)"
+    if docker logs "$PROJECT-upstream" 2>&1 | grep -qE "$RECOVERED_RE"; then
+        RECOVERED="$(docker logs "$PROJECT-upstream" 2>&1 | grep -E "$RECOVERED_RE" | tail -1)"
         break
     fi
     sleep 3
