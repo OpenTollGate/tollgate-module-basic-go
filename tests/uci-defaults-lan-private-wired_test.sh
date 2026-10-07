@@ -412,9 +412,17 @@ echo "== the guard fragments are unchanged and still br-lan-scoped"
 # digest pinned below is therefore the NEW content, not main's. The invariant
 # itself is owned by tests/packaging/backend-api-owner-network_test.sh; this
 # block only pins the bytes.
+#
+# 31-admin-board-not-guest-reachable is the second deliberate exception, and a
+# comment-only one: the entry-port decision swaps which UI owns :8080/:443, so the
+# comment there now states which pair it drops and why :8080/:443 are NOT exempt
+# (they are LuCI's pair after the swap, and 32-luci-not-guest-reachable drops it on
+# br-lan). The RULES are unchanged — a diff of the two revisions with comment lines
+# stripped is empty — and the scope assertions below still prove the br-lan literal,
+# which is the property that matters. Re-pinned deliberately, with that proof.
 GUARD_DIGESTS='20-nds-enforce 4cae6ef31d23d10ee4a730e1b2797281
 30-backend-firewall 9d4702bdc1d2b468fb39a402372bb27c
-31-admin-board-not-guest-reachable a712298f3b833b78eaa15483c90846a5
+31-admin-board-not-guest-reachable e854e0650a2a532cf787e69156b3ddae
 32-luci-not-guest-reachable c86e5dc022b8a4108f305eba7febefe1'
 while read -r frag digest; do
     [ -n "$frag" ] || continue
