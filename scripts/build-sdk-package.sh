@@ -42,7 +42,10 @@ infer_target_settings() {
             : "${GOARCH:=arm64}"
             ;;
         bcm27xx-bcm2709-*)
-            : "${EXPECTED_ARCH:=arm_cortex-a7}"
+            # The bcm2709 SDK packages under arm_cortex-a7_neon-vfpv4,
+            # not the bare arm_cortex-a7 — the short name fails the
+            # staged-packages dir check and kills the copy step.
+            : "${EXPECTED_ARCH:=arm_cortex-a7_neon-vfpv4}"
             : "${GOARCH:=arm}"
             : "${GOARM:=7}"
             ;;
