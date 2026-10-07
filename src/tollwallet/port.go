@@ -32,6 +32,10 @@ type Token interface {
 	// Serialize returns the canonical Cashu token string representation
 	// ("cashuA..." for V3, "cashuB..." for V4).
 	Serialize() (string, error)
+	// Secrets returns each proof's secret string, in token order — the
+	// NUT-07 checkstate inputs (Y = hash_to_curve(secret)). Read-only;
+	// never logged.
+	Secrets() []string
 	// Close releases any CGO-backed resources. Safe to call multiple
 	// times (implementations must be idempotent).
 	Close()
@@ -239,6 +243,17 @@ type WalletPort interface {
 	// Melt executes a melt quote, paying the invoice and consuming
 	// wallet proofs.
 	Melt(quoteID string) (*MeltResult, error)
+
+	// CheckTokenSpent asks the mint (NUT-07) whether ANY proof in the
+	// token is already spent. A receive-swap consumes all input proofs
+	// atomically at the mint, so one spent proof means the payment went
+	// through even if its response was lost. Returns (false, nil) only
+	// when every proof is provably UNSPENT — stable evidence the swap
+	// never happened (the v0.13.0 client is single-shot, so an unspent
+	// answer after a ended call is final). PENDING states and transport
+	// errors are returned as errors: the outcome stays ambiguous and the
+	// caller must not decide on it.
+	CheckTokenSpent(token Token) (bool, error)
 
 	// AcceptMint admits a configured mint into the accepted set at
 	// runtime (idempotent). Mints unreachable at wallet construction are

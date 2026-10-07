@@ -1,6 +1,7 @@
 package tollwallet
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -11,7 +12,9 @@ import (
 
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut07"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut10"
+	"github.com/OpenTollGate/gonuts-tollgate/crypto"
 	"github.com/OpenTollGate/gonuts-tollgate/wallet"
 	"github.com/OpenTollGate/gonuts-tollgate/wallet/client"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
@@ -19,6 +22,11 @@ import (
 
 var ErrTokenAlreadySpent = errors.New("Token already spent")
 var ErrLockedToken = errors.New("token has spending conditions and cannot be spent by the gateway")
+
+// ErrCheckStateUnsupported reports a wallet backend that cannot answer
+// NUT-07 proof-state questions (cdk adapter, sidecar until the protocol
+// grows the operation). Callers must treat the outcome as unresolved.
+var ErrCheckStateUnsupported = errors.New("wallet backend cannot answer proof-state (NUT-07) queries")
 
 // ErrOutcomeUnknown reports a money-moving request whose result the mint never
 // answered (response dropped, timeout, connection cut mid-response). The mint
@@ -595,4 +603,56 @@ func (w *TollWallet) MeltToLightning(mintUrl string, targetAmount uint64, maxCos
 
 	// If we get here, all attempts failed
 	return fmt.Errorf("failed to melt after %d attempts: %w", attempts, meltError)
+}
+
+// CheckTokenSpent implements WalletPort: NUT-07 checkstate over every proof
+// secret of the token, against the token's own mint. See the interface
+// contract for the exact (any-spent ⇒ spent; all-unspent ⇒ unspent; pending
+// or unreachable ⇒ error) semantics.
+func (w *TollWallet) CheckTokenSpent(token cashu.Token) (bool, error) {
+	if token == nil {
+		return false, errors.New("CheckTokenSpent: nil token")
+	}
+	proofs := token.Proofs()
+	if len(proofs) == 0 {
+		return false, errors.New("CheckTokenSpent: token carries no proofs")
+	}
+	mintURL := token.Mint()
+
+	ys := make([]string, 0, len(proofs))
+	for _, p := range proofs {
+		Y, err := crypto.HashToCurve([]byte(p.Secret))
+		if err != nil {
+			return false, fmt.Errorf("CheckTokenSpent: hash-to-curve of a proof secret: %w", err)
+		}
+		ys = append(ys, hex.EncodeToString(Y.SerializeCompressed()))
+	}
+
+	resp, err := client.PostCheckProofState(mintURL, nut07.PostCheckStateRequest{Ys: ys})
+	if err != nil {
+		return false, fmt.Errorf("CheckTokenSpent: %w", err)
+	}
+
+	anySpent := false
+	seen := 0
+	for _, st := range resp.States {
+		switch st.State {
+		case nut07.Spent:
+			anySpent = true
+			seen++
+		case nut07.Unspent:
+			seen++
+		case nut07.Pending:
+			// The mint itself reports the state as not yet determined — that
+			// is an ambiguous answer, not an unspent one.
+			return false, fmt.Errorf("CheckTokenSpent: mint reports Y=%s PENDING — outcome undetermined", st.Y)
+		default:
+			return false, fmt.Errorf("CheckTokenSpent: mint reports unknown state %v for Y=%s", st.State, st.Y)
+		}
+	}
+	if seen < len(ys) {
+		// The mint answered fewer states than proofs were asked about.
+		return false, fmt.Errorf("CheckTokenSpent: mint answered %d of %d proof states", seen, len(ys))
+	}
+	return anySpent, nil
 }

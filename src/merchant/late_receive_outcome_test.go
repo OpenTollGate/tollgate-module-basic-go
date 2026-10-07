@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
@@ -61,6 +63,13 @@ type completingReceiveWallet struct {
 
 func (w *completingReceiveWallet) DecodeToken(string) (tollwallet.Token, error) {
 	return lateOutcomeNote{}, nil
+}
+
+// CheckTokenSpent answers unspent: the late-outcome harness drives evidence
+// through the Receive result, not through NUT-07, and the nil embedded
+// WalletPort would panic on the compiler-generated wrapper.
+func (w *completingReceiveWallet) CheckTokenSpent(tollwallet.Token) (bool, error) {
+	return false, nil
 }
 func (w *completingReceiveWallet) SwapFeeSats(tollwallet.Token) (uint64, error) { return 0, nil }
 func (w *completingReceiveWallet) Receive(tollwallet.Token) (uint64, error) {
@@ -149,11 +158,17 @@ func lateOutcomeCase(t *testing.T, amount uint64, receiveErr error) (*Merchant, 
 		amount:  amount,
 		err:     receiveErr,
 	}
+	cfg := cm.GetConfig()
+	cfg.AcceptedMints = append(cfg.AcceptedMints, config_manager.MintConfig{
+		URL: "https://late-outcome.example.com", PricePerStep: 1, PriceUnit: "sat", MinPurchaseSteps: 1,
+	})
 	m := &Merchant{
-		config:            cm.GetConfig(),
-		configManager:     cm,
-		tollwallet:        wallet,
-		mintHealthTracker: newTestTracker(cm.GetConfig(), nil),
+		config:             cfg,
+		configManager:      cm,
+		tollwallet:         wallet,
+		mintHealthTracker:  newTestTracker(cm.GetConfig(), nil),
+		receiveIntents:     make(map[string]*receiveIntentRecord),
+		receiveIntentStore: newReceiveIntentStore(filepath.Join(t.TempDir(), "receive-intents.json")),
 	}
 	var once sync.Once
 	release := func() { once.Do(func() { close(wallet.release) }) }
@@ -245,8 +260,8 @@ func TestLateReceiveOutcomeIsRecordedWhenReceiveCompletesAfterTheDeadline(t *tes
 	if !strings.Contains(record, "amount=") {
 		t.Errorf("the late record does not say what the mint credited: %q", record)
 	}
-	if !strings.Contains(record, "no session was granted") {
-		t.Errorf("the late record does not state that the customer still has no session: %q", record)
+	if !strings.Contains(record, "owed entitlement") {
+		t.Errorf("the late record does not state the #502 contract — a late success records the owed entitlement: %q", record)
 	}
 	if strings.Contains(record, "FAILED") {
 		t.Errorf("a successful late Receive is recorded as a failure: %q", record)
@@ -278,15 +293,15 @@ func TestLateReceiveFailureAfterTheDeadlineIsRecordedAsAFailure(t *testing.T) {
 	}
 	t.Logf("late outcome record: %s", record)
 
-	if !strings.Contains(record, "FAILED") {
-		t.Errorf("a late Receive that failed is not recorded as a failure: %q", record)
-	}
 	if !strings.Contains(record, "mint refused the swap") {
 		t.Errorf("the late failure record does not carry the mint's error: %q", record)
 	}
-	if !strings.Contains(record, "no session was granted") {
-		t.Errorf("the late failure record does not state that the customer still has no session: %q", record)
+	if !strings.Contains(record, "reconciling on NUT-07 evidence") {
+		t.Errorf("the late failure record does not state the #502 contract — ambiguous failures reconcile on evidence: %q", record)
 	}
+	// And the reconciliation decided: the stub answers unspent, so the
+	// intent must leave pending (abandoned) within the window.
+	waitForIntentResolved(t, m, reference, 5*time.Second)
 }
 
 // The other half of the same question, and the finding this test was added for:
@@ -326,20 +341,14 @@ func TestLateReceiveTimeoutIsRecordedAsAmbiguousNotAsDefinitelyNotTaken(t *testi
 	}
 	t.Logf("late outcome record: %s", record)
 
-	if !strings.Contains(record, "FAILED") {
-		t.Errorf("a late Receive that returned an error is not recorded as a failure: %q", record)
-	}
 	if !strings.Contains(record, "deadline exceeded") {
 		t.Errorf("the late record does not carry the wallet's error: %q", record)
 	}
-	if !strings.Contains(record, "no session was granted") {
-		t.Errorf("the late record does not state that the customer still has no session: %q", record)
+	if !strings.Contains(record, "ambiguous") {
+		t.Errorf("a timeout-class late error leaves the note's fate undecided, yet the record does not say ambiguous: %q", record)
 	}
-	if strings.Contains(record, "did not take the note") {
-		t.Errorf("a timeout-class late error leaves the note's fate undecided, yet the record claims the mint did not take it: %q", record)
-	}
-	if !strings.Contains(record, "ambiguous") || !strings.Contains(record, "wallet balance") {
-		t.Errorf("the late record does not tell the operator the outcome is still ambiguous, nor where to settle it: %q", record)
+	if !strings.Contains(record, "reconciling on NUT-07 evidence") {
+		t.Errorf("the late record does not state the #502 contract — ambiguous outcomes reconcile on evidence, not operator guesswork: %q", record)
 	}
 }
 
@@ -375,7 +384,31 @@ func TestLateReceiveDefinitiveRejectionKeepsTheNotTakenWording(t *testing.T) {
 	if strings.Contains(record, "ambiguous") {
 		t.Errorf("a definitive mint refusal is hedged as ambiguous, so the operator cannot safely tell the customer to resubmit: %q", record)
 	}
-	if !strings.Contains(record, "no session was granted") {
-		t.Errorf("the late rejection record does not state that the customer still has no session: %q", record)
+	// The #502 contract: a definitive mint refusal abandons the attempt —
+	// no session, the note stays spendable, a resubmission proceeds fresh.
+	waitForIntentResolved(t, m, reference, 5*time.Second)
+	m.receiveIntentMu.Lock()
+	state := m.receiveIntents[reference].State
+	m.receiveIntentMu.Unlock()
+	if state != intentStateAbandoned {
+		t.Errorf("a definitive late rejection must abandon the intent, got %q", state)
 	}
+}
+
+// waitForIntentResolved fails when the reference's intent is still pending
+// after the window — the NUT-07 reconciler must decide, not leave the
+// attempt hanging.
+func waitForIntentResolved(t *testing.T, m *Merchant, reference string, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		m.receiveIntentMu.Lock()
+		rec, ok := m.receiveIntents[reference]
+		m.receiveIntentMu.Unlock()
+		if ok && rec != nil && rec.State != intentStatePending {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("intent %s never left pending — the NUT-07 reconciler did not decide", reference)
 }

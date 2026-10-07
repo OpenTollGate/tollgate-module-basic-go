@@ -343,9 +343,21 @@ def test_swap_timeout_retry(lab_up, identities):
     _proxyctl({"clear": True})
 
     # The customer's token either still spends elsewhere (unspent) or a
-    # session was granted despite the dropped response. Anything else is a
-    # value-loss verdict on service-or-refund.
-    service = "pass" if proofs_state == "unspent" else "fail"
+    # session was granted despite the dropped response (#502 journal: the
+    # ambiguity reconciles on NUT-07 and the owed entitlement delivers).
+    # Anything else is a value-loss verdict on service-or-refund.
+    granted = False
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            bal = _balance()
+            if (bal.get("allotment") or 0) > 0:
+                granted = True
+                break
+        except Exception:
+            pass
+        time.sleep(1)
+    service = "pass" if (proofs_state == "unspent" or granted) else "fail"
 
     _write_verdict(
         scenario,
@@ -355,7 +367,7 @@ def test_swap_timeout_retry(lab_up, identities):
                                     f"reused={reused} proofs={proofs_state}"),
             "service-or-refund": _inv(service,
                                       f"primary={primary} elapsed={elapsed:.1f}s "
-                                      f"proofs={proofs_state}"),
+                                      f"proofs={proofs_state} granted={granted}"),
             "restart-converges": _inv("pass" if _daemon_answers(30) else "fail",
                                       "daemon still answering after the fault"),
         },
@@ -457,7 +469,23 @@ def test_kill_boundary_aftermath(lab_up, identities):
     # Restart convergence: daemon answers; value state is coherent enough
     # to give a CLASSIFIED answer to the retry (not a 500/timeout hang).
     converged = retry is not None and retry[0] in (200, 400)
-    service = "pass" if proofs_state == "unspent" else "fail"
+
+    # Service-or-refund (#502): the killed attempt's proofs are spent at the
+    # mint — the journal must have reconciled the entitlement into exactly
+    # one session for the paying MAC. Unspent (the kill landed before the
+    # mint processed) also passes: the note still spends elsewhere.
+    granted = False
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            bal = _balance()
+            if (bal.get("allotment") or 0) > 0:
+                granted = True
+                break
+        except Exception:
+            pass
+        time.sleep(1)
+    service = "pass" if (proofs_state == "unspent" or granted) else "fail"
 
     _write_verdict(
         scenario,
@@ -467,8 +495,9 @@ def test_kill_boundary_aftermath(lab_up, identities):
                                     f"retry={retry} (a second grant for one "
                                     f"already-consumed token would double-count)"),
             "no-output-reuse": _inv("pass" if not reused else "fail", f"reused={reused}"),
-            "service-or-refund": _inv(service, PENDING_NOTE["service-or-refund"]
-                                      + f" | measured: proofs={proofs_state} retry={retry}"),
+            "service-or-refund": _inv(service,
+                                      f"#502 journal reconciliation: proofs={proofs_state} "
+                                      f"granted={granted} retry={retry}"),
             "restart-converges": _inv("pass" if converged else "fail",
                                       f"daemon answered retry with {retry}"),
         },

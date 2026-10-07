@@ -47,7 +47,9 @@ type serializableToken struct {
 func (t serializableToken) Mint() string               { return "https://log-hygiene.example.com" }
 func (t serializableToken) Amount() uint64             { return 1 }
 func (t serializableToken) Serialize() (string, error) { return t.serialized, nil }
-func (t serializableToken) Close()                     {}
+func (t serializableToken) Secrets() []string          { return nil }
+
+func (t serializableToken) Close() {}
 
 // tokenIssuingWallet reports a balance so CreatePaymentToken proceeds, and
 // returns a token whose serialized form is the value under test.
