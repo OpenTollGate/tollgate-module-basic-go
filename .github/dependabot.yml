@@ -1,0 +1,31 @@
+# Dependabot configuration.
+#
+# Doctrine (see docs/reproducible-builds.md and packaging/build-inputs.json):
+# the build's determinism lives OUTSIDE go.mod — digest-pinned SDK images per
+# era, sha256-pinned host toolchains (TG_TOOLS), manifest-pinned node/npm and
+# portal. Dependabot only reads go.mod/go.sum, so it can never see or break
+# that layer; what it CAN do is churn dependencies. This repo deliberately
+# keeps version-update PRs OFF (open-pull-requests-limit: 0) — dependency
+# movement happens as reviewed sweeps (e.g. #681, #727) so the toolchain
+# fences (tests/contract/check-toolchain-fences.py, run by
+# scripts/check-version-sync.sh) can gate every bump in one place.
+#
+# What this config buys: security updates (alerts are on org-wide) arrive
+# GROUPED — one PR per weekly batch across every module in the tree —
+# instead of 17 independent graphs each opening their own PR. `directories:
+# "**/*"` covers the nested multi-module layout without listing modules.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directories:
+      - "**/*"
+    schedule:
+      interval: weekly
+    # Version updates stay off: dependency bumps are deliberate, reviewed
+    # sweeps. The entry exists so the security-update grouping below applies.
+    open-pull-requests-limit: 0
+    groups:
+      gomod-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
