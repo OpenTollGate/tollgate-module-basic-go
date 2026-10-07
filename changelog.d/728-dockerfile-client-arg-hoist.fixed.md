@@ -4,5 +4,7 @@
   build died at parse (`failed to parse stage name "golang:-bookworm"`), also
   breaking `run-crash-injection.sh` whose killer image builds from the same
   file. The ARG is now declared before the first `FROM`, matching
-  `Dockerfile.tollgate`
+  `Dockerfile.tollgate`, and a new CI contract check
+  (`tests/contract/check-dockerfile-from-args.py`) guards the whole
+  Dockerfile family against stage-scoped-ARG-in-FROM regressions
   ([#728](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/728)).

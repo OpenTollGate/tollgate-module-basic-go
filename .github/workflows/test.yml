@@ -303,6 +303,8 @@ jobs:
 
       - name: Toolchain parity (manifest is the single source of truth)
         run: python3 tests/contract/check-toolchain-parity.py
+      - name: Dockerfile FROM-ARG scope check
+        run: python3 tests/contract/check-dockerfile-from-args.py
       - name: Stale import path check
         run: python3 tests/contract/check-import-paths.py
       - name: Changelog duplicate entries check
