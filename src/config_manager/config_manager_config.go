@@ -45,6 +45,14 @@ type Config struct {
 	PrivateKey        string `json:"private_key,omitempty"`
 	PrivateEncryption string `json:"private_encryption"`
 	AdminAccess       string `json:"admin_access"`
+	// EntryUI decides which UI owns the router's entry port pair (:8080 + :443).
+	// It is declared intent, like the four fields above: nothing reads the value
+	// directly. The uci-defaults writers (the module's 99 and the portal's 92)
+	// read it from config.json and bind the two uhttpd sections accordingly,
+	// behind the D4 marker gate — a router carrying only one half of the pair
+	// keeps the legacy mapping rather than fighting over a port. See
+	// docs/architecture/default-ui-and-entry-port-decision.md (D1-D4).
+	EntryUI string `json:"entry_ui"`
 }
 
 type UpstreamWifiConfig struct {
@@ -392,7 +400,7 @@ func NewDefaultConfig() *Config {
 	}
 
 	return &Config{
-		ConfigVersion: "v0.0.9",
+		ConfigVersion: "v0.0.10",
 		LogLevel:      "info",
 		AcceptedMints: mints,
 		ProfitShare: []ProfitShareConfig{
@@ -467,6 +475,7 @@ func NewDefaultConfig() *Config {
 		PrivateKey:        "",
 		PrivateEncryption: "psk2+ccmp",
 		AdminAccess:       "both",
+		EntryUI:           "board",
 	}
 }
 
@@ -537,6 +546,15 @@ func migrateConfig(config *Config, defaults *Config) {
 	if config.AdminAccess == "" {
 		config.AdminAccess = defaults.AdminAccess
 		log.Printf("INFO: Populated admin_access default (%s) on upgrade", defaults.AdminAccess)
+	}
+	// v0.0.10 adds the entry-UI switch. The declared default is the operator's
+	// decision (board), but the effective mapping is release-gated: 99 honours
+	// board only once the mode-aware 92 is installed (the D4 marker). A router
+	// upgraded by a module-only release therefore records the value and keeps
+	// today's mapping — see the ADR's D4.
+	if config.EntryUI == "" {
+		config.EntryUI = defaults.EntryUI
+		log.Printf("INFO: Populated entry_ui default (%s) on upgrade", defaults.EntryUI)
 	}
 	config.ConfigVersion = defaults.ConfigVersion
 	for i := range config.AcceptedMints {

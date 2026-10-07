@@ -213,11 +213,11 @@ builds are released) and is tracked with the packaging feed, not here.
 ## Configuration
 
 TollGate writes a default `/etc/tollgate/config.json` on first boot.
-The current schema version is **`v0.0.9`**. An abridged example:
+The current schema version is **`v0.0.10`**. An abridged example:
 
 ```json
 {
-  "config_version": "v0.0.9",
+  "config_version": "v0.0.10",
   "log_level": "info",
   "metric": "bytes",
   "step_size": 22020096,
@@ -228,6 +228,7 @@ The current schema version is **`v0.0.9`**. An abridged example:
   "private_key": "",
   "private_encryption": "psk2+ccmp",
   "admin_access": "both",
+  "entry_ui": "board",
   "accepted_mints": [
     {
       "url": "https://mint.coinos.io",
@@ -323,6 +324,32 @@ Notes that matter when you change them:
   the setup script's `<nym>-<code>` re-derivation for that SSID (a
   machine-shaped one is re-derived from the stored code, a custom one is left
   alone), so the applier and the setup writer agree on what you chose.
+
+### Which UI answers the entry ports (v0.0.10)
+
+One field decides which of the two administration UIs owns the router's entry
+port pair — 8080 over plain HTTP and 443 over TLS. The field is **entry_ui**,
+and it takes two values:
+
+- **board** (the default) — the TollGate board answers https://<hostname>.lan/,
+  and LuCI moves to 8090 / 8443.
+- **luci** — the opposite, i.e. exactly the mapping every release before 0.6.0
+  shipped: LuCI at the entry pair, the board on 8090 / 8443.
+
+The port *sets* do not change, only which UI answers on each pair, so no
+firewall fragment, pre-auth entry or guest-path rule moves, and setting the
+field back to luci reverts the whole change without a downgrade. All four admin
+ports stay dropped for br-lan clients in both mappings.
+
+**The flip is released in two halves and applied only when both are present.**
+The two listeners are written by two packages that install through different
+paths (the module's 99-tollgate-setup and the feed's 92-tollgate-admin-setup). A
+module-only upgrade therefore *records* board and keeps serving the legacy
+mapping, logging one WARNING that names the feed re-vendor; the release that
+vendors both halves applies it. The alternative — binding 443 on both instances
+— is not a wrong answer but a listener that fails to start, so the gate is
+deliberate. See the entry-port decision record in docs/architecture for the
+mapping table, the invariants and the release boundary.
 
 ## SSID conventions
 
