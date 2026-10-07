@@ -476,7 +476,9 @@ run_driver() { # run_driver <marker|__ABSENT__> [ENV=VAL ...]
 }
 
 warn_count() { grep -c 'WARNING' "$LOGFILE" 2>/dev/null | tr -d ' '; }
-warn_names_revendor() { grep -q 're-vendor the feed' "$LOGFILE" 2>/dev/null; }
+# Case-insensitive: the assertion is that the WARNING NAMES the feed re-vendor that
+# closes the gap, not how the sentence is capitalised.
+warn_names_revendor() { grep -qi 're-vendor the feed' "$LOGFILE" 2>/dev/null; }
 
 echo
 echo "== A. resolving entry_ui (fail-closed toward board, D1/invariant 6)"

@@ -2446,10 +2446,6 @@ if [ "${TOLLGATE_SETUP_LIB_ONLY:-0}" = "1" ]; then
     return 0 2>/dev/null || exit 0
 fi
 
-# Resolve the entry_ui mapping once, in THIS shell, before any writer spawns a
-# subshell: the D4 repair WARNING must be logged exactly once per run.
-ensure_entry_ui
-
 # Which branch this run takes, and why. The comparison is ORDER-aware (see
 # "-- setup-marker ordering" above): a roll-back must never be mistaken for an
 # upgrade, because full setup re-randomises state the operator owns.
@@ -2466,6 +2462,14 @@ REASON=${DECISION#* }
 
 : > "$LOGFILE"
 chmod 600 "$LOGFILE"  # may contain the WiFi password — keep it root-only
+
+# Resolve the entry_ui mapping once, in THIS shell, before any writer spawns a
+# subshell: the D4 repair WARNING must be logged exactly once per run. It has to
+# come AFTER the log is initialised above — resolved before it, the WARNING (and
+# anything else logged that early) is truncated away with the previous run's
+# contents, and a router that quietly repaired the mapping would say nothing.
+ensure_entry_ui
+
 log "Setup branch $BRANCH — $REASON"
 
 # Everything that is not FULL is the verify/repair path. The offline test
