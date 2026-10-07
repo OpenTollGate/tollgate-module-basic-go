@@ -41,10 +41,20 @@ const renewalFreshAllotment = renewalSats * renewalStepMS
 
 type renewalToken struct{}
 
-func (renewalToken) Mint() string               { return renewalMintURL }
-func (renewalToken) Amount() uint64             { return renewalSats }
-func (renewalToken) Serialize() (string, error) { return "cashuBrenewal", nil }
-func (renewalToken) Close()                     {}
+func (renewalToken) Mint() string   { return renewalMintURL }
+func (renewalToken) Amount() uint64 { return renewalSats }
+
+// Each purchase serializes a distinct note (a renewal is a NEW economic
+// event, not a resubmission): a per-call counter keeps references unique so
+// the #502 journal never mistakes one purchase for another's duplicate.
+var renewalNoteSeq uint64
+
+func (renewalToken) Serialize() (string, error) {
+	n := atomic.AddUint64(&renewalNoteSeq, 1)
+	return fmt.Sprintf("cashuBrenewal-%d", n), nil
+}
+func (renewalToken) Secrets() []string { return nil }
+func (renewalToken) Close()            {}
 
 // renewalWallet stubs the wallet seam: DecodeToken and Receive always succeed
 // and Receive counts calls, so a test can tell "the token was processed" from

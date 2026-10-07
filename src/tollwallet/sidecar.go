@@ -193,6 +193,12 @@ type sidecarToken struct {
 // Mint returns the mint URL embedded in the token.
 func (t *sidecarToken) Mint() string { return t.mint }
 
+// Secrets is unresolvable over the sidecar protocol (the wire carries the
+// serialized token only, never parsed secrets). Callers needing NUT-07
+// inputs get the unsupported-checkstate error from the wallet method
+// instead — this returning nil keeps the interface satisfiable.
+func (t *sidecarToken) Secrets() []string { return nil }
+
 // Amount returns the token value in its unit.
 func (t *sidecarToken) Amount() uint64 { return t.amount }
 
@@ -399,4 +405,12 @@ func (s *SidecarWallet) Shutdown() error {
 // the boot-time accepted set.
 func (s *SidecarWallet) AcceptMint(mintURL string) error {
 	return s.call("accept_mint", map[string]string{"mint_url": mintURL}, nil)
+}
+
+// CheckTokenSpent is not implemented over the sidecar protocol yet: the
+// capability manifest does not advertise it, and the ambiguity vocabulary
+// (#502) would need it as a first-class sidecar operation. Callers get a
+// typed error and must treat the outcome as unresolved — never guess.
+func (w *SidecarWallet) CheckTokenSpent(token Token) (bool, error) {
+	return false, ErrCheckStateUnsupported
 }

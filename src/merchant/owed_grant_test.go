@@ -60,6 +60,7 @@ type owedGrantNoticeToken struct{}
 func (owedGrantNoticeToken) Mint() string               { return renewalMintURL }
 func (owedGrantNoticeToken) Amount() uint64             { return renewalSats }
 func (owedGrantNoticeToken) Serialize() (string, error) { return "cashuBowed-grant-fixture-note", nil }
+func (owedGrantNoticeToken) Secrets() []string          { return nil }
 func (owedGrantNoticeToken) Close()                     {}
 
 type owedGrantWallet struct {

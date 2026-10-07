@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
@@ -73,13 +75,22 @@ func (w *scriptedReceiveWallet) DecodeToken(string) (tollwallet.Token, error) {
 	return duplicateNote{}, nil
 }
 func (w *scriptedReceiveWallet) SwapFeeSats(tollwallet.Token) (uint64, error) { return 0, nil }
+func (w *scriptedReceiveWallet) CheckTokenSpent(tollwallet.Token) (bool, error) {
+	return false, nil
+}
+
 func (w *scriptedReceiveWallet) Receive(tollwallet.Token) (uint64, error) {
 	n := w.calls.Add(1)
-	if w.started != nil {
-		close(w.started)
-	}
-	if w.release != nil {
-		<-w.release
+	// Only the FIRST call signals start and blocks on the release; later
+	// calls answer immediately (the fields stay non-nil so the test's
+	// receive on `started` never races a nil-write here).
+	if n == 1 {
+		if w.started != nil {
+			close(w.started)
+		}
+		if w.release != nil {
+			<-w.release
+		}
 	}
 	res := w.outcomes[(int(n)-1)%len(w.outcomes)]
 	return res.amount, res.err
@@ -89,8 +100,12 @@ func newDuplicateGuardMerchant(t *testing.T, wallet *scriptedReceiveWallet, time
 	t.Helper()
 
 	cm, _ := setupTestConfigManager(t)
+	cfg := cm.GetConfig()
+	cfg.AcceptedMints = append(cfg.AcceptedMints, config_manager.MintConfig{
+		URL: "https://preflight-mint.example.com", PricePerStep: 1, PriceUnit: "sat", MinPurchaseSteps: 1,
+	})
 	m := &Merchant{
-		config:            cm.GetConfig(),
+		config:            cfg,
 		configManager:     cm,
 		tollwallet:        wallet,
 		mintHealthTracker: newTestTracker(cm.GetConfig(), nil),
@@ -205,13 +220,19 @@ func TestPurchaseSessionGuardReleasesSoSequentialResubmitReachesTheMint(t *testi
 		t.Fatalf("sequential resubmit returned an error instead of a notice: %v", err)
 	}
 	if second == nil || second.Kind != 21023 {
-		t.Fatalf("expected the mint's already-spent notice for the sequential resubmit, got %+v", second)
+		t.Fatalf("expected a refusal notice for the sequential resubmit, got %+v", second)
 	}
-	if code := noticeCode(t, second); code != "payment-error-token-spent" {
-		t.Fatalf("expected notice code payment-error-token-spent (the sequential path's own refusal), got %q", code)
+	// Under #502 the journal answers the sequential duplicate LOCALLY: the
+	// first attempt's intent resolved granted, so the resubmit is refused
+	// with grant-pending before the mint is touched — the same economic
+	// refusal the mint's already-spent answer used to carry, one round trip
+	// sooner. The mint-refusal path remains for notes the journal never saw
+	// (pre-upgrade attempts, cleared journals).
+	if code := noticeCode(t, second); code != "payment-received-grant-pending" && code != "payment-error-token-spent" {
+		t.Fatalf("expected the journal's grant-pending refusal (or the mint's spent refusal), got %q", code)
 	}
-	if got := wallet.calls.Load(); got != 2 {
-		t.Fatalf("Receive was called %d times, want 2 (the guard must not block a resubmit after the outcome settled)", got)
+	if got := wallet.calls.Load(); got != 1 {
+		t.Fatalf("Receive was called %d times, want 1 (the journal refuses the duplicate without a second mint call)", got)
 	}
 }
 
@@ -222,10 +243,15 @@ func TestPurchaseSessionGuardHoldsThroughTheOutcomeUnknownWindow(t *testing.T) {
 	// case the notice warns about, and letting it through re-opens the
 	// concurrent race from the wrong side. Only the late recorder's consumption
 	// of the result may release the guard.
+	// The late outcome is the mint's own already-spent refusal: a definitive
+	// answer that (under #502) abandons the journal intent, freeing a later
+	// resubmission to proceed as a fresh payment. A late SUCCESS would owe
+	// the entitlement instead — that contract is pinned by the journal's own
+	// suite.
 	wallet := &scriptedReceiveWallet{
 		started:  make(chan struct{}),
 		release:  make(chan struct{}),
-		outcomes: []receiveResult{{amount: 1}},
+		outcomes: []receiveResult{{err: tollwallet.ErrTokenAlreadySpent}, {amount: 1}},
 	}
 	m := newDuplicateGuardMerchant(t, wallet, 150*time.Millisecond)
 
@@ -252,8 +278,10 @@ func TestPurchaseSessionGuardHoldsThroughTheOutcomeUnknownWindow(t *testing.T) {
 	}
 
 	// The mint finally answers; the recorder consumes the result and the guard
-	// releases. A third submission then proceeds to the mint like any
-	// sequential resubmit and must not be refused as in-flight.
+	// releases. Under #502 the late answer also resolves the journal: this
+	// wallet's outcomes[0] is a definitive mint refusal, so the intent
+	// ABANDONS — stable evidence the note was never taken. A third
+	// submission then proceeds to the mint exactly like a fresh payment.
 	close(wallet.release)
 	reference := duplicateGuardReference(t)
 	deadline := time.Now().Add(5 * time.Second)
@@ -271,8 +299,12 @@ func TestPurchaseSessionGuardHoldsThroughTheOutcomeUnknownWindow(t *testing.T) {
 	if third != nil && third.Kind == 21023 && noticeCode(t, third) == "payment-duplicate-inflight" {
 		t.Fatal("the third submission was refused as in-flight after the guard should have been released")
 	}
+	// The wallet's second outcome is a success: the fresh attempt grants.
 	if got := wallet.calls.Load(); got != 2 {
-		t.Fatalf("Receive was called %d times, want 2 (the third submission must reach the mint)", got)
+		t.Fatalf("Receive was called %d times, want 2 (the abandoned first attempt frees the third submission to the mint)", got)
+	}
+	if third == nil || third.Kind != 1022 {
+		t.Fatalf("the third submission must grant a session, got %+v", third)
 	}
 }
 

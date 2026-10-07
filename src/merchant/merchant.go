@@ -234,7 +234,7 @@ type receiveResult struct {
 // make the reference the customer quotes answerable today, because the operator
 // cannot tell a late success (the mint took the note) from a late failure (it
 // did not) without it.
-func recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, macAddress, reference string) {
+func (m *Merchant) recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, macAddress, reference string, tokenAmount uint64) {
 	res := <-ch
 	if res.err != nil {
 		// An error is not a refusal. A `Receive` that answers after the deadline
@@ -243,20 +243,35 @@ func recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, macAddress, refe
 		// POST that starts a beat later times out a beat after this module's
 		// deadline, and a mint 5xx answered after it processed the swap is
 		// ambiguous the same way. Only a refusal the mint itself returned proves
-		// the note was not taken, and the record must not decide the ambiguous
-		// case on the operator's behalf: its whole job is to say which of the
-		// two happened, and the confident label is the one that loses the money.
+		// the note was not taken. The intent journal (#502) now turns each
+		// answer into a decision: a definitive refusal abandons the attempt
+		// (the customer keeps a spendable note), an ambiguous answer triggers
+		// the NUT-07 reconciler — evidence, never a guess.
 		if isAmbiguousMintOutcomeError(res.err) {
-			log.Printf("PurchaseSession: late Receive FAILED (outcome still ambiguous) for mint=%s mac=%s reference=%s: %v — the mint may have taken the note; check the wallet balance for the mint before resubmitting anything, no session was granted",
+			log.Printf("PurchaseSession: late Receive FAILED (outcome still ambiguous) for mint=%s mac=%s reference=%s: %v — reconciling on NUT-07 evidence",
 				mintURL, macAddress, reference, res.err)
+			m.reconcileReceiveIntent(reference)
 			return
 		}
-		log.Printf("PurchaseSession: late Receive FAILED for mint=%s mac=%s reference=%s: %v — the mint did not take the note, no session was granted",
+		log.Printf("PurchaseSession: late Receive FAILED for mint=%s mac=%s reference=%s: %v — the mint did not take the note",
 			mintURL, macAddress, reference, res.err)
+		m.resolveReceiveIntent(reference, intentStateAbandoned, fmt.Sprintf("late definitive failure: %v", res.err))
 		return
 	}
-	log.Printf("PurchaseSession: late Receive COMPLETED for mint=%s mac=%s reference=%s amount=%d — the mint took the note and no session was granted; credit or refund it",
+	// The mint answered success after our deadline: the value is recoverable
+	// by the operator (NUT-09 restore) and the customer is owed service. The
+	// fee-adjusted amount is not knowable here (only the pre-swap token
+	// amount is), so the owed grant prices from the token amount — bounded
+	// over-grant by the swap fee, noted in the journal record.
+	log.Printf("PurchaseSession: late Receive COMPLETED for mint=%s mac=%s reference=%s amount=%d — recording the owed entitlement",
 		mintURL, macAddress, reference, res.amount)
+	allotment, allotErr := m.calculateAllotment(tokenAmount, mintURL)
+	if allotErr != nil {
+		log.Printf("ReceiveIntent: late success for reference %s could not be priced (%v) — reconciler will retry", reference, allotErr)
+		return
+	}
+	m.resolveReceiveIntent(reference, intentStateOwed, "late success after deadline; owed entitlement recorded")
+	m.recordOwedGrant(reference, macAddress, mintURL, tokenAmount, allotment)
 }
 
 // receiveReference is the operator-facing handle for one money-moving attempt:
@@ -369,12 +384,19 @@ type Merchant struct {
 	// grant failed. Keyed by the note's receive reference; durably persisted
 	// through owedGrantStore so a restart cannot erase an already-received
 	// customer's claim. See owed_grant.go.
-	owedGrantsMu      sync.Mutex
-	owedGrants        map[string]*owedGrantRecord
-	owedGrantStore    *owedGrantStore
-	unmeteredMu       sync.Mutex
-	unmeteredSessions map[string]*unmeteredSession
-	staleBindings     staleBindingJanitor
+	owedGrantsMu   sync.Mutex
+	owedGrants     map[string]*owedGrantRecord
+	owedGrantStore *owedGrantStore
+	// The receive-intent journal (#502): one durable record per
+	// money-moving Receive attempt, keyed by the receive reference,
+	// written before the call and resolved only on evidence. See
+	// receive_intent.go.
+	receiveIntentMu    sync.Mutex
+	receiveIntents     map[string]*receiveIntentRecord
+	receiveIntentStore *receiveIntentStore
+	unmeteredMu        sync.Mutex
+	unmeteredSessions  map[string]*unmeteredSession
+	staleBindings      staleBindingJanitor
 	// ndsClients is the periodic client-list reconciliation's bookkeeping: the
 	// pass that asks `ndsctl json` the OTHER question — which clients does
 	// NoDogSplash authorise that this module has no record of at all? Like the
@@ -515,20 +537,23 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	log.Printf("=== Merchant ready ===")
 
 	m := &Merchant{
-		config:            config,
-		configManager:     configManager,
-		tollwallet:        tw,
-		mintHealthTracker: mintHealthTracker,
-		customerSessions:  make(map[string]*CustomerSession),
-		expiredSessions:   make(map[string]int64),
-		lightningQuotes:   make(map[string]*lightningQuoteRecord),
-		quoteStore:        newQuoteStore(filepath.Join(walletDirPath, "quotes.json")),
-		owedGrants:        make(map[string]*owedGrantRecord),
-		owedGrantStore:    newOwedGrantStore(filepath.Join(walletDirPath, "owed-grants.json")),
+		config:             config,
+		configManager:      configManager,
+		tollwallet:         tw,
+		mintHealthTracker:  mintHealthTracker,
+		customerSessions:   make(map[string]*CustomerSession),
+		expiredSessions:    make(map[string]int64),
+		lightningQuotes:    make(map[string]*lightningQuoteRecord),
+		quoteStore:         newQuoteStore(filepath.Join(walletDirPath, "quotes.json")),
+		owedGrants:         make(map[string]*owedGrantRecord),
+		owedGrantStore:     newOwedGrantStore(filepath.Join(walletDirPath, "owed-grants.json")),
+		receiveIntents:     make(map[string]*receiveIntentRecord),
+		receiveIntentStore: newReceiveIntentStore(filepath.Join(walletDirPath, "receive-intents.json")),
 	}
 
 	m.loadLightningQuotesFromDisk()
 	m.loadOwedGrantsFromDisk()
+	m.loadReceiveIntentsFromDisk()
 	m.StartPayoutRoutine()
 	m.StartDataUsageMonitoring()
 	m.startLightningQuoteJanitor()
@@ -1552,6 +1577,53 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		return noticeEvent, nil
 	}
 
+	// The receive-intent journal (#502): the attempt is durable before the
+	// money moves, so a crash, a dropped response or a restart can still be
+	// reconciled into service-or-evidence. A known reference here means the
+	// note reached this router before — the in-flight guard above already
+	// excluded a live call, so a pending intent belongs to a dead or
+	// ambiguous attempt and is reconciled now, on the evidence.
+	if reference != "" {
+		serialized, serErr := paymentCashuToken.Serialize()
+		if serErr == nil {
+			intentMetric := ""
+			if m.config != nil {
+				intentMetric = m.config.Metric
+			}
+			if prior, resolved := m.beginReceiveIntent(reference, macAddress, paymentCashuToken.Mint(), paymentCashuToken.Amount(), serialized, intentMetric); prior != nil && prior.State != intentStateAbandoned {
+				if !resolved {
+					m.reconcileReceiveIntent(reference)
+					m.receiveIntentMu.Lock()
+					state := m.receiveIntents[reference]
+					m.receiveIntentMu.Unlock()
+					if state != nil && state.State == intentStatePending {
+						// Evidence could not decide (checkstate unreachable):
+						// refuse without a second Receive — the mint may have
+						// taken the note on the first attempt.
+						noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-outcome-unknown",
+							"This e-cash note was already submitted to this TollGate and its outcome is still being verified. Do not send it again. Reload this page in a couple of minutes.", macAddress)
+						if noticeErr != nil {
+							return nil, fmt.Errorf("pending-intent resubmission and failed to create notice: %w", noticeErr)
+						}
+						return noticeEvent, nil
+					}
+				}
+				// The prior attempt reached a terminal state (granted, owed,
+				// abandoned). Granted and owed both mean this router already
+				// owes or delivered service for this exact note: the honest
+				// answer is the grant-pending notice, never a second spend.
+				noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-received-grant-pending",
+					"This e-cash note was already received by this TollGate. Do not pay again — if access has not started yet, it will begin automatically (reload in a minute).", macAddress)
+				if noticeErr != nil {
+					return nil, fmt.Errorf("resolved-intent resubmission and failed to create notice: %w", noticeErr)
+				}
+				return noticeEvent, nil
+			}
+		} else {
+			log.Printf("PurchaseSession: could not serialize note for the intent journal (reference %s): %v — journaling skipped, payment proceeds", reference, serErr)
+		}
+	}
+
 	ch := make(chan receiveResult, 1)
 	go func() {
 		// A panic can only fire before the normal send, so this never
@@ -1600,7 +1672,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		// is consumed, so a resubmission arriving after the deadline but before
 		// the mint answers is refused exactly like a concurrent one.
 		go func() {
-			recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference)
+			m.recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference, paymentCashuToken.Amount())
 			m.endReceive(reference)
 		}()
 
@@ -1616,6 +1688,16 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	}
 	if err != nil {
 		mintURL := paymentCashuToken.Mint()
+
+		// The mint itself refused — stable evidence this attempt took no
+		// value (spent-refusal, keyset-expired, fee-refusal). The intent
+		// resolves abandoned: the customer may resubmit a still-spendable
+		// note, and a sequential duplicate still lands in the mint's own
+		// refusal below. Ambiguous outcomes (ErrOutcomeUnknown) stay
+		// pending for the reconciler.
+		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) || isExpiredKeysetError(err) || isBelowSwapFeeError(err) || isRateLimitError(err) {
+			m.resolveReceiveIntent(reference, intentStateAbandoned, fmt.Sprintf("mint refused: %v", err))
+		}
 
 		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) &&
 			!errors.Is(err, tollwallet.ErrOutcomeUnknown) &&
@@ -1705,6 +1787,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		// its window passes — the customer is told their access will start,
 		// never to pay again.
 		m.recordOwedGrant(reference, macAddress, paymentCashuToken.Mint(), amountAfterSwap, allotment)
+		m.resolveReceiveIntent(reference, intentStateOwed, "gate could not open; owed entitlement recorded")
 
 		message := fmt.Sprintf("Your payment was received, but this TollGate could not open your access just now (the portal manager did not answer). Your access will start automatically — you do NOT need to pay again. Reload this page in a minute. Reference: %s", reference)
 		if reference == "" {
@@ -1716,6 +1799,8 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		}
 		return noticeEvent, nil
 	}
+
+	m.resolveReceiveIntent(reference, intentStateGranted, "session granted")
 
 	// Create a success session event (using MAC address as identifier in logs)
 	sessionEvent, err := m.createSessionEvent(session, macAddress)
@@ -2531,6 +2616,13 @@ func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*Cust
 		exists = false
 	}
 	if !exists {
+		if m.customerSessions == nil {
+			// Bare-literal merchants (test harnesses) now reach this path
+			// through the owed-grant monitor the #502 journal can trigger
+			// from any payment path — the map gets the same lazy init the
+			// other journals have.
+			m.customerSessions = make(map[string]*CustomerSession)
+		}
 		// Create new session
 		session = &CustomerSession{
 			MacAddress: macAddress,

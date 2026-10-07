@@ -80,6 +80,11 @@ type cdkToken struct {
 	closed bool
 }
 
+// Secrets returns nil: the cdk adapter's token wrapper keeps proofs inside
+// cdk-go and has no NUT-07 surface on this build tag; the wallet's
+// CheckTokenSpent refuses with ErrCheckStateUnsupported instead.
+func (t *cdkToken) Secrets() []string { return nil }
+
 func (t *cdkToken) Mint() string {
 	mu, err := t.inner.MintUrl()
 	if err != nil {
@@ -463,4 +468,11 @@ func (w *CdkWallet) AcceptMint(mintURL string) error {
 	}
 	w.acceptedMints = append(w.acceptedMints, mint)
 	return nil
+}
+
+// CheckTokenSpent is not implemented by the cdk adapter: it has no
+// NUT-07 surface on this build tag. Callers get a typed error and must
+// treat the outcome as unresolved — never guess.
+func (w *CdkWallet) CheckTokenSpent(token Token) (bool, error) {
+	return false, ErrCheckStateUnsupported
 }
