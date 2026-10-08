@@ -425,14 +425,20 @@ func (t *MintHealthTracker) MarkUnreachable(mintURL string) {
 }
 
 // SetOnFirstReachableForDegraded registers a callback that fires once when a mint
-// becomes reachable after starting with none. The hadReachableMint flag is reset to
-// false so the callback fires on the first mint recovery — this is only meaningful
-// for the degraded merchant path which starts with all mints unreachable.
+// becomes reachable after starting with none. The hadReachableMint flag is re-armed
+// only when the reachable set is EMPTY at registration — the state this API is
+// documented for, since the degraded merchant path starts with all mints
+// unreachable. Re-arming unconditionally also re-armed a tracker whose mint was
+// already reachable, so the next proactive check treated that mint as "recovered"
+// and fired the degraded-upgrade callback spuriously: on the wallet-failure
+// degraded path (mints up, wallet down) every proactive cycle then re-attempted
+// the upgrade, and in the merchant suite the spurious fire surfaced as a
+// scheduling race between the callback goroutine and the test's assertion (#732).
 func (t *MintHealthTracker) SetOnFirstReachableForDegraded(callback func()) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.onFirstReachable = callback
-	t.hadReachableMint = false
+	t.hadReachableMint = t.reachableCount > 0
 }
 
 func (t *MintHealthTracker) SetOnReachableSetChanged(callback func()) {

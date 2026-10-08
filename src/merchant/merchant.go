@@ -387,6 +387,16 @@ type Merchant struct {
 	owedGrantsMu   sync.Mutex
 	owedGrants     map[string]*owedGrantRecord
 	owedGrantStore *owedGrantStore
+	// owedGrantRetryBase and owedGrantRetryCap parameterise the owed-grant
+	// monitor's backoff. Zero means the production constants
+	// (owedGrantRetryInterval / owedGrantMaxBackoff); nothing outside tests
+	// ever sets them. They exist so a test can compress the monitor's retry
+	// clock instead of coupling its convergence deadline to the fixed 5 s
+	// first-attempt delay — under a loaded -race full-suite run that coupling
+	// is what made the restart-convergence row time out (#733). The same
+	// shape as receiveTimeout and the tracker's aggressive-retry knobs.
+	owedGrantRetryBase time.Duration
+	owedGrantRetryCap  time.Duration
 	// The receive-intent journal (#502): one durable record per
 	// money-moving Receive attempt, keyed by the receive reference,
 	// written before the call and resolved only on evidence. See
