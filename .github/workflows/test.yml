@@ -335,6 +335,48 @@ jobs:
       - name: Changelog duplicates check verdicts
         run: bash tests/contract/changelog-duplicates_test.sh
 
+  # The same module suite the go-test matrix runs, but in a PRISTINE
+  # golang:1.26.8-bookworm container instead of the GitHub runner image.
+  # The image tag is a toolchain pin like any go-version: line —
+  # tests/contract/check-toolchain-parity.py refuses it drifting from the
+  # manifest.
+  #
+  # WHAT A FAILURE HERE MEANS. The runner image is anything but clean: it
+  # carries preinstalled toolchains and packages, a populated $HOME,
+  # GITHUB_*/RUNNER_* env, and warm module/build caches. A test that is
+  # green on ubuntu-latest and red in this container (or vice versa) is
+  # coupled to that host state — it passes because of where it runs, not
+  # because of what it tests. The known class: code or tests that read
+  # /etc/tollgate (the testenv tag exists to provision a hermetic config
+  # dir; a package that forgets it works on a dev box with the dir present
+  # and dies here), $HOME leftovers, runner-preinstalled binaries on PATH,
+  # and cache-dependent behavior.
+  #
+  # THE RULE: a red lane here is a finding, never something this job papers
+  # over — no silent skips, no continue-on-error. The ONE carve-out is the
+  # repo's established known-issues contract (same as the happy-path gate):
+  # a failure is tolerated ONLY while it is listed in
+  # tests/contract/clean-container-known-issues.txt with an OPEN issue; the
+  # gate script prints every tolerated failure loudly, flags stale entries,
+  # and a build/harness failure is always fatal. Delete an entry when its
+  # issue closes and the failure is fatal again by itself.
+  # ngit twin deliberately absent: ngit-ci refuses container: jobs
+  # (see .ngit/README.md's port table).
+  clean-container-test:
+    name: Clean-container module suite (golang:1.26.8-bookworm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: golang:1.26.8-bookworm
+    steps:
+      - uses: actions/checkout@v6
+      # The gate runs the go-test matrix's nine nested modules (same
+      # intentional omissions — see the NOTE there) plus the main package's
+      # testenv run, so a divergence between the two lanes is host state,
+      # never coverage.
+      - name: Run the module suite in the pristine image
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/clean-container-gate.sh"
+
   # The customer-facing happy path is gated HERE, on every push and every pull
   # request, because this is the workflow that runs on a branch BEFORE anyone
   # reviews it: a PR that breaks the happy path is the PR that goes red.
