@@ -1,0 +1,180 @@
+#!/bin/sh
+# tollgate-nds-preauth-render — render NDS's pre-auth FORWARD allowlist into
+# the enforcement ordering the shipped ruleset actually executes (#754).
+#
+# Why this exists: nodogsplash compiles `preauthenticated_users` into chains
+# at nftables priority 0, but the package's nds_enforce_forward chain
+# (packaging/files/etc/nftables.d/20-nds-enforce.nft) hooks forward at
+# priority -1 and its terminal reject runs FIRST — every allowlisted pre-auth
+# flow is rejected before the accept rule is ever reached (bench-verified on
+# rc1: reject counter climbing, the compiled allow chain at 0 packets). The
+# fix emits the same allowlist as its own base chain at priority -2, ahead of
+# the enforce chain: allowlisted flows are accepted before the -1 reject can
+# see them, and everything else reaches the enforce chain unchanged.
+#
+# The chain carries no iifname literal on purpose: the allowlist's own
+# destination/port match IS the grant (mirroring the rule shape nodogsplash
+# itself compiles), and an interface literal here would inherit the #757
+# renamed-bridge failure class.
+#
+# Runs from:
+#   - 99-tollgate-setup (install/upgrade/boot convergence; no reload — the
+#     postinst/boot sequence reloads the firewall around this anyway)
+#   - the tollgate-wrt init's procd reload trigger (operator edits:
+#     `uci commit nodogsplash` re-renders and reloads, without bouncing the
+#     daemon) — pass --reload for that caller.
+#
+# Refuses to emit a rule it cannot parse: an entry with unknown grammar is
+# logged and skipped, never guessed at — a wrong allow is a security hole and
+# a wrong match is a silent no-op, and neither is acceptable for a rule whose
+# whole job is to let pre-authenticated traffic past a reject.
+#
+# IPv4 only, matching the 20- chain's scope.
+
+FRAG="${TOLLGATE_NDS_PREAUTH_FRAG:-/etc/nftables.d/21-nds-preauth-allow.nft}"
+
+say() {
+    # Both surfaces: the invoking log (setup/boot) and the system log the
+    # operator reads on the router.
+    echo "tollgate-nds-preauth-render: $*" >&2
+    command -v logger >/dev/null 2>&1 && logger -t tollgate-nds-preauth "$*" 2>/dev/null
+}
+
+is_ipv4() {
+    case "$1" in
+        *[!0-9.]*) return 1 ;;
+    esac
+    echo "$1" | awk -F. 'NF==4 && $1<=255 && $2<=255 && $3<=255 && $4<=255 {exit 0} {exit 1}' 2>/dev/null
+}
+
+valid_port() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+# render one `allow <proto> port <p[/p...][ p...]> [to <host>]` entry as an
+# nft accept rule on stdout, or nothing (with a warning) when unparseable.
+render_entry() {
+    entry="$1"
+    action=$(echo "$entry" | awk '{print $1}')
+    proto=$(echo "$entry" | awk '{print $2}')
+    [ "$action" = "allow" ] || { say "skipping non-allow entry: $entry"; return; }
+    case "$proto" in
+        tcp|udp) ;;
+        *) say "skipping entry with unsupported protocol: $entry"; return ;;
+    esac
+    word3=$(echo "$entry" | awk '{print $3}')
+    [ "$word3" = "port" ] || { say "skipping entry without 'port': $entry"; return; }
+
+    # Collect port tokens: digits, /-separated lists, and space-separated
+    # runs, up to the optional 'to <host>' tail.
+    ports=""
+    host=""
+    state="ports"
+    for tok in $(echo "$entry" | awk '{ $1=""; $2=""; $3=""; print }'); do
+        case "$state:$tok" in
+            ports:to) state="host"; continue ;;
+            ports:*) ;;
+            host:*)   host="$tok"; state="done"; continue ;;
+            *)        ;;
+        esac
+        case "$tok" in
+            *[!0-9/]*) say "skipping entry with unparseable port list: $entry"; return ;;
+        esac
+        ports="$ports $tok"
+    done
+
+    port_set=""
+    for group in $ports; do
+        oldIFS="$IFS"; IFS='/'
+        for p in $group; do
+            if ! valid_port "$p"; then
+                say "skipping entry with invalid port: $entry"
+                return
+            fi
+            port_set="$port_set, $p"
+        done
+        IFS="$oldIFS"
+    done
+    port_set="${port_set#, }"
+    [ -n "$port_set" ] || { say "skipping entry with no ports: $entry"; return; }
+
+    daddr=""
+    if [ -n "$host" ]; then
+        if [ "$host" = "any" ] || [ "$host" = "all" ]; then
+            :
+        elif is_ipv4 "$host"; then
+            daddr="ip daddr $host "
+        else
+            # DNS names would resolve at nft load time — boot-order fragile
+            # and silent when stale. Refuse, exactly like the other gaps.
+            say "skipping entry with non-IPv4 destination (DNS not supported): $entry"
+            return
+        fi
+    fi
+
+    echo "        meta nfproto ipv4 ${daddr}${proto} dport { ${port_set} } counter accept"
+}
+
+render() {
+    entries="$(uci -q get nodogsplash.@nodogsplash[0].preauthenticated_users 2>/dev/null || true)"
+
+    tmp="$(mktemp "${FRAG}.XXXXXX")" || {
+        say "cannot create temp file for $FRAG"
+        return 1
+    }
+
+    {
+        echo "# Generated by tollgate-nds-preauth-render — do not edit."
+        echo "# The NDS pre-auth FORWARD allowlist (nodogsplash uci"
+        echo "# preauthenticated_users), emitted at nftables priority -2 so it runs"
+        echo "# AHEAD of nds_enforce_forward's priority -1 terminal reject (#754:"
+        echo "# nodogsplash's own compiled accepts sit at priority 0, after that"
+        echo "# reject, and never executed). Regenerated by 99-tollgate-setup and"
+        echo "# by the tollgate-wrt reload trigger whenever nodogsplash config"
+        echo "# changes; an empty allowlist leaves the chain empty and harmless."
+        echo "chain nds_preauth_allow {"
+        echo "    type filter hook forward priority -2; policy accept"
+        echo ""
+        if [ -n "$entries" ]; then
+            echo "$entries" | while IFS= read -r entry; do
+                [ -n "$entry" ] && render_entry "$entry"
+            done
+        fi
+        echo "}"
+    } > "$tmp" || { rm -f "$tmp"; say "cannot write $FRAG"; return 1; }
+
+    if [ -f "$FRAG" ] && cmp -s "$tmp" "$FRAG"; then
+        rm -f "$tmp"
+        echo "unchanged"
+        return 0
+    fi
+    mv "$tmp" "$FRAG" || { rm -f "$tmp"; say "cannot move fragment into place: $FRAG"; return 1; }
+    echo "rendered"
+}
+
+case "${1:-}" in
+    --reload)
+        out="$(render)" || exit 1
+        if [ "$out" = "rendered" ]; then
+            # fw4 reload re-reads every /etc/nftables.d include, loading the
+            # new chain atomically; nothing else in the dataplane moves.
+            fw4 reload >/dev/null 2>&1 || {
+                say "fragment updated but 'fw4 reload' failed — run it by hand: $FRAG"
+                exit 1
+            }
+            say "pre-auth allowlist rendered and firewall reloaded: $FRAG"
+        else
+            say "pre-auth allowlist unchanged: $FRAG"
+        fi
+        ;;
+    "")
+        render || exit 1
+        ;;
+    *)
+        echo "usage: $0 [--reload]" >&2
+        exit 2
+        ;;
+esac
