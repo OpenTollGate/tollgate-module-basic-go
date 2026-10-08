@@ -157,6 +157,11 @@ The wallet holds Cashu ecash across one or more mints. Customers pay
 into it; the payout routine sweeps profits to configured Lightning
 addresses on a per-mint schedule.
 
+After any suspected corruption (power cut mid-operation, flash errors in
+`dmesg`, a wallet that will not initialize), run
+`tollgate wallet check` and follow
+[docs/wallet-recovery-runbook.md](wallet-recovery-runbook.md).
+
 ### Check balance
 
 ```sh

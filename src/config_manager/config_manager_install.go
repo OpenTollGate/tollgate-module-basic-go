@@ -54,13 +54,16 @@ func LoadInstallConfig(filePath string) (*InstallConfig, error) {
 	return &installConfig, nil
 }
 
-// SaveInstallConfig saves install.json.
+// SaveInstallConfig saves install.json durably (writeFileDurably: temp +
+// fsync + rename). The runtime write is the lab's bind-mounted
+// install.json case (#550) — the in-place fallback keeps that mount
+// working — while a bare router gets the atomic rename (#505 audit).
 func SaveInstallConfig(filePath string, installConfig *InstallConfig) error {
 	data, err := json.MarshalIndent(installConfig, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filePath, data, 0600)
+	return writeFileDurably(filePath, data)
 }
 
 // EnsureDefaultInstall ensures a default install.json exists, loading from file if present.
