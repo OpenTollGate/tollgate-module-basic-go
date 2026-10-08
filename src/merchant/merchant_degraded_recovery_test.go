@@ -28,10 +28,10 @@ func newSwitchableMintServer(t *testing.T) *switchableMintServer {
 		switch r.URL.Path {
 		case "/v1/keysets":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true,"input_fee_ppk":0}]}`)
+			fmt.Fprint(w, `{"keysets":[{"id":"000f715baf5d4c2e","unit":"sat","active":true,"input_fee_ppk":0}]}`)
 		case "/v1/keys":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}]}`)
+			fmt.Fprint(w, `{"keysets":[{"id":"000f715baf5d4c2e","unit":"sat","active":true,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}]}`)
 		default:
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, `{}`)
