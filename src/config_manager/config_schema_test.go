@@ -507,9 +507,9 @@ func TestSaveConfigFallsBackToInPlaceWhenRenameIsImpossible(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	prev := renameConfigIntoPlace
-	renameConfigIntoPlace = func(_, _ string) error { return syscall.EBUSY }
-	t.Cleanup(func() { renameConfigIntoPlace = prev })
+	prev := renameIntoPlace
+	renameIntoPlace = func(_, _ string) error { return syscall.EBUSY }
+	t.Cleanup(func() { renameIntoPlace = prev })
 
 	cfg := NewDefaultConfig()
 	cfg.AcceptedMints = []MintConfig{{URL: "https://bind-mount-mint.example.com", PricePerStep: 1, PriceUnit: "sat", MinPurchaseSteps: 1}}
