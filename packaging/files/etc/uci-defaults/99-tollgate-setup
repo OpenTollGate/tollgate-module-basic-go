@@ -1995,7 +1995,71 @@ converge_nodogsplash_runtime() {
     return 0
 }
 
+# resolve_captive_zone answers "which firewall zone owns the captive bridge?"
+# by walking the router's own config: the NDS gatewayinterface (a bridge) →
+# the network section whose device it is → the firewall zone whose network
+# list carries that section. A deployment that renames zones (segmentation
+# doctrine: 'portal', 'island') renames the bridge and its network with
+# them, and the package's firewall sections — which reference zones BY NAME —
+# would be silently skipped by fw4: exit 0, nothing in logread, a portal
+# that appears to work with no rules (#755, bench-verified on rc1: renaming
+# firewall.@zone[0] alone removed Allow-TollGate-In from the ruleset with
+# zero diagnostics). Falls back to the stock 'lan' and says why — never to a
+# guess, and never silently.
+resolve_captive_zone() {
+    local gw net zone
+    gw="$(uci -q get nodogsplash.@nodogsplash[0].gatewayinterface 2>/dev/null || true)"
+    [ -n "$gw" ] || gw="br-lan"
+    net="$(uci -q show network 2>/dev/null | sed -n "s/^network\.\([^.]*\)\.device='$gw'\$/\1/p" | head -n 1)"
+    if [ -n "$net" ]; then
+        zone="$(uci -q show firewall 2>/dev/null | sed -n "s/^\(firewall\.[^.]*\)\.network='$net'\$/\1/p" | head -n 1)"
+        if [ -n "$zone" ]; then
+            # The section id is interpolated into the sed program, so its
+            # regex metacharacters (a named zone can carry [n] indices or
+            # cfg ids) are escaped first; the name comes from the same show
+            # stream — no second lookup to disagree with it.
+            zone_esc="$(printf '%s' "$zone" | sed 's/[.[\*^$]/\\&/g')"
+            zone_name="$(uci -q show firewall 2>/dev/null | sed -n "s/^${zone_esc}\.name='\([^']*\)'\$/\1/p" | head -n 1)"
+            if [ -n "$zone_name" ]; then
+                echo "$zone_name"
+                return 0
+            fi
+            log "WARNING: the zone owning network '$net' (captive bridge '$gw') has no name — using the stock zone 'lan' for the tollgate firewall rules"
+            echo "lan"
+            return 0
+        fi
+        log "WARNING: no firewall zone carries network '$net' (captive bridge '$gw') — using the stock zone 'lan' for the tollgate firewall rules"
+        echo "lan"
+        return 0
+    fi
+    log "WARNING: no network section names the captive bridge '$gw' as its device — using the stock zone 'lan' for the tollgate firewall rules"
+    echo "lan"
+}
+
+# assert_firewall_zone_refs is #755's fail-loudly half: fw4 skips a section
+# whose src zone does not exist — exit 0, warnings on stderr only, never
+# logread. After converging the refs, every referenced zone is verified to
+# exist, and a missing one is named in BOTH the setup log and syslog, with
+# the remedy. Silent-skip is the worst outcome: a portal that appears to
+# work with no enforcement.
+assert_firewall_zone_refs() {
+    local section zone
+    for section in tollgate_in tollgate_protocol; do
+        zone="$(uci -q get "firewall.$section.src" 2>/dev/null || true)"
+        [ -n "$zone" ] || continue
+        if ! uci -q show firewall 2>/dev/null | grep -q "\.name='$zone'"; then
+            log "ERROR: firewall.$section references zone '$zone', which does not exist — fw4 will SILENTLY SKIP this rule (no enforcement, exit 0, nothing in logread). Fix: name the zone that owns the captive bridge, or create it (#755)."
+            command -v logger >/dev/null 2>&1 && \
+                logger -t tollgate-setup "ERROR: firewall.$section references missing zone '$zone' — fw4 silently skips it; the rule is NOT enforced (#755)"
+        fi
+    done
+    return 0
+}
+
 setup_tollgate_firewall_rules() {
+    # Resolved FIRST so even the section's creation writes the right zone —
+    # no transient stock name ever lands in the config (#755).
+    TOLLGATE_CAPTIVE_ZONE="$(resolve_captive_zone)"
     uci -q get firewall.tollgate_protocol >/dev/null 2>&1 || {
         uci set firewall.tollgate_protocol='rule'
         uci set firewall.tollgate_protocol.name='Allow-TollGate-Protocol'
@@ -2007,11 +2071,16 @@ setup_tollgate_firewall_rules() {
     uci -q get firewall.tollgate_in >/dev/null 2>&1 || {
         uci set firewall.tollgate_in='rule'
         uci set firewall.tollgate_in.name='Allow-TollGate-In'
-        uci set firewall.tollgate_in.src='lan'
+        uci set firewall.tollgate_in.src="$TOLLGATE_CAPTIVE_ZONE"
         uci set firewall.tollgate_in.proto='tcp'
         uci set firewall.tollgate_in.dest_port='2121'
         uci set firewall.tollgate_in.target='ACCEPT'
     }
+    # And converged on every later pass: a router whose zones were renamed
+    # before install would keep the stock names forever under a create-once
+    # shape, and fw4 skips a wrong-name rule with zero diagnostics (#755).
+    uci set firewall.tollgate_in.src="$TOLLGATE_CAPTIVE_ZONE"
+    assert_firewall_zone_refs
 }
 
 setup_profile_hook() {

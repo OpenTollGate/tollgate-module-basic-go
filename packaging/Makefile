@@ -127,7 +127,14 @@ wait_for_iface br-private || echo "Note: br-private not found — this is expect
 
 echo "Reloading remaining services..."
 wifi reload 2>/dev/null || true
-/etc/init.d/firewall reload 2>/dev/null || true
+/etc/init.d/firewall reload >/tmp/tollgate-fw4-reload.log 2>&1 || true
+# fw4 skips a section whose zone/interface ref is wrong — exit 0, stderr
+# only, never logread: exactly the silent-skip #755 is about. Surfacing the
+# skip diagnostics into syslog is the difference between an operator seeing
+# one ERROR line and debugging "the portal works but nothing is enforced".
+if grep -q "specifies invalid value\|skipped" /tmp/tollgate-fw4-reload.log 2>/dev/null; then
+    logger -t tollgate-setup "fw4 reload skipped section(s): $$(grep -E 'specifies invalid value|skipped' /tmp/tollgate-fw4-reload.log | head -n 3 | tr '\n' ' ')"
+fi
 /etc/init.d/dnsmasq restart 2>/dev/null || true
 /etc/init.d/uhttpd restart 2>/dev/null || true
 /etc/init.d/nodogsplash restart 2>/dev/null || true
