@@ -526,6 +526,8 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	}
 	balance := tw.GetBalance()
 
+	resumePendingSwapsAtBoot(tw)
+
 	advertisementStr, err := CreateAdvertisement(configManager, mintHealthTracker)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create advertisement: %w", err)
@@ -563,6 +565,25 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 
 func (m *Merchant) Shutdown() error {
 	return m.tollwallet.Shutdown()
+}
+
+// resumePendingSwapsAtBoot drives the wallet half of crash recovery
+// (#497/#719): the previous process may have died between the mint's
+// acceptance of a swap and the wallet's proof save, and the journaled
+// intent replays exactly the bytes that recover the value. The customer
+// half is converged separately (receive intents + owed grants restored
+// from disk below), so the two halves never block each other. Every
+// failure shape is non-fatal: an unrecoverable intent stays journaled,
+// the next boot retries it, and a boot must never wedge on a mint that
+// is still down.
+func resumePendingSwapsAtBoot(tw tollwallet.WalletPort) {
+	recovered, failed, err := tw.ResumePendingSwaps()
+	switch {
+	case err != nil:
+		log.Printf("WARNING: wallet boot resume incomplete: %v (pending swap intents stay journaled; the next boot retries)", err)
+	case recovered > 0 || failed > 0:
+		log.Printf("Wallet boot resume: recovered %d sats from pending swap intents (%d unrecoverable this pass)", recovered, failed)
+	}
 }
 
 func (m *Merchant) SetOnReachableSetChanged(callback func()) {

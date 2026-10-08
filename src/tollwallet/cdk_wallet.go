@@ -476,3 +476,12 @@ func (w *CdkWallet) AcceptMint(mintURL string) error {
 func (w *CdkWallet) CheckTokenSpent(token Token) (bool, error) {
 	return false, ErrCheckStateUnsupported
 }
+
+// ResumePendingSwaps is a deliberate no-op on the cdk adapter: CDK's own
+// saga machinery resumes in-flight operations when the wallet is opened,
+// so by the time this wallet exists there is nothing left to replay here.
+// Returning zero recovers nothing and destroys nothing — the honest
+// answer for a backend whose recovery already ran.
+func (w *CdkWallet) ResumePendingSwaps() (uint64, int, error) {
+	return 0, 0, nil
+}
