@@ -390,10 +390,12 @@ if [ "$MOD_UP" = "1" ]; then
     # certainly not using and require the module to report that claim as
     # IGNORED, and to name the client it really answered for.
     #
-    # The identity the module resolves is the one /whoami just reported (C5), and
-    # the gate fixture leases this client (see happy-path-gate.sh) exactly as a
-    # router would. If /whoami resolved nothing here, the identity header is
-    # legitimately absent and the claim report is the half that is asserted.
+    # The identity the module resolves is the one /whoami just reported (C5),
+    # and the operator-seeded lease file carries this client (this suite's
+    # README, "Precondition for the live-module Lightning lane": seed
+    # /tmp/dhcp.leases with the client address) exactly as a router would. If
+    # /whoami resolved nothing here, the identity header is legitimately
+    # absent and the claim report is the half that is asserted.
     ID_CLAIM='02:11:22:33:44:55'
     ID_SENTINEL='00:00:00:00:00:00'
     ID_SOCKET="$(printf '%s' "$W" | sed -n 's/^mac=//p' | tr 'A-Z' 'a-z')"

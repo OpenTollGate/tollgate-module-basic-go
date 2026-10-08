@@ -110,6 +110,13 @@ func newDuplicateGuardMerchant(t *testing.T, wallet *scriptedReceiveWallet, time
 		tollwallet:        wallet,
 		mintHealthTracker: newTestTracker(cm.GetConfig(), nil),
 	}
+	// The guard suite's final row drives a grant all the way through the real
+	// valve, and a gate that must actually open needs an ndsctl that answers:
+	// on a host with none, every open fails and the owed path answers
+	// grant-pending instead of the session that row exists to prove (#726).
+	// The whole harness gets the seam, so every guard test exercises real
+	// grants rather than only the rows whose assertions never reach the gate.
+	installCloudLabNdsctlSeam(t)
 	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
