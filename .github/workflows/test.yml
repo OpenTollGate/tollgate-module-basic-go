@@ -302,6 +302,16 @@ jobs:
         run: bash tests/contract/build-purity.sh
       - name: Shipped AP SSID format check
         run: bash tests/contract/check-ssid-format.sh
+      - name: SSID naming contract (the matcher's acceptance table)
+        run: |
+          # The reader twin of the format check above: hasTollGateSSID must
+          # accept both brands bare AND single-'!'-decorated, case-
+          # insensitively, and reject a double '!' — pinned by ONE fixture
+          # table the Go unit test and this check both consume. The SSID
+          # recognition contract broke twice (#618 brand-blind matcher, #706
+          # decoration); each was a reader/writer disagreement this table
+          # would have caught.
+          bash tests/contract/check-ssid-naming.sh
 
   deps-and-imports:
     runs-on: ubuntu-latest
