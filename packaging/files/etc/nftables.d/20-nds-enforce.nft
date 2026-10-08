@@ -32,16 +32,16 @@ chain nds_enforce_forward {
     type filter hook forward priority -1; policy accept
 
     # Pre-authenticated clients — blocked
-    meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00010000 counter drop
+    meta nfproto ipv4 iifname $tg_portal_if meta mark & 0x00030000 == 0x00010000 counter drop
 
     # Trusted clients — allowed
-    meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00020000 counter accept
+    meta nfproto ipv4 iifname $tg_portal_if meta mark & 0x00030000 == 0x00020000 counter accept
 
     # Authenticated clients — allowed
-    meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00030000 counter accept
+    meta nfproto ipv4 iifname $tg_portal_if meta mark & 0x00030000 == 0x00030000 counter accept
 
     # Pre-authenticated (unmarked) traffic from LAN to non-LAN — reject
     # Portable WAN detection: works on all architectures.
     # Old hardcoded oifname { "eth0", "phy0-sta0" } only matched GL-MT3000.
-    meta nfproto ipv4 iifname "br-lan" oifname != "br-lan" counter reject with icmp type port-unreachable
+    meta nfproto ipv4 iifname $tg_portal_if oifname != $tg_portal_if counter reject with icmp type port-unreachable
 }

@@ -36,7 +36,16 @@ start_service() {
     procd_set_param respawn 3 5 0
     
     procd_close_instance
-    
+
+    # Fail loudly when the guards' interfaces are missing (#757's ask): the
+    # nft guards silently dropping a renamed bridge's traffic is the exact
+    # blind spot this replaces — a WARN naming the expected interface turns
+    # a client-side mystery into one logread line.
+    _portal_if="$(uci -q get nodogsplash.@nodogsplash[0].gatewayinterface 2>/dev/null || echo br-lan)"
+    if ! ip link show "$_portal_if" >/dev/null 2>&1; then
+        logger -s -t tollgate-wrt -p user.warn "WARN: the captive-portal interface '$_portal_if' (nodogsplash gatewayinterface) does not exist on this router — the nft guards and nodogsplash itself cannot serve it; rename follow-up missing? (#757)"
+    fi
+
     # Log the start for debugging
     echo "TollGate basic started with nodogsplash" > /tmp/basic.log
 }
@@ -50,7 +59,11 @@ service_triggers() {
 }
 
 reload_service() {
+    # Both nft fragments derive from config nodogsplash feeds on: the -2
+    # pre-auth allowlist (#754) and the interface defines the guards
+    # resolve (#757). One commit, one converge, no daemon bounce.
     /usr/local/bin/tollgate-nds-preauth-render --reload
+    /usr/local/bin/tollgate-nft-interfaces-render --reload
 }
 
 stop() {

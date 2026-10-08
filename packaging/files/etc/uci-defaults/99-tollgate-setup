@@ -2606,8 +2606,10 @@ if [ "$BRANCH" != "FULL" ]; then
     fi
     # The priority -2 rendering of the FORWARD allowlist follows the same
     # state (#754): whatever the list looks like after repair, the fragment
-    # must match it.
+    # must match it. The interface definitions (#757) follow too — they read
+    # gatewayinterface, which the repair above may have just asserted.
     /usr/local/bin/tollgate-nds-preauth-render
+    /usr/local/bin/tollgate-nft-interfaces-render
 
     # The wired LAN ports' placement is re-asserted here for the same reason
     # the uhttpd contract and the allow list are: the port list is IMAGE-
