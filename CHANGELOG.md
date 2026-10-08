@@ -9,6 +9,36 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
+### Fixed
+
+- **The degraded-mode recovery trigger no longer fires for a mint that never
+  went down.** `SetOnFirstReachableForDegraded` reset its one-shot
+  first-reachable flag unconditionally, so on the wallet-failure degraded path
+  — mints reachable, wallet broken — every 5-minute proactive check treated an
+  already-reachable mint as "recovered" and re-attempted the degraded → full
+  upgrade, an endless rebuild loop for as long as the wallet stayed broken. The
+  flag now re-arms only when the reachable set is empty at registration, the
+  state the degraded paths are actually in; the startup and #400 runtime
+  downgrade/recovery behavior is unchanged
+  ([#774](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/774)).
+
+### Changed / Internal
+
+- **The merchant suite's flake trio is fixed at its roots — content-matched
+  log picking, drained recorder goroutines, and an injectable owed-grant retry
+  clock (#731, #732, #733).** The late-outcome record is now picked by content
+  (`late Receive`), so the owed-grant consequence lines that land after it can
+  no longer win a last-line pick under suite load; the late-recorder goroutine
+  is drained before the tests return, ending a race between its intent-store
+  persist and `t.TempDir` cleanup; and the owed-grant monitor's retry schedule
+  is a per-merchant seam (zero = production constants, the `receiveTimeout`
+  convention) so the convergence rows stop coupling their deadlines to the
+  fixed 5 s first-attempt delay — the killed-attempt restart row now converges
+  in under a second instead of ~5.5 s, and the whole suite runs faster than
+  before. The two #676-era tests pinning the unconditional
+  `hadReachableMint` reset as desired are repinned to the corrected contract
+  ([#774](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/774)).
+
 ### Changed / Internal
 
 - **The bcm2709 artifact rows build again.** `build-sdk-package.sh`
