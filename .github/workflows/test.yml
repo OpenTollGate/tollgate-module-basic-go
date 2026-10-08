@@ -305,6 +305,9 @@ jobs:
         run: python3 tests/contract/check-toolchain-parity.py
       - name: Dockerfile FROM-ARG scope check
         run: python3 tests/contract/check-dockerfile-from-args.py
+
+      - name: Build-surface doctrine (two paths, no third)
+        run: python3 tests/contract/check-build-surface.py
       - name: Stale import path check
         run: python3 tests/contract/check-import-paths.py
       - name: Changelog duplicate entries check
