@@ -182,6 +182,31 @@ esac
 exit 0
 SHIM
 chmod +x "$TMP/bin/uci"
+
+# ------------------------------------------------- fake tollgate CLI (ports)
+# The driver's load_ui_port_table evaluates `tollgate ui ports --format shell`
+# — the port table's single source (Go's uiPortPair). This stub emits the
+# real table, byte-for-byte what the router's binary prints.
+cat > "$TMP/bin/tollgate" <<'SHIM'
+#!/bin/sh
+case "$1 $2 $3 $4" in
+    'ui ports --format shell')
+        cat <<'TABLE'
+uhttpd_main_http_port_board=8090
+uhttpd_main_http_port_luci=8080
+uhttpd_main_https_port_board=8443
+uhttpd_main_https_port_luci=443
+board_http_port_board=8080
+board_http_port_luci=8090
+board_https_port_board=443
+board_https_port_luci=8443
+TABLE
+        exit 0 ;;
+    *) echo "fake tollgate: unexpected call: $*" >&2; exit 1 ;;
+esac
+SHIM
+chmod +x "$TMP/bin/tollgate"
+export TOLLGATE_CLI="$TMP/bin/tollgate"
 export PATH="$TMP/bin:$PATH"
 
 # ------------------------------------------- absolute paths into the sandbox
@@ -198,6 +223,7 @@ printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
 
 SRC="$TMP/99-tollgate-setup"
 sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$TMP/tollgate-setup-done\"|" \
+    -e "s|^TOLLGATE_CLI=\"/usr/bin/tollgate\"\$|TOLLGATE_CLI=\"$TMP/bin/tollgate\"|" \
     -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$TMP/setup.log|" \
     -e "s|^SETUP_VERSION=\"__TOLLGATE_VERSION__\"\$|SETUP_VERSION=\"$SHIPPED\"|" \
     -e "s|^NDS_INIT=\"/etc/init.d/nodogsplash\"\$|NDS_INIT=\"$TMP/no-such-init\"|" \

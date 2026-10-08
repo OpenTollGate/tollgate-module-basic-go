@@ -144,16 +144,41 @@ ensure_entry_ui() {
     return 0
 }
 
+# The port table has ONE declaration — Go's uiPortPair, emitted by
+# `tollgate ui ports --format shell` — and this script EVALUATES that output
+# (load_ui_port_table, called by the driver before any port decision). The
+# hand-declared table this file used to carry drifted from the Go one (#746);
+# a shell-side fallback table would re-open exactly that hole, so a missing
+# or malformed emission is a loud failure, never a guess: the package installs
+# the binary before uci-defaults run, so its absence means the install itself
+# is broken.
+load_ui_port_table() {
+    local out lines
+    out="$("$TOLLGATE_CLI" ui ports --format shell 2>/dev/null)" || {
+        log "FATAL: '$TOLLGATE_CLI ui ports --format shell' failed — the port table's single source (the binary) is unavailable; refusing to guess admin-UI ports"
+        return 1
+    }
+    lines="$(printf '%s\n' "$out" | grep -c .)"
+    [ "$lines" -eq 8 ] || {
+        log "FATAL: '$TOLLGATE_CLI ui ports --format shell' emitted $lines line(s), want 8 (4 helpers x 2 modes); refusing to guess admin-UI ports"
+        return 1
+    }
+    if printf '%s\n' "$out" | grep -qvE '^(uhttpd_main_(http|https)_port|board_(http|https)_port)_(board|luci)=[0-9]+$'; then
+        log "FATAL: '$TOLLGATE_CLI ui ports --format shell' emitted a line that is not a plain NAME=digits assignment; refusing to eval it"
+        return 1
+    fi
+    eval "$out"
+}
+
 # Port helpers read the resolved mapping; they never resolve it themselves, so
-# they are safe inside `$(...)`. An unresolved value behaves like luci — today's
-# mapping, the conservative direction — but every caller resolves first, so that
-# branch is unreachable by construction.
-# In board mode uhttpd.main is LuCI on the SECONDARY pair; otherwise it is on the
-# entry pair. The board (uhttpd.admin, written by 92) owns the other pair.
-uhttpd_main_http_port()  { [ "$ENTRY_UI_MODE" = board ] && printf 8090 || printf 8080; }
-uhttpd_main_https_port() { [ "$ENTRY_UI_MODE" = board ] && printf 8443 || printf 443; }
-board_http_port()        { [ "$ENTRY_UI_MODE" = board ] && printf 8080 || printf 8090; }
-board_https_port()       { [ "$ENTRY_UI_MODE" = board ] && printf 443  || printf 8443; }
+# they are safe inside `$(...)`. The values come from load_ui_port_table's
+# eval of the binary emission: one variable per helper per mode, looked up by
+# indirect expansion. An unloaded table prints nothing — load failure is the
+# loud path above, and the driver loads the table before any port decision.
+uhttpd_main_http_port()  { eval "printf '%s' \"\${uhttpd_main_http_port_${ENTRY_UI_MODE}:-}\""; }
+uhttpd_main_https_port() { eval "printf '%s' \"\${uhttpd_main_https_port_${ENTRY_UI_MODE}:-}\""; }
+board_http_port()        { eval "printf '%s' \"\${board_http_port_${ENTRY_UI_MODE}:-}\""; }
+board_https_port()       { eval "printf '%s' \"\${board_https_port_${ENTRY_UI_MODE}:-}\""; }
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
 # -- setup-marker ordering ---------------------------------------------------
@@ -2471,6 +2496,14 @@ chmod 600 "$LOGFILE"  # may contain the WiFi password — keep it root-only
 # anything else logged that early) is truncated away with the previous run's
 # contents, and a router that quietly repaired the mapping would say nothing.
 ensure_entry_ui
+
+# The port table's single source: the binary's own emission, loaded before
+# any port decision on EVERY path (both the full and the verify/repair
+# branch write ports). Fatal by design — no fallback table exists to
+# silently disagree with the Go one (#746's lesson) — and exit 1 is the
+# right failure here: OpenWrt keeps a uci-defaults script that exits
+# non-zero, so the next boot retries once the binary is actually healthy.
+load_ui_port_table || exit 1
 
 log "Setup branch $BRANCH — $REASON"
 

@@ -70,8 +70,46 @@ cross-links are HTTPS-only (D6).`,
 	},
 }
 
+// uiPortsFormat is the --format flag of 'tollgate ui ports': "shell" emits
+// the port table as shell-evaluable variables (the single source of truth
+// 99-tollgate-setup consumes), "json" the plain grid.
+var uiPortsFormat string
+
+var uiPortsCmd = &cobra.Command{
+	Use:   "ports",
+	Short: "Emit the entry_ui port table",
+	Long: `Print the entry_ui port mapping table — which HTTP/TLS port pair each admin
+UI (board, LuCI) answers under each mapping mode.
+
+--format shell emits shell-evaluable variables, one per helper per mode, and
+is the SINGLE declaration of the table: packaging's 99-tollgate-setup
+evaluates this output instead of carrying its own copy (the drift between the
+two copies was #746; the duplication itself was removed on its heels). The
+variable names mirror the setup script's port helpers:
+
+    uhttpd_main_http_port_<mode>   uhttpd_main_https_port_<mode>
+    board_http_port_<mode>         board_https_port_<mode>
+
+with <mode> ∈ {board, luci}. Values are bare port digits only, so the output
+is safe to eval.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		switch uiPortsFormat {
+		case "shell":
+			printUIPortsShell()
+			return nil
+		case "json":
+			return printJSON(uiPortsGridJSON())
+		default:
+			return fmt.Errorf("unknown --format %q (want shell or json)", uiPortsFormat)
+		}
+	},
+}
+
 func init() {
+	uiPortsCmd.Flags().StringVar(&uiPortsFormat, "format", "shell", "output format: shell (evaluable vars) or json")
 	uiCmd.AddCommand(uiLinksCmd)
+	uiCmd.AddCommand(uiPortsCmd)
 	rootCmd.AddCommand(uiCmd)
 }
 
@@ -133,6 +171,76 @@ func uiPortPair(ui, mode string) (httpPort, tlsPort string) {
 	}
 	// The other UI owns the secondary pair.
 	return "8090", "8443"
+}
+
+// uiPortVarNames is the consumption contract with 99-tollgate-setup's port
+// helpers, in emission order: one variable per helper per mode, named
+// "<helper>_<mode>". Renaming anything here renames the variables the setup
+// script evaluates — change them together (tests/contract/check-entry-ui-ports.sh
+// and 99-tollgate-setup's load_ui_port_table are the enforcement).
+var uiPortVarNames = []string{
+	"uhttpd_main_http_port",
+	"uhttpd_main_https_port",
+	"board_http_port",
+	"board_https_port",
+}
+
+// uiPortHelperOwner maps each emitted variable prefix to the UI whose ports
+// it answers, mirroring the setup script's own mapping: uhttpd.main IS LuCI's
+// listener, uhttpd.admin (written by 92) is the board's.
+var uiPortHelperOwner = map[string]string{
+	"uhttpd_main_http_port":  "luci",
+	"uhttpd_main_https_port": "luci",
+	"board_http_port":        "board",
+	"board_https_port":       "board",
+}
+
+// printUIPortsShell emits the port table as shell-evaluable variable
+// assignments — the output 99-tollgate-setup's load_ui_port_table evaluates.
+// Values are bare digits by construction (uiPortPair returns literals), so
+// nothing needs quoting.
+func printUIPortsShell() {
+	for _, helper := range uiPortVarNames {
+		ui := uiPortHelperOwner[helper]
+		for _, mode := range []string{"board", "luci"} {
+			httpPort, tlsPort := uiPortPair(ui, mode)
+			port := tlsPort
+			if strings.HasSuffix(helper, "http_port") {
+				port = httpPort
+			}
+			fmt.Printf("%s_%s=%s\n", helper, mode, port)
+		}
+	}
+}
+
+// uiPortsGrid is the JSON shape of `tollgate ui ports --format json`: the
+// same table as the shell emission, for tooling that prefers structured data.
+type uiPortsGrid struct {
+	Modes map[string]uiPortPairJSON `json:"modes"`
+}
+
+// uiPortPairJSON is one UI pair under one mode.
+type uiPortPairJSON struct {
+	Board struct {
+		HTTP string `json:"http"`
+		TLS  string `json:"tls"`
+	} `json:"board"`
+	Luci struct {
+		HTTP string `json:"http"`
+		TLS  string `json:"tls"`
+	} `json:"luci"`
+}
+
+func uiPortsGridJSON() uiPortsGrid {
+	var grid uiPortsGrid
+	grid.Modes = make(map[string]uiPortPairJSON)
+	for _, mode := range []string{"board", "luci"} {
+		var pair uiPortPairJSON
+		pair.Board.HTTP, pair.Board.TLS = uiPortPair("board", mode)
+		pair.Luci.HTTP, pair.Luci.TLS = uiPortPair("luci", mode)
+		grid.Modes[mode] = pair
+	}
+	return grid
 }
 
 // uiLinkHost returns the host the admin UIs are reached by, so the CLI can

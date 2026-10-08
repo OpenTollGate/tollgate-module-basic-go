@@ -211,6 +211,28 @@ printf '%s\n' "$*" >> "${CLI_CALLS:?}"
 sub="${1:-}"
 shift || true
 case "$sub" in
+    ui)
+        verb="${1:-}"
+        shift || true
+        case "$verb" in
+            ports)
+                # The port table's single source (the real binary's uiPortPair
+                # emission), reproduced so the driver's load_ui_port_table
+                # evaluates exactly what the router would.
+                cat <<'TABLE'
+uhttpd_main_http_port_board=8090
+uhttpd_main_http_port_luci=8080
+uhttpd_main_https_port_board=8443
+uhttpd_main_https_port_luci=443
+board_http_port_board=8080
+board_http_port_luci=8090
+board_https_port_board=443
+board_https_port_luci=8443
+TABLE
+                exit 0
+                ;;
+        esac
+        ;;
     ssl)
         verb="${1:-}"
         shift || true
@@ -608,19 +630,54 @@ grep -q "removed by the operator" "$LOGFILE" \
     && ok "opt-out round trip: the install log names the opt-out" \
     || bad "opt-out round trip: the install log does not name the opt-out"
 
-echo "-- no CLI available: nothing can be provisioned, so the hop must stay OFF"
+echo "-- provisioning unavailable (ssl apply fails): nothing can be provisioned, so the hop must stay OFF"
+# The CLI binary itself is a hard dependency of the driver now — its port
+# table is the single source 99-tollgate-setup evaluates, and a missing
+# binary is a fatal, next-boot-retried install failure by design. The
+# invariant this scenario has always pinned is narrower: when TLS
+# PROVISIONING cannot happen, the image identity survives and the redirect
+# stays off. Model that with the CLI present but its ssl verb failing, which
+# is the same tolerance path the old no-CLI fixture exercised.
 seed_state
-sed -i "s|^TOLLGATE_CLI=\".*\"\$|TOLLGATE_CLI=\"/nonexistent/tollgate\"|" "$SCRIPT_UNDER_TEST"
+cp "$TOLLGATE_CLI" "$TMP/tollgate-cli.full"
+cat > "$TOLLGATE_CLI" <<'SHIM'
+#!/bin/sh
+printf '%s\n' "$*" >> "${CLI_CALLS:?}"
+sub="${1:-}"
+shift || true
+case "$sub" in
+    ui)
+        [ "$1 $2 $3" = 'ports --format shell' ] || exit 1
+        cat <<'TABLE'
+uhttpd_main_http_port_board=8090
+uhttpd_main_http_port_luci=8080
+uhttpd_main_https_port_board=8443
+uhttpd_main_https_port_luci=443
+board_http_port_board=8080
+board_http_port_luci=8090
+board_https_port_board=443
+board_https_port_luci=8443
+TABLE
+        exit 0
+        ;;
+    ssl) echo "fake tollgate: ssl unavailable" >&2; exit 1 ;;
+esac
+exit 1
+SHIM
+chmod +x "$TOLLGATE_CLI"
 run_driver __ABSENT__
 rc=$?
-[ "$rc" = 0 ] && ok "no CLI: the install still completes" \
-              || bad "no CLI: exit $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
+[ "$rc" = 0 ] && ok "provisioning down: the install still completes" \
+              || bad "provisioning down: exit $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
 [ "$(cert_now)" = "$UHTTPD_IMAGE_CERT" ] \
-    && ok "no CLI: the image's certificate is kept as the fallback identity (the TLS listener survives)" \
-    || bad "no CLI: uhttpd.main.cert is $(cert_now), want the image's own certificate (fallback)"
+    && ok "provisioning down: the image's certificate is kept as the fallback identity (the TLS listener survives)" \
+    || bad "provisioning down: uhttpd.main.cert is $(cert_now), want the image's own certificate (fallback)"
 [ "$(redirect_now)" = 0 ] \
-    && ok "no CLI: redirect_https=0 — an unverifiable identity never redirects (:8080 stays reachable, no lockout)" \
-    || bad "no CLI: redirect_https is $(redirect_now), want 0"
+    && ok "provisioning down: redirect_https=0 — an unverifiable identity never redirects (:8080 stays reachable, no lockout)" \
+    || bad "provisioning down: redirect_https is $(redirect_now), want 0"
+# The scenario-scoped stub is replaced by the full fake again: the reinstall
+# round trip below must see the CLI that CAN provision, not this one.
+cp "$TMP/tollgate-cli.full" "$TOLLGATE_CLI"
 
 echo
 echo "== D. negative control: the PRE-CHANGE rule accepts the placeholder"

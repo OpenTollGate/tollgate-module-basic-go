@@ -324,6 +324,33 @@ exit 0
 SHIM
 chmod +x "$TMP/bin/uci"
 
+# ------------------------------------------------- fake tollgate CLI (ports)
+# The driver's load_ui_port_table evaluates `tollgate ui ports --format shell`
+# — the port table's single source (Go's uiPortPair). This stub emits the
+# real table, byte-for-byte what the router's binary prints; a wrong copy
+# here fails the entry-ui-mapping suite against the shipped script, so the
+# fixture cannot silently drift.
+cat > "$TMP/bin/tollgate" <<'SHIM'
+#!/bin/sh
+case "$1 $2 $3 $4" in
+    'ui ports --format shell')
+        cat <<'TABLE'
+uhttpd_main_http_port_board=8090
+uhttpd_main_http_port_luci=8080
+uhttpd_main_https_port_board=8443
+uhttpd_main_https_port_luci=443
+board_http_port_board=8080
+board_http_port_luci=8090
+board_https_port_board=443
+board_https_port_luci=8443
+TABLE
+        exit 0 ;;
+    *) echo "fake tollgate: unexpected call: $*" >&2; exit 1 ;;
+esac
+SHIM
+chmod +x "$TMP/bin/tollgate"
+export TOLLGATE_CLI="$TMP/bin/tollgate"
+
 cat > "$TMP/bin/apk" <<'SHIM'
 #!/bin/sh
 # fake apk — the setup script only consults `apk list --installed`.
@@ -430,6 +457,7 @@ seed_state() {
 build_script() {
     local shipped="$1" variant="${2:-shipped}"
     sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
+    -e "s|^TOLLGATE_CLI=\"/usr/bin/tollgate\"\$|TOLLGATE_CLI=\"$TMP/bin/tollgate\"|" \
         -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
         -e "s|> */proc/sys/kernel/hostname|> $HOSTNAME_FILE|" \
         -e "s|/etc/profile|$PROFILE_FILE|g" \

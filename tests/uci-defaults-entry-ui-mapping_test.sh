@@ -220,6 +220,28 @@ printf '%s\n' "$*" >> "${CLI_CALLS:?}"
 sub="${1:-}"
 shift || true
 case "$sub" in
+    ui)
+        verb="${1:-}"
+        shift || true
+        case "$verb" in
+            ports)
+                # The port table's single source (the real binary's uiPortPair
+                # emission), reproduced so the driver's load_ui_port_table
+                # evaluates exactly what the router would.
+                cat <<'TABLE'
+uhttpd_main_http_port_board=8090
+uhttpd_main_https_port_board=8443
+uhttpd_main_http_port_luci=8080
+uhttpd_main_https_port_luci=443
+board_http_port_board=8080
+board_https_port_board=443
+board_http_port_luci=8090
+board_https_port_luci=8443
+TABLE
+                exit 0
+                ;;
+        esac
+        ;;
     ssl)
         verb="${1:-}"
         shift || true

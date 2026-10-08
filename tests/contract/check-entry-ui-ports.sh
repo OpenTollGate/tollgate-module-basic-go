@@ -1,42 +1,34 @@
 #!/usr/bin/env bash
-# Contract: the entry_ui port mapping is declared exactly twice, and the two
-# declarations must agree (#746):
+# Contract: the entry_ui port table is declared ONCE — Go's uiPortPair,
+# emitted by `tollgate ui ports --format shell` — and 99-tollgate-setup
+# EVALUATES that output (#746's followup; the single-source-of-truth endgame).
 #
-#   1. the shell helpers in packaging/files/etc/uci-defaults/99-tollgate-setup
-#      — uhttpd_main_http_port / uhttpd_main_https_port (LuCI's listener,
-#      uhttpd.main) and board_http_port / board_https_port (the board's
-#      listener, uhttpd.admin) — which read $ENTRY_UI_MODE;
-#   2. Go's uiPortPair (src/cmd/tollgate-cli/ui.go), the table
-#      `tollgate ui links` answers the board SPA's cross-links from (#745).
+# History: the table used to be declared twice (the shell helpers carried
+# literal ports; #765's version of this check policed the two tables'
+# agreement cell for cell). The duplication is now gone: the setup's
+# load_ui_port_table evals the binary emission, and the helpers read the
+# loaded variables by indirect expansion. This check therefore guards the
+# CONSUMPTION, not a comparison:
 #
-# Neither side can see the other: the shell runs at package install time on
-# the router, the Go table serves the rpcd/SPA path, so a port change on one
-# side silently diverges the other — the SPA would advertise a port that
-# answers a different UI (or nothing at all). #745's review made the "must
-# match" rule explicit; this check is its CI-owned enforcement.
-#
-# Like check-ssid-format.sh, the contract is asserted BEHAVIOURALLY, not by
-# grepping sources — both tables are pure and offline-executable, so the real
-# code runs:
-#
-#   A. the shell helpers are sourced out of 99-tollgate-setup (driver
-#      stripped, the same awk cut check-ssid-format.sh uses) and called under
-#      ENTRY_UI_MODE=board and ENTRY_UI_MODE=luci;
-#   B. uiPortPair is executed by a throwaway `go test` written into
-#      src/cmd/tollgate-cli (the package is `main` and cannot be imported)
-#      over the same mode × UI grid.
-#
-# The two 2×2 grids must then be cell-for-cell identical.
-#
-# Cross-equality alone cannot catch a drift that changes BOTH tables in one
-# PR, so the D2 anchors of
-# docs/architecture/default-ui-and-entry-port-decision.md are pinned directly
-# (the port sets never change; the mapping orientation is fixed):
-#
-#   entry pair = 8080 + 443        secondary pair = 8090 + 8443
-#   entry_ui=board -> board on the entry pair, LuCI on the secondary one
-#   entry_ui=luci  -> LuCI on the entry pair (the mapping every release
-#                     before 0.6.0 shipped), the board on the secondary one
+#   A. CANARY CONSUMPTION — the setup library is sourced and load_ui_port_table
+#      is run against a FAKE tollgate CLI emitting canary ports. The helpers
+#      must answer with the canary values under both modes: that proves the
+#      shell reads what the binary prints, not a stale copy. A hardcoded
+#      fallback table fails here (it would answer the real ports, not the
+#      canary).
+#   B. NO LITERAL TABLE — the four helper bodies must contain no digits at
+#      all: pure indirection. This is the tripwire against reintroducing a
+#      shell-side table "for safety" — a fallback re-opens the drift hole
+#      (#746's lesson).
+#   C. THE ONE TABLE — Go's uiPortPair (executed through a throwaway go test,
+#      the same trick as before) must dump the full 2 modes × 2 UIs grid, and
+#      the shell EMISSION (`tollgate ui ports --format shell` shape, printed
+#      by the same test) must agree with it variable-for-variable — the eval
+#      contract between the binary and the setup.
+#   D. D2 ANCHORS — independent of any source, so a drift that moves uiPortPair
+#      itself still fails: the port sets are fixed (entry pair 8080+443,
+#      secondary pair 8090+8443) and the orientation is fixed (entry_ui=board
+#      → board on the entry pair; entry_ui=luci → LuCI on it).
 #
 # Exit 0 when the contract holds, 1 otherwise.
 
@@ -46,9 +38,6 @@ cd "$(dirname "$0")/../.." || exit 1
 ROOT="$(pwd)"
 SETUP="$ROOT/packaging/files/etc/uci-defaults/99-tollgate-setup"
 GO_DIR="$ROOT/src/cmd/tollgate-cli"
-# A throwaway file: written, executed and deleted by this check. The name is
-# deliberately improbable; if a file by that name ever exists the check
-# refuses to run rather than clobber it.
 DUMP_TEST="$GO_DIR/zzz_entryui_portpair_dump_test.go"
 
 fails=0
@@ -72,12 +61,8 @@ fi
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/entryui-ports.XXXXXX")"
 trap 'rm -rf "$SANDBOX"; rm -f "$DUMP_TEST"' EXIT
 
-# --- A. the shell table: source the real helpers out of 99-tollgate-setup ---
-#
-# Everything above the driver marker is library code (the same cut
-# check-ssid-format.sh makes); the driver itself reads and writes /etc, so a
-# checkout cannot execute it — but the port helpers are pure prints over
-# $ENTRY_UI_MODE.
+# --- A. canary consumption: the setup evaluates the binary's output --------
+
 awk '/^# -- driver/{exit} {print}' "$SETUP" > "$SANDBOX/lib.sh"
 
 SHELL_HELPERS='uhttpd_main_http_port uhttpd_main_https_port board_http_port board_https_port'
@@ -89,39 +74,111 @@ missing_helpers="$(
         for h in $SHELL_HELPERS; do
             command -v "$h" >/dev/null 2>&1 || printf '%s ' "$h"
         done
+        command -v load_ui_port_table >/dev/null 2>&1 || printf '%s ' load_ui_port_table
     ) 2>/dev/null
 )"
 if [ -n "$missing_helpers" ]; then
-    fail "99-tollgate-setup no longer defines ${missing_helpers}— the shell half of the port table moved; update this check with it"
+    fail "99-tollgate-setup no longer defines ${missing_helpers}— the consumption contract moved; update this check with it"
     printf '\n1 entry_ui port-table check FAILED.\n' >&2
     exit 1
 fi
 
-# dump_shell prints `portpair <mode> <ui> <http> <tls>` for the 2×2 grid.
-# uhttpd.main IS LuCI's listener (the setup script's own mapping), so the
-# uhttpd_main_* helpers answer for ui=luci and board_* for ui=board.
-dump_shell() {
+CANARY_MAIN_HTTP_BOARD=28080
+CANARY_MAIN_HTTP_LUCI=28081
+CANARY_MAIN_TLS_BOARD=28443
+CANARY_MAIN_TLS_LUCI=28444
+CANARY_BOARD_HTTP_BOARD=28090
+CANARY_BOARD_HTTP_LUCI=28091
+CANARY_BOARD_TLS_BOARD=28445
+CANARY_BOARD_TLS_LUCI=28446
+cat > "$SANDBOX/bin-tollgate" <<SHIM
+#!/bin/sh
+[ "\$1 \$2" = 'ui ports' ] || { echo "fake tollgate: unexpected call: \$*" >&2; exit 1; }
+[ "\$3 \$4" = '--format shell' ] || { echo "fake tollgate: unexpected args: \$*" >&2; exit 1; }
+cat <<'TABLE'
+uhttpd_main_http_port_board=${CANARY_MAIN_HTTP_BOARD}
+uhttpd_main_http_port_luci=${CANARY_MAIN_HTTP_LUCI}
+uhttpd_main_https_port_board=${CANARY_MAIN_TLS_BOARD}
+uhttpd_main_https_port_luci=${CANARY_MAIN_TLS_LUCI}
+board_http_port_board=${CANARY_BOARD_HTTP_BOARD}
+board_http_port_luci=${CANARY_BOARD_HTTP_LUCI}
+board_https_port_board=${CANARY_BOARD_TLS_BOARD}
+board_https_port_luci=${CANARY_BOARD_TLS_LUCI}
+TABLE
+SHIM
+chmod +x "$SANDBOX/bin-tollgate"
+
+canary_out="$(
     (
         set -u
         # shellcheck source=/dev/null
         . "$SANDBOX/lib.sh"
-        # Never touch the host: the sourced log() would append here if any
-        # library path ever grows one.
+        TOLLGATE_CLI="$SANDBOX/bin-tollgate"
         LOGFILE=/dev/null
+        load_ui_port_table || { echo "LOAD_FAILED"; exit 1; }
         for mode in board luci; do
             ENTRY_UI_MODE="$mode"
-            printf 'portpair %s luci %s %s\n'  "$mode" "$(uhttpd_main_http_port)"  "$(uhttpd_main_https_port)"
-            printf 'portpair %s board %s %s\n' "$mode" "$(board_http_port)"        "$(board_https_port)"
+            printf 'canary %s luci %s %s\n'  "$mode" "$(uhttpd_main_http_port)"  "$(uhttpd_main_https_port)"
+            printf 'canary %s board %s %s\n' "$mode" "$(board_http_port)"        "$(board_https_port)"
         done
     ) 2>/dev/null
-}
+)"
+if [ -z "$canary_out" ] || printf '%s' "$canary_out" | grep -q LOAD_FAILED; then
+    fail "load_ui_port_table failed against a healthy fake emission — the setup cannot load the port table at all"
+    printf '\n1 entry_ui port-table check FAILED.\n' >&2
+    exit 1
+fi
 
-# --- B. the Go table: execute uiPortPair through a throwaway go test -------
-#
-# src/cmd/tollgate-cli is package main, so the one function cannot be
-# imported — it is exercised in place by a generated test that prints the
-# same grid, then deleted by the trap above. A rename or deletion of
-# uiPortPair fails here as a compile error naming the symbol.
+expect_canary() { # <mode> <ui> "<http> <tls>"
+    local got
+    got="$(printf '%s\n' "$canary_out" | awk -v m="$1" -v u="$2" '$2 == m && $3 == u {print $4" "$5}')"
+    if [ "$got" = "$3" ]; then
+        pass "entry_ui=$1 → $2 helpers answer the binary's canary ($3)"
+    else
+        fail "entry_ui=$1 → $2 helpers answer '${got:-<nothing>}', want the canary '$3' — the shell is NOT consuming the binary's emission (a literal fallback table is back?)"
+    fi
+}
+expect_canary board luci  "$CANARY_MAIN_HTTP_BOARD $CANARY_MAIN_TLS_BOARD"
+expect_canary board board "$CANARY_BOARD_HTTP_BOARD $CANARY_BOARD_TLS_BOARD"
+expect_canary luci luci  "$CANARY_MAIN_HTTP_LUCI $CANARY_MAIN_TLS_LUCI"
+expect_canary luci board "$CANARY_BOARD_HTTP_LUCI $CANARY_BOARD_TLS_LUCI"
+
+malformed_verdict="$(
+    (
+        set -u
+        # shellcheck source=/dev/null
+        . "$SANDBOX/lib.sh"
+        TOLLGATE_CLI=/bin/false
+        LOGFILE=/dev/null
+        load_ui_port_table >/dev/null 2>&1 && echo KEPT_GOING || echo REFUSED
+    ) 2>/dev/null
+)"
+if [ "$malformed_verdict" = REFUSED ]; then
+    pass "a failed emission is refused (no table loaded, loud failure)"
+else
+    fail "load_ui_port_table tolerated a failed emission — a half-loaded table must be fatal, not a fallback"
+fi
+
+# --- B. no literal table: the helper bodies carry no digits at all ---------
+
+# Each helper is a one-line or few-line function; accumulate from its
+# definition line through the line carrying the closing brace (inclusive —
+# single-line bodies carry it on the definition line itself).
+literal_bodies="$(awk '
+    /^uhttpd_main_http_port\(\)|^uhttpd_main_https_port\(\)|^board_http_port\(\)|^board_https_port\(\)/ {
+        body=$0
+        while (body !~ /}/ && (getline line) > 0) body=body line
+        if (body ~ /[0-9]/) print body
+    }
+' "$SETUP" 2>/dev/null)"
+if [ -n "$literal_bodies" ]; then
+    fail "port helper bodies contain digits — a literal table is back in 99-tollgate-setup (the drift hole #746 closed): $literal_bodies"
+else
+    pass "the shell helpers are pure lookups — no literal port table exists in 99-tollgate-setup"
+fi
+
+# --- C. the one table: uiPortPair's grid and its shell emission ------------
+
 if [ -e "$DUMP_TEST" ]; then
     fail "$DUMP_TEST already exists — refusing to overwrite it; delete it and re-run"
     printf '\n1 entry_ui port-table check FAILED.\n' >&2
@@ -131,9 +188,9 @@ cat > "$DUMP_TEST" <<'EOF'
 package main
 
 // Code generated by tests/contract/check-entry-ui-ports.sh (#746): a
-// throwaway dump of the uiPortPair table, executed and deleted by the check.
-// If you are reading this in a diff or a build log, the check was
-// interrupted — the file is safe to delete.
+// throwaway dump of the uiPortPair table and its shell emission, executed
+// and deleted by the check. If you are reading this in a diff or a build
+// log, the check was interrupted — the file is safe to delete.
 
 import (
 	"fmt"
@@ -147,85 +204,94 @@ func TestContractEntryUIPortPairDump(t *testing.T) {
 			fmt.Printf("portpair %s %s %s %s\n", mode, ui, httpPort, tlsPort)
 		}
 	}
+	printUIPortsShell()
 }
 EOF
 
-# -v is required: without it a PASSING test's stdout is buffered away.
 go_out="$(cd "$GO_DIR" && go test -run '^TestContractEntryUIPortPairDump$' -count=1 -v . 2>&1)"
 go_rc=$?
 if [ "$go_rc" -ne 0 ]; then
-    fail "go test could not execute uiPortPair (the Go half of the port table is broken, renamed or moved):"
+    fail "go test could not execute uiPortPair/printUIPortsShell (the port table's single declaration is broken, renamed or moved):"
     printf '%s\n' "$go_out" | sed 's/^/        /' >&2
     printf '\n1 entry_ui port-table check FAILED.\n' >&2
     exit 1
 fi
 
 printf '%s\n' "$go_out" | grep '^portpair ' | sort > "$SANDBOX/go.table"
-dump_shell | sort > "$SANDBOX/shell.table"
-
-# --- shape: each table must be the full 2 modes x 2 UIs grid ---------------
+printf '%s\n' "$go_out" | grep -E '^(uhttpd_main_(http|https)_port|board_(http|https)_port)_(board|luci)=' | sort > "$SANDBOX/emission.table"
 
 validate_table() { # <file> <which half>
     local f="$1" which="$2" n keys
     n="$(grep -c . "$f" || true)"
     if [ "$n" -ne 4 ]; then
-        fail "${which} table dumped ${n} row(s), expected the 2 modes × 2 UIs grid (4)"
+        fail "${which} dumped ${n} row(s), expected the 2 modes × 2 UIs grid (4)"
         return 1
     fi
     keys="$(awk '{print $2"/"$3}' "$f" | sort -u | wc -l)"
     if [ "$keys" -ne 4 ]; then
-        fail "${which} table's rows do not cover the modes × UIs grid distinctly (${keys} distinct keys)"
+        fail "${which}'s rows do not cover the modes × UIs grid distinctly (${keys} distinct keys)"
         return 1
     fi
     return 0
 }
 
+emission_lines="$(grep -c . "$SANDBOX/emission.table" || true)"
 shape_ok=1
-validate_table "$SANDBOX/shell.table" "shell (99-tollgate-setup)" || shape_ok=0
-validate_table "$SANDBOX/go.table" "Go (uiPortPair)" || shape_ok=0
+validate_table "$SANDBOX/go.table" "uiPortPair" || shape_ok=0
+if [ "$emission_lines" -ne 8 ]; then
+    fail "the shell emission carries ${emission_lines} variable(s), want 8 (4 helpers × 2 modes)"
+    shape_ok=0
+fi
 if [ "$shape_ok" -eq 1 ]; then
-    pass "both tables dump the full 2 modes × 2 UIs grid"
+    pass "uiPortPair dumps the full 2 modes × 2 UIs grid and the emission all 8 variables"
 fi
 
-# --- the contract itself: cell-for-cell agreement ---------------------------
-
-# lookup <table-file> <mode> <ui> -> "<http> <tls>"
 lookup() {
     awk -v m="$2" -v u="$3" '$2 == m && $3 == u {print $4" "$5}' "$1"
+}
+emit_lookup() { # <emission-file> <mode> <ui> -> "<http> <tls>"
+    local main_http main_tls board_http board_tls
+    main_http="$(awk -F= -v m="$2" '$1 == "uhttpd_main_http_port_"m {print $2}' "$1")"
+    main_tls="$(awk -F= -v m="$2" '$1 == "uhttpd_main_https_port_"m {print $2}' "$1")"
+    board_http="$(awk -F= -v m="$2" '$1 == "board_http_port_"m {print $2}' "$1")"
+    board_tls="$(awk -F= -v m="$2" '$1 == "board_https_port_"m {print $2}' "$1")"
+    if [ "$3" = luci ]; then
+        printf '%s %s' "$main_http" "$main_tls"
+    else
+        printf '%s %s' "$board_http" "$board_tls"
+    fi
 }
 
 if [ "$shape_ok" -eq 1 ]; then
     while read -r _ mode ui http tls; do
         go_cell="$http $tls"
-        shell_cell="$(lookup "$SANDBOX/shell.table" "$mode" "$ui")"
-        if [ "$shell_cell" = "$go_cell" ]; then
-            pass "entry_ui=$mode → $ui on $http + $tls — shell and Go agree"
+        emit_cell="$(emit_lookup "$SANDBOX/emission.table" "$mode" "$ui")"
+        if [ "$emit_cell" = "$go_cell" ]; then
+            pass "entry_ui=$mode → $ui on $http + $tls — the emitted variables say exactly what uiPortPair says"
         else
-            fail "entry_ui=$mode → $ui: 99-tollgate-setup puts ${shell_cell:-<nothing>}, uiPortPair puts ${go_cell} — the two port tables disagree (#746): change them together or not at all"
+            fail "entry_ui=$mode → $ui: uiPortPair puts ${go_cell}, the shell emission puts ${emit_cell:-<nothing>} — the eval contract between the binary and the setup is broken"
         fi
     done < "$SANDBOX/go.table"
 fi
 
-# --- D2 anchors: independent of the sources, so a drift that moves BOTH
-# tables in one PR still fails. Checked on the shell table; the equality
-# above extends the verdict to the Go one.
+# --- D. D2 anchors: on the one table, so moving it fails too ---------------
 
 if [ "$shape_ok" -eq 1 ]; then
     while read -r _ mode ui http tls; do
         case "$http $tls" in
             '8080 443'|'8090 8443') : ;;
             *)
-                fail "anchor: entry_ui=$mode → $ui sits on $http + $tls, but D2 fixes the port sets at 8080+443 and 8090+8443 — BOTH tables drifted together (#746)"
+                fail "anchor: entry_ui=$mode → $ui sits on $http + $tls, but D2 fixes the port sets at 8080+443 and 8090+8443 — the ONE table drifted (#746)"
                 ;;
         esac
-    done < "$SANDBOX/shell.table"
+    done < "$SANDBOX/go.table"
 
-    if [ "$(lookup "$SANDBOX/shell.table" luci luci)" = '8080 443' ]; then
+    if [ "$(lookup "$SANDBOX/go.table" luci luci)" = '8080 443' ]; then
         pass "anchor: entry_ui=luci keeps LuCI on the entry pair (the mapping every release before 0.6.0 shipped)"
     else
         fail "anchor: entry_ui=luci must put LuCI on the entry pair 8080+443 — the legacy mapping is not free to move (D2)"
     fi
-    if [ "$(lookup "$SANDBOX/shell.table" board board)" = '8080 443' ]; then
+    if [ "$(lookup "$SANDBOX/go.table" board board)" = '8080 443' ]; then
         pass "anchor: entry_ui=board puts the board on the entry pair (D2's default)"
     else
         fail "anchor: entry_ui=board must put the board on the entry pair 8080+443 (D2)"
@@ -237,4 +303,4 @@ if [ "$fails" -ne 0 ]; then
     printf '%d entry_ui port-table check(s) FAILED.\n' "$fails" >&2
     exit 1
 fi
-printf 'Both entry_ui port tables agree (shell 99-tollgate-setup and Go uiPortPair: 8080+443 entry, 8090+8443 secondary, board/luci orientation per D2).\n'
+printf "The entry_ui port table has one declaration (Go uiPortPair -> 'tollgate ui ports --format shell'), the setup consumes it, and the D2 anchors hold (8080+443 entry, 8090+8443 secondary, board/luci orientation).\n"
