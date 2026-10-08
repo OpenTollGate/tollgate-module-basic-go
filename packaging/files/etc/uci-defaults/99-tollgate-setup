@@ -455,12 +455,14 @@ brand_token() {
 #   hostname      tollgate-<code>   (brand prefix lowercased: RFC-1123 shape)
 #   captive SSID  TollGate-<code>   (brand prefix as shipped — reseller-mode
 #                                    upstream discovery in
-#                                    src/wireless_gateway_manager matches
-#                                    BOTH brand prefixes case-insensitively
-#                                    (hasTollGateSSID: TollGate-/Net4sats-),
-#                                    as does the Android client; the shipped
-#                                    case is brand presentation, not a
-#                                    discovery constraint)
+#                                    src/wireless_gateway_manager/brands.go
+#                                    matches EVERY brand prefix the writer
+#                                    can emit, case-insensitively
+#                                    (hasTollGateSSID — including the
+#                                    whitelabel re-brand's), as does the
+#                                    Android client; the shipped case is
+#                                    brand presentation, not a discovery
+#                                    constraint)
 #   private SSID  <nym>-<code>      (the operator's nym, see resolve_nym below)
 #
 # Why the store exists — measured on the bench MT3000 (2026-09-26): TWO writers
