@@ -343,6 +343,12 @@ type MerchantInterface interface {
 	GetBalance() uint64
 	GetBalanceByMint(mintURL string) uint64
 	GetAllMintBalances() map[string]uint64
+	// PurchaseSession processes a Cashu payment for macAddress and grants a
+	// session. macAddress must be the client identity resolved from the
+	// request socket (see clientIdentity in the API layer) — that resolution,
+	// not an NDS listing, is the presence proof on which the purchase proceeds
+	// (#582); unresolvable identities are refused by the caller before this
+	// method runs.
 	PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error)
 	GetAdvertisement() string
 	StartPayoutRoutine()
@@ -1528,32 +1534,30 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		}
 	}
 
-	// Pre-flight of issue #403 L1: a payment whose MAC NDS does not know cannot
-	// have its gate opened, so accepting it would consume the customer's token
-	// with no session and no refund path.
+	// The pre-Receive identity gate (#403 L1, relaxed by #582): a payment
+	// whose client cannot be identified is refused earlier, at the API layer,
+	// with `device-unresolved` — by the time execution reaches here, the MAC
+	// came through the socket-identity contract (DHCP lease or ARP entry,
+	// resolved from the request's source IP), so the device is demonstrably
+	// present on this network. NDS *listing* the client is no longer a
+	// precondition for a first purchase: the classes the old refusal caught —
+	// wired LAN-side hosts NoDogSplash never intercepts, direct API payments
+	// that never rendered the portal, NDS entries that lapsed between portal
+	// load and payment — are present, paying, clients, and telling them to
+	// "reconnect to the TollGate Wi-Fi" was a dead end (#582).
 	//
-	// A returning customer is the exception, and the reason this pre-flight used
-	// to block every renewal: once the session ran out we deauthorised the MAC,
-	// and NDS then reports it as not listed — so the next purchase was refused
-	// before Receive with `client-not-registered` ("No captive-portal session
-	// found for this device. Reconnect to the TollGate Wi-Fi and try again."),
-	// the exact "disconnect and reconnect" the portal showed. But a MAC with an
-	// active session, or one that expired here, is a device we know: the client
-	// is demonstrably present (it just submitted a token through the captive
-	// portal) and the valve's bounded auth retry is what re-registers it. So the
-	// renewal proceeds and the gate-open decides.
-	//
-	// Residual risk, unchanged in kind from #403: if NDS genuinely cannot
-	// re-authorise the client after the valve's retries, the token has been
-	// received and grantSessionAccess rolls the session back. That exposure is
-	// deliberate — a hard refusal here guarantees no renewal can ever work.
-	if !m.sessionIsRenewal(macAddress) && !m.clientRegisteredForGate(macAddress) {
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "client-not-registered",
-			"No captive-portal session found for this device. Reconnect to the TollGate Wi-Fi and try again.", macAddress)
-		if noticeErr != nil {
-			return nil, fmt.Errorf("client not registered and failed to create notice: %w", noticeErr)
-		}
-		return noticeEvent, nil
+	// What still protects the customer is what already protected renewals
+	// (same evidence, same machinery): the valve's bounded auth retry performs
+	// the just-in-time registration, and if the gate genuinely cannot open
+	// after Receive, grantSessionAccess rolls the session back and the durable
+	// owed-grant store records the entitlement — the customer is told access
+	// will start automatically, never to pay again.
+	if !m.sessionIsRenewal(macAddress) {
+		// A returning customer's registration is re-established by the valve
+		// at grant time; a first-time client waits here, bounded, only to let
+		// NoDogSplash's asynchronous client registration (the reseller flow)
+		// catch up before the money moves — the verdict does not refuse.
+		m.awaitClientRegistration(macAddress)
 	}
 
 	log.Printf("PurchaseSession: calling Receive for mint=%s token_amount=%d mac=%s", paymentCashuToken.Mint(), paymentCashuToken.Amount(), macAddress)
@@ -2572,30 +2576,33 @@ func (m *Merchant) setClientProbe(probe func(string) (valve.ClientState, error),
 	m.clientProbe, m.clientProbeDelay = probe, delay
 }
 
-// clientRegisteredForGate is the pre-Receive pre-flight of issue #403: a
-// payment whose MAC NDS does not know cannot have its gate opened, so
-// accepting it would consume the customer's token with no session and no
-// refund path. Probe errors fail open — a broken probe must not become a
-// payment denial of service.
-func (m *Merchant) clientRegisteredForGate(macAddress string) bool {
+// awaitClientRegistration is the bounded identity wait the payment path makes
+// before a first purchase: NoDogSplash registers clients asynchronously (the
+// reseller flow), so a not-yet-listed MAC is re-probed, not refused on first
+// sight. Since #582 the verdict no longer gates the payment — the MAC reached
+// the merchant through the socket-identity contract, so the client is
+// demonstrably present and the valve's bounded auth retry performs the
+// just-in-time registration at grant time. Probe errors return immediately
+// (fail open, as before): a broken probe must not become a payment denial of
+// service, and there is no longer a refusal it could inform either.
+func (m *Merchant) awaitClientRegistration(macAddress string) {
 	probe, retryDelay := m.clientProbeSeam()
 	for attempt := 1; attempt <= preflightProbeAttempts; attempt++ {
 		state, err := probe(macAddress)
 		if err != nil {
-			log.Printf("PurchaseSession pre-flight: NDS probe error, failing open (attempt %d): %v", attempt, err)
-			return true
+			log.Printf("PurchaseSession pre-flight: NDS probe error, continuing on the payment's presence proof (attempt %d): %v", attempt, err)
+			return
 		}
 		if state.Registered {
-			return true
+			return
 		}
 		if attempt < preflightProbeAttempts {
 			time.Sleep(retryDelay)
 		}
 	}
 
-	log.Printf("PurchaseSession pre-flight: MAC %s not registered in NDS after %d probes; refusing payment before Receive",
+	log.Printf("PurchaseSession pre-flight: MAC %s not registered in NDS after %d probes; proceeding on the payment's presence proof (#582) — the valve auth retry registers at grant time",
 		macAddress, preflightProbeAttempts)
-	return false
 }
 
 // AddAllotment adds allotment to a customer session, creating it if it doesn't

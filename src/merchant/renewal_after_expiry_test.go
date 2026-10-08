@@ -486,33 +486,78 @@ func TestRepurchaseAfterExpiryDoesNotResurrectStaleAllotment(t *testing.T) {
 	}
 }
 
-// TestFirstTimePurchaseStillRefusedWhenNdsDoesNotKnowTheClient is the control
-// for #403 L1: a MAC with no session history is a first-time visitor, and a
-// payment it could never be authorised for is still refused before Receive.
-// Without this the renewal fix would silently delete the fund-safety pre-flight.
-func TestFirstTimePurchaseStillRefusedWhenNdsDoesNotKnowTheClient(t *testing.T) {
+// TestFirstTimePurchaseFromUnlistedClientProceedsOnPresenceProof is the #582
+// contract, replacing the pre-smartphone-era #403 L1 control: a client that is
+// present and identifiable (its MAC reached the merchant through the
+// socket-identity contract in main.go — DHCP lease or ARP entry, i.e. it is on
+// this network right now) but that NoDogSplash does not list (a wired LAN-side
+// host NDS never intercepts, a direct API payment that never rendered the
+// portal, an NDS entry that lapsed between portal load and payment) must have
+// its FIRST purchase processed, not refused before Receive. The presence proof
+// is the same evidence the renewal branch above already accepts; the valve's
+// bounded auth retry performs the just-in-time registration.
+func TestFirstTimePurchaseFromUnlistedClientProceedsOnPresenceProof(t *testing.T) {
 	ndsctl := installRenewalNdsctl(t)
 	m, wallet := newRenewalMerchant(t, "milliseconds")
 
+	// Present on the network, but NoDogSplash holds no client record.
 	ndsctl.setRegistered(t, false)
 
 	event, err := m.PurchaseSession("cashuBfirst", renewalMAC)
 	if err != nil {
 		t.Fatalf("PurchaseSession returned error: %v", err)
 	}
+	if event.Kind != 1022 {
+		t.Fatalf("first-time purchase from an unlisted client returned kind %d (code=%q), want 1022 (session event)",
+			event.Kind, noticeErrorCode(t, event))
+	}
+	if got := wallet.received(); got != 1 {
+		t.Fatalf("wallet Receive called %d times, want 1 (the presence proof must reach the money path)", got)
+	}
+	if state, err := m.GetSessionState(renewalMAC); err != nil || state != SessionStateActive {
+		t.Fatalf("GetSessionState = %q, %v; want %q, nil (the purchase must grant a session)", state, err, SessionStateActive)
+	}
+	// The just-in-time registration: the grant re-authorised the client
+	// through the valve seam even though the pre-flight saw it unlisted.
+	if got := ndsctl.count(t, "AUTH "); got < 1 {
+		t.Fatalf("ndsctl auth calls = %d, want >= 1 — the unlisted client's purchase must still open the gate", got)
+	}
+}
+
+// TestFirstPurchaseFromUnlistedClientWhenGateCannotOpenOwesTheGrant pins the
+// compensation for the residual risk #582 accepts: the client is present and
+// unlisted, pays, and the enforcement layer then cannot authorise it either
+// (NDS refusing `auth` five times). The customer's value is already in the
+// operator's wallet, so the answer must be the durable owed entitlement — the
+// payment-received-grant-pending notice with do-not-pay-again guidance — never
+// a silent loss and never a second spend.
+func TestFirstPurchaseFromUnlistedClientWhenGateCannotOpenOwesTheGrant(t *testing.T) {
+	ndsctl := installRenewalNdsctl(t)
+	m, wallet := newRenewalMerchant(t, "milliseconds")
+
+	// Present but unlisted, and the gate cannot be opened for it either.
+	ndsctl.setRegistered(t, false)
+	ndsctl.failAuth(t, true)
+
+	event, err := m.PurchaseSession("cashuBfirst", renewalMAC)
+	if err != nil {
+		t.Fatalf("PurchaseSession returned error: %v", err)
+	}
 	if event.Kind != 21023 {
-		t.Fatalf("first-time purchase with an unknown NDS client returned kind %d, want 21023 (notice)", event.Kind)
+		t.Fatalf("purchase returned kind %d, want 21023 (notice)", event.Kind)
 	}
-	if code := noticeErrorCode(t, event); code != "client-not-registered" {
-		t.Fatalf("notice code = %q, want %q", code, "client-not-registered")
+	if code := noticeErrorCode(t, event); code != "payment-received-grant-pending" {
+		t.Fatalf("notice code = %q, want %q (the owed entitlement, not a refusal)", code, "payment-received-grant-pending")
 	}
-	if got := wallet.received(); got != 0 {
-		t.Fatalf("wallet Receive called %d times, want 0 (refused before the money path)", got)
+	if !strings.Contains(event.Content, "do NOT need to pay again") {
+		t.Fatalf("notice content = %q, want the do-not-pay-again guidance", event.Content)
 	}
+	if got := wallet.received(); got != 1 {
+		t.Fatalf("wallet Receive called %d times, want 1 (the payment was processed exactly once)", got)
+	}
+	// The grant rolled back: no half-open session for a client whose gate
+	// never opened — the entitlement lives in the owed-grant store instead.
 	if state, err := m.GetSessionState(renewalMAC); err != nil || state != SessionStateNone {
-		t.Fatalf("GetSessionState = %q, %v; want %q, nil", state, err, SessionStateNone)
-	}
-	if got := ndsctl.count(t, "AUTH "); got != 0 {
-		t.Fatalf("ndsctl auth calls = %d, want 0 — a refused purchase must not authorise anything", got)
+		t.Fatalf("GetSessionState = %q, %v; want %q, nil (rolled back until the gate can open)", state, err, SessionStateNone)
 	}
 }
