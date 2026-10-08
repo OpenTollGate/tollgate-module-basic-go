@@ -372,11 +372,10 @@ WPA3-SAE is deliberately not offered: the `wpad` the router ships with has no
 SAE support, so selecting it would leave the private network unable to start —
 a lockout, not a feature. An open (unencrypted) mode is refused for the same
 class of reason: the private network is how you reach the admin board, whose
-login is a root-capable login over plain HTTP on `:8090` — or on `:8080`, once
-`entry_ui` selects the mapping that puts the board on the entry pair (see the
-README's "Which UI answers the entry ports"; every release shipped so far
-answers on `:8090`, and the switch is applied only by a build whose feed carries
-both halves of the change).
+login is a root-capable login over plain HTTP on `:8080` (the entry pair the
+board owns under the default `entry_ui=board`; on `:8090` under `entry_ui=luci`,
+the pre-flip mapping — see the README's "Which UI answers the entry ports" for
+the switch and the marker that confirms which one is live).
 
 The three private-network commands above (rename, set-password, set-encryption)
 also record the new value in `/etc/tollgate/config.json`, which is the file the
@@ -612,12 +611,13 @@ is still needed for the change to take full effect.
 
 ## SSL / HTTPS management
 
-These commands manage the HTTPS identity of the **admin path** — the
-LuCI interface uhttpd serves on the management network. The captive
-portal itself keeps its HTTP interception and is not affected. The
-`ssl` commands run locally (they talk to uci and the filesystem), so
-unlike most of the CLI they do not need the TollGate service to be
-running.
+These commands manage the HTTPS identity the module provisions for this
+router — the self-signed certificate both admin listeners arm their TLS
+port from (the board's `:443` under `entry_ui=board`, LuCI's `:8443`
+under `entry_ui=luci`). The captive portal itself keeps its HTTP
+interception and is not affected. The `ssl` commands run locally (they
+talk to uci and the filesystem), so unlike most of the CLI they do not
+need the TollGate service to be running.
 
 ### Check status
 
