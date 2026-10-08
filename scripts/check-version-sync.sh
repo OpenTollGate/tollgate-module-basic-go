@@ -254,4 +254,8 @@ if [ "$fails" -ne 0 ]; then
     printf '%d version-consistency check(s) FAILED.\n' "$fails" >&2
     exit 1
 fi
+# Go toolchain fences (two-era SDK doctrine): uniform go directives, no
+# toolchain lines, floor <= the manifest's pinned toolchain.
+python3 "$ROOT/tests/contract/check-toolchain-fences.py" || exit 1
+
 printf 'Version %s is consistent across every packaging path.\n' "$VERSION"
