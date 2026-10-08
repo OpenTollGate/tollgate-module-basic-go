@@ -138,6 +138,20 @@ than inventing new harnesses.
   nucula sidecar daemon over AF_UNIX (`sidecar.go`). Money-moving
   sidecar requests surface `ErrSidecarAmbiguous` — reconcile, never
   blind-retry.
+- **Single writer per wallet DB (#504).** Exactly one process may hold
+  `wallet.db` open for write at any time. The bbolt flock is the
+  enforcement mechanism (fork's `InitBolt`: 5 s open timeout →
+  `ErrDBLocked`; surfaced as `tollwallet.ErrWalletLocked`), and the
+  architecture must never route around it: the `tollgate` CLI is
+  socket-routed (`/var/run/tollgate.sock` → the daemon's in-process
+  CLIServer) and never opens the DB; a daemon boot that finds the lock
+  held fails fast instead of degrading; `CLIServer.Start()` refuses to
+  replace a live daemon's socket (probe before remove — a stale file
+  from a crash is reclaimed, a live one is not). New wallet-touching
+  entry points (migration tools, sidecar configs) must preserve this:
+  route through the daemon, or own the DB exclusively. The residual
+  assumption — flock actually working on the target filesystem (NAND/
+  overlayfs corners) — is lab-verification territory, not code.
 - **Pure-Go/OpenWrt constraint.** The binary must stay `CGO_ENABLED=0`
   and build for mips/mipsel/arm/arm64/x86. Any wallet dependency that
   breaks that (e.g. cdk-go FFI on MIPS) belongs behind the sidecar, not

@@ -17,6 +17,7 @@ import (
 	"github.com/OpenTollGate/gonuts-tollgate/crypto"
 	"github.com/OpenTollGate/gonuts-tollgate/wallet"
 	"github.com/OpenTollGate/gonuts-tollgate/wallet/client"
+	"github.com/OpenTollGate/gonuts-tollgate/wallet/storage"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 )
 
@@ -40,6 +41,14 @@ var ErrOutcomeUnknown = errors.New("mint did not answer; the outcome is unknown"
 // cashu wallet has not been initialized (for example on a bare Merchant or in
 // degraded mode), so callers get an error instead of a nil-pointer panic.
 var ErrWalletNotInitialized = errors.New("wallet not initialized")
+
+// ErrWalletLocked is returned when the wallet database could not be opened
+// because another process still holds its file lock (the bbolt flock behind
+// the gonuts backend, held for a bounded 5 s open timeout). It is the
+// single-writer invariant's refusal path (#504): exactly one process may
+// have write access to a wallet DB, and a conflicting open must fail fast
+// with an operator-actionable message instead of degrading silently.
+var ErrWalletLocked = errors.New("wallet database is held by another process")
 
 type TollWallet struct {
 	wallet                     *wallet.Wallet
@@ -74,6 +83,13 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	cashuWallet, err := wallet.LoadWallet(config)
 
 	if err != nil {
+		// The single-writer refusal must be distinguishable from every other
+		// construction failure (#504): a lock held by another process is an
+		// operator problem (stop the other wallet holder), not a degraded-
+		// mode trigger.
+		if errors.Is(err, storage.ErrDBLocked) {
+			return nil, fmt.Errorf("%w: %v", ErrWalletLocked, err)
+		}
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
