@@ -57,6 +57,17 @@ if git diff --cached --name-only | grep -qE '^packaging/files/'; then
     bash tests/contract/check-ssid-format.sh
 fi
 
+# The entry_ui port mapping is declared twice — the shell helpers in
+# 99-tollgate-setup and Go's uiPortPair (src/cmd/tollgate-cli, #746) — and the
+# two tables must agree cell for cell or the SPA's cross-links drift from the
+# listeners the setup writes. Runs when either half is staged; the Go half
+# needs the Go toolchain (it is executed through `go test`, so a rename or
+# deletion of uiPortPair fails the hook too).
+if git diff --cached --name-only | grep -qE '^packaging/files/etc/uci-defaults/99-tollgate-setup$|^src/cmd/tollgate-cli/'; then
+    echo "🔍 Checking the entry_ui port-table agreement (shell vs Go)..."
+    bash tests/contract/check-entry-ui-ports.sh
+fi
+
 # Changelog fragments carry a PR's changelog entry (changelog.d/README.md). A
 # malformed one — wrong filename, unknown type, a body that is not the bullet —
 # is refused here rather than when a release tries to fold it. The fold tool is

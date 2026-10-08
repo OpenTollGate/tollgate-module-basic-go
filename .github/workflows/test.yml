@@ -290,6 +290,19 @@ jobs:
         run: bash tests/contract/build-purity.sh
       - name: Shipped AP SSID format check
         run: bash tests/contract/check-ssid-format.sh
+      - name: Entry-UI port tables agree (shell setup vs Go ui links)
+        run: |
+          # Offline: the entry_ui port mapping is declared twice — the shell
+          # helpers in 99-tollgate-setup (uhttpd_main_* / board_*) and Go's
+          # uiPortPair (src/cmd/tollgate-cli/ui.go, `tollgate ui links`) — and
+          # nothing lets either side see the other, so a port change on one
+          # silently diverged the SPA's cross-links from the listeners the
+          # setup actually writes (#746). The check EXECUTES both tables (the
+          # helpers sourced out of the setup script; uiPortPair through a
+          # throwaway go test) and pins D2's port sets, so drift fails the
+          # build in either direction — including a drift that moves both
+          # tables in one PR.
+          bash tests/contract/check-entry-ui-ports.sh
 
   deps-and-imports:
     runs-on: ubuntu-latest
