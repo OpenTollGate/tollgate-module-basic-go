@@ -11,9 +11,6 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 ### Changed / Internal
 
-- **The four post-sweep dependabot alerts are cleared.** `scripts/token-recovery` bumps `google.golang.org/grpc` to v1.83.1 (GHSA-2v4p-qf9q-27wj high, GHSA-vp52-pcj8-j9qc high, GHSA-qc2q-p7wx-3px3 medium — all one module), and the root module's OpenTelemetry graph resolves `otlptrace` to v1.47.0 (GHSA-8wmf-6v46-5gfg low)
-  ([#719](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/719)).
-
 - **CHANGELOG duplicate entries are now a checked contract.** Resolving a
   CHANGELOG conflict with a section-level "take ours" can resurrect an entry a
   branch had already moved or reworded, leaving one change described twice (this
