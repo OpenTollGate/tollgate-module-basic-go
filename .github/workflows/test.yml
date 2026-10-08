@@ -73,6 +73,21 @@ jobs:
           python3 scripts/changelog-assemble.py check
           bash tests/contract/changelog-fragments_test.sh
 
+      - name: Changelog fragment identity (numbers are real, no placeholders)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Offline verdicts first: every refusal case the fence names must
+          # actually refuse (a fence that cannot fail is decoration).
+          bash tests/contract/changelog-fragment-numbers_test.sh
+          # Then the tree, offline and online: every changelog.d/*.md must
+          # reference a REAL PR/issue number of its own — the numberless
+          # vm-campaign fragment (merged as #704) and the foreign-number
+          # paste (#631/#743 class) are the two shapes this stops. Online uses
+          # the job token via gh; unauthenticated urllib is the fallback.
+          python3 tests/contract/check-changelog-fragments.py
+          python3 tests/contract/check-changelog-fragments.py --online
+
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
