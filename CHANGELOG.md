@@ -11,18 +11,6 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 ### Changed / Internal
 
-- **Go toolchain fences are now a checked contract.** The two-era SDK
-  doctrine pins one host toolchain for both eras while `go get` and
-  dependabot only see go.mod — `tests/contract/check-toolchain-fences.py`
-  (run by `scripts/check-version-sync.sh`) now fails on `toolchain`
-  directives, on go directives disagreeing across the tree's 19 modules
-  (the root and `research/bearer-port-demo` go.mods were quietly behind
-  and are aligned here), and on any directive above the manifest's
-  pinned toolchain. A first `.github/dependabot.yml` keeps version
-  updates off (bumps stay deliberate sweeps) and groups security-update
-  PRs across every module
-  ([#731](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/731)).
-
 - **CHANGELOG duplicate entries are now a checked contract.** Resolving a
   CHANGELOG conflict with a section-level "take ours" can resurrect an entry a
   branch had already moved or reworded, leaving one change described twice (this
