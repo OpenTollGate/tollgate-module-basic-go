@@ -197,11 +197,19 @@ func awaitReceiveStarted(t *testing.T, wallet *completingReceiveWallet) {
 
 // lateOutcomeRecord picks the record that answers "what did the mint do with the
 // note?" out of the lines naming the reference. The "calling Receive" record and
-// the deadline record name the reference too; neither is an outcome.
+// the deadline record name the reference too; neither is an outcome. Nor are the
+// late-success path's grant-bookkeeping lines ("no durable store", "a PAID
+// purchase could not be granted"): they legitimately follow the outcome record
+// and also name the reference, so taking the LAST reference line races the
+// poller against the bookkeeping — under load the bookkeeping lands before the
+// poll reads and the picker would grab a consequence instead of the outcome.
 func lateOutcomeRecord(lines []string) string {
 	var record string
 	for _, line := range lines {
-		if strings.Contains(line, "token_amount=") || strings.Contains(line, "outcome unknown") {
+		if strings.Contains(line, "token_amount=") ||
+			strings.Contains(line, "outcome unknown") ||
+			strings.Contains(line, "no durable store") ||
+			strings.Contains(line, "could not be granted") {
 			continue
 		}
 		record = line

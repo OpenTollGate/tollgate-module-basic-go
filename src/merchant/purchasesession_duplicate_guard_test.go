@@ -248,6 +248,12 @@ func TestPurchaseSessionGuardHoldsThroughTheOutcomeUnknownWindow(t *testing.T) {
 	// resubmission to proceed as a fresh payment. A late SUCCESS would owe
 	// the entitlement instead — that contract is pinned by the journal's own
 	// suite.
+	//
+	// The third submission must grant for real (kind 1022), and granting
+	// opens the gate through ndsctl: install the suite's fake, as the renewal
+	// tests do, so the test never depends on a host ndsctl — the battery must
+	// stay hermetic off-router.
+	installRenewalNdsctl(t)
 	wallet := &scriptedReceiveWallet{
 		started:  make(chan struct{}),
 		release:  make(chan struct{}),
