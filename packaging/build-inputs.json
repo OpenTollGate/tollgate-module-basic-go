@@ -33,31 +33,60 @@
   },
   "openwrt_sdk": {
     "image": "openwrt/sdk",
-    "release": "25.12.0",
     "go_per_release": {
       "_comment": "Official Go toolchain of each OpenWrt release line, as shipped by that line's openwrt/packages feed (branch openwrt-<series>). scripts/sdk-go-version.sh check|update audits these against the live feed; the pinned .go.version must match the entry of the pinned .release's series. In-SDK Go builds on 23.05/24.10 additionally require src/go.mod's language minimum to be <= these versions (currently 1.25.0, so only 25.x qualifies).",
       "23.05": "1.21.13",
       "24.10": "1.23.12",
       "25.12": "1.26.8"
     },
-    "targets": {
-      "mediatek-filogic": {
-        "digest": "sha256:29bec37ac2a85c2d52ab52e30ffb5499c139ec63be4e0bbd23ea6972ac473331"
+    "releases": {
+      "apk": {
+        "release": "25.12.0",
+        "comment": "The apk-native era (OpenWrt >= 25.12): the SDK emits .apk regardless of config. Primary release line: the .go.version pin and sdk-go-version.sh's released-feed audit track THIS era.",
+        "targets": {
+          "mediatek-filogic": {
+            "digest": "sha256:29bec37ac2a85c2d52ab52e30ffb5499c139ec63be4e0bbd23ea6972ac473331"
+          },
+          "bcm27xx-bcm2711": {
+            "digest": "sha256:ba3b812f2f1fa5110219825599fd0f745f51b2da557f8f7eea41b1d78f9d7810"
+          },
+          "bcm27xx-bcm2709": {
+            "digest": "sha256:ec78c8925588d84ac046eea1045cd50b4665652d493334bc9b457b30059d992f"
+          },
+          "ramips-mt7621": {
+            "digest": "sha256:000f3add430c8d285e4ae7e7569f06d9143c48df8a0a03bf15891ece8d3dae0f"
+          },
+          "ath79-generic": {
+            "digest": "sha256:c927abbe74c5e036eb0283cfb3a63886caec7a3d735c6cc53a170e0fc0ea04ac"
+          },
+          "x86-64": {
+            "digest": "sha256:0061d8c6bb7559a79931074ffb50fb0d71add1d26840d314397b50ebbc3bf7be"
+          }
+        }
       },
-      "bcm27xx-bcm2711": {
-        "digest": "sha256:ba3b812f2f1fa5110219825599fd0f745f51b2da557f8f7eea41b1d78f9d7810"
-      },
-      "bcm27xx-bcm2709": {
-        "digest": "sha256:ec78c8925588d84ac046eea1045cd50b4665652d493334bc9b457b30059d992f"
-      },
-      "ramips-mt7621": {
-        "digest": "sha256:000f3add430c8d285e4ae7e7569f06d9143c48df8a0a03bf15891ece8d3dae0f"
-      },
-      "ath79-generic": {
-        "digest": "sha256:c927abbe74c5e036eb0283cfb3a63886caec7a3d735c6cc53a170e0fc0ea04ac"
-      },
-      "x86-64": {
-        "digest": "sha256:0061d8c6bb7559a79931074ffb50fb0d71add1d26840d314397b50ebbc3bf7be"
+      "ipk": {
+        "release": "24.10.8",
+        "comment": "The ipk/opkg era for the installed base (feed-less 24.10 systems \u2014 fork #93/#110 evidence). Digests are the point-release tags from hub.docker.com/openwrt/sdk. The SDK packages STAGED PREBUILT binaries (the manifest-pinned Go compiles on the host), so the era's older feed Go (1.23.x) never compiles our code \u2014 go_per_release keeps it audited for awareness.",
+        "targets": {
+          "mediatek-filogic": {
+            "digest": "sha256:4109260d68a593972d0d0408e6e439472cd02df9a29a3a9383fd52bd97707a4a"
+          },
+          "bcm27xx-bcm2711": {
+            "digest": "sha256:3e4c1ab609a8daaf922b8eef2c29e21e024a106daa2836a8b20307458de49324"
+          },
+          "bcm27xx-bcm2709": {
+            "digest": "sha256:510659b80f34308ef78a3019ed085fb87dab02e5f1fa86cfbafea591d1654bf4"
+          },
+          "ramips-mt7621": {
+            "digest": "sha256:40a1aae0021865b2b9d74bcedae17ad84d64760f8a16bbc0e71604002e962120"
+          },
+          "ath79-generic": {
+            "digest": "sha256:f74711f80a739b84d3a04fa5b42126d0aed76eba749004abe45852e0d5494e4b"
+          },
+          "x86-64": {
+            "digest": "sha256:b28d5e4087dbd3f815a8bf5440a11e54e6bbd3d7400c3729d872e7940a4a77c1"
+          }
+        }
       }
     }
   }
