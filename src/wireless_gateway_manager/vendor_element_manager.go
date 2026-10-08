@@ -174,8 +174,8 @@ func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements m
 	score := ni.Signal
 
 	// SSID heuristic: small boost for a brand-prefix name (TollGate-… or the
-	// whitelabel Net4sats-…, case-insensitively — see hasTollGateSSID). This
-	// is a weak signal (easily spoofed) so the boost is intentionally small.
+	// whitelabel re-brand's prefix, case-insensitively — see hasTollGateSSID).
+	// This is a weak signal (easily spoofed) so the boost is intentionally small.
 	if hasTollGateSSID(ni.SSID) {
 		score += 10
 	}

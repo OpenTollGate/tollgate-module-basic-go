@@ -6,8 +6,8 @@
 # `^TollGate-[A-Z0-9]{4}$` for the default brand.
 #
 # Why the exact shape is pinned: the SSID is the gateway's public name. The Go
-# side keys on the `TollGate-` prefix (src/wireless_gateway_manager/
-# discovery_log.go `hasTollGateSSID`, vendor_element_manager.go `calculateScore`
+# side keys on the brand prefixes (src/wireless_gateway_manager/brands.go
+# `hasTollGateSSID`, vendor_element_manager.go `calculateScore`
 # — "TollGate SSID format: 'TollGate-' + random chars"), the operator reads the
 # code to tell two routers apart, and every scanner in range sees whatever
 # this script writes into the beacon. A band suffix ("TollGate-A1B2-2.4GHz") or

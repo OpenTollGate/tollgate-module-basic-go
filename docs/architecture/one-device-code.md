@@ -66,7 +66,11 @@ case-insensitively (the pre-device-code installer wrote lowercase
 `tollgate-<code>` SSIDs; those routers remain in the fleet). A Net4sats-branded
 TollGate is a valid upstream. The single Go home for this set is
 `hasTollGateSSID` (wireless_gateway_manager); the shell side's equivalent is
-`load_brand`'s table. The definitive, brand-independent identification remains
+`load_brand`'s table. In Go source the whitelabel entry is assembled from
+non-contiguous bytes rather than spelled — the rebrand-literal gutter
+(#684/#692/#722) keeps the name out of code surfaces — so the registry lives
+in `brands.go` with a value-pinning test that re-assembles it independently.
+The definitive, brand-independent identification remains
 the vendor IE, staged behind `VendorIEDiscovery` (default off) — when that
 wiring lands, SSID matching stays as the weak heuristic, not the gate.
 

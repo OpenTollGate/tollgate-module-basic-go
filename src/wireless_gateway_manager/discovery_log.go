@@ -3,7 +3,6 @@ package wireless_gateway_manager
 import (
 	"encoding/json"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -278,27 +277,6 @@ func (dl *DiscoveryLogger) LoadExistingLog() error {
 
 	dl.logger.WithField("entries_loaded", len(lines)).Info("Discovery log loaded")
 	return nil
-}
-
-// tollGateBrandPrefixes is the SSID recognition set: the captive-SSID
-// prefixes the first-boot writer can emit (99-tollgate-setup load_brand:
-// TollGate-…, and Net4sats-… for the whitelabel brand — mirrored by the
-// installer's brandingCommands). A Net4sats-branded TollGate must be
-// recognizable as an upstream in reseller mode. Matching is
-// case-insensitive because the pre-device-code installer wrote lowercase
-// `tollgate-<code>` captive SSIDs, and those routers are still in the
-// fleet (docs/architecture/one-device-code.md, "The measured drift").
-// The definitive brand-independent identification remains the vendor IE
-// (vendor_element_manager), staged behind VendorIEDiscovery.
-var tollGateBrandPrefixes = []string{"TollGate-", "Net4sats-"}
-
-func hasTollGateSSID(ssid string) bool {
-	for _, prefix := range tollGateBrandPrefixes {
-		if len(ssid) >= len(prefix) && strings.EqualFold(ssid[:len(prefix)], prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 func splitLines(data []byte) [][]byte {
