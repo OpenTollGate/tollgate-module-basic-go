@@ -1768,6 +1768,12 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	// Calculate allotment using the configured metric and mint-specific pricing
 	mintURL := paymentCashuToken.Mint()
+	// The success-side health event (#747): the mint just served a complete
+	// token swap — the strongest reachability evidence there is, stronger than
+	// any probe. Feed it to the tracker so a recovered mint is readmitted
+	// immediately instead of waiting for three poll successes at the 5-minute
+	// cadence (the ~15-minute stuck-degraded window the issue measured).
+	m.mintHealthTracker.MarkReachable(mintURL)
 	allotment, err := m.calculateAllotment(amountAfterSwap, mintURL)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-error",

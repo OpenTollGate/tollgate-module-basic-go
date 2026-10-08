@@ -1021,3 +1021,274 @@ func TestArmAggressiveRetry_RecoversWithinSeconds(t *testing.T) {
 	// panic or double-fire (the once-guard above asserts single fire).
 	tracker.ArmAggressiveRetry()
 }
+
+// --- #747: event-driven health transitions ---------------------------------
+//
+// The issue's three findings, pinned: (1) recovery rode the 5-minute poll —
+// a mint that answered ok=true on consecutive probes stayed out of the
+// reachable set until recoveryThreshold successes accumulated at the poll
+// cadence (~15 min); (2) the aggressive loop was one-shot per downgrade, so
+// an outage that outlived its 5-minute window left recovery on the poll
+// cadence — repeated block/unblock cycles stopped recovering inside any
+// test budget; (3) a mint that just served a real operation (a full swap)
+// still counted as down until probes said otherwise.
+
+// TestMarkReachable_ReadmitsImmediatelyAndResetsBackoff pins the success-side
+// event: a mint that just completed a real operation is readmitted at once,
+// its Retry-After hold-off is void, and the set-changed callback fires —
+// nothing waits for probe thresholds.
+func TestMarkReachable_ReadmitsImmediatelyAndResetsBackoff(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeKeysetsOK(w)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.RunInitialProbe()
+	if !tracker.IsReachable(srv.URL) {
+		t.Fatal("setup: mint should be reachable after initial probe")
+	}
+
+	setChanged := make(chan struct{})
+	var once sync.Once
+	tracker.SetOnReachableSetChanged(func() { once.Do(func() { close(setChanged) }) })
+
+	// The outage: payment-observed failure (the existing event side), plus a
+	// stale Retry-After hold the outage earned.
+	tracker.MarkUnreachable(srv.URL)
+	tracker.mu.Lock()
+	tracker.nextProbeAfter[srv.URL] = time.Now().Add(time.Hour)
+	tracker.mu.Unlock()
+	if tracker.IsReachable(srv.URL) {
+		t.Fatal("setup: mint should be unreachable after MarkUnreachable")
+	}
+	if tracker.probeDue(srv.URL, time.Now()) {
+		t.Fatal("setup: mint should be inside its Retry-After hold")
+	}
+
+	// The success event: the mint just served a complete swap.
+	tracker.MarkReachable(srv.URL)
+
+	if !tracker.IsReachable(srv.URL) {
+		t.Fatal("MarkReachable must readmit immediately — recovery must not wait for probe thresholds (#747)")
+	}
+	if !tracker.probeDue(srv.URL, time.Now()) {
+		t.Fatal("MarkReachable must void the stale Retry-After hold — a mint that just served us has no backoff left")
+	}
+	select {
+	case <-setChanged:
+	case <-time.After(2 * time.Second):
+		t.Fatal("MarkReachable must fire the set-changed callback — discovery and the degraded merchant react through it")
+	}
+}
+
+// TestMarkReachable_FiresFirstReachableForDegraded: the degraded merchant's
+// upgrade trigger rides the first-reachable callback; a served swap must
+// fire it just like a probe-driven recovery does.
+func TestMarkReachable_FiresFirstReachableForDegraded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeKeysetsOK(w)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	// No initial probe: the degraded start, all mints unlearned.
+	fired := make(chan struct{})
+	var once sync.Once
+	tracker.SetOnFirstReachableForDegraded(func() { once.Do(func() { close(fired) }) })
+
+	tracker.MarkReachable(srv.URL)
+	select {
+	case <-fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("MarkReachable must fire the first-reachable callback — the degraded upgrade path depends on it")
+	}
+}
+
+// TestRunProactiveCheck_OKForUnreachableMintArmsRecoveryBurst is the issue's
+// headline scenario: the prober answers ok=true for a mint the tracker still
+// considers down (evidence: ok=true twice, 5 minutes apart, discovery still
+// degraded). The poll must arm the 15-second burst so confirmation happens
+// in seconds, not over three 5-minute cycles — and the burst itself must
+// readmit once the successes accumulate.
+func TestRunProactiveCheck_OKForUnreachableMintArmsRecoveryBurst(t *testing.T) {
+	var healthy atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/keysets" && healthy.Load() {
+			writeKeysetsOK(w)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
+	tracker.aggressiveInterval = 20 * time.Millisecond
+	tracker.aggressiveTimeout = 500 * time.Millisecond
+	tracker.aggressiveWindow = 5 * time.Second
+
+	healthy.Store(true)
+	tracker.RunInitialProbe()
+	tracker.StartProactiveChecks()
+	defer tracker.Stop()
+
+	// Outage long enough to demote (failureThreshold consecutive failed
+	// polls), with the mint returning BEFORE the manual poll below — the
+	// exact "prober ok=true while the tracker says down" posture.
+	healthy.Store(false)
+	for i := uint8(0); i < defaultFailureThreshold; i++ {
+		tracker.RunProactiveCheck()
+	}
+	if tracker.IsReachable(srv.URL) {
+		t.Fatal("setup: mint should be unreachable after the outage")
+	}
+	healthy.Store(true)
+
+	// One poll sees OK-for-unreachable: below recoveryThreshold, so the poll
+	// itself must NOT readmit — but it must have armed the burst.
+	tracker.RunProactiveCheck()
+	if tracker.IsReachable(srv.URL) {
+		t.Fatal("a single OK poll must not readmit — the recovery threshold still protects against flapping")
+	}
+
+	// The armed burst confirms recovery within its cadence, without any
+	// external ArmAggressiveRetry call. Two seconds is ~100 burst ticks at
+	// the shortened interval and 3 orders of magnitude under the 5-minute
+	// cadence the issue measured.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if tracker.IsReachable(srv.URL) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("OK-for-unreachable poll did not arm a working recovery burst — recovery is still riding the 5-minute cadence (#747)")
+}
+
+// TestRecoveryBurstKeepsFlapProtectionWhenSetNotEmpty: with one mint still
+// serving, the burst readmits the returning mint only after
+// recoveryThreshold successes — a single 15-second answer must not readmit
+// what three probes would still be weighing (the readmission is counted
+// against the mint's own probe successes, observed server-side).
+func TestRecoveryBurstKeepsFlapProtectionWhenSetNotEmpty(t *testing.T) {
+	var bHealthy atomic.Bool
+	var bProbes atomic.Int64
+	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeKeysetsOK(w)
+	}))
+	defer srvA.Close()
+	srvB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/keysets" && bHealthy.Load() {
+			bProbes.Add(1)
+			writeKeysetsOK(w)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srvB.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srvA.URL, srvB.URL), nil)
+	tracker.aggressiveInterval = 20 * time.Millisecond
+	tracker.aggressiveTimeout = 500 * time.Millisecond
+	tracker.aggressiveWindow = 5 * time.Second
+
+	bHealthy.Store(true)
+	tracker.RunInitialProbe()
+	if !tracker.IsReachable(srvA.URL) || !tracker.IsReachable(srvB.URL) {
+		t.Fatal("setup: both mints should be reachable after initial probe")
+	}
+	tracker.StartProactiveChecks()
+	defer tracker.Stop()
+
+	// B's outage demotes it; A keeps the set non-empty.
+	bHealthy.Store(false)
+	for i := uint8(0); i < defaultFailureThreshold; i++ {
+		tracker.RunProactiveCheck()
+	}
+	if tracker.IsReachable(srvB.URL) {
+		t.Fatal("setup: mint B should be unreachable after its outage")
+	}
+
+	// B returns; the poll arms the burst. The readmission must not happen
+	// before B has served recoveryThreshold probe successes.
+	bHealthy.Store(true)
+	tracker.RunProactiveCheck()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if tracker.IsReachable(srvB.URL) {
+			served := bProbes.Load()
+			if served < int64(tracker.recoveryThreshold) {
+				t.Fatalf("mint B readmitted after only %d probe success(es), want >= recoveryThreshold=%d — the burst dropped the flap protection",
+					served, tracker.recoveryThreshold)
+			}
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("mint B never readmitted — the burst armed by the poll did not confirm recovery")
+}
+
+// TestRecoveryBurstReArmsAfterWindowExpiry pins the repeated-cycle mechanism
+// (#747 finding 3): a burst whose window expires mid-recovery (here: the
+// window ends before the threshold is reached) is not a dead end — the next
+// poll that still sees OK-for-unreachable arms a fresh burst, and the
+// success counter accumulates across bursts until the mint is readmitted.
+func TestRecoveryBurstReArmsAfterWindowExpiry(t *testing.T) {
+	var healthy atomic.Bool
+	// A stays up the whole test: the reachable set is never empty, so the
+	// burst is governed by recoveryThreshold (3), not the empty-set
+	// threshold of 1 — the readmission needs its successes to ACCUMULATE.
+	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeKeysetsOK(w)
+	}))
+	defer srvA.Close()
+	srvB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/keysets" && healthy.Load() {
+			writeKeysetsOK(w)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srvB.Close()
+
+	tracker := newTestTracker(mintConfigWithURLs(srvA.URL, srvB.URL), nil)
+	// A window that allows only ONE burst tick: the first burst ends below
+	// the recovery threshold by construction (poll success 1 + tick success 2).
+	tracker.aggressiveInterval = 40 * time.Millisecond
+	tracker.aggressiveTimeout = 500 * time.Millisecond
+	tracker.aggressiveWindow = 50 * time.Millisecond
+
+	healthy.Store(true)
+	tracker.RunInitialProbe()
+	tracker.StartProactiveChecks()
+	defer tracker.Stop()
+
+	healthy.Store(false)
+	for i := uint8(0); i < defaultFailureThreshold; i++ {
+		tracker.RunProactiveCheck()
+	}
+	if tracker.IsReachable(srvB.URL) {
+		t.Fatal("setup: mint B should be unreachable after the outage")
+	}
+	healthy.Store(true)
+
+	// First poll arms a burst that cannot finish (window < threshold ×
+	// interval). Wait the window out, then poll again: the re-armed burst
+	// accumulates the remaining successes.
+	tracker.RunProactiveCheck()
+	time.Sleep(200 * time.Millisecond) // first burst armed, ticked, expired
+	if tracker.IsReachable(srvB.URL) {
+		t.Fatal("setup: the one-tick window must not have readmitted mint B yet")
+	}
+
+	tracker.RunProactiveCheck() // re-arm: still OK-for-unreachable
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if tracker.IsReachable(srvB.URL) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("an expired burst window became a dead end — the second poll did not re-arm recovery (#747 finding 3)")
+}
