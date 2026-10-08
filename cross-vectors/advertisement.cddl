@@ -1,0 +1,42 @@
+; TollGate advertisement data model — CDDL schema (RFC 8610)
+;
+; This is the semantic content of a TollGate discovery advertisement
+; (TIP-01/TIP-02, OpenTollGate/tollgate protocol/01.md and protocol/02.md):
+; what a kind-10021 Nostr event's tags SAY, independent of the Nostr
+; envelope. The cross-vectors (tollgate-cross-vectors.json) carry each
+; advertisement in BOTH forms — the signed Nostr event and cbor_hex of
+; this structure — and a conformant consumer must extract the same
+; semantics from either.
+;
+; Style follows cross-vectors/tollgate.cddl (the wire-protocol schema
+; ported from the Rust implementation): integer map keys, key 0 as the
+; discriminator, definite-length maps, unknown keys skipped so a later
+; minor version can add fields.
+;
+; NOTE on TIP-02's example: it shows the min_steps slot as a bare JSON
+; number ("https://mint.domain.net", 1). Nostr tag values are strings by
+; protocol, so the canonical form used by every implementation observed in
+; the wild — and by these vectors — is the string "1". The vectors file
+; records semantics (numbers); the Nostr encoding carries them as strings.
+
+advertisement = {
+  0: 1,                    ; schema version (this file, not the wire protocol)
+  1: metric,               ; what is metered and sold
+  2: uint,                 ; step_size — one step of the metric
+  3: [+ price],            ; one or more pricing options
+  4: [+ tstr],             ; implemented TIP numbers, as strings
+  * uint => any,
+}
+
+metric = "milliseconds" / "bytes"
+
+price = {
+  1: asset-type,           ; TIP-02: always "cashu" today
+  2: uint,                 ; price_per_step, in the unit below
+  3: tstr,                 ; unit ("sat", "eur", ...)
+  4: tstr,                 ; mint_url
+  5: uint,                 ; min_steps (default 0)
+  * uint => any,
+}
+
+asset-type = tstr

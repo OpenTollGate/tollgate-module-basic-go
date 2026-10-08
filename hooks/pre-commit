@@ -65,3 +65,10 @@ if git diff --cached --name-only | grep -qE '^changelog\.d/.*\.md$'; then
     echo "🔍 Checking changelog fragments..."
     python3 scripts/changelog-assemble.py check
 fi
+
+# Canonical cross-vectors vs embedded copies (#750): the vectors file is the
+# contract, the copies are what tests run; they must change together.
+if git diff --cached --name-only | grep -qE '^cross-vectors/|tollgate-cross-vectors\.json'; then
+    echo "🔍 Checking cross-vectors sync..."
+    bash tests/contract/check-cross-vectors-sync.sh
+fi
