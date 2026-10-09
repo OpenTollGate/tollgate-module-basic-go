@@ -194,6 +194,55 @@ emit_footer() {
 FOOTER
 }
 
+# tokenize_uci_list: emit one entry per line from however BusyBox uci
+# hands a list to `get`. Rig-proven emission shapes (#754 re-verify), BOTH
+# of which must parse or the allowlist silently renders empty:
+#   - values quote-wrapped when they contain spaces:
+#       'allow tcp port 3080 to 10.0.2.2' 'allow tcp port 8190 to 1.2.3.4'
+#   - multi-entry lists space-joined on ONE line (not newline-split);
+#   - bare values without spaces, unquoted, space- or newline-separated.
+# The tokenizer walks the stream character-wise: a single quote opens a
+# value read verbatim until the closing quote (never split inside quotes);
+# whitespace separates bare values; an unterminated quote is a parse
+# failure handled by the caller's grammar refusal, not here.
+tokenize_uci_list() {
+    awk '
+    BEGIN { Q = sprintf("%c", 39) }
+    {
+        line = $0
+        # A line with no quotes at all is the legacy emission: one whole
+        # (multi-word) entry on its own line. Only quote-carrying lines get
+        # the character walk, where each quoted segment is one entry.
+        if (index(line, Q) == 0) {
+            gsub(/^[ \t]+|[ \t]+$/, "", line)
+            if (length(line) > 0) print line
+            next
+        }
+        i = 1
+        n = length(line)
+        while (i <= n) {
+            c = substr(line, i, 1)
+            if (c == Q) {
+                j = index(substr(line, i + 1), Q)
+                if (j == 0) { print "PARSE_ERROR: unterminated quote"; exit }
+                print substr(line, i + 1, j - 1)
+                i = i + j + 1
+            } else if (c == " " || c == "\t") {
+                i++
+            } else {
+                j = i
+                while (j <= n) {
+                    cj = substr(line, j, 1)
+                    if (cj == " " || cj == "\t" || cj == Q) break
+                    j++
+                }
+                print substr(line, i, j - i)
+                i = j
+            }
+        }
+    }' 
+}
+
 render() {
     entries="$(uci -q get nodogsplash.@nodogsplash[0].preauthenticated_users 2>/dev/null || true)"
 
@@ -208,7 +257,11 @@ render() {
             echo ""
             echo "    # The pre-auth FORWARD allowlist (nodogsplash uci"
             echo "    # preauthenticated_users), ahead of everything else in this chain."
-            echo "$entries" | while IFS= read -r entry; do
+            printf '%s\n' "$entries" | tokenize_uci_list | while IFS= read -r entry; do
+                if [ "$entry" = "PARSE_ERROR: unterminated quote" ]; then
+                    say "skipping unparseable allowlist emission (unterminated quote) — the uci list carries a value the renderer cannot read back"
+                    continue
+                fi
                 [ -n "$entry" ] && render_entry "$entry"
             done
         fi

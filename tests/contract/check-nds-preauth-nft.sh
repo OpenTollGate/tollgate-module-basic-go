@@ -41,27 +41,52 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/etc/nftables.d"
 
-cat > "$WORK/bin/uci" <<'EOF'
+# The stub's EMISSION MODEL is the contract this suite nearly got wrong:
+# the rig re-verify proved BusyBox `uci -q get` on a list emits values
+# QUOTE-WRAPPED when they contain spaces and joins multi-entry lists
+# SPACE-JOINED ON ONE LINE — the first stub here served newline-separated
+# bare values, CI was green while the rig was red, and the rendered
+# allowlist shipped empty. The fixtures below emit the real shapes; the
+# tokenizer must parse all of them.
+#
+# fixture files under $WORK/uci-emission:
+#   multi   — one line, entries quote-wrapped and space-joined (the rig shape)
+#   single  — one line, one quote-wrapped entry (single-entry list)
+#   legacy  — newline-separated bare values (defensive: some builds split)
+write_uci_stub() {
+    # Quoted heredoc: the stub reads $UCI_EMISSION at ITS runtime, not at
+    # stub-write time (the suite runs set -u; an unquoted heredoc would
+    # expand the variable here, unbound).
+    cat > "$WORK/bin/uci" <<'STUBEOF'
 #!/bin/sh
-# Stub uci: only the exact query the renderer makes, answered from the
-# fixture (newline-separated list, exactly as BusyBox uci emits lists).
 case "$*" in
     *"nodogsplash.@nodogsplash[0].preauthenticated_users")
-        printf '%s\n' \
-            "allow tcp port 3080 to 10.0.2.2" \
-            "allow tcp port 8190/8383 to 192.168.13.221" \
-            "allow udp port 123 to any" \
-            "deny tcp port 22 to 10.0.2.2" \
-            "allow tcp port 8080" \
-            "allow sctp port 9 to 10.0.2.2" \
-            "allow tcp port 8081 to mint.example.com" \
-            "allow tcp port 99999 to 10.0.2.2"
+        cat "$UCI_EMISSION"
         exit 0
         ;;
 esac
 exit 1
+STUBEOF
+    chmod +x "$WORK/bin/uci"
+}
+write_uci_stub
+
+cat > "$WORK/uci-multi" <<'EOF'
+'allow tcp port 3080 to 10.0.2.2' 'allow tcp port 8190/8383 to 192.168.13.221' 'allow udp port 123 to any' 'deny tcp port 22 to 10.0.2.2' 'allow tcp port 8080' 'allow sctp port 9 to 10.0.2.2' 'allow tcp port 8081 to mint.example.com' 'allow tcp port 99999 to 10.0.2.2'
 EOF
-chmod +x "$WORK/bin/uci"
+cat > "$WORK/uci-single" <<'EOF'
+'allow tcp port 3080 to 10.0.2.2'
+EOF
+cat > "$WORK/uci-legacy" <<'EOF'
+allow tcp port 3080 to 10.0.2.2
+allow tcp port 8190/8383 to 192.168.13.221
+allow udp port 123 to any
+deny tcp port 22 to 10.0.2.2
+allow tcp port 8080
+allow sctp port 9 to 10.0.2.2
+allow tcp port 8081 to mint.example.com
+allow tcp port 99999 to 10.0.2.2
+EOF
 
 FRAG="$WORK/etc/nftables.d/20-nds-enforce.nft"
 STALE="$WORK/etc/nftables.d/21-nds-preauth-allow.nft"
@@ -69,6 +94,7 @@ export TOLLGATE_NDS_ENFORCE_FRAG="$FRAG"
 export TOLLGATE_NDS_STALE_FRAG="$STALE"
 
 run_renderer() {
+    UCI_EMISSION="${UCI_EMISSION:-$WORK/uci-multi}" \
     PATH="$WORK/bin:$PATH" sh "$RENDER" >/dev/null 2>"$WORK/stderr.log"
 }
 
@@ -142,6 +168,26 @@ grep -q 'meta mark & 0x00030000 == 0x00010000 counter drop' "$FRAG" \
     && ok "the pre-auth mark-drop rule survives" || bad "mark-drop rule missing"
 grep -q 'counter reject with icmp type port-unreachable' "$FRAG" \
     && ok "the terminal reject survives" || bad "terminal reject missing"
+
+# --- single-entry list: one quote-wrapped value on one line ------------------
+UCI_EMISSION="$WORK/uci-single" run_renderer
+n_accepts="$(grep -c 'counter accept' "$FRAG")"
+[ "$n_accepts" = "3" ] \
+    && ok "single-entry list: exactly its accept + the 2 mark accepts" \
+    || bad "single-entry list: expected 3 accepts, found $n_accepts"
+grep -q 'meta nfproto ipv4 ip daddr 10.0.2.2 tcp dport { 3080 } counter accept' "$FRAG" \
+    && ok "single-entry list: the entry's rule rendered" \
+    || bad "single-entry list: rule missing"
+
+# --- legacy emission (newline-separated bare values) parses identically ------
+UCI_EMISSION="$WORK/uci-legacy" run_renderer
+n_accepts="$(grep -c 'counter accept' "$FRAG")"
+[ "$n_accepts" = "6" ] \
+    && ok "legacy newline-bare emission: same 4 allowlist accepts as the rig shape" \
+    || bad "legacy emission: expected 6 accepts, found $n_accepts"
+
+# back to the rig shape for the remaining legs
+UCI_EMISSION="$WORK/uci-multi" run_renderer
 
 # --- the template-is-canonical contract: empty list == shipped file ----------
 cat > "$WORK/bin/uci" <<'EOF'
