@@ -9,26 +9,6 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
-### Fixed
-
-- **A mint whose keyset collides with another mint's can no longer be
-  registered — the NUT-13 residue-collision guard is wired.** The
-  Conduition cashu disclosure's short-term fix existed in the wallet
-  fork as dead code: NUT-13 derives secrets from the keyset ID reduced
-  mod 2³¹−1, so two keysets with colliding residues make the wallet
-  derive identical preimages for both — and a malicious mint can use an
-  honest mint's NUT-09 /restore endpoint as an oracle to steal its
-  proofs. gonuts-tollgate v0.13.2 (fork PR #37) runs the guard inside
-  `SaveKeyset` — the one point every keyset writer converges on —
-  refusing cross-mint collisions, colliding rotations and exact
-  cross-mint duplicates with both mints and IDs named, exempting a
-  keyset's own re-saves, and leaving no partial state on refusal; it
-  also verifies that a fetched keyset ID derives from the mint's
-  published keys on every fetch path. Existing wallets are unaffected
-  (the guard fires only on new registrations); this repo's fake-mint
-  fixtures were made honest under the same rule
-  ([#781](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/781)).
-
 ### Changed / Internal
 
 - **The bcm2709 artifact rows build again.** `build-sdk-package.sh`
