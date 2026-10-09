@@ -1,19 +1,22 @@
-- **Installing the package alone now brings TLS trust with it on a box that can
-  still reach the feed, and the manual install has a stated verification
-  chain.** Installing the shipped package by hand on a GL-MT3000 (OpenWrt
-  25.12.5) failed at the first HTTPS fetch: wget and apk update both died with
-  "SSL verify error: unknown error" because the image carried no CA store. This
-  module does money over TLS — it talks to Cashu mints and Lightning with Go's
-  system root pool and no insecure escape hatch — so a gateway that cannot
-  verify TLS cannot take a payment. ca-bundle is now a declared dependency on
-  every build lane instead of an assumption the installer used to paper over:
-  the SDK recipe (packaging/Makefile) and the `.ipk` recipes
-  (packaging/local-build-ipk.sh, the GitHub `.ipk` lane, the generated ngit
-  shards) all declare it. That fixes an install on a box that can still reach
-  the feed — apk/opkg resolves the closure and pulls ca-bundle with it. It does
-  not, and cannot, bootstrap a box that has NO trust anchors at all: there the
-  very first HTTPS fetch already fails verification, and no dependency can
-  repair a fetch that must itself be verified. The README now states that
+- **`ca-bundle` is now a declared dependency on every build lane, instead of an
+  assumption the installer used to paper over.** The gateway does money over
+  TLS — it talks to Cashu mints and Lightning with Go's system root pool and no
+  insecure escape hatch — so a box that cannot verify TLS cannot take a payment.
+  The CA store was previously missing from the package metadata: the SDK recipe
+  (packaging/Makefile) and the `.ipk` recipes (packaging/local-build-ipk.sh, the
+  GitHub `.ipk` lane, the generated ngit shards) all declare `ca-bundle` now, so
+  apk/opkg resolves the closure and pulls the CA store in with the package. On a
+  box that can still reach the feed, that is the whole fix.
+  ([#828](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/828)).
+
+  The missing dependency surfaced on a GL-MT3000 (OpenWrt 25.12.5): installing
+  the shipped package by hand failed at the first HTTPS fetch, where `wget` and
+  `apk update` both died with "SSL verify error: unknown error" because the
+  image carried no CA store.
+
+  It does not, and cannot, bootstrap a box that has NO trust anchors at all:
+  there the very first HTTPS fetch already fails verification, and no dependency
+  can repair a fetch that must itself be verified. The README now states that
   honest offline path — fetch the package files to the box by other means
   (scp), then install them locally in one call under a single explicit trust
   override — and no longer implies the dependency alone can bootstrap an
@@ -31,4 +34,3 @@
   `Depends:` field of the control file opkg consumes — both fail closed when
   the dependency is dropped or moved into a comment, where the previous
   literal-string greps could not tell the difference.
-  ([#828](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/828)).
