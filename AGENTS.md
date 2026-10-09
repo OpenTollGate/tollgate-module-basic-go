@@ -143,12 +143,104 @@ than inventing new harnesses.
   breaks that (e.g. cdk-go FFI on MIPS) belongs behind the sidecar, not
   in-process.
 
+## Environment truth and drift doctrine
+
+Every drift incident in this repo's history has the same shape: a fact
+(a pin, a port pair, a bridge name, a toolchain version) was written down
+in more than one place, and the copies diverged — #791's gonuts pin
+("four go.mod files today" in this file missed a fifth carrier), the
+entry_ui port table declared twice (#746), and the audit in #796. The
+rules below exist so agents cannot reintroduce the class; follow them
+even when a local copy looks easier.
+
+1. **One declaration per fact.** Every environment constant — bridge
+   names, admin port pairs, brand prefixes, toolchain and fork pins —
+   is declared in exactly one place; everything else consumes it or is
+   fenced to it. Restating a value in a second file is how every drift
+   started, including the ones nobody has caught yet.
+2. **Discovery by glob, never enumeration.** Checks and scripts find
+   their subjects at run time (`rglob("go.mod")`, `find src -name
+   go.mod`). Never write a count or list of carriers, modules, or
+   fragments in prose, comments, or config — "four go.mod files today"
+   rots the day a module lands outside the boundary. Say what the check
+   discovers, not how many it found.
+3. **Manifest truth for externals.** Every external build input is
+   pinned in `packaging/build-inputs.json` (Go, node, portal, both SDK
+   eras, the gonuts fork) and audited from there. A new external pin
+   goes into the manifest with a fence — never into a workflow literal,
+   a script constant, or a README table.
+4. **Behavioral fences with planted-drift verdicts.** Duplication you
+   cannot remove (two languages, two packages, canonical + embedded
+   copies) gets a fence that EXECUTES both sides and compares — the
+   `check-entry-ui-ports.sh` pattern — plus a verdicts harness that
+   plants the drift and requires the refusal. A fence that cannot fail
+   is decoration.
+5. **Generators write every copy.** When copies must exist, one tool
+   rewrites them all in a single run (the cross-vectors generator, the
+   gonuts bump script), so a half-update cannot happen. Never update
+   one copy of a set by hand.
+
+### Network and interface names
+
+The router's bridge vocabulary is a device fact, not a code choice:
+`br-lan` is the customer/guest network (never an administration path),
+`br-private` carries the private SSID and the physical LAN ports (the
+admin path), `br-mgmt` is the optional management bridge (refused while
+absent). The vocabulary is declared once, in Go:
+`src/cli/operator_settings.go`'s constants. Shell code and nft fragments
+must not invent bridge names; adding one is a schema + docs + fence
+change, never a local literal. Interface sets vary by model and radio —
+resolve them at runtime by probing (`/sys/class/net`, `uci show
+network`), never by per-model or per-target lists. Known unfenced
+duplications live in the #796 fence backlog; do not add to them.
+
+### Firewall fragments
+
+Two mechanisms, by design: static fragments shipped under
+`packaging/files/etc/nftables.d/`, and the runtime-generated
+`34-admin-access-scope.nft` the applier writes from the Go constants. A
+port or interface literal in a static fragment is a declaration — it
+must be fenced against the same table the setup script is
+(`check-entry-ui-ports.sh`'s D2 anchors; see #796 F2), and no new
+fragment lands without a packaging test asserting its ports and
+interfaces against that table.
+
+### The two OpenWrt eras
+
+Distinguish eras by package manager, never by release strings:
+`command -v apk` answers the apk era (25.x), `command -v opkg` the ipk
+era (≤24.10). Parsing `/etc/openwrt_release` where the probe answers is
+a bug. Build truth is `build-inputs.json`'s `openwrt_sdk.releases.{apk,
+ipk}` (both eras' SDK digests pinned); the pinned `.go.version` tracks
+the apk era; `scripts/sdk-go-version.sh` audits `go_per_release`
+against the live feeds; the ipk-era SDK stages prebuilt binaries, so
+its older feed Go never compiles the tree.
+
+Support policy (#796): **25.12/apk is the only feature target.**
+24.10.8/ipk is a frozen compatibility lane for the installed base —
+security and stop-ship fixes only, no features, matrix rows retained.
+The lane's sunset is a deliberate release-time decision with fleet
+evidence (lab registry, tester intake), never a silent drop and never
+mid-freeze.
+
+### Cross-repo halves
+
+Some contracts span two packages (the entry-port mapping is written by
+this module's `99-tollgate-setup` AND the feed's
+`92-tollgate-admin-setup`). The named decision record in
+`docs/architecture/` is the truth; changes ship gated on both halves
+(the WARNING-named re-vendor contract in the README). A cross-repo
+contract without a named decision record is a bug.
+
 ## Firewall, nftables, and topology-naming rules of engagement
 
 Every rule here was learned from a bench-verified failure on the 0.6.0
 train (#754, #755, #756, #757, PR #782's first design, and the 2026-10-09
 stop-ship reviews). If a change touches `/etc/nftables.d/`, interface
 names, or anything that reloads the firewall, this section governs it.
+These are the OPERATIONAL rules; the structural rules — one declaration
+per fact, fenced duplication, glob discovery — are the environment-truth
+doctrine above, and the two sections cite each other where they meet.
 
 - **Accept is not final across base chains.** In nftables only `drop` and
   `reject` terminate; a packet accepted by one base chain still traverses
@@ -169,9 +261,12 @@ names, or anything that reloads the firewall, this section governs it.
   order, so `$tg_portal_if` / `$tg_private_if` from
   `00-tollgate-defs.nft` (re-rendered from the router's own config,
   #757) are in scope for every later include. Generated fragments must
-  use the defines too: the Go-side `34-admin-access-scope.nft` generator
-  (`src/cli/operator_settings.go`) emitting literal bridge names is the
-  known open instance, and #601's planned static `33-` fragment must
+  use the defines too. The fencing contract for literals — static and
+  generated fragments alike are asserted against the one port/interface
+  table — is the doctrine's "Firewall fragments" rule above; the known
+  open instance (the Go-side `34-admin-access-scope.nft` generator in
+  `src/cli/operator_settings.go` emitting literal bridge names) is the
+  #796 F2 backlog item, and #601's planned static `33-` fragment must
   follow the same rule.
 - **Same-priority base chains have unspecified order.** NDS's
   `ip filter FORWARD` (iptables-nft) and fw4's `inet fw4 forward` both
@@ -183,7 +278,10 @@ names, or anything that reloads the firewall, this section governs it.
   trust/auth state (bench-verified on 25.12). Any change that adds or
   widens a reload trigger must state what NDS state dies, what restores
   it (keepalive contract), and how long customers are interrupted.
-- **"lan" is three namespaces, not one.** The bridge DEVICE (`br-lan`),
+- **"lan" is three namespaces, not one.** (The declared bridge
+  vocabulary is the doctrine's "Network and interface names" rule
+  above; this bullet is about the rename hazards.) The bridge DEVICE
+  (`br-lan`),
   the network SECTION (`lan`), and the firewall ZONE (`lan`) — plus
   `dhcp.lan` and dnsmasq's `local=/lan/` — are independent uci objects
   that share a string by convention only. Renaming one does not rename
@@ -195,13 +293,15 @@ names, or anything that reloads the firewall, this section governs it.
   (the `resolve_*` helpers in `99-tollgate-setup`), warns loudly on
   every non-stock decision, and never silently skips.
 - **Go-side interface literals are the same bug class outside the .nft
-  files.** Known sites (grep before touching interface naming):
-  `src/cli/operator_settings.go` (admin-scope generator),
-  `src/identity/identity.go` (`StandardInterfaces` — feeds npub-derived
-  attributes), the `ignore_interfaces` default in `config_manager`
-  (a renamed captive bridge falls out of the probe-exclusion list → the
-  upstream detector can probe its own portal bridge), and
-  `src/upstream_detector`'s bridge-exclusion lists.
+  files.** Find them by grep, not by list — an enumeration here rots the
+  day a new site lands (the doctrine's glob rule). Grep
+  `grep -rn '"br-lan"\|"br-private"\|"br-mgmt"' src/` before touching
+  interface naming; as of 2026-10-09 that reaches the admin-scope
+  generator (`src/cli/operator_settings.go`), `src/identity/identity.go`
+  (`StandardInterfaces`), the `ignore_interfaces` default in
+  `config_manager`, and `src/upstream_detector`'s bridge-exclusion lists
+  — verify against the live grep, not this sentence. The unfenced ones
+  are the #796 fence backlog's F1 class.
 
 ## Hardware and VM testing (labgrid)
 
@@ -257,8 +357,10 @@ home, and a change is verified where its failure class is observable:
   the suite FAILS; a suite that still passes on the broken shape has
   decorative assertions. Equally: a gate cited as protection must
   actually test the thing it is cited for (#778's build-purity claim).
-- **Bench QEMU lanes** (per OpenWrt era — both 24.10 and 25.12 matter,
-  their netifd/nft behavior differs): dataplane ordering and packet
+- **Bench QEMU lanes** (per OpenWrt era — both 24.10 and 25.12 matter
+  when the compat lane is touched; their netifd/nft behavior differs.
+  The SUPPORT policy is the doctrine's two-era rule above: 25.12/apk is
+  the only feature target, 24.10/ipk security-and-stop-ship only): dataplane ordering and packet
   counters. The #754/#755/#757 re-verify legs with counter asserts are
   the model. Bench VM images must pass an image-doctor check (depmod
   present, kmods non-zero-byte, wpad/veth/ip-full installed) before a

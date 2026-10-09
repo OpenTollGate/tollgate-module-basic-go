@@ -116,6 +116,18 @@ jobs:
           # was never wired into CI, so nothing ran it automatically.
           bash tests/packaging/package-nodogsplash-dependency_test.sh
 
+      - name: GPL license ships in both release lanes
+        run: |
+          # Offline (no SDK, no router, no network): issue #751 — the SDK
+          # .apk lane was metadata-only while the .ipk lanes installed the
+          # GPL-3.0 text, so the same version shipped different contents per
+          # format. Every staging surface (packaging/Makefile, local-build-ipk,
+          # the CI ipk lane) now ships the text at the same payload path, the
+          # SDK recipe REQUIRES the file (a GPL build without its license
+          # fails, not silently ships), and the built-artifact harness
+          # hard-fails any package missing it.
+          bash tests/packaging/license-both-lanes_test.sh
+
       - name: Setup-marker ordering (roll-back safety)
         run: |
           # Offline (no router, no SDK, no network): the setup script's version
