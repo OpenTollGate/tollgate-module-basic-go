@@ -1546,7 +1546,19 @@ configure_radio_ap() {
     else
         log "preserving operator-chosen SSID '$current_ssid' on $iface (not a <brand>-<device code> name) — rename it by hand if you want the generated one"
     fi
-    uci set "wireless.$iface.encryption=none"
+    # The credentials follow the SAME adoption rule as the SSID (#756 class 1
+    # review): a machine-shaped section is the module's own public AP and
+    # stays OPEN by contract (encryption=none); an operator-adopted section
+    # keeps its encryption/authmode/keys untouched. The captive flow works
+    # over an encrypted AP unchanged — nodogsplash gates at the IP layer,
+    # post-association — so silently forcing an operator's AP open would be a
+    # security regression with no portal-flow justification. The one-way
+    # rewrite discipline is about generated NAMES, never about credentials.
+    if [ "$machine_shaped" = 1 ]; then
+        uci set "wireless.$iface.encryption=none"
+    else
+        log "preserving operator credentials (encryption/authmode) on $iface — the module never opens an operator's AP"
+    fi
     # Guest client isolation (ap_isolate=1): armed here so it lands on BOTH
     # setup paths — this function is the single writer of the public APs, and
     # the same-version reinstall path reaches it through setup_band_ap() too.

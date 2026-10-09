@@ -147,6 +147,13 @@ else
     echo "Warning: /etc/init.d/tollgate-wrt not found, skipping service start"
 fi
 
+# The #756 verdict's postinst self-check: every enabled AP a member of an
+# existing bridge, exactly one connected route per portal subnet. Runs AFTER
+# the network/firewall convergence above; assert-style and loud (syslog +
+# stdout) but never fails the install — it reports topology damage, not a
+# packaging error. Operators can re-run it by hand.
+/usr/local/bin/tollgate-topology-selfcheck || true
+
 echo "Post-installation script completed successfully"
 exit 0
 endef
@@ -199,6 +206,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nds-preauth-render $(1)/usr/local/bin/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nft-interfaces-render $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-topology-selfcheck $(1)/usr/local/bin/
 
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash

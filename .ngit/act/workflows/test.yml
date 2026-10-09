@@ -202,6 +202,8 @@ jobs:
         run: bash tests/contract/check-firewall-zone-refs.sh
       - name: wifi rebind guard check
         run: bash tests/contract/check-wifi-rebind-guard.sh
+      - name: topology self-check contract
+        run: bash tests/contract/check-topology-selfcheck.sh
 
   deps-and-imports:
     runs-on: ubuntu-latest

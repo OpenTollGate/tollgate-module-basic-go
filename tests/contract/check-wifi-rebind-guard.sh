@@ -205,5 +205,50 @@ else
     ok "STA section untouched (preserved upstream)"
 fi
 
+# --- 6. credentials guard: an operator AP is never silently opened ----------
+STATE="$SANDBOX/creds"; mkdir -p "$STATE"
+cat > "$STATE/show.network" <<'EOF'
+network.portal=interface
+network.portal.device='br-portal'
+EOF
+cat > "$STATE/show.wireless" <<'EOF'
+wireless.radio0=radio
+wireless.bench_ap=wifi-iface
+wireless.bench_ap.device='radio0'
+wireless.bench_ap.mode='ap'
+wireless.bench_ap.ssid='BenchPortal'
+wireless.bench_ap.network='portal'
+wireless.bench_ap.encryption='psk2'
+EOF
+printf 'radio0' > "$STATE/wireless_bench_ap_device"
+printf 'ap'     > "$STATE/wireless_bench_ap_mode"
+printf 'BenchPortal' > "$STATE/wireless_bench_ap_ssid"
+printf 'portal' > "$STATE/wireless_bench_ap_network"
+printf 'psk2'   > "$STATE/wireless_bench_ap_encryption"
+printf 'br-portal' > "$STATE/nodogsplash_@nodogsplash[0]_gatewayinterface"
+run_ap_setup
+if grep -q "^wireless.bench_ap.encryption=" "$STATE/uci-set.log" 2>/dev/null; then
+    bad "operator AP's encryption was rewritten (silently opened or changed)"
+else
+    ok "operator AP keeps its encryption (never silently opened)"
+fi
+grep -q "preserving operator credentials" "$SANDBOX/setup.log" \
+    && ok "the credentials preservation is logged" \
+    || bad "credentials preservation not logged"
+
+# machine-shaped section still gets the open-AP contract
+STATE="$SANDBOX/credsmachine"; mkdir -p "$STATE"
+cat > "$STATE/show.network" <<'EOF'
+network.lan=interface
+network.lan.device='br-lan'
+EOF
+: > "$STATE/show.network.lan"
+seed_iface bench_ap radio0 ap TollGate-9C3F lan
+printf 'br-lan' > "$STATE/nodogsplash_@nodogsplash[0]_gatewayinterface"
+run_ap_setup
+grep -q "^wireless.bench_ap.encryption=none$" "$STATE/uci-set.log" \
+    && ok "machine-shaped AP keeps the open-AP contract (encryption=none)" \
+    || bad "machine-shaped AP not forced open"
+
 printf 'check-wifi-rebind-guard: %s\n' "$([ "$fail" = 0 ] && echo PASS || echo "FAIL ($fail)")"
 exit $([ "$fail" = 0 ] && echo 0 || echo 1)
