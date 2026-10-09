@@ -88,6 +88,33 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 		tw.registerMint(mintURL)
 	}
 
+	// The crash-recovery half of #497 (#703 work item 1): every swap that
+	// died between the mint's acceptance and SaveProofs left a pending-swap
+	// INTENT — the exact request bytes, secrets and blinding factors,
+	// persisted atomically with the counter reservation BEFORE the POST
+	// (gonuts v0.13.1). Replaying the intent against the mint reconstructs
+	// those proofs; mints sign deterministically, so a re-POST returns the
+	// same signatures (verified against cdk-mintd 0.17.6).
+	//
+	// Runs in the BACKGROUND, never on the boot critical path: an intent
+	// whose mint is down at boot costs its replay timeout (30 s each), and
+	// the daemon must bind its API first — the per-intent policy LEAVES a
+	// failed replay recorded (never deleted on a bad guess), so a mint that
+	// returns later recovers its value on the next wallet load, and nothing
+	// is lost by deferring. Idempotent: SaveProofs is keyed by secret, so a
+	// replay whose proofs already exist is a no-op.
+	go func() {
+		recovered, failed, resumeErr := cashuWallet.ResumePendingSwaps()
+		switch {
+		case resumeErr != nil:
+			log.Printf("TollWallet.New: pending-swap recovery pass: %v (intents stay recorded and retry on the next load)", resumeErr)
+		case failed > 0:
+			log.Printf("TollWallet.New: pending-swap recovery: %d sats recovered, %d intent(s) not recoverable this pass (stay recorded, retry on the next load)", recovered, failed)
+		case recovered > 0:
+			log.Printf("TollWallet.New: pending-swap recovery: %d sats recovered from crashed swap(s)", recovered)
+		}
+	}()
+
 	return tw, nil
 }
 
