@@ -61,6 +61,11 @@ case "$cmd" in
         mkdir -p "$STATE/$(dirname "$key")"
         printf '%s' "$val" > "$STATE/$key"
         ;;
+    commit)
+        # The postinst block commits dhcp/network; flat-file state needs no
+        # flush, but the command must succeed so `|| true` paths stay honest.
+        exit 0
+        ;;
     *)
         echo "uci-shim: unsupported command: $cmd" >&2
         exit 99
@@ -113,6 +118,41 @@ mkdir -p "$S4/dhcp.lan"; echo "'enabled'" > "$S4/dhcp.lan.ra"
 run_fragment "$S4"
 state_has "$S4" network.lan.ipv6 0 && state_has "$S4" network.wan.ipv6 0 && state_has "$S4" dhcp.lan.ra disabled \
     && ok "upgrade: enabled v6 is re-disabled (policy, not adoption)" || bad "upgrade: pre-enabled v6 survived"
+
+# ---- case 5: the INSTALL-time block in packaging/postinst converges too ----
+# The upgrade path drove a second copy of the policy into postinst (applied
+# before the network restart, because the marker-driven setup driver's
+# verify/repair pass does not re-assert it). That copy is extracted here by
+# its boundary comments and must produce the same five axes.
+POSTINST="packaging/postinst"
+awk '/^# IPv6 is disabled at INSTALL time/,/^echo "IPv6 disabled globally at install time/' \
+    "$POSTINST" > "$TMP/postinst_fragment.sh"
+grep -q "network.lan.ipv6='0'" "$TMP/postinst_fragment.sh" \
+    || { bad "extraction failed — install-time IPv6 block not found or pre-#783 shape in $POSTINST"; }
+
+S5="$TMP/postinst-stock"; mkdir -p "$S5"
+for k in network.lan.ip6assign network.wan.proto network.wan6.proto dhcp.lan.interface; do
+    mkdir -p "$S5/$(dirname "$k")"; echo "'placeholder'" > "$S5/$k"
+done
+UCI_STATE="$S5" PATH="$TMP/bin:$PATH" sh "$TMP/postinst_fragment.sh" >/dev/null 2>"$S5/stderr.log"; rc=$?
+[ $rc -eq 0 ] && ok "postinst: install-time block exits 0" || bad "postinst: install-time block exited $rc"
+state_has "$S5" dhcp.lan.ra disabled      && ok "postinst: dhcp.lan.ra=disabled" || bad "postinst: dhcp.lan.ra not disabled"
+state_has "$S5" dhcp.lan.dhcpv6 disabled   && ok "postinst: dhcp.lan.dhcpv6=disabled" || bad "postinst: dhcp.lan.dhcpv6 not disabled"
+state_has "$S5" network.lan.ip6assign 0    && ok "postinst: network.lan.ip6assign=0" || bad "postinst: ip6assign not 0"
+state_has "$S5" network.lan.ipv6 0         && ok "postinst: network.lan.ipv6=0" || bad "postinst: network.lan.ipv6 not 0"
+state_has "$S5" network.wan.ipv6 0         && ok "postinst: network.wan.ipv6=0" || bad "postinst: network.wan.ipv6 not 0"
+state_has "$S5" network.wan6.disabled 1    && ok "postinst: network.wan6.disabled=1" || bad "postinst: wan6 not disabled"
+
+# ---- case 6: the two policy copies cannot drift apart ----------------------
+# One rule, two carriers (setup function + postinst block) — the #791/#796
+# one-declaration discipline, fenced: the sorted set of `uci set` keys each
+# copy writes must be identical, or a future axis lands in one and not the
+# other and the install-time posture silently goes stale.
+setup_keys="$(grep -o "uci set [^=]*=" "$TMP/v6_fragment.sh" | awk '{print $3}' | sort -u)"
+postinst_keys="$(grep -o "uci set [^=]*=" "$TMP/postinst_fragment.sh" | awk '{print $3}' | sort -u)"
+[ -n "$setup_keys" ] && [ "$setup_keys" = "$postinst_keys" ] \
+    && ok "drift fence: setup and postinst copies write the same axes" \
+    || bad "drift fence: policy copies diverge — setup writes [$setup_keys], postinst writes [$postinst_keys]"
 
 # ---- summary
 echo

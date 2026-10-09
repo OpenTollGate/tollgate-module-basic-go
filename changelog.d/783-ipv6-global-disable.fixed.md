@@ -7,4 +7,5 @@
   stock `wan6` section when present (a missing section is adoption, not an
   error), re-asserted on every setup pass so upgrades converge too. Proper
   v6-aware captivity stays tracked in #783 (post-0.6.0); #794 pins the test axis
-  ([#783](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/783)).
+  ([#783](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/783))
+  ([#815](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/815)).
