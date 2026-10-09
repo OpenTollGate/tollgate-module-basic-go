@@ -11,18 +11,6 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 ### Changed / Internal
 
-- **The test suites no longer spend the payment rate limit's per-IP budget.**
-  The root handler's 10 requests/minute-per-IP limit failed the suites
-  mid-run — a test binary is one process whose suites share client IPs, the
-  same failure shape the deployed labs hit. The accommodation is the
-  `apiListenAddr` shape: a production-default-off bypass whose only writer is
-  the `testenv`-tagged test-context provisioning, kept out of the shipped
-  binary by the build-purity contract, so `go test -tags testenv` runs
-  unthrottled while the shipped default, its Retry-After answer and the
-  per-IP semantics are unchanged — both halves pinned by tests, alongside the
-  `TOLLGATE_RATE_LIMIT_RPM` override the deployed labs rely on
-  ([#778](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/778)).
-
 - **The bcm2709 artifact rows build again.** `build-sdk-package.sh`
   defaulted bcm2709 to `EXPECTED_ARCH=arm_cortex-a7`, but the SDK stages
   its packages under `arm_cortex-a7_neon-vfpv4` — the staged-packages
