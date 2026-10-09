@@ -17,7 +17,7 @@ import (
 // ErrTokenAlreadySpent mapping below unreachable. The test fails on either
 // regression: swallowing at the gonuts layer, or match drift at this layer.
 func TestReceive_SpentTokenMapsToSentinel(t *testing.T) {
-	const keysetID = "009a1f293253e41e"
+	const keysetID = "000f715baf5d4c2e"
 	const amount1Key = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 
 	keysetsJSON := `{"keysets":[{"id":"` + keysetID + `","unit":"sat","active":true,` +
