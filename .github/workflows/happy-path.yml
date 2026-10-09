@@ -25,8 +25,10 @@ on:
 
 concurrency:
   # Superseded pushes stop burning the 45-minute budget mid-flight (#816).
+  # PR-ref groups cancel; the main-lane PROOF run (push to main) queues —
+  # cancelling an in-flight proof contradicts the main-lane-proof doctrine.
   group: happy-path-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # What runs is tests/happy-path/ (merged in #544) against a package built from

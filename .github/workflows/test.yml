@@ -5,12 +5,20 @@ on:
     branches: [main, master, develop]
   pull_request:
     branches: [main, master, develop]
+  # Ad-hoc re-run path for the push-only jobs below (spec-quote):
+  # "Re-run ad hoc via workflow_dispatch" in that job's comment is only
+  # honest because this trigger exists.
+  workflow_dispatch:
 
 # A superseded push to the same PR stops burning the matrix mid-flight
 # (#816 frugality) — the newest commit's checks replace the stale ones.
+# PR-ref groups cancel; branch-push groups (the main-lane PROOF) queue
+# instead: cancelling an in-flight proof of a merge contradicts the
+# main-lane-proof doctrine — the proof of a merge must complete, not
+# vanish when the next merge lands.
 concurrency:
   group: test-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   go-test:
