@@ -383,3 +383,5 @@ before asserting a leak or a rebranding error.
   end-to-end suites.
 - [README.md](README.md) — module map, installation, configuration
   reference.
+
+<!-- ci-trigger-probe: trivial PR to test whether pull_request workflows create runs. Remove after diagnosis. -->
