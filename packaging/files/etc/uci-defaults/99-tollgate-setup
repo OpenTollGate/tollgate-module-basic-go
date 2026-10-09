@@ -156,6 +156,17 @@ board_http_port()        { [ "$ENTRY_UI_MODE" = board ] && printf 8080 || printf
 board_https_port()       { [ "$ENTRY_UI_MODE" = board ] && printf 443  || printf 8443; }
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
+# log_syslog: both surfaces — the setup log above AND the system log the
+# operator reads in logread on the router. For warnings whose whole point is
+# that a human must see them (a fallback that changed a decision, a check
+# that failed loudly): a $LOGFILE-only line is invisible to exactly the
+# operator it was written for.
+log_syslog() {
+    log "$1"
+    command -v logger >/dev/null 2>&1 && logger -t tollgate-setup "$1" 2>/dev/null
+    return 0
+}
+
 # -- setup-marker ordering ---------------------------------------------------
 #
 # /etc/tollgate-setup-done records the version whose FULL setup last ran, and
@@ -2024,15 +2035,15 @@ resolve_captive_zone() {
                 echo "$zone_name"
                 return 0
             fi
-            log "WARNING: the zone owning network '$net' (captive bridge '$gw') has no name — using the stock zone 'lan' for the tollgate firewall rules"
+            log_syslog "WARNING: the zone owning network '$net' (captive bridge '$gw') has no name — using the stock zone 'lan' for the tollgate firewall rules"
             echo "lan"
             return 0
         fi
-        log "WARNING: no firewall zone carries network '$net' (captive bridge '$gw') — using the stock zone 'lan' for the tollgate firewall rules"
+        log_syslog "WARNING: no firewall zone carries network '$net' (captive bridge '$gw') — using the stock zone 'lan' for the tollgate firewall rules"
         echo "lan"
         return 0
     fi
-    log "WARNING: no network section names the captive bridge '$gw' as its device — using the stock zone 'lan' for the tollgate firewall rules"
+    log_syslog "WARNING: no network section names the captive bridge '$gw' as its device — using the stock zone 'lan' for the tollgate firewall rules"
     echo "lan"
 }
 
