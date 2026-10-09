@@ -55,7 +55,8 @@ include $(INCLUDE_DIR)/package.mk
 #
 # So: declare the daemon, never also claim to replace it. Same contract as the
 # shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq`).
+# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
+# with FreedomTechFeed/packages#57, the feed-side mirror of this change).
 #
 # ca-bundle is the SAME class of defect, found the same way: on a GL-MT3000
 # (OpenWrt 25.12.5) installing the shipped package by hand, `wget` AND

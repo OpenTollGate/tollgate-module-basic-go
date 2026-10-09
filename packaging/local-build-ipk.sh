@@ -181,7 +181,8 @@ normalize_mtime "$PAYLOAD"
 #
 # So: declare the daemon, never also claim to replace it. Same contract as the
 # shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq +ca-bundle`).
+# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
+# with FreedomTechFeed/packages#57, which this module's change mirrors).
 #
 # ca-bundle is the same class of defect: this module does money over TLS with
 # Go's system root pool and no insecure escape hatch, so an image with no CA
