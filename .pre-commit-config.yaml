@@ -18,8 +18,11 @@ repos:
       - id: debug-statements
       - id: mixed-line-ending
 
-  - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.4.0
+  # gitleaks replaces the retired Yelp detect-secrets baseline (.secrets.baseline):
+  # the documented hook convention (`git config core.hooksPath hooks`) bypasses
+  # the pre-commit framework entirely, so the baseline was unenforced for anyone
+  # following the docs — gitleaks runs in BOTH lanes (hooks/pre-commit and here).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
     hooks:
-      - id: detect-secrets
-        args: ['--baseline', '.secrets.baseline']
+      - id: gitleaks

@@ -43,6 +43,21 @@ tests/cloud-lab/matrix-wallets/
 # Router credentials (copy from routers.env.example)
 routers.env
 
+# --- Credentials hygiene (PRTA#199 pattern): ANY env variant beyond the
+# tracked templates. tests/.env, tests/cloud-lab/.env and routers.env are
+# listed above; this catches the rest of the class — .env backups, per-host
+# variants, scratch copies — which the narrow patterns miss. The example /
+# template twins stay trackable.
+.env.*
+!.env.example
+!*.env.template
+**/.env.*
+!**/.env.example
+!**/*.env.template
+*.env-backup
+*env-backup
+.env.backup
+
 # Router mutex (shared lock file at /root/routers.lock)
 routers.lock
 

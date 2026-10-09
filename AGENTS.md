@@ -391,3 +391,68 @@ nak req -k 1063 \
 
 Download from any `url` tag (they're mirrors of the same blob) and
 verify the file's sha256 against the `x` tag before using it.
+
+## Credentials doctrine (PRTA#199 pattern)
+
+Secrets have exactly three legal homes in this ecosystem. Anything else
+is a bug:
+
+1. **sops** in the private `Amperstrand/conwrt-bench` repo — the vault for
+   infrastructure secrets (lab switch admin passwords, API keys). Reference
+   by path in docs, never paste the value.
+2. **Untracked local env files** — `routers.env`, `tests/.env`,
+   `tests/cloud-lab/.env`: machine-local connection details. Tracked files
+   carry ONLY `.example`/`.template` variants with placeholder values. A
+   tracked env file with real values is an incident: untrack it, rotate, and
+   note it in the `.gitleaks.toml` allowlist with the rotation status.
+3. **The router/lab itself** — anything that must exist on a device (root
+   passwords, WPA passphrases, wallet keys provisioned at flash time) lives
+   there and in the operator's password manager.
+
+Rules that prevent the credential-leak class:
+
+- **Never copy a live env file or a TLS/identity key into the repo tree**,
+  not even "temporarily", not even renamed, not even as `*-backup`. The
+  2026-04 `files/ssl/tollgate.dns4sats.xyz.key` commit shipped exactly that
+  way (triaged 2026-10-08: history-only, presumptively expired — see the
+  incident entry in `.gitleaks.toml`).
+- `.gitignore` covers the whole `.env.*` / `*env-backup` class with
+  `.example`/`.template` carve-outs; tracked files override ignore rules,
+  so the FIRST commit of any env file must be its `.example` twin.
+- `hooks/pre-commit` runs **gitleaks over your staged diff**
+  (`scripts/secret-scan.sh` — fail-closed when the tool is present;
+  loud-skip, warning + commit allowed, when gitleaks is absent, with
+  GitHub push protection as the server-side net). If it fires,
+  rotate/remove the secret. Never weaken the ruleset — the config must
+  always EXTEND gitleaks' defaults (`useDefault = true`), because a bare
+  config scans with zero rules. The repo-root `.gitleaks.toml` is the
+  single canonical config, shared by both scan lanes: `hooks/pre-commit`
+  and the CI gitleaks workflow.
+- Allowlist discipline (a false positive is silenced with the NARROWEST
+  scope that kills it, each entry carrying its triage verdict and reason):
+  - **history-only verdicts** → `commits = [...]` scoped to the commits
+    the baseline scan recorded — the path stays ARMED, so a fresh secret
+    at the same path still trips the scanner;
+  - **live files with a known-benign value** → `paths` + value `regexes`
+    (`regexTarget = "match"` for generic-api-key) — only that value at
+    that path is silenced, any other value stays armed;
+  - **path-only** scoping is reserved for benign shapes inherent to the
+    path itself (e.g. one-way hashed digests in a scanner baseline
+    artifact). Never blanket-silence a live file's path.
+- The Yelp detect-secrets baseline (`.secrets.baseline`) was RETIRED in
+  favor of gitleaks: the documented hook convention
+  (`git config core.hooksPath hooks`) bypasses the pre-commit framework,
+  so the baseline was unenforced for anyone following the docs.
+- Re-run the full-history baseline after any allowlist change:
+  `gitleaks git --redact` (expected: 0 findings).
+- Agents (opencode/codex/herdr lanes) are bound by all of the above and in
+  addition never invent, echo, or paste credential values into issues, PRs,
+  or logs — shape descriptions only ("24-char mixed-case", not the value).
+- Honest limitation: pattern scanners catch FORMAT-shaped secrets
+  (PEM blocks, `AKIA…`, nsec/hex keys). A formatless WPA passphrase or
+  root password is invisible to them — for that class the env-file rules
+  above and the gitignore are the primary defense; the scanner is the
+  second net, not the first.
+- GitHub push protection and secret scanning are ENABLED on this repo as
+  of 2026-10-08 — a pushed secret trips the server side even when local
+  hooks are missing.
