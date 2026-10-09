@@ -119,6 +119,34 @@ On OpenWrt 24.10.x and earlier:
 opkg install /tmp/tollgate-wrt_<version>_<arch>.ipk
 ```
 
+### Choosing the admin password (no installer required)
+
+Installing the package alone is enough to get a working gateway — the
+installer is a convenience, not a dependency. The one thing it cannot decide
+for you is the credential behind the `:8090` admin board, so choose it at
+install time rather than trying to catch a generated one as it scrolls past:
+
+```sh
+TOLLGATE_ADMIN_PASSWORD=<your choice> \
+  apk add --allow-untrusted /tmp/tollgate-wrt-<version>.apk
+```
+
+The value is applied to root — the login the board exposes is checked against
+root's shadow hash — and it is never echoed: it is
+already yours, and the install log must not become a place to read it from.
+Supplying one also replaces a credential that is already set, which is what
+makes this usable for fleet and CI provisioning. If a password is supplied but
+does not take, the install fails closed and drops the admin listeners rather
+than leaving the board on the old credential.
+
+If you install without it, the package generates one and prints it exactly
+once, and writes `/etc/tollgate/admin-credential-provisional`. That marker
+means "generated, not chosen": read it, then set your own with the passwd command
+over SSH (or reinstall with the variable above). While the marker exists, each
+setup run says so in the log — the one-time line is gone as soon as the log is
+truncated, which every full-setup run does. A deliberately **locked** root
+account is never re-enabled by any of this.
+
 For local packaging experiments use
 [scripts/build-sdk-package.sh](scripts/build-sdk-package.sh). It cross-compiles
 the target binaries locally, stages the canonical `packaging/` recipe into the
