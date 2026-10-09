@@ -153,37 +153,70 @@ Installing the package by hand skips the installer, and with it the installer's
 verification. The release carries what you need to do that check yourself: a
 SHA256SUMS listing every asset, and a SHA256SUMS.sig that is an OpenSSH ed25519
 signature of that listing. The signing key's public half is committed to
-FreedomTechFeed/packages in two forms — the bare key at
-.github/release-keys/release-signing.pub, and the allowed-signers entry the
-verifier actually consumes at .github/release-keys/allowed_signers. Fetch the
-latter; the two are the same key in different formats, and only the
-allowed-signers file satisfies the verifier's -f option alongside the
-release-signing@freedomtechfeed identity below.
+FreedomTechFeed/packages, and the file the verifier consumes is the
+allowed-signers entry at .github/release-keys/allowed_signers — NOT the bare key
+beside it at .github/release-keys/release-signing.pub. Both carry the same key,
+but only the allowed-signers file supplies the principal that the verifier's
+identity argument is matched against, so that is the one to fetch.
 
 Verify the signature, then the bytes — in that order:
 
 ```sh
+# Run this on a machine you trust; ssh-keygen is not on a stock router.
 BASE=https://github.com/FreedomTechFeed/packages/releases/download/v0.6.0-rc1-pre26
-curl -fsSLO "$BASE/SHA256SUMS"
-curl -fsSLO "$BASE/SHA256SUMS.sig"
-curl -fsSL https://raw.githubusercontent.com/FreedomTechFeed/packages/master/.github/release-keys/allowed_signers -o allowed_signers
+# Pin the key file to a commit, not the moving master branch:
+KEYS=https://raw.githubusercontent.com/FreedomTechFeed/packages/1f16dae9c67d528dea57b76d89257d32745a50cd
+# A stock OpenWrt router ships wget (BusyBox) or uclient-fetch, not curl; use
+# whichever this machine has. curl -fsSLO "$URL" works too.
+wget -qO SHA256SUMS      "$BASE/SHA256SUMS"
+wget -qO SHA256SUMS.sig  "$BASE/SHA256SUMS.sig"
+wget -qO allowed_signers "$KEYS/.github/release-keys/allowed_signers"
 ssh-keygen -Y verify -f allowed_signers -I release-signing@freedomtechfeed \
   -n freedomtechfeed-release-manifest -s SHA256SUMS.sig < SHA256SUMS
 sha256sum --check --strict SHA256SUMS
 ```
 
 Two honest notes. First, the artifact itself carries no apk-level signature, so
-apk will refuse it as UNTRUSTED and needs the allow-untrusted flag; the
-provenance comes from the signed manifest above, not from the package, which is
-exactly why the manifest must be verified first and the hash checked second.
-Second, ssh-keygen is not on a stock router (OpenWrt ships dropbear): verify
-the manifest on a machine you trust, then check the downloaded file's sha256 on
-the router before installing it.
+apk refuses it as UNTRUSTED unless it is told otherwise; the provenance comes
+from the signed manifest above, not from the package, which is exactly why the
+manifest is verified first and the hash checked second. Second, a stock router
+is a thin userspace: it ships dropbear rather than ssh-keygen, and wget or
+uclient-fetch rather than curl. Verify the manifest on a machine you trust,
+then check the downloaded file's sha256 on the router, and only then install it.
 
-The router also needs working TLS for anything it fetches itself. The package
-now depends on a CA bundle, so the install brings one; a router whose clock is far
-off will still fail certificate validity checks, so set the clock before
-installing.
+#### Installing on a box that cannot verify TLS
+
+The declared dependency fixes a package install on a box that can still reach
+the feed: apk resolves the closure, pulls ca-bundle with it, and the box ends up
+with a trust store. It does not — and cannot — bootstrap a box that has no trust
+anchors at all. There, apk's first HTTPS fetch already fails with an SSL verify
+error, and no dependency can repair a fetch that must itself be verified. If the
+box reports that error while updating, bring the package files to it by other
+means instead of over the network, then install them locally in one apk call
+with a single explicit trust override:
+
+```sh
+# 1. From a machine that has the files — the release asset plus the ca-bundle
+#    package from the matching OpenWrt feed — copy both over:
+scp ca-bundle-*.apk tollgate-wrt_*.apk root@ROUTER:/tmp/
+
+# 2. On the router (OpenWrt 25.12 ships apk-tools 3), install both in one call:
+cd /tmp
+apk add --allow-untrusted ./ca-bundle-*.apk ./tollgate-wrt_*.apk
+
+# On the older opkg lane (OpenWrt 24.10) the equivalent needs no signature
+# override for local files:
+#   opkg install ./ca-bundle_*.ipk ./tollgate-wrt_*.ipk
+```
+
+Set the clock before any of this: a router whose clock is far off still fails
+certificate validity checks even once it has a trust store.
+
+The same applies to any other package the install needs — the module's runtime
+dependencies (nodogsplash, jq) must either already be installed or be brought as
+local files the same way, because a box in this state cannot fetch them from
+the feed either.
+
 
 For local packaging experiments use
 [scripts/build-sdk-package.sh](scripts/build-sdk-package.sh). It cross-compiles
