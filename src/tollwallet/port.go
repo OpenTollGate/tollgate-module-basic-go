@@ -260,13 +260,17 @@ type WalletPort interface {
 	// request bytes are re-sent to the mint, and a mint that signs
 	// deterministically (verified against cdk-mintd 0.17.6 in #497)
 	// returns the same signatures, from which the proofs are
-	// reconstructed and saved — recovering value a crash between the
-	// mint's acceptance and the proof save would otherwise have
-	// destroyed. Idempotent (proofs are stored keyed by secret); a
-	// per-intent failure leaves that intent journaled for the next
-	// attempt. An error means "some intents unrecoverable this pass",
-	// NEVER lost value: callers must not delete or regenerate anything
-	// on it. The daemon calls this once at boot, before serving
+	// reconstructed and saved. Recovery holds when the mint honours the
+	// re-POST as a NUT-19 replay within its cache window (cdk-mintd's
+	// default cache is in-memory with a ~60 s TTL); beyond that window a
+	// mint that already processed the swap refuses with 11001
+	// already-spent, and the intent stays journaled — visible, not lost —
+	// until a NUT-09 /restore fallback exists (a fork-level follow-up,
+	// not this interface). Idempotent (proofs are stored keyed by
+	// secret); a per-intent failure leaves that intent journaled for the
+	// next attempt. An error means "some intents unrecoverable this
+	// pass", NEVER lost value: callers must not delete or regenerate
+	// anything on it. The daemon calls this once at boot, before serving
 	// payments.
 	ResumePendingSwaps() (recovered uint64, failed int, err error)
 
