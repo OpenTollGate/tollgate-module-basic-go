@@ -107,18 +107,9 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 				"gateway": gatewayIP,
 			}).Info("✅ Gateway responded - validating TollGate advertisement")
 
-			// TEMPORARY WORKAROUND: Trigger captive portal session after successful probe
-			// This ensures ndsctl creates a client session for our device
-			go func() {
-				err := tp.TriggerCaptivePortalSession(ctx, gatewayIP)
-				if err != nil {
-					logger.WithFields(logrus.Fields{
-						"gateway": gatewayIP,
-						"error":   err,
-					}).Debug("Captive portal trigger failed (non-critical)")
-				}
-			}()
-
+			// #768: no side effects while probing — the TEMPORARY portal
+			// trigger moved to HandleGatewayConnected (validated + once per
+			// gateway; docs/temporary-workarounds.md TW-1).
 			return data, nil
 		}
 
@@ -211,15 +202,24 @@ func (tp *tollGateProber) performRequestWithContext(ctx context.Context, url str
 
 // TriggerCaptivePortalSession makes an HTTP GET request to port 80 to trigger ndsctl session creation
 //
-// TEMPORARY WORKAROUND: This is a temporary measure to ensure the upstream TollGate's ndsctl
-// creates a client session for our device. This is NOT a long-term solution as it goes against
-// the TollGate protocol specification.
+// TEMPORARY WORKAROUND (registry TW-1, docs/temporary-workarounds.md, #768):
+// a temporary measure to ensure the upstream TollGate's ndsctl creates a
+// client session for our device. This is NOT a long-term solution as it goes
+// against the TollGate protocol specification.
+//
+// Invocation contract (#768): called ONLY by
+// UpstreamSessionManager.HandleGatewayConnected, after the gateway's
+// advertisement passed ValidateAdvertisementFromBytes, at most once per
+// gateway per process. Never from the probe path — a probe hit is not
+// evidence of a TollGate (any HTTP 200 on :2121 gets here), and the 30 s
+// detector tick would turn a per-probe call into a poke loop against
+// gateways that were already rejected.
 //
 // Background: After successful payment (port 2121), the upstream TollGate should automatically
 // create the session. However, some implementations require a captive portal request (port 80)
 // to trigger the ndsctl session creation.
 //
-// TODO: Remove this workaround once upstream TollGate implementations properly handle
+// TODO(#768): Remove this workaround once upstream TollGate implementations properly handle
 // automatic session creation after payment validation.
 func (tp *tollGateProber) TriggerCaptivePortalSession(ctx context.Context, gatewayIP string) error {
 	if gatewayIP == "" {
