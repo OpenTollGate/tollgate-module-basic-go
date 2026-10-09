@@ -58,7 +58,7 @@ func (l *swapSightingLog) snapshot() (requests int, outputs map[string]int) {
 // which is exactly how the conformance lane caught it and a unit payment test
 // could not.
 func TestReceive_DroppedSwapResponseNeverReExposesOutputs(t *testing.T) {
-	const keysetID = "009a1f293253e41e"
+	const keysetID = "000f715baf5d4c2e"
 	const amount1Key = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 
 	keysetsJSON := `{"keysets":[{"id":"` + keysetID + `","unit":"sat","active":true,` +
@@ -127,7 +127,7 @@ func TestReceive_DroppedSwapResponseNeverReExposesOutputs(t *testing.T) {
 // poisoned state — a later Receive of a different note against the same mint,
 // once it answers again, completes normally.
 func TestReceive_WalletUsableAfterDroppedSwapResponse(t *testing.T) {
-	const keysetID = "009a1f293253e41e"
+	const keysetID = "000f715baf5d4c2e"
 	const amount1Key = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 
 	keysetsJSON := `{"keysets":[{"id":"` + keysetID + `","unit":"sat","active":true,` +
