@@ -99,7 +99,8 @@ login itself was never broken: `POST /ubus session.login` over `:8443` and
 ## Consequences
 
 - Neither script may hardcode this option again: both evaluate the rule above.
-  **This module's `92-tollgate-admin-setup` does since its portal pin advanced to
+  **This module's board setup script, installed as `999-tollgate-admin-setup`,
+  does since its portal pin advanced to
   `4158030`** (portal #64/#65; the pin is resolved and asserted by
   `tests/packaging/assert-portal-bundle-contract.sh` CHECK F). **The feed
   repository's vendored copy still carries the superseded existence-only guard
@@ -147,21 +148,27 @@ login itself was never broken: `POST /ubus session.login` over `:8443` and
 - The feed's companion change adds a fail-open post-restart check that turns
   the redirect back off when no listen socket exists on `:443`. Both writers
   must be updated together whenever this rule changes.
-- **Install order is not a safety net — and the module's postinst now uses the
-  boot path's order.** `/etc/init.d/boot` applies the uci-defaults numerically
-  (`90, 92, 99`); `packaging/Makefile`'s postinst used to run the same scripts as
-  `90, 99, 92`, so the LAST writer of `uhttpd.main.redirect_https` differed
-  between the install pass and the boot pass — an install converged to whatever
-  that order produced and only the next reboot re-ran them numerically. It now
-  runs `90, 92, 99`, so the value an install lands is the value the next boot
-  produces, whatever either script decides, and
+- **Install order is not a safety net — and the module now runs the admin gate
+  LAST.** `/etc/init.d/boot` applies the uci-defaults in one collated glob.
+  `packaging/Makefile`'s postinst used to run the same scripts in a different
+  order, so the LAST writer of `uhttpd.main.redirect_https` differed between the
+  install pass and the boot pass — an install converged to whatever that order
+  produced and only the next reboot re-ran them. The module now runs
+  them in the order the boot path uses, `90, 99, 999`, so the value an install
+  lands is the value the next boot produces, whatever either script decides, and
   `tests/packaging/uci-defaults-run-order_test.sh` pins the order (with the
-  pre-change order as its negative control). This is convergence, not
-  correctness: whichever of the two writers runs LAST decides the option, so both
-  must evaluate the same rule — this document's. The module's pinned
-  `92-tollgate-admin-setup` does (CHECK F above); the feed's vendored copy does
-  not, and its recipe still runs `92` last, so the operator-visible defect stands
-  on the feed's install path until that copy carries the same premise.
+  pre-change order as its negative control). The order is also what keeps the
+  board reachable: the board's setup script is the fail-closed gate that drops
+  `uhttpd.admin`'s listeners while root has no credential, and `99-tollgate-setup`
+  is what creates that credential — so the gate runs LAST, in both the module
+  (which stages the portal's script as `999-tollgate-admin-setup`) and the feed
+  (whose recipe already ran it last). The numeric prefix IS the boot order, which
+  is why the gate carries `999` rather than only appearing last in a list. This is
+  convergence, not correctness: whichever of the two writers runs LAST decides the
+  option, so both must evaluate the same rule — this document's. The module's
+  pinned board setup script does (CHECK F above); the feed's vendored copy does
+  not, and its recipe still runs it last, so the operator-visible defect stands on
+  the feed's install path until that copy carries the same premise.
 - A writer that kept the superseded existence-only premise demonstrated why the
   rule is stated as a premise and not as an order: a router whose identity cannot
   be validated (provisioning refused, or the image's placeholder as the fallback
@@ -203,8 +210,9 @@ here:
    LAN IP (hard certificate error on every login, measured on the bench MT3000,
    pre17).
 
-**One rule, two writers — and a guard over the pair.** The second writer is
-`92-tollgate-admin-setup`, whose source lives in
+**One rule, two writers — and a guard over the pair.** The second writer is the
+board setup script, installed by the module as `999-tollgate-admin-setup`, whose
+source lives in
 `OpenTollGate/tollgate-captive-portal-site` (the feed vendors a pinned copy). It
 kept the superseded existence-only premise until portal PR
 [#64](https://github.com/OpenTollGate/tollgate-captive-portal-site/pull/64),

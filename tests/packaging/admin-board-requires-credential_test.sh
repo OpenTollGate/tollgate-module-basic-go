@@ -488,8 +488,8 @@ if printf '%s' "$out" | grep -q 'no usable password'; then
 else
     bad "the refusal was not surfaced on the install output (got: $(printf '%s' "$out" | head -n 2 | tr '\n' ' '))"
 fi
-if grep -q 'refusing to serve the :8090 admin board' "$LOGFILE" 2>/dev/null; then
-    ok "the refusal is recorded in the setup log"
+if grep -q 'refusing to serve the :8090/:8443 admin board' "$LOGFILE" 2>/dev/null; then
+    ok "the refusal is recorded in the setup log, naming the board's own pair"
 else
     bad "the log does not record the refusal (log: $(head -n 3 "$LOGFILE" 2>/dev/null | tr '\n' ' '))"
 fi
