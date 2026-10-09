@@ -147,6 +147,37 @@ setup run says so in the log — the one-time line is gone as soon as the log is
 truncated, which every full-setup run does. A deliberately **locked** root
 account is never re-enabled by any of this.
 
+### Verifying a manual install (the signed manifest)
+
+Installing the package by hand skips the installer, and with it the installer's
+verification. The release carries what you need to do that check yourself: a
+SHA256SUMS listing every asset, a SHA256SUMS.sig that is an OpenSSH ed25519
+signature of that listing, and the public half committed at
+.github/release-keys/release-signing.pub in FreedomTechFeed/packages. Verify
+the signature, then the bytes — in that order:
+
+```sh
+BASE=https://github.com/FreedomTechFeed/packages/releases/download/v0.6.0-rc1-pre26
+curl -fsSLO "$BASE/SHA256SUMS"
+curl -fsSLO "$BASE/SHA256SUMS.sig"
+ssh-keygen -Y verify -f allowed_signers -I release-signing@freedomtechfeed \
+  -n freedomtechfeed-release-manifest -s SHA256SUMS.sig < SHA256SUMS
+sha256sum --check --strict SHA256SUMS
+```
+
+Two honest notes. First, the artifact itself carries no apk-level signature, so
+apk will refuse it as UNTRUSTED and needs the allow-untrusted flag; the
+provenance comes from the signed manifest above, not from the package, which is
+exactly why the manifest must be verified first and the hash checked second.
+Second, ssh-keygen is not on a stock router (OpenWrt ships dropbear): verify
+the manifest on a machine you trust, then check the downloaded file's sha256 on
+the router before installing it.
+
+The router also needs working TLS for anything it fetches itself. The package
+now depends on a CA bundle, so the install brings one; a router whose clock is far
+off will still fail certificate validity checks, so set the clock before
+installing.
+
 For local packaging experiments use
 [scripts/build-sdk-package.sh](scripts/build-sdk-package.sh). It cross-compiles
 the target binaries locally, stages the canonical `packaging/` recipe into the

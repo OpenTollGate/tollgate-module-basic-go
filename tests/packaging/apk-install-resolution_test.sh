@@ -24,13 +24,43 @@
 #     telephony) plus the x86/64 target feed, with apk3 semantics — including
 #     provider aliases, which is how the renamed iptables family satisfies
 #     the old split names;
-#   - does NOT prove: signature trust, install-time script behavior, anything
-#     on real flash. Those belong to the vlab and labgrid lanes.
+#   - asserts from source (no docker, no network) the DECLARED trust
+#     prerequisites: that a CA bundle is a declared dependency, and that the
+#     install docs carry the signed-manifest chain. A closure can resolve while
+#     the install is still useless — a router with no CA store cannot verify a
+#     single TLS connection, and this module's job is money over TLS.
+#   - does NOT prove: apk-level signature trust of the artifact (it carries
+#     none; provenance is the signed manifest, verified by the release
+#     workflow's own acceptance step), install-time script behavior, anything on
+#     real flash. Those belong to the vlab and labgrid lanes.
 set -euo pipefail
 
 APK="${APK:-}"
 IMAGE="${APK_RESOLUTION_IMAGE:-openwrt/rootfs:x86_64-openwrt-25.12}"
 RELEASE="${APK_RESOLUTION_RELEASE:-25.12.5}"
+
+# ── declared trust prerequisites (source-level: no docker, no network) ──────
+# Run BEFORE the docker check so a machine without docker still asserts these.
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$ROOT"
+TRUST_FAILED=0
+if grep -qE '^[[:space:]]*DEPENDS:=.*\+ca-bundle' packaging/Makefile; then
+    echo "trust: ok — DEPENDS declares +ca-bundle"
+else
+    echo "trust: FAIL — DEPENDS declares no CA bundle: an image without one cannot verify TLS, so every mint and Lightning call fails (observed on a GL-MT3000: wget and apk update both died with 'SSL verify error')" >&2
+    TRUST_FAILED=1
+fi
+# One chain makes an unsigned artifact safe to install: verify the signed
+# manifest, then the bytes. If the docs lose a link, the chain is gone.
+for needle in "--allow-untrusted" "SHA256SUMS.sig" "release-signing.pub"; do
+    if grep -qF -- "$needle" README.md; then
+        echo "trust: ok — README documents $needle"
+    else
+        echo "trust: FAIL — README does not document '$needle': a manual install would have no stated way to establish provenance" >&2
+        TRUST_FAILED=1
+    fi
+done
+[ "$TRUST_FAILED" = 0 ] || exit 1
 
 if ! command -v docker >/dev/null 2>&1; then
     echo "apk-resolution: docker not available — skipping"
