@@ -210,7 +210,9 @@ scp ca-bundle-*.apk tollgate-wrt_*.apk root@ROUTER:/tmp/
 #    is safe only because step 1 verified both files before they were copied.
 cd /tmp
 set -- ./ca-bundle-*.apk ./tollgate-wrt_*.apk
-[ -e "$1" ] || { echo "the package files are not staged in /tmp"; exit 1; }
+for f in "$@"; do
+  [ -e "$f" ] || { echo "missing staged file: $f"; exit 1; }
+done
 apk add --allow-untrusted "$@"
 
 # On the older opkg lane (OpenWrt 24.10) the equivalent needs no signature
