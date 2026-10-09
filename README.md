@@ -196,13 +196,22 @@ means instead of over the network, then install them locally in one apk call
 with a single explicit trust override:
 
 ```sh
-# 1. From a machine that has the files — the release asset plus the ca-bundle
-#    package from the matching OpenWrt feed — copy both over:
+# 1. On a machine you trust, obtain BOTH files and verify each against its own
+#    published hash. The tollgate asset is covered by the release's signed
+#    SHA256SUMS (above). ca-bundle is an OpenWrt feed package, so verify it
+#    against the sha256sums the feed publishes beside it, e.g.
+#      wget -qO - FEED/sha256sums | grep 'ca-bundle-.*\.apk$'
+#    Do not skip this: ca-bundle IS the trust anchor, so installing it
+#    unverified and then asking apk to trust it is circular.
 scp ca-bundle-*.apk tollgate-wrt_*.apk root@ROUTER:/tmp/
 
-# 2. On the router (OpenWrt 25.12 ships apk-tools 3), install both in one call:
+# 2. On the router (OpenWrt 25.12 ships apk-tools 3), install both in one call.
+#    --allow-untrusted is the ONE deliberate override in this document, and it
+#    is safe only because step 1 verified both files before they were copied.
 cd /tmp
-apk add --allow-untrusted ./ca-bundle-*.apk ./tollgate-wrt_*.apk
+set -- ./ca-bundle-*.apk ./tollgate-wrt_*.apk
+[ -e "$1" ] || { echo "the package files are not staged in /tmp"; exit 1; }
+apk add --allow-untrusted "$@"
 
 # On the older opkg lane (OpenWrt 24.10) the equivalent needs no signature
 # override for local files:
