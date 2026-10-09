@@ -55,8 +55,12 @@ render() {
     fi
 
     private="$(uci -q get network.private_bridge.name 2>/dev/null || true)"
-    if [ -z "$private" ] || ! valid_ifname "$private"; then
+    if [ -z "$private" ]; then
         private="br-private"
+        say "network.private_bridge.name unset — defaulting tg_private_if to br-private"
+    elif ! valid_ifname "$private"; then
+        private="br-private"
+        say "network.private_bridge.name is not a usable interface name — refusing it and defaulting tg_private_if to br-private"
     fi
 
     tmp="$(mktemp "${DEFS}.XXXXXX")" || {

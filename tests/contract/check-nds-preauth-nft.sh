@@ -202,7 +202,12 @@ cmp -s "$FRAG" "$SHIPPED" \
 
 # --- parse the assembled ruleset where nft + userns exist ---------------------
 if command -v nft >/dev/null 2>&1 && unshare -Urn true 2>/dev/null; then
-    { echo "table inet fw4 {"; cat "$WORK/first.nft"; echo "}"; } > "$WORK/assembled.nft"
+    # 00-defs first (fw4's lexical include order): the rescued 20- resolves
+    # $tg_portal_if from it.
+    { echo "table inet fw4 {"
+      cat "$ROOT/packaging/files/etc/nftables.d/00-tollgate-defs.nft"
+      cat "$WORK/first.nft"
+      echo "}"; } > "$WORK/assembled.nft"
     if unshare -Urn nft -c -f "$WORK/assembled.nft" 2>"$WORK/nft.err"; then
         ok "rendered-with-allowlist fragment parses (nft -c under userns)"
     else

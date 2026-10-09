@@ -27,6 +27,10 @@
 # chain's accept ends evaluation in that chain only, and this chain would
 # still drop/reject the flow afterwards (refuted live on nft 1.1.7 — see the
 # #782 review).
+#
+# The interface below resolves through 00-tollgate-defs.nft's $tg_portal_if
+# (rendered from nodogsplash's gatewayinterface by
+# tollgate-nft-interfaces-render, #757) — not a bridge-name literal.
 
 chain nds_enforce_forward {
     type filter hook forward priority -1; policy accept
