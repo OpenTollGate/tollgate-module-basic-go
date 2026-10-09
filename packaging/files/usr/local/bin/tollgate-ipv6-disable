@@ -1,0 +1,30 @@
+#!/bin/sh
+# tollgate-ipv6-disable — THE one declaration of the global IPv6-disable
+# policy (#148's LAN half + #783's global axes), consumed by both carriers:
+# 99-tollgate-setup's setup_disable_ipv6 (the full-setup path) and the
+# install-time block in packaging/postinst (the upgrade path, applied before
+# the network restart because the marker-driven setup driver's verify/repair
+# pass does not re-assert it).
+#
+# One declaration on purpose (#791/#796 discipline): a future axis lands
+# HERE or it does not exist — the contract suite
+# (tests/uci-defaults-ipv6-global_test.sh) fails the build if a second copy
+# of any axis literal appears anywhere else in packaging/, and pins this
+# script's behaviour against a fake uci (stock, idempotent, wan6-less
+# adoption, pre-enabled re-disabled).
+#
+# Sets only — no logging, no commits: the carriers own their messaging and
+# their commit discipline (setup commits once at the end of its pass; the
+# postinst commits dhcp+network immediately). A missing wan/wan6 section is
+# adoption, not an error.
+
+uci set dhcp.lan.ra='disabled'
+uci set dhcp.lan.dhcpv6='disabled'
+uci set network.lan.ip6assign='0'
+uci set network.lan.ipv6='0'
+if uci -q get network.wan >/dev/null 2>&1; then
+    uci set network.wan.ipv6='0'
+fi
+if uci -q get network.wan6 >/dev/null 2>&1; then
+    uci set network.wan6.disabled='1'
+fi

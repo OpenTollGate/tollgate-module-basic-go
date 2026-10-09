@@ -10,9 +10,9 @@
 # section disabled (when present). A missing wan/wan6 section is adoption,
 # not an error.
 #
-# No router, SDK or network needed: the function is extracted from the
-# setup script by function boundary (the same style as the NTP/band
-# tests) and runs against a fake uci.
+# No router, SDK or network needed: the policy runs from its ONE
+# declaration (packaging/files/usr/local/bin/tollgate-ipv6-disable) and
+# from both carriers' wiring, against a fake uci.
 #
 # Usage: bash tests/uci-defaults-ipv6-global_test.sh
 set -uo pipefail
@@ -29,13 +29,26 @@ SCRIPT="packaging/files/etc/uci-defaults/99-tollgate-setup"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# ---- extract setup_disable_ipv6 by function boundary, rewriting the log call
-awk '/^setup_disable_ipv6\(\) \{/,/^\}/' "$SCRIPT" > "$TMP/v6_fragment.sh"
-grep -q "network.lan.ipv6='0'" "$TMP/v6_fragment.sh" \
-    || { bad "extraction failed — setup_disable_ipv6 not found or pre-#783 shape in $SCRIPT"; exit 1; }
-# The extraction carries only the function definition; supply the real
-# script's `log` helper as a stub and invoke the function.
-printf '\nlog() { echo "log: $*"; }\nsetup_disable_ipv6\n' >> "$TMP/v6_fragment.sh"
+# ---- THE declaration: packaging/files/usr/local/bin/tollgate-ipv6-disable
+# Both carriers (setup wrapper + postinst block) consume this one file;
+# the semantic cases below run it directly, the wiring cases prove the
+# carriers route through it, and the fence case makes a second copy of
+# any axis a build failure.
+DECL="packaging/files/usr/local/bin/tollgate-ipv6-disable"
+grep -q "network.lan.ipv6='0'" "$DECL" \
+    || { bad "declaration missing or pre-#783 shape: $DECL"; exit 1; }
+cp "$DECL" "$TMP/v6_fragment.sh"
+# The setup-path wrapper, extracted by function boundary with a stubbed
+# log — its run below proves the driver's call applies the declaration.
+# Both carriers invoke the declaration by its shipped ABSOLUTE path
+# (/usr/local/bin/...) — correct on the router, absent on a test host.
+# The extraction rewrites it to the checkout copy (the harness's standard
+# path-stub, so the wiring is exercised against the real declaration).
+awk '/^setup_disable_ipv6\(\) \{/,/^\}/' "$SCRIPT" \
+    | sed "s|/usr/local/bin/tollgate-ipv6-disable|$ROOT/$DECL|g" > "$TMP/setup_wrapper.sh"
+grep -q "tollgate-ipv6-disable" "$TMP/setup_wrapper.sh" \
+    || { bad "extraction failed — setup_disable_ipv6 not found or no longer routes through the declaration in $SCRIPT"; exit 1; }
+printf '\nlog() { echo "log: $*"; }\nsetup_disable_ipv6\n' >> "$TMP/setup_wrapper.sh"
 
 mkdir -p "$TMP/bin"
 
@@ -119,22 +132,32 @@ run_fragment "$S4"
 state_has "$S4" network.lan.ipv6 0 && state_has "$S4" network.wan.ipv6 0 && state_has "$S4" dhcp.lan.ra disabled \
     && ok "upgrade: enabled v6 is re-disabled (policy, not adoption)" || bad "upgrade: pre-enabled v6 survived"
 
-# ---- case 5: the INSTALL-time block in packaging/postinst converges too ----
-# The upgrade path drove a second copy of the policy into postinst (applied
-# before the network restart, because the marker-driven setup driver's
-# verify/repair pass does not re-assert it). That copy is extracted here by
-# its boundary comments and must produce the same five axes.
+# ---- case 5: BOTH carriers wire to the declaration --------------------------
+# The setup wrapper runs the declaration (driver path) and the postinst
+# block runs it before the network restart (upgrade path). Each leg plants
+# stock state, runs the carrier with the declaration on PATH, and asserts
+# the five axes landed — proving the wiring, not just the policy.
 POSTINST="packaging/postinst"
-awk '/^# IPv6 is disabled at INSTALL time/,/^echo "IPv6 disabled globally at install time/' \
-    "$POSTINST" > "$TMP/postinst_fragment.sh"
-grep -q "network.lan.ipv6='0'" "$TMP/postinst_fragment.sh" \
-    || { bad "extraction failed — install-time IPv6 block not found or pre-#783 shape in $POSTINST"; }
+awk '/^# IPv6 is disabled at INSTALL time/,/^fi$/' "$POSTINST" \
+    | sed "s|/usr/local/bin/tollgate-ipv6-disable|$ROOT/$DECL|g" > "$TMP/postinst_fragment.sh"
+grep -q "tollgate-ipv6-disable" "$TMP/postinst_fragment.sh" \
+    || { bad "extraction failed — install-time IPv6 block not found or no longer routes through the declaration in $POSTINST"; }
+
+SW="$TMP/wiring-setup"; mkdir -p "$SW"
+for k in network.lan.ip6assign network.wan.proto network.wan6.proto dhcp.lan.interface; do
+    mkdir -p "$SW/$(dirname "$k")"; echo "'placeholder'" > "$SW/$k"
+done
+UCI_STATE="$SW" PATH="$TMP/bin:$ROOT/packaging/files/usr/local/bin:$PATH" \
+    sh "$TMP/setup_wrapper.sh" >/dev/null 2>"$SW/stderr.log"; rc=$?
+[ $rc -eq 0 ] && ok "wiring: setup wrapper routes through the declaration (exit 0)" || bad "wiring: setup wrapper exited $rc"
+state_has "$SW" network.lan.ipv6 0 && state_has "$SW" network.wan.ipv6 0 && state_has "$SW" network.wan6.disabled 1 \
+    && ok "wiring: setup path applies all global axes via the declaration" || bad "wiring: setup path did not apply the policy"
 
 S5="$TMP/postinst-stock"; mkdir -p "$S5"
 for k in network.lan.ip6assign network.wan.proto network.wan6.proto dhcp.lan.interface; do
     mkdir -p "$S5/$(dirname "$k")"; echo "'placeholder'" > "$S5/$k"
 done
-UCI_STATE="$S5" PATH="$TMP/bin:$PATH" sh "$TMP/postinst_fragment.sh" >/dev/null 2>"$S5/stderr.log"; rc=$?
+UCI_STATE="$S5" PATH="$TMP/bin:$ROOT/packaging/files/usr/local/bin:$PATH" sh "$TMP/postinst_fragment.sh" >/dev/null 2>"$S5/stderr.log"; rc=$?
 [ $rc -eq 0 ] && ok "postinst: install-time block exits 0" || bad "postinst: install-time block exited $rc"
 state_has "$S5" dhcp.lan.ra disabled      && ok "postinst: dhcp.lan.ra=disabled" || bad "postinst: dhcp.lan.ra not disabled"
 state_has "$S5" dhcp.lan.dhcpv6 disabled   && ok "postinst: dhcp.lan.dhcpv6=disabled" || bad "postinst: dhcp.lan.dhcpv6 not disabled"
@@ -143,16 +166,54 @@ state_has "$S5" network.lan.ipv6 0         && ok "postinst: network.lan.ipv6=0" 
 state_has "$S5" network.wan.ipv6 0         && ok "postinst: network.wan.ipv6=0" || bad "postinst: network.wan.ipv6 not 0"
 state_has "$S5" network.wan6.disabled 1    && ok "postinst: network.wan6.disabled=1" || bad "postinst: wan6 not disabled"
 
-# ---- case 6: the two policy copies cannot drift apart ----------------------
-# One rule, two carriers (setup function + postinst block) — the #791/#796
-# one-declaration discipline, fenced: the sorted set of `uci set` keys each
-# copy writes must be identical, or a future axis lands in one and not the
-# other and the install-time posture silently goes stale.
-setup_keys="$(grep -o "uci set [^=]*=" "$TMP/v6_fragment.sh" | awk '{print $3}' | sort -u)"
-postinst_keys="$(grep -o "uci set [^=]*=" "$TMP/postinst_fragment.sh" | awk '{print $3}' | sort -u)"
-[ -n "$setup_keys" ] && [ "$setup_keys" = "$postinst_keys" ] \
-    && ok "drift fence: setup and postinst copies write the same axes" \
-    || bad "drift fence: policy copies diverge — setup writes [$setup_keys], postinst writes [$postinst_keys]"
+# ---- case 6: ONE declaration — a second copy of any axis fails the build ----
+# The #791/#796 one-declaration discipline, rooted: the five axis literals
+# may exist in exactly one file under packaging/ (the declaration). A copy
+# pasted back into 99-setup or postinst — the drift this rule exists to
+# prevent — fails here by name.
+AXES="dhcp.lan.ra='disabled' dhcp.lan.dhcpv6='disabled' network.lan.ip6assign='0' network.lan.ipv6='0'"
+declare -A axis_expect=( [dhcp.lan.ra='disabled']="$DECL" [dhcp.lan.dhcpv6='disabled']="$DECL"
+    [network.lan.ip6assign='0']="$DECL" [network.lan.ipv6='0']="$DECL" )
+for axis in "${!axis_expect[@]}"; do
+    holders="$(grep -rlF "$axis" packaging/ --include='*' 2>/dev/null | grep -v '^packaging/files/usr/local/bin/tollgate-ipv6-disable$' | tr '\n' ' ')"
+    [ -z "$holders" ] \
+        && ok "one-declaration: $axis lives only in the declaration" \
+        || bad "one-declaration: $axis also copied into: $holders"
+done
+# wan/wan6 axes are existence-guarded; assert their carriers too
+for axis in "network.wan.ipv6='0'" "network.wan6.disabled='1'"; do
+    holders="$(grep -rlF "$axis" packaging/ 2>/dev/null | grep -v '^packaging/files/usr/local/bin/tollgate-ipv6-disable$' | tr '\n' ' ')"
+    [ -z "$holders" ] \
+        && ok "one-declaration: $axis lives only in the declaration" \
+        || bad "one-declaration: $axis also copied into: $holders"
+done
+
+# ---- case 7: negative controls — the assertions must bite --------------------
+# Two sabotaged copies of the declaration: a flipped value and a dropped
+# axis. Each runs against the same planted stock state; if the case-1
+# assertions could NOT tell sabotage from policy, these checks fail.
+NEG1="$TMP/neg-flipped"; mkdir -p "$NEG1"
+for k in network.lan.ip6assign network.wan.proto network.wan6.proto dhcp.lan.interface; do
+    mkdir -p "$NEG1/$(dirname "$k")"; echo "'placeholder'" > "$NEG1/$k"
+done
+sed "s|network.lan.ipv6='0'|network.lan.ipv6='1'|" "$DECL" > "$TMP/neg1.sh"
+UCI_STATE="$NEG1" PATH="$TMP/bin:$PATH" sh "$TMP/neg1.sh" >/dev/null 2>&1
+state_has "$NEG1" network.lan.ipv6 0 \
+    && bad "negative control: a flipped axis value PASSED the stock assertion — the pin is blind" \
+    || ok "negative control: flipped value is caught (assertion bites)"
+state_has "$NEG1" network.wan.ipv6 0 \
+    && ok "negative control: sabotage is surgical (other axes still applied)" \
+    || bad "negative control: sabotage leaked beyond the flipped axis"
+
+NEG2="$TMP/neg-dropped"; mkdir -p "$NEG2"
+for k in network.lan.ip6assign network.wan.proto network.wan6.proto dhcp.lan.interface; do
+    mkdir -p "$NEG2/$(dirname "$k")"; echo "'placeholder'" > "$NEG2/$k"
+done
+grep -v "dhcp.lan.ra='disabled'" "$DECL" > "$TMP/neg2.sh"
+UCI_STATE="$NEG2" PATH="$TMP/bin:$PATH" sh "$TMP/neg2.sh" >/dev/null 2>&1
+[ ! -f "$NEG2/dhcp.lan.ra" ] \
+    && ok "negative control: dropped #148 axis leaves the pin's key absent (assertion would fail)" \
+    || bad "negative control: dropped axis still present — pin cannot catch a drop"
 
 # ---- summary
 echo

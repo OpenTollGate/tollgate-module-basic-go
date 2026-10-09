@@ -207,6 +207,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nds-preauth-render $(1)/usr/local/bin/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nft-interfaces-render $(1)/usr/local/bin/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-topology-selfcheck $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-ipv6-disable $(1)/usr/local/bin/
 
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
@@ -252,6 +253,7 @@ FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate-remove-ssl \
 	/etc/init.d/tollgate-wrt \
 	/usr/local/bin/first-login-setup \
+	/usr/local/bin/tollgate-ipv6-disable \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/uci-defaults/99-tollgate-setup \
 	/etc/uci-defaults/92-tollgate-admin-setup \

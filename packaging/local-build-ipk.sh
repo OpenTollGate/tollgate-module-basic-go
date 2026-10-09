@@ -124,6 +124,7 @@ install -D -m 0755 packaging/files/usr/local/bin/first-login-setup              
 install -D -m 0755 packaging/files/usr/local/bin/tollgate-nds-preauth-render         "$PAYLOAD/usr/local/bin/tollgate-nds-preauth-render"
 install -D -m 0755 packaging/files/usr/local/bin/tollgate-nft-interfaces-render      "$PAYLOAD/usr/local/bin/tollgate-nft-interfaces-render"
 install -D -m 0755 packaging/files/usr/local/bin/tollgate-topology-selfcheck         "$PAYLOAD/usr/local/bin/tollgate-topology-selfcheck"
+install -D -m 0755 packaging/files/usr/local/bin/tollgate-ipv6-disable            "$PAYLOAD/usr/local/bin/tollgate-ipv6-disable"
 install -D -m 0755 packaging/files/usr/bin/check_package_path                        "$PAYLOAD/usr/bin/check_package_path"
 install -D -m 0755 packaging/files/usr/bin/tollgate-apply-ssl                        "$PAYLOAD/usr/bin/tollgate-apply-ssl"
 install -D -m 0755 packaging/files/usr/bin/tollgate-remove-ssl                       "$PAYLOAD/usr/bin/tollgate-remove-ssl"

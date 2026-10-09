@@ -2182,16 +2182,11 @@ EOF
 # and the stock wan6 section disabled when present. A missing section is
 # adoption, not an error — stock images without wan6 are fine as-is.
 setup_disable_ipv6() {
-    uci set dhcp.lan.ra='disabled'
-    uci set dhcp.lan.dhcpv6='disabled'
-    uci set network.lan.ip6assign='0'
-    uci set network.lan.ipv6='0'
-    if uci -q get network.wan >/dev/null 2>&1; then
-        uci set network.wan.ipv6='0'
-    fi
-    if uci -q get network.wan6 >/dev/null 2>&1; then
-        uci set network.wan6.disabled='1'
-    fi
+    # The policy itself lives in ONE declaration both carriers consume
+    # (#791/#796 discipline; the contract suite fails a second copy):
+    # /usr/local/bin/tollgate-ipv6-disable. This wrapper adds only the
+    # setup-path logging — the axes are not repeated here.
+    /usr/local/bin/tollgate-ipv6-disable
     log "IPv6 disabled globally — no RA/DHCPv6 on LAN, no v6 on WAN/wan6 (captive-portal bypass prevention, #148/#783)"
 }
 
