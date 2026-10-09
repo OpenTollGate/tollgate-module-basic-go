@@ -2172,15 +2172,27 @@ fi
 EOF
 }
 
-# Nodogsplash only manages IPv4 iptables. If IPv6 Router Advertisements are
-# active on LAN, WiFi clients get global IPv6 addresses and Android validates
-# connectivity over IPv6 — completely bypassing the captive portal.
-# https://github.com/OpenTollGate/tollgate-module-basic-go/issues/148
-setup_disable_ipv6_lan() {
+# Nodogsplash only manages IPv4 nftables/iptables (#148). While IPv6 is
+# offered anywhere — RA/DHCPv6 on LAN, or a v6-capable WAN — a pre-auth
+# client can reach the internet over IPv6 and bypass the captive portal
+# entirely (#783, bench-verified on rc1: AAAA fetch while the identical v4
+# state was correctly rejected). Until captivity is v6-aware (#783, post
+# 0.6.0), IPv6 is disabled GLOBALLY, not just on LAN: no RA/DHCPv6 to
+# clients, no v6 address on the LAN bridge, no v6 on the WAN interface,
+# and the stock wan6 section disabled when present. A missing section is
+# adoption, not an error — stock images without wan6 are fine as-is.
+setup_disable_ipv6() {
     uci set dhcp.lan.ra='disabled'
     uci set dhcp.lan.dhcpv6='disabled'
     uci set network.lan.ip6assign='0'
-    log "IPv6 disabled on LAN (captive portal bypass prevention)"
+    uci set network.lan.ipv6='0'
+    if uci -q get network.wan >/dev/null 2>&1; then
+        uci set network.wan.ipv6='0'
+    fi
+    if uci -q get network.wan6 >/dev/null 2>&1; then
+        uci set network.wan6.disabled='1'
+    fi
+    log "IPv6 disabled globally — no RA/DHCPv6 on LAN, no v6 on WAN/wan6 (captive-portal bypass prevention, #148/#783)"
 }
 
 enable_modems() {
@@ -2875,7 +2887,7 @@ setup_ntp_server             # serves time pre-auth (udp/123, issue #627)
 setup_nodogsplash
 setup_tollgate_firewall_rules
 setup_profile_hook
-setup_disable_ipv6_lan
+setup_disable_ipv6
 enable_modems
 setup_private_network        # consumes CODE/NYM, R2G/R5G
 setup_lan_ports_private      # moves the wired LAN ports onto br-private
