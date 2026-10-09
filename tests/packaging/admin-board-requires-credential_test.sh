@@ -45,6 +45,24 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin"
 
+# ------------------------------------------------------- hermetic entry_ui
+# The module resolves `entry_ui` from an ABSOLUTE marker path by default
+# (/etc/tollgate/entry-ui-mapping) and repairs a `board` request to `luci` only
+# when that marker is missing or says something else. A marker left on the build
+# host by an earlier run therefore LEAKS into this sandbox and flips the mapping
+# -- and with it the board's pair, which this suite asserts. Measured
+# 2026-10-09: a stray /etc/tollgate/entry-ui-mapping containing `board` turned
+# the expected `:8090/:8443` refusal into `:8080/:443` and failed this suite on
+# an otherwise green tree. Pin the marker inside $TMP instead. A marker that is
+# not `board` resolves to the legacy luci mapping, which is exactly what this
+# fixture seeds: the admin board on :8090 and LuCI on :8080.
+export TOLLGATE_ENTRY_UI_MARKER="$TMP/entry-ui-mapping"
+export TOLLGATE_ENTRY_UI_CONFIG="$TMP/config.json"
+# Same hazard for the provisional-credential marker: the module writes it to an
+# absolute path by default, so an un-sandboxed run lands a generated credential
+# in the build host's /etc/tollgate. Keep it in $TMP.
+export ADMIN_PROVISIONAL_MARKER="$TMP/admin-credential-provisional"
+
 # --------------------------------------------------------------- fake apk
 # The shipped script carries the __TOLLGATE_VERSION__ placeholder, so a source
 # run resolves the setup version from the package manager.

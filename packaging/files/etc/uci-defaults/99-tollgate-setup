@@ -96,7 +96,7 @@ TLS_IDENTITY_OPTOUT="/etc/tollgate/ssl/tls-identity-removed"
 # SAME value, and D4 gates the board mapping on a marker the mode-aware 92
 # writes, so this file next to a pre-switch 92 degrades to today's mapping
 # instead of tearing one admin UI off the router.
-ENTRY_UI_CONFIG="/etc/tollgate/config.json"
+ENTRY_UI_CONFIG="${TOLLGATE_ENTRY_UI_CONFIG:-/etc/tollgate/config.json}"
 ENTRY_UI_MARKER="${TOLLGATE_ENTRY_UI_MARKER:-/etc/tollgate/entry-ui-mapping}"
 # The jq the reader drives. Overridable so the offline tests can point at a
 # shim, or exercise the absent-jq branch, without touching the host.
