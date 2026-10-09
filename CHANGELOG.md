@@ -9,22 +9,6 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
-### Fixed
-
-- **The NDS pre-auth allowlist actually executes now — emitted at nftables
-  priority −2, ahead of the enforcement reject.** nodogsplash compiles
-  `preauthenticated_users` into priority-0 chains, but the package's own
-  `nds_enforce_forward` chain rejects unmarked forwarded traffic at priority
-  −1 — the reject always ran first, so every allowlisted pre-auth flow (the
-  top-up-before-pay mint access) died with the allow chain at 0 packets
-  (bench-verified on rc1 with packet-level attribution). The allowlist is now
-  rendered by `tollgate-nds-preauth-render` into its own −2 base chain that
-  accepts allowlisted flows before the reject can see them, converging at
-  install/upgrade/boot and on nodogsplash config commits; unparseable,
-  non-tcp/udp, DNS-destination and out-of-range entries are refused loudly
-  rather than guessed at
-  ([#782](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/782)).
-
 ### Changed / Internal
 
 - **The bcm2709 artifact rows build again.** `build-sdk-package.sh`
