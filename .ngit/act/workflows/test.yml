@@ -204,6 +204,12 @@ jobs:
           go-version-file: src/go.mod
       - name: Dependency sync check
         run: python3 tests/contract/check-deps-sync.py
+      - name: Gonuts pin identity (one version, every carrier)
+        run: |
+          # Offline leg only (the ngit lane has no GitHub token for the
+          # fork-tag query; --latest is scripts/release-check.sh's verdict).
+          bash tests/contract/gonuts-pin_test.sh
+          python3 tests/contract/check-gonuts-pin.py
       - name: Mirror and relay sync check
         run: python3 tests/contract/check-mirror-sync.py
       - name: Stale import path check

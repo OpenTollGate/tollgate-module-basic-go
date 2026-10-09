@@ -300,7 +300,15 @@ jobs:
           go-version-file: src/go.mod
       - name: Dependency sync check
         run: python3 tests/contract/check-deps-sync.py
-
+      - name: Gonuts pin identity (one version, every carrier)
+        run: |
+          # Offline leg only: every go.mod that references the wallet fork
+          # must pin the manifest's version exactly (#791). The --latest
+          # staleness leg (pin must be the fork's newest stable tag) is a
+          # release-time verdict — scripts/release-check.sh — because
+          # failing every open PR the moment the fork tags would be noise.
+          bash tests/contract/gonuts-pin_test.sh
+          python3 tests/contract/check-gonuts-pin.py
       - name: Toolchain parity (manifest is the single source of truth)
         run: python3 tests/contract/check-toolchain-parity.py
       - name: Stale import path check
