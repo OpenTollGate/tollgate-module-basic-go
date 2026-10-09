@@ -180,7 +180,7 @@ network.island.device='br-island'
 EOF
 printf '' > "$STATE/show.firewall"
 run_setup
-grep -q "WARNING: no firewall zone carries network 'island'" "$SANDBOX/setup.log" \
+grep -q "WARNING: no firewall zone carries the portal network 'island'" "$SANDBOX/setup.log" \
     && ok "unresolvable bridge warned in the setup log" \
     || bad "no warning for an unresolvable bridge"
 grep -q "ERROR: firewall.tollgate_in references zone .lan., which does not exist" "$SANDBOX/setup.log" \

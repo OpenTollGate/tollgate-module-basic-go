@@ -1501,8 +1501,51 @@ configure_radio_ap() {
     uci set "wireless.$iface.device=$radio"
     uci set "wireless.$iface.name=$label"
     uci set "wireless.$iface.mode=ap"
-    uci set "wireless.$iface.network=lan"
-    uci set "wireless.$iface.ssid=$GATEWAY_NAME"
+
+    # The AP's network is bound EXISTENCE-CHECKED, never unconditionally to
+    # 'lan' (#756 class 1, bench-verified on rc1): on a split-plane DUT whose
+    # config has no network.lan, the unconditional rebind bridged every AP to
+    # a network that did not exist — clients associate, DHCP dies, the portal
+    # is unreachable, and nothing warned. Stock routers keep the byte-identical
+    # 'lan'; a config without network.lan adopts the network that owns the
+    # NDS gatewayinterface (the portal plane); a config with neither keeps
+    # whatever the section already carries — binding to a ghost is never the
+    # outcome, and every non-stock decision is logged.
+    local bind_net=""
+    if uci -q show network.lan >/dev/null 2>&1; then
+        bind_net="lan"
+    else
+        bind_net="$(resolve_portal_network)"
+        if [ -n "$bind_net" ]; then
+            log "network.lan absent — binding $iface to the existing portal network '$bind_net' (adopting the deployed topology)"
+        else
+            bind_net="$(uci -q get "wireless.$iface.network" 2>/dev/null || true)"
+            if [ -n "$bind_net" ]; then
+                log "WARNING: network.lan absent and no network owns the captive bridge — preserving $iface's existing binding to '$bind_net' (not rebinding to a nonexistent network)"
+            else
+                log "WARNING: network.lan absent, no network owns the captive bridge, and $iface carries no network binding — leaving it unbound rather than binding it to a network that does not exist"
+            fi
+        fi
+    fi
+    [ -n "$bind_net" ] && uci set "wireless.$iface.network=$bind_net"
+
+    # The SSID follows the one-way rewrite discipline of setup_hostname
+    # (#444): a machine-shaped name (empty, the current derivation, or
+    # <anything>-<this device's code>) is re-derived from the stored code; an
+    # operator-chosen name is preserved. The unconditional rewrite was the
+    # other half of the #756 bench damage — a staged operator SSID was
+    # silently renamed to the generated one.
+    local current_ssid machine_shaped=0
+    current_ssid="$(uci -q get "wireless.$iface.ssid" 2>/dev/null || true)"
+    case "$current_ssid" in
+        ""|"$GATEWAY_NAME") machine_shaped=1 ;;
+        *-"$CODE")          machine_shaped=1 ;;
+    esac
+    if [ "$machine_shaped" = 1 ]; then
+        uci set "wireless.$iface.ssid=$GATEWAY_NAME"
+    else
+        log "preserving operator-chosen SSID '$current_ssid' on $iface (not a <brand>-<device code> name) — rename it by hand if you want the generated one"
+    fi
     uci set "wireless.$iface.encryption=none"
     # Guest client isolation (ap_isolate=1): armed here so it lands on BOTH
     # setup paths — this function is the single writer of the public APs, and
@@ -2006,6 +2049,20 @@ converge_nodogsplash_runtime() {
     return 0
 }
 
+# resolve_portal_network answers "which network section owns the captive
+# bridge?" — the NDS gatewayinterface (a bridge) → the network section whose
+# device it is. Empty when nothing owns it: the CALLER decides what that
+# means (the zone resolver falls back with a warning; the AP-binding guard
+# refuses to bind to a network that does not exist).
+resolve_portal_network() {
+    local gw net
+    gw="$(uci -q get nodogsplash.@nodogsplash[0].gatewayinterface 2>/dev/null || true)"
+    [ -n "$gw" ] || gw="br-lan"
+    net="$(uci -q show network 2>/dev/null | sed -n "s/^network\.\([^.]*\)\.device='$gw'\$/\1/p" | head -n 1)"
+    [ -n "$net" ] && printf '%s' "$net"
+    return 0
+}
+
 # resolve_captive_zone answers "which firewall zone owns the captive bridge?"
 # by walking the router's own config: the NDS gatewayinterface (a bridge) →
 # the network section whose device it is → the firewall zone whose network
@@ -2018,10 +2075,8 @@ converge_nodogsplash_runtime() {
 # zero diagnostics). Falls back to the stock 'lan' and says why — never to a
 # guess, and never silently.
 resolve_captive_zone() {
-    local gw net zone
-    gw="$(uci -q get nodogsplash.@nodogsplash[0].gatewayinterface 2>/dev/null || true)"
-    [ -n "$gw" ] || gw="br-lan"
-    net="$(uci -q show network 2>/dev/null | sed -n "s/^network\.\([^.]*\)\.device='$gw'\$/\1/p" | head -n 1)"
+    local net zone zone_esc zone_name
+    net="$(resolve_portal_network)"
     if [ -n "$net" ]; then
         zone="$(uci -q show firewall 2>/dev/null | sed -n "s/^\(firewall\.[^.]*\)\.network='$net'\$/\1/p" | head -n 1)"
         if [ -n "$zone" ]; then
@@ -2035,15 +2090,15 @@ resolve_captive_zone() {
                 echo "$zone_name"
                 return 0
             fi
-            log_syslog "WARNING: the zone owning network '$net' (captive bridge '$gw') has no name — using the stock zone 'lan' for the tollgate firewall rules"
+            log_syslog "WARNING: the zone owning the portal network '$net' has no name — using the stock zone 'lan' for the tollgate firewall rules"
             echo "lan"
             return 0
         fi
-        log_syslog "WARNING: no firewall zone carries network '$net' (captive bridge '$gw') — using the stock zone 'lan' for the tollgate firewall rules"
+        log_syslog "WARNING: no firewall zone carries the portal network '$net' — using the stock zone 'lan' for the tollgate firewall rules"
         echo "lan"
         return 0
     fi
-    log_syslog "WARNING: no network section names the captive bridge '$gw' as its device — using the stock zone 'lan' for the tollgate firewall rules"
+    log_syslog "WARNING: no network section owns the captive bridge — using the stock zone 'lan' for the tollgate firewall rules"
     echo "lan"
 }
 

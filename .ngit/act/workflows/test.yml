@@ -200,6 +200,8 @@ jobs:
         run: bash tests/contract/check-nft-interface-defs.sh
       - name: firewall zone-ref resolution check
         run: bash tests/contract/check-firewall-zone-refs.sh
+      - name: wifi rebind guard check
+        run: bash tests/contract/check-wifi-rebind-guard.sh
 
   deps-and-imports:
     runs-on: ubuntu-latest
