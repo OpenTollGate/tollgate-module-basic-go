@@ -104,6 +104,22 @@ else
     fail "no test references the embedded copy — it is decorative"
 fi
 
+# --- the generator still compiles ------------------------------------------------
+# It sits outside the 16 go-battery modules and the CI matrix; a generator that
+# stops compiling would otherwise surface only at dev time (#779 review, F4).
+# Hard-enforced wherever go exists (the Go-bearing CI lanes); named loudly as
+# skipped where it does not (contract-lint runs Go-less by design).
+if command -v go >/dev/null 2>&1; then
+    if (cd "$ROOT/cross-vectors/generate" && go build ./...); then
+        pass "cross-vectors/generate compiles (go build)"
+    else
+        fail "cross-vectors/generate does not compile — the vectors cannot be regenerated"
+    fi
+else
+    info_note="go not on PATH here — the compile layer is enforced by the Go-bearing lanes (build-purity)"
+    printf '  info  %s\n' "$info_note"
+fi
+
 printf '\n'
 if [ "$fails" -ne 0 ]; then
     printf '%d cross-vectors sync check(s) FAILED.\n' "$fails" >&2
