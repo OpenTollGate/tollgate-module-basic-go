@@ -91,3 +91,35 @@ func TestMerchantDegraded_OtherWalletError_KeepsHistoricWording(t *testing.T) {
 // nils cannot be discarded inline inside a composite literal.
 func errOf2(_ interface{}, err error) error    { return err }
 func errOf3(_, _ interface{}, err error) error { return err }
+
+func TestMerchantDegraded_StorageMmap_AdvertisementNamesStorage(t *testing.T) {
+	ds, _ := newDegradedSetupWithServer(t, nil)
+	deg := ds.DegradedWithWallet(nil, jffs2WalletFactoryError())
+
+	ad := deg.GetAdvertisement()
+	if !strings.Contains(ad, "wallet-storage-unsupported") {
+		t.Errorf("advertisement should carry the storage notice code for the mmap class (#824), got: %s", ad)
+	}
+	if !strings.Contains(ad, "shared mmap") {
+		t.Errorf("advertisement should name the shared-mmap cause, got: %s", ad)
+	}
+	if strings.Contains(ad, "auto-recover") {
+		t.Errorf("storage class must not promise auto-recovery, got: %s", ad)
+	}
+}
+
+func TestMerchantDegraded_StorageMmap_DegradedInfoReasons(t *testing.T) {
+	ds, _ := newDegradedSetupWithServer(t, nil)
+
+	storageDeg := ds.DegradedWithWallet(nil, jffs2WalletFactoryError())
+	degraded, reason := storageDeg.WalletDegradedInfo()
+	if !degraded || !strings.Contains(reason, "shared mmap") {
+		t.Errorf("storage class should surface (true, mmap reason), got (%v, %q)", degraded, reason)
+	}
+
+	mintsDeg := ds.DegradedWithWallet(nil, fmt.Errorf("dial tcp: connection refused"))
+	degraded, reason = mintsDeg.WalletDegradedInfo()
+	if !degraded || reason != "no reachable mints" {
+		t.Errorf("non-storage class keeps the historic reason, got (%v, %q)", degraded, reason)
+	}
+}

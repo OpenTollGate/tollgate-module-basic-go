@@ -101,6 +101,16 @@ func (m *MerchantDegraded) walletNotInitializedError() error {
 	return fmt.Errorf("wallet not initialized: %s", m.walletUnavailableReason())
 }
 
+// WalletDegradedInfo reports the degraded state and its reason for the
+// status surfaces (CLI `status`, board): the degraded merchant is degraded
+// by construction, and the reason string distinguishes the permanent
+// storage-mmap class from the recoverable no-reachable-mints one (#824).
+// Consumed through an interface assertion so MerchantInterface itself is
+// untouched.
+func (m *MerchantDegraded) WalletDegradedInfo() (bool, string) {
+	return true, m.walletUnavailableReason()
+}
+
 // WireRecoveryTrigger registers the tracker's first-reachable callback so a
 // runtime downgrade (the full -> degraded transition in main) can upgrade
 // back once a mint recovers. The startup degraded paths register the same
@@ -215,6 +225,22 @@ func (m *MerchantDegraded) PurchaseSession(cashuToken string, macAddress string)
 }
 
 func (m *MerchantDegraded) GetAdvertisement() string {
+	if m.StorageIncompatible() {
+		// The operator-facing advertisement is the portal's status surface:
+		// a storage-class degraded state must not present itself as a
+		// transient "initializing" — no mint recovery can ever clear it
+		// (#583, #824: one probe, three consumers — log, notice, status).
+		noticeEvent, err := m.CreateNoticeEvent("error", "wallet-storage-unsupported",
+			"TollGate wallet storage does not support shared mmap (jffs2 overlay?). The wallet cannot initialize on this filesystem. Move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs) — see README storage requirements.", "")
+		if err != nil {
+			return fmt.Sprintf(`{"error": "wallet storage unsupported: %v"}`, err)
+		}
+		bytes, err := json.Marshal(noticeEvent)
+		if err != nil {
+			return `{"error": "failed to marshal notice"}`
+		}
+		return string(bytes)
+	}
 	noticeEvent, err := m.CreateNoticeEvent("warning", "no-reachable-mints",
 		"TollGate is initializing. No reachable mints detected. Service will auto-recover.", "")
 	if err != nil {
