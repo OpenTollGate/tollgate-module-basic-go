@@ -47,6 +47,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+
+      # Runner-image hygiene, copied from openwrt/actions-shared-workflows'
+      # multi-arch-test-build.yml (#816): the stock ubuntu image carries
+      # ~25 GB of Android/.NET/Swift/GHC toolchains this job never touches,
+      # and SDK/docker builds are the #1 disk-pressure class. Freeing it
+      # first is minutes-cheap insurance against mid-build disk exhaustion.
+      - name: Reclaim runner disk (unused toolchains)
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/share/swift
       - uses: actions/checkout@v6
 
       # Same manifest the release lane reads, so this job cannot drift from the
