@@ -40,7 +40,11 @@ tests/cloud-lab/docker-compose.override.yml
 tests/cloud-lab/zoo-mint-config.json
 tests/cloud-lab/matrix-wallets/
 
-# Router credentials (copy from routers.env.example)
+# Router credentials — PRTA-muscle-memory guard: the sibling repo
+# (physical-router-test-automation) keeps live router creds in routers.env;
+# THIS repo's test credentials live in tests/.env (template:
+# tests/.env.example). The rule stays so a cross-repo habit cannot land
+# secrets here.
 routers.env
 
 # --- Credentials hygiene (PRTA#199 pattern): ANY env variant beyond the
