@@ -99,6 +99,13 @@ func (w *scriptedReceiveWallet) Receive(tollwallet.Token) (uint64, error) {
 func newDuplicateGuardMerchant(t *testing.T, wallet *scriptedReceiveWallet, timeout time.Duration) *Merchant {
 	t.Helper()
 
+	// The grant at the end of the outcome-unknown window runs the real valve
+	// auth (ndsctl), and nothing else in this file installs a fake — so on a
+	// host without ndsctl the granted-session assertion died as a
+	// grant-pending notice instead (#822). Same harness the other
+	// grant-exercising tests use, scoped to this test's lifetime.
+	installRenewalNdsctl(t)
+
 	cm, _ := setupTestConfigManager(t)
 	cfg := cm.GetConfig()
 	cfg.AcceptedMints = append(cfg.AcceptedMints, config_manager.MintConfig{
