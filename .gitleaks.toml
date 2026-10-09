@@ -31,13 +31,16 @@ useDefault = true
 # --- REAL secret (history-only). Let's Encrypt EC TLS key for the real domain
 # tollgate.dns4sats.xyz, committed in 4cdeb73 ("Add HTTPS captive portal with
 # Let's Encrypt cert") and untracked when files/ was reorganized into
-# packaging/files/. ROTATION: LE certs are 90-day, so the paired cert has long
-# expired and the key is presumptively dead — but the domain owner must confirm
-# the key was never reused for a renewed cert; if in doubt, reissue.
+# packaging/files/. VERIFIED OUT OF SERVICE (2026-10-09 probe): the domain
+# resolves to 188.34.192.41, port 443 is connection-REFUSED (no TLS listener
+# exists) and port 80 serves a stock nginx placeholder — no cert/key pair is
+# in active TLS service, so no renewed-cert exposure either. Residual risk is
+# offline reuse of the key material for a future cert: never reuse it; issue
+# fresh when this domain next needs TLS.
 # Commit-scoped: any NEW file at this (or any) TLS-key path still trips both
 # lanes — the path is armed.
 [[allowlists]]
-description = "INCIDENT (real): LE TLS key for tollgate.dns4sats.xyz — silenced in the one commit that introduced it (4cdeb73); presumptively expired, confirm-no-reuse/rotate"
+description = "INCIDENT (real): LE TLS key for tollgate.dns4sats.xyz — silenced in the one commit that introduced it (4cdeb73); verified out of service 2026-10-09 (no TLS listener at the domain); never reuse the key material"
 commits = ["4cdeb7330902b78781a762802487ecbca87dd53d"]
 
 # --- History-only verdicts: dev-default nym identity hex (8a45d0ad…) baked
