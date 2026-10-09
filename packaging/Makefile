@@ -150,7 +150,11 @@ define Build/Prepare
 	[ -f "$(PREBUILT_CLI)" ] || { echo "ERROR: prebuilt CLI not found at $(PREBUILT_CLI)." >&2; exit 1; }
 	$(CP) $(PREBUILT_BIN) $(PKG_BUILD_DIR)/tollgate-wrt
 	$(CP) $(PREBUILT_CLI) $(PKG_BUILD_DIR)/tollgate
-	[ -f "$(PKG_MAKEFILE_DIR)LICENSE" ] && $(CP) $(PKG_MAKEFILE_DIR)LICENSE $(PKG_BUILD_DIR)/LICENSE || true
+	# Required, not best-effort (#751): the license text ships with the
+	# binary (see Package/install), so a build that cannot find it fails
+	# loudly instead of silently shipping a GPL binary without its license.
+	[ -f "$(PKG_MAKEFILE_DIR)LICENSE" ] || { echo "ERROR: LICENSE not found at $(PKG_MAKEFILE_DIR)LICENSE — a GPL-3.0 binary must ship with its license text." >&2; exit 1; }
+	$(CP) $(PKG_MAKEFILE_DIR)LICENSE $(PKG_BUILD_DIR)/LICENSE
 endef
 
 define Build/Configure
@@ -226,6 +230,16 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/usr/share/man/man8
 	$(INSTALL_DATA) $(PKG_MAKEFILE_DIR)files/man/man8/*.8 $(1)/usr/share/man/man8/
+
+	# GPL-3.0: a copy of the license travels with the binary (#751). The
+	# SDK-free .ipk lanes (packaging/local-build-ipk.sh, the CI ipk lane)
+	# already stage it here; the SDK .apk lane was metadata-only
+	# (PKG_LICENSE_FILES feeds the feed's license manifest, not the payload),
+	# which made the same version ship different contents per format — the
+	# lone content delta between the lanes. Compliance-conservative and
+	# byte-equivalence-restoring: both formats now carry the text.
+	$(INSTALL_DIR) $(1)/usr/share/doc/$(PKG_NAME)
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/LICENSE $(1)/usr/share/doc/$(PKG_NAME)/LICENSE
 endef
 
 FILES_$(PKG_NAME) += \

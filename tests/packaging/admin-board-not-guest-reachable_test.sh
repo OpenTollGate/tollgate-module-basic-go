@@ -172,6 +172,10 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 export PAYLOAD="$WORK/payload"
 mkdir -p "$PAYLOAD"
+# The GPL license ships at usr/share/doc/tollgate-wrt/LICENSE in both release
+# lanes (#751) and assert-artifact-contents.sh hard-fails any package
+# missing it — stage the real text so the fixture artifact matches a real one.
+install -D -m 0644 "$ROOT/LICENSE" "$PAYLOAD/usr/share/doc/tollgate-wrt/LICENSE"
 installed=0
 while IFS= read -r line; do
     case "$line" in

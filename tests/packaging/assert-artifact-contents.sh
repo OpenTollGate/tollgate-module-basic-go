@@ -172,5 +172,24 @@ if [ -s "$MISSING" ]; then
     echo "   ruleset invariant checked above)"
 fi
 
+# ------------------------------------------------------- GPL license (#751)
+# A GPL-3.0 binary ships WITH its license text — in BOTH package formats,
+# at the same payload path (usr/share/doc/tollgate-wrt/LICENSE). This is a
+# hard assertion, not the informational divergence report above: a package
+# that drops the text is a compliance defect and fails the build here,
+# whichever lane produced it.
+LICENSE_PAYLOAD="usr/share/doc/tollgate-wrt/LICENSE"
+if [ -s "$ARTIFACT_ROOT/$LICENSE_PAYLOAD" ]; then
+    echo "PASS: GPL license text ships at /$LICENSE_PAYLOAD ($(wc -c <"$ARTIFACT_ROOT/$LICENSE_PAYLOAD") bytes)"
+else
+    echo
+    echo "FAIL: /$LICENSE_PAYLOAD is missing or empty — a GPL-3.0 binary must"
+    echo "  ship with its license text (#751). Both lanes stage it:"
+    echo "  packaging/Makefile (SDK .apk), packaging/local-build-ipk.sh and the"
+    echo "  CI ipk lane (.ipk)."
+    rm -rf "$WORK"
+    exit 1
+fi
+
 echo
 echo "PASS: all $nft_expected etc/nftables.d/*.nft ruleset file(s) are packaged intact (and nothing else is)."
