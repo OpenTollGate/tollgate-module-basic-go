@@ -14,6 +14,21 @@ on:
       - "**.md"
       - "docs/**"
   pull_request:
+    # #816 frugality: ~22 jobs (5 cross-compiles + 17 package lanes +
+    # happy-path) is release-candidate spend. A PR only owes that proof when
+    # it can change what ships; docs-, tests- and CI-only PRs skip the
+    # matrix entirely. Pushes to main and tags keep the full pipeline.
+    paths:
+      - "src/**"
+      - "packaging/**"
+      - "tests/packaging/**"
+      - "tests/happy-path/**"
+      - "scripts/build-sdk-package.sh"
+      - "scripts/build-env.sh"
+      - ".github/workflows/build-package.yml"
+      - "go.mod"
+      - "src/**/go.mod"
+      - "src/**/go.sum"
     paths-ignore:
       - "**.md"
       - "docs/**"
