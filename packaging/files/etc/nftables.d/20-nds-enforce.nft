@@ -1,4 +1,8 @@
-# NDS fw4/nftables enforcement bridge
+# NDS fw4/nftables enforcement bridge — RENDERED FILE, do not edit.
+# Rendered by /usr/local/bin/tollgate-nds-preauth-render from nodogsplash's
+# uci preauthenticated_users allowlist (#754); the shipped pristine copy and
+# the renderer's empty-allowlist output are byte-identical by contract
+# (tests/contract/check-nds-preauth-nft.sh).
 #
 # NDS 5.0.2 inserts enforcement chains in ip filter FORWARD (iptables-nft).
 # On OpenWrt 24.10, fw4's inet fw4 forward chain (priority 0) accepts
@@ -15,14 +19,14 @@
 # Loaded by fw4 on boot and on `fw4 reload` / `/etc/init.d/firewall reload`.
 # Survives NDS restarts (independent of NDS process lifecycle).
 #
-# ORDERING (#754): this chain's terminal reject runs BEFORE nodogsplash's own
-# compiled pre-auth accepts (priority 0), which is why the pre-auth FORWARD
-# allowlist (uci preauthenticated_users) is NOT compiled by nodogsplash into
-# anything that executes — it is rendered by
-# /usr/local/bin/tollgate-nds-preauth-render into 21-nds-preauth-allow.nft, a
-# base chain at priority -2 that accepts allowlisted flows ahead of this
-# chain's reject. Do not move accept logic for that allowlist here or into
-# nodogsplash config: the -2 fragment is the one place it executes.
+# THE PRE-AUTH ALLOWLIST LIVES AT THE TOP OF THIS CHAIN (#754): nodogsplash
+# compiles preauthenticated_users at priority 0, which this chain's rules
+# preempt — so the renderer injects the allowlist's accepts as the FIRST
+# rules of this chain, ahead of the pre-auth mark-drop and the terminal
+# reject. They cannot be a separate base chain at any priority: a base
+# chain's accept ends evaluation in that chain only, and this chain would
+# still drop/reject the flow afterwards (refuted live on nft 1.1.7 — see the
+# #782 review).
 
 chain nds_enforce_forward {
     type filter hook forward priority -1; policy accept
