@@ -151,15 +151,22 @@ account is never re-enabled by any of this.
 
 Installing the package by hand skips the installer, and with it the installer's
 verification. The release carries what you need to do that check yourself: a
-SHA256SUMS listing every asset, a SHA256SUMS.sig that is an OpenSSH ed25519
-signature of that listing, and the public half committed at
-.github/release-keys/release-signing.pub in FreedomTechFeed/packages. Verify
-the signature, then the bytes — in that order:
+SHA256SUMS listing every asset, and a SHA256SUMS.sig that is an OpenSSH ed25519
+signature of that listing. The signing key's public half is committed to
+FreedomTechFeed/packages in two forms — the bare key at
+.github/release-keys/release-signing.pub, and the allowed-signers entry the
+verifier actually consumes at .github/release-keys/allowed_signers. Fetch the
+latter; the two are the same key in different formats, and only the
+allowed-signers file satisfies the verifier's -f option alongside the
+release-signing@freedomtechfeed identity below.
+
+Verify the signature, then the bytes — in that order:
 
 ```sh
 BASE=https://github.com/FreedomTechFeed/packages/releases/download/v0.6.0-rc1-pre26
 curl -fsSLO "$BASE/SHA256SUMS"
 curl -fsSLO "$BASE/SHA256SUMS.sig"
+curl -fsSL https://raw.githubusercontent.com/FreedomTechFeed/packages/master/.github/release-keys/allowed_signers -o allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I release-signing@freedomtechfeed \
   -n freedomtechfeed-release-manifest -s SHA256SUMS.sig < SHA256SUMS
 sha256sum --check --strict SHA256SUMS

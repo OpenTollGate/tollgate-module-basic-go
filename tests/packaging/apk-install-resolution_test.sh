@@ -52,7 +52,13 @@ else
 fi
 # One chain makes an unsigned artifact safe to install: verify the signed
 # manifest, then the bytes. If the docs lose a link, the chain is gone.
-for needle in "--allow-untrusted" "SHA256SUMS.sig" "release-signing.pub"; do
+#
+# allowed_signers is the load-bearing one: it is the file ssh-keygen -Y verify
+# actually consumes via -f, and it is NOT interchangeable with the bare public
+# key (release-signing.pub) that sits beside it — the allowed-signers format
+# carries the principal the -I identity is matched against. Docs that name only
+# the .pub send the reader to a file the verifier rejects.
+for needle in "--allow-untrusted" "SHA256SUMS.sig" "allowed_signers" "release-signing.pub"; do
     if grep -qF -- "$needle" README.md; then
         echo "trust: ok — README documents $needle"
     else
