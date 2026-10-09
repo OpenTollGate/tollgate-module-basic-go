@@ -55,8 +55,14 @@ func newResumeSigningMint(t *testing.T) *resumeSigningMint {
 		m.privs[a] = h
 		pubs[a] = h.PubKey()
 	}
+	// The keyset ID is DERIVED from the public keys (crypto.DeriveKeysetId),
+	// not invented: gonuts v0.14.0's NUT-13 verification (tollgate #705,
+	// fork #37) refuses a mint whose advertised ID does not match its keys —
+	// the guard fired on this fixture's first draft, which is the guard
+	// working.
+	derivedID := crypto.DeriveKeysetId(pubs)
 	m.keyset = crypto.WalletKeyset{
-		Id:         "00" + hex.EncodeToString([]byte("resumetest")),
+		Id:         derivedID,
 		MintURL:    "placeholder",
 		Unit:       "sat",
 		Active:     true,
@@ -234,5 +240,9 @@ func TestWalletLoadKeepsIntentWhenMintStaysDown(t *testing.T) {
 		t.Fatalf("wallet load took %s with the mint down — recovery is running on the boot critical path (baseline ~16s; a synchronous replay adds >=30s per intent)", elapsed)
 	}
 	t.Logf("wallet load with mint down: %s (LoadWallet baseline; recovery deferred to background)", elapsed)
-	_ = wb // the intent stays recorded in the db; a later load retries it
+	// wb is deliberately NOT shut down: the point is that the journaled
+	// intent outlives this process — exactly what process death on a router
+	// leaves behind. On Linux the open db file unlinks fine, so TempDir
+	// cleanup is unaffected.
+	_ = wb
 }

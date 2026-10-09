@@ -93,8 +93,15 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	// INTENT — the exact request bytes, secrets and blinding factors,
 	// persisted atomically with the counter reservation BEFORE the POST
 	// (gonuts v0.13.1). Replaying the intent against the mint reconstructs
-	// those proofs; mints sign deterministically, so a re-POST returns the
-	// same signatures (verified against cdk-mintd 0.17.6).
+	// those proofs WHEN the mint honours NUT-19 replay: the identical
+	// signatures come from the mint's response cache (cdk-mintd default:
+	// in-memory, ~60 s TTL), not from stateless deterministic signing.
+	// Beyond the cache window a mint that already processed the swap
+	// refuses with NUT-19 error 11001 "Proofs already spent" — the intent
+	// then stays journaled, visible-not-lost, pending a NUT-09 /restore
+	// fallback (fork-level follow-up; #497 comment 2 corrected the earlier
+	// "verified against cdk-mintd 0.17.6" finding, whose quick-restart
+	// harness always replayed inside the TTL).
 	//
 	// Runs in the BACKGROUND, never on the boot critical path: an intent
 	// whose mint is down at boot costs its replay timeout (30 s each), and
@@ -103,6 +110,14 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	// returns later recovers its value on the next wallet load, and nothing
 	// is lost by deferring. Idempotent: SaveProofs is keyed by secret, so a
 	// replay whose proofs already exist is a no-op.
+	//
+	// The goroutine is deliberately fire-and-forget: Shutdown may race an
+	// in-flight pass, and that is safe — the replay re-POSTs journaled
+	// bytes (idempotent under NUT-19) and a per-intent failure retains the
+	// intent for the next load. Do not make this synchronous: boot must
+	// never pay the replay timeout. (Consequence: the boot log's
+	// "Wallet Balance" line excludes recovered value; the recovery pass
+	// logs its own recovered total as its reconciliation point.)
 	go func() {
 		recovered, failed, resumeErr := cashuWallet.ResumePendingSwaps()
 		switch {
