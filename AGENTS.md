@@ -143,6 +143,95 @@ than inventing new harnesses.
   breaks that (e.g. cdk-go FFI on MIPS) belongs behind the sidecar, not
   in-process.
 
+## Environment truth and drift doctrine
+
+Every drift incident in this repo's history has the same shape: a fact
+(a pin, a port pair, a bridge name, a toolchain version) was written down
+in more than one place, and the copies diverged — #791's gonuts pin
+("four go.mod files today" in this file missed a fifth carrier), the
+entry_ui port table declared twice (#746), and the audit in #796. The
+rules below exist so agents cannot reintroduce the class; follow them
+even when a local copy looks easier.
+
+1. **One declaration per fact.** Every environment constant — bridge
+   names, admin port pairs, brand prefixes, toolchain and fork pins —
+   is declared in exactly one place; everything else consumes it or is
+   fenced to it. Restating a value in a second file is how every drift
+   started, including the ones nobody has caught yet.
+2. **Discovery by glob, never enumeration.** Checks and scripts find
+   their subjects at run time (`rglob("go.mod")`, `find src -name
+   go.mod`). Never write a count or list of carriers, modules, or
+   fragments in prose, comments, or config — "four go.mod files today"
+   rots the day a module lands outside the boundary. Say what the check
+   discovers, not how many it found.
+3. **Manifest truth for externals.** Every external build input is
+   pinned in `packaging/build-inputs.json` (Go, node, portal, both SDK
+   eras, the gonuts fork) and audited from there. A new external pin
+   goes into the manifest with a fence — never into a workflow literal,
+   a script constant, or a README table.
+4. **Behavioral fences with planted-drift verdicts.** Duplication you
+   cannot remove (two languages, two packages, canonical + embedded
+   copies) gets a fence that EXECUTES both sides and compares — the
+   `check-entry-ui-ports.sh` pattern — plus a verdicts harness that
+   plants the drift and requires the refusal. A fence that cannot fail
+   is decoration.
+5. **Generators write every copy.** When copies must exist, one tool
+   rewrites them all in a single run (the cross-vectors generator, the
+   gonuts bump script), so a half-update cannot happen. Never update
+   one copy of a set by hand.
+
+### Network and interface names
+
+The router's bridge vocabulary is a device fact, not a code choice:
+`br-lan` is the customer/guest network (never an administration path),
+`br-private` carries the private SSID and the physical LAN ports (the
+admin path), `br-mgmt` is the optional management bridge (refused while
+absent). The vocabulary is declared once, in Go:
+`src/cli/operator_settings.go`'s constants. Shell code and nft fragments
+must not invent bridge names; adding one is a schema + docs + fence
+change, never a local literal. Interface sets vary by model and radio —
+resolve them at runtime by probing (`/sys/class/net`, `uci show
+network`), never by per-model or per-target lists. Known unfenced
+duplications live in the #796 fence backlog; do not add to them.
+
+### Firewall fragments
+
+Two mechanisms, by design: static fragments shipped under
+`packaging/files/etc/nftables.d/`, and the runtime-generated
+`34-admin-access-scope.nft` the applier writes from the Go constants. A
+port or interface literal in a static fragment is a declaration — it
+must be fenced against the same table the setup script is
+(`check-entry-ui-ports.sh`'s D2 anchors; see #796 F2), and no new
+fragment lands without a packaging test asserting its ports and
+interfaces against that table.
+
+### The two OpenWrt eras
+
+Distinguish eras by package manager, never by release strings:
+`command -v apk` answers the apk era (25.x), `command -v opkg` the ipk
+era (≤24.10). Parsing `/etc/openwrt_release` where the probe answers is
+a bug. Build truth is `build-inputs.json`'s `openwrt_sdk.releases.{apk,
+ipk}` (both eras' SDK digests pinned); the pinned `.go.version` tracks
+the apk era; `scripts/sdk-go-version.sh` audits `go_per_release`
+against the live feeds; the ipk-era SDK stages prebuilt binaries, so
+its older feed Go never compiles the tree.
+
+Support policy (#796): **25.12/apk is the only feature target.**
+24.10.8/ipk is a frozen compatibility lane for the installed base —
+security and stop-ship fixes only, no features, matrix rows retained.
+The lane's sunset is a deliberate release-time decision with fleet
+evidence (lab registry, tester intake), never a silent drop and never
+mid-freeze.
+
+### Cross-repo halves
+
+Some contracts span two packages (the entry-port mapping is written by
+this module's `99-tollgate-setup` AND the feed's
+`92-tollgate-admin-setup`). The named decision record in
+`docs/architecture/` is the truth; changes ship gated on both halves
+(the WARNING-named re-vendor contract in the README). A cross-repo
+contract without a named decision record is a bug.
+
 ## Hardware and VM testing (labgrid)
 
 All router- and VM-based testing is coordinated through **labgrid**
