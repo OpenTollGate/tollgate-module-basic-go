@@ -77,10 +77,26 @@ func TestSetOnFirstReachableForDegraded_FiredOnce(t *testing.T) {
 		atomic.AddInt32(&called, 1)
 	})
 
+	// The wallet-failure degraded start registers this trigger while mints
+	// are already reachable (the failure was the wallet, not the mints — see
+	// the degraded branch in newMerchant). The reset inside the setter is
+	// what makes the next check fire the upgrade attempt, so "no callback
+	// when already reachable" is the WRONG contract: it contradicted
+	// TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset and
+	// passed only when the callback's goroutine lost the race to this test's
+	// instant counter read (#732's 2/25 flake). The real contract is exactly
+	// once: fire on the first check after registration, never again.
+	tracker.RunProactiveCheck()
+	tracker.RunProactiveCheck()
 	tracker.RunProactiveCheck()
 
-	if atomic.LoadInt32(&called) != 0 {
-		t.Errorf("expected no callback when already reachable from initial probe, got %d", atomic.LoadInt32(&called))
+	if !waitFor(t, 2*time.Second, func() bool { return atomic.LoadInt32(&called) == 1 }) {
+		t.Fatalf("expected the callback to fire exactly once, got %d", atomic.LoadInt32(&called))
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if got := atomic.LoadInt32(&called); got != 1 {
+		t.Errorf("the callback fired again after the first check: got %d, want 1", got)
 	}
 }
 
