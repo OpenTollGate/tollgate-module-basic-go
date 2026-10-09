@@ -43,6 +43,7 @@ BUILD_SCRIPTS = {
     "build-env.sh",             # shared: manifest-pinned environment
     "portal-build.sh",          # asset build (portal bundle, not a package path)
     "normalize-apk-version.sh", # apk packaging helper
+    "normalize-ipk-version.sh", # ipk packaging helper (#738: Debian pre-release ordering)
     "update-build-inputs.sh",   # manifest refresher (not a build path)
     "sdk-go-version.sh",        # manifest audit (not a build path)
 }
