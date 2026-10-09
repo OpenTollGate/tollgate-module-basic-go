@@ -143,6 +143,66 @@ than inventing new harnesses.
   breaks that (e.g. cdk-go FFI on MIPS) belongs behind the sidecar, not
   in-process.
 
+## Firewall, nftables, and topology-naming rules of engagement
+
+Every rule here was learned from a bench-verified failure on the 0.6.0
+train (#754, #755, #756, #757, PR #782's first design, and the 2026-10-09
+stop-ship reviews). If a change touches `/etc/nftables.d/`, interface
+names, or anything that reloads the firewall, this section governs it.
+
+- **Accept is not final across base chains.** In nftables only `drop` and
+  `reject` terminate; a packet accepted by one base chain still traverses
+  later base chains on the same hook (nftables wiki, "Configuring
+  chains"). An accept in a separate earlier-priority chain can therefore
+  NEVER shield a flow from a later chain's reject — a fully green
+  render-level contract suite hid exactly this bug in PR #782's first
+  design (a −2 accept chain "ahead of" the −1 reject), and only a live
+  dataplane rig caught it. To exempt flows from a terminal rule: put the
+  accepts in the SAME chain ahead of it, or set a mark an earlier rule in
+  that chain already honors.
+- **Never install firewall rules at runtime** (`nft add/insert`): `fw4
+  reload` rebuilds the ruleset from files and silently wipes them.
+  Firewall state lives only in `/etc/nftables.d/*.nft` files (fragments
+  rewritten by a renderer on convergence are the sanctioned pattern).
+- **No interface-name literals in rule lines — shipped or GENERATED.**
+  fw4 includes `/etc/nftables.d/*.nft` inside `table inet fw4` in lexical
+  order, so `$tg_portal_if` / `$tg_private_if` from
+  `00-tollgate-defs.nft` (re-rendered from the router's own config,
+  #757) are in scope for every later include. Generated fragments must
+  use the defines too: the Go-side `34-admin-access-scope.nft` generator
+  (`src/cli/operator_settings.go`) emitting literal bridge names is the
+  known open instance, and #601's planned static `33-` fragment must
+  follow the same rule.
+- **Same-priority base chains have unspecified order.** NDS's
+  `ip filter FORWARD` (iptables-nft) and fw4's `inet fw4 forward` both
+  sit at priority `filter`; the whole enforcement bridge relies on their
+  relative registration order (see `20-nds-enforce.nft`'s header). Never
+  add a new base chain at a priority where cross-chain ordering matters —
+  pick an earlier/later priority deliberately.
+- **`fw4 reload` procd-restarts nodogsplash** and wipes its runtime
+  trust/auth state (bench-verified on 25.12). Any change that adds or
+  widens a reload trigger must state what NDS state dies, what restores
+  it (keepalive contract), and how long customers are interrupted.
+- **"lan" is three namespaces, not one.** The bridge DEVICE (`br-lan`),
+  the network SECTION (`lan`), and the firewall ZONE (`lan`) — plus
+  `dhcp.lan` and dnsmasq's `local=/lan/` — are independent uci objects
+  that share a string by convention only. Renaming one does not rename
+  the others: fw4 skips a renamed zone ref with **exit 0** and no syslog
+  (#755), setup used to rebind APs to a deleted `network.lan` (#756),
+  and netifd regenerates `/etc/config/wireless` bound to `lan` after the
+  file is deleted (caught by the topology self-check, 2026-10-09).
+  Topology-touching code resolves names from the router's own config
+  (the `resolve_*` helpers in `99-tollgate-setup`), warns loudly on
+  every non-stock decision, and never silently skips.
+- **Go-side interface literals are the same bug class outside the .nft
+  files.** Known sites (grep before touching interface naming):
+  `src/cli/operator_settings.go` (admin-scope generator),
+  `src/identity/identity.go` (`StandardInterfaces` — feeds npub-derived
+  attributes), the `ignore_interfaces` default in `config_manager`
+  (a renamed captive bridge falls out of the probe-exclusion list → the
+  upstream detector can probe its own portal bridge), and
+  `src/upstream_detector`'s bridge-exclusion lists.
+
 ## Hardware and VM testing (labgrid)
 
 All router- and VM-based testing is coordinated through **labgrid**
@@ -183,6 +243,39 @@ the artifact is the published bytes from a kind-`1063` event
 (hash-pinned via its `x` tag) or, for pre-tag candidates, a local
 `scripts/build-sdk-package.sh` build whose sha256 is recorded in the
 evidence.
+
+### Where each class of verification lives (single source of truth)
+
+Complexity has outgrown any single rig — each class has ONE canonical
+home, and a change is verified where its failure class is observable:
+
+- **Contract suites** (`tests/contract/`, offline, both CI lanes):
+  render-level and structural checks. They CANNOT catch dataplane
+  semantics — PR #782's contract suite was green while its ordering was
+  dead (see the firewall section). Every contract suite must be
+  mutation-checked before it ships: revert the guarded fix and confirm
+  the suite FAILS; a suite that still passes on the broken shape has
+  decorative assertions. Equally: a gate cited as protection must
+  actually test the thing it is cited for (#778's build-purity claim).
+- **Bench QEMU lanes** (per OpenWrt era — both 24.10 and 25.12 matter,
+  their netifd/nft behavior differs): dataplane ordering and packet
+  counters. The #754/#755/#757 re-verify legs with counter asserts are
+  the model. Bench VM images must pass an image-doctor check (depmod
+  present, kmods non-zero-byte, wpad/veth/ip-full installed) before a
+  campaign — stock minimal images ship without them.
+- **PRTA** (the `physical-router-test-automation` repo — the deployed-lab
+  and campaign harness): `scripts/extensive-test.sh` (tiered campaign),
+  the wifi suites (`test_mac80211_hwsim.py`: in-guest radios — scan,
+  associate, DHCP, reconnect; `test_virtual_wifi_hwsim_netns.py`: netns
+  plane, dual-AP captive journeys; the `--vwifi` cross-VM 802.11 relay
+  on the cloud lane), and `scripts/0.6.0-validation/` (phases A–G plus
+  the 24h soak). New topology/journey scenarios belong THERE, as cases
+  in these suites — not as scratch bench scripts that rot in /tmp.
+- **cloud-lab crash lanes** (`tests/cloud-lab/`): the fund-safety
+  kill/restart boundaries from the section above; runs anywhere with
+  docker (ai-legion has it).
+- **Labgrid physical tier**: real RF, real client devices, power-pull
+  windows, era-specific kernels (e.g. mt7621 bridge-teardown behavior).
 
 ## Contributing process
 
@@ -228,18 +321,19 @@ gather, the criteria, the report shape, and the citation format.
 
 ## Changelog requirements
 
-Every user-visible change lands with an entry in
-[CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`:
-
-- Categories: `Added`, `Fixed`, `Changed / Internal` (CI, tests,
-  refactors, and docs go in the last one).
-- One bullet per change, bold lead-in phrase, linking the PR as
-  `([#N](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/N))`.
-  Match the existing entries' wrapped style.
-- Doc-only or purely internal one-liners may be batched, but don't
-  skip the entry — the changelog is finalized into release notes at
-  release time (`[Unreleased]` becomes `[vX.Y.Z] - date`, and
-  [RELEASE-NOTES.md](RELEASE-NOTES.md) is rewritten per release).
+Every user-visible change lands as a **fragment** under
+[changelog.d/](changelog.d/): `changelog.d/<pr-number>-<short-slug>.<type>.md`,
+where `<type>` is `added|changed|internal|deprecated|fixed|removed|security`.
+The file body **is** the bullet: it starts with `- `, wraps as you want it in
+the changelog, and ends with the PR link
+`([#N](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/N))`.
+The maintainer folds fragments into
+[CHANGELOG.md](CHANGELOG.md) at release time. **Never edit CHANGELOG.md from
+a PR** — five PRs editing the same `[Unreleased]` anchor conflicted a dozen
+times on the 0.6.0 train (#524, #531), which is why fragments exist; a
+`--ours` conflict resolution twice resurrected already-moved entries.
+(`tests/contract/check-changelog-duplicates.py` guards the fold; do not
+bypass it by hand-editing.)
 
 ## Builds and releases on Nostr
 
