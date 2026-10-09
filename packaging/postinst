@@ -23,6 +23,24 @@ for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
     fi
 done
 
+# IPv6 is disabled at INSTALL time, before the network restart below applies
+# it — the marker-driven setup driver may take a verify/repair path whose
+# policy list predates this rule, but the pre-auth bypass (#783) must close
+# the moment the package lands, not at the next full-setup pass (#148/#783).
+uci set dhcp.lan.ra='disabled'
+uci set dhcp.lan.dhcpv6='disabled'
+uci set network.lan.ip6assign='0'
+uci set network.lan.ipv6='0'
+if uci -q get network.wan >/dev/null 2>&1; then
+    uci set network.wan.ipv6='0'
+fi
+if uci -q get network.wan6 >/dev/null 2>&1; then
+    uci set network.wan6.disabled='1'
+fi
+uci commit dhcp 2>/dev/null || true
+uci commit network 2>/dev/null || true
+echo "IPv6 disabled globally at install time (captive-portal bypass prevention, #148/#783)"
+
 echo "Restarting network..."
 /etc/init.d/network restart 2>/dev/null || true
 wait_for_iface br-lan
