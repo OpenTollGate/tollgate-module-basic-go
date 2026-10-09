@@ -77,11 +77,9 @@ func TestLateReceiveNoticeIsHonestAndCarriesAReference(t *testing.T) {
 		return valve.ClientState{Registered: true}, nil
 	})
 
-	// The production deadline is a var precisely so this window can be tested
-	// without waiting 30 s (the same seam style as preflightRetryDelayDefault).
-	prevTimeout := receiveTimeout
-	receiveTimeout = 25 * time.Millisecond
-	t.Cleanup(func() { receiveTimeout = prevTimeout })
+	// The deadline seam is per merchant, so this window is tested without
+	// waiting out the 30 s default (the same seam style as clientProbeDelay).
+	m.receiveTimeout = 25 * time.Millisecond
 
 	logs := capturedStdLogs(t)
 
@@ -161,10 +159,7 @@ func TestLateReceiveReturnsANoticeWhileReceiveIsStillInFlight(t *testing.T) {
 	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
-
-	prevTimeout := receiveTimeout
-	receiveTimeout = 20 * time.Millisecond
-	t.Cleanup(func() { receiveTimeout = prevTimeout })
+	m.receiveTimeout = 20 * time.Millisecond
 
 	started := time.Now()
 	event, err := m.PurchaseSession("cashuBsubmitted-note", "AA:BB:CC:DD:EE:FF")

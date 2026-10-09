@@ -177,10 +177,7 @@ func lateOutcomeCase(t *testing.T, amount uint64, receiveErr error) (*Merchant, 
 	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
-
-	prevTimeout := receiveTimeout
-	receiveTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { receiveTimeout = prevTimeout })
+	m.receiveTimeout = 150 * time.Millisecond
 
 	return m, wallet, release, captureSyncLogs(t)
 }
