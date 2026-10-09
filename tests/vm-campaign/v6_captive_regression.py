@@ -31,6 +31,7 @@ the rig can never collide with sibling lanes' ports):
 Usage (ai-legion): see README.md. Defaults point at the shared image and the
 rc1 package closure; every knob is an env var.
 """
+import hashlib
 import http.server
 import os
 import re
@@ -60,18 +61,36 @@ HTTPD = None
 HTTPD_PORT = 0
 
 PASS = FAIL = 0
+VERDICTS = None  # evidence-side verdict log, opened in main()
+
+
+def vlog(line):
+    # Verdicts must live in the EVIDENCE dir, not only on the driver's
+    # stdout: a committed console.log without the PASS/FAIL lines is not
+    # verifiable evidence (the round-1 review's finding).
+    print(line, flush=True)
+    if VERDICTS:
+        VERDICTS.write(line + "\n")
 
 
 def check(name, ok, detail=""):
     global PASS, FAIL
-    print(f"{'PASS' if ok else 'FAIL'} {name} {detail}", flush=True)
+    vlog(f"{'PASS' if ok else 'FAIL'} {name} {detail}".rstrip())
     PASS, FAIL = PASS + (1 if ok else 0), FAIL + (0 if ok else 1)
     return ok
 
 
 def die(msg):
-    print(f"FATAL {msg}", flush=True)
+    vlog(f"FATAL {msg}")
     sys.exit(2)
+
+
+def sha256(path, _buf=1 << 20):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(_buf):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 # ---------------------------------------------------------------- console
@@ -192,7 +211,7 @@ def ra_count(con, cap_file):
 
 
 def main():
-    global CONSOLE_LOG
+    global CONSOLE_LOG, VERDICTS
     os.makedirs(WORK, exist_ok=True)
     for p in (IMAGE, PKGDIR):
         if not os.path.exists(p):
@@ -204,6 +223,15 @@ def main():
         avail = int(next(l for l in f if l.startswith("MemAvailable")).split()[1]) // 1024
     if avail < int(MEM) // 2 + 512:
         die(f"only {avail}MiB available — refusing to start a {MEM}M VM on a loaded host")
+
+    VERDICTS = open(f"{WORK}/verdicts.log", "a", buffering=1)
+    VERDICTS.write(
+        f"v6-captive campaign {time.strftime('%Y-%m-%dT%H:%M:%S%z')} "
+        f"ra_window={RA_WINDOW_S}s mem={MEM}\n"
+        f"image {IMAGE} sha256={sha256(IMAGE)}\n"
+    )
+    for a in APKS:
+        VERDICTS.write(f"apk {a} sha256={sha256(os.path.join(PKGDIR, a))}\n")
 
     start_httpd()
     boot_qemu()
@@ -274,6 +302,28 @@ def main():
     ).replace("uci: Entry not found", "MISSING").split() if v.strip()]
     check("t1-uci-ipv6-off", vals == ["disabled", "disabled", "0"], f"ra/dhcpv6/ip6assign = {vals}")
 
+    # -- T1b: the #815 global axes, conditional on artifact era ----------
+    # #815 (the #783 mitigation) adds network.lan.ipv6='0',
+    # network.wan.ipv6='0', network.wan6.disabled='1'. On a pre-#815
+    # artifact (e.g. the rc1 closure) none of those keys exist — skip, not
+    # fail. On a post-#815 artifact the first two must hold; wan6 only when
+    # the image actually has a wan6 section (#815's writer is
+    # existence-checked there — wan6-less is adoption, not error).
+    lan6 = con.fetch("uci -q get network.lan.ipv6").strip()
+    if not lan6:
+        check("t1b-uci-ipv6-global-off", True, "skipped: pre-#815 artifact (network.lan.ipv6 unset)")
+    else:
+        wan6_has = bool(con.fetch("uci -q show network.wan6 2>/dev/null").strip())
+        wan6_ok = (not wan6_has) or con.fetch("uci -q get network.wan6.disabled").strip() == "1"
+        check(
+            "t1b-uci-ipv6-global-off",
+            lan6 == "0"
+            and con.fetch("uci -q get network.wan.ipv6").strip() == "0"
+            and wan6_ok,
+            f"lan.ipv6={lan6} wan.ipv6={con.fetch('uci -q get network.wan.ipv6').strip()!r} "
+            f"wan6={'n/a' if not wan6_has else con.fetch('uci -q get network.wan6.disabled').strip()!r}",
+        )
+
     # -- T2: RA wire silence ----------------------------------------------
     con.run("tcpdump -i br-lan -nn 'icmp6 and ip6[40] == 134' -c 4 > /tmp/ra-watch.txt 2>&1 &", 20)
     time.sleep(RA_WINDOW_S)
@@ -324,7 +374,7 @@ def main():
     portal_n = int(m.group(1)) if m else 0
     check("t6b-v4-portal-fetch-preauth", portal_n > 100, f"bytes={portal_n}")
 
-    print(f"SUMMARY PASS={PASS} FAIL={FAIL} evidence={WORK}", flush=True)
+    vlog(f"SUMMARY PASS={PASS} FAIL={FAIL} evidence={WORK}")
     return 0 if FAIL == 0 else 1
 
 
