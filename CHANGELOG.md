@@ -18,6 +18,16 @@ and [Semantic Versioning](https://semver.org/).
   cross-compile (the rc1 artifact matrix's two missing rows)
   ([#717](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/717)).
 
+- **The late-receive outcome test no longer races its own log.** The
+  #700 test sampled "the last non-deadline log line" while the code path
+  under test logs two lines in fixed order (the COMPLETED record, then
+  the unconditional owed-grant ERROR) — the pass depended on
+  snapshotting between them, and the #681 dependency sweep's goroutine
+  timing flipped it deterministically in some environments, leaving
+  `make go-battery` red on main. The selection now names the record it
+  wants
+  ([#718](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/718)).
+
 - **CHANGELOG duplicate entries are now a checked contract.** Resolving a
   CHANGELOG conflict with a section-level "take ours" can resurrect an entry a
   branch had already moved or reworded, leaving one change described twice (this
