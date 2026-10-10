@@ -20,16 +20,17 @@ import (
 // (NUT-07: states MUST match the request; correlation makes a lying
 // mint's job harder than counting did).
 
+const correlationTestKeysetsJSON = `{"keysets":[{"id":"009a1f293253e41e","unit":"sat","active":true,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}]}`
+
 // newLyingCheckStateMint answers the requested Ys UNSPENT and then appends
 // the injected extra state entries — the shapes a mint must not be able to
 // sneak past: a foreign Y, or a duplicate of a requested one.
 func newLyingCheckStateMint(t *testing.T, extraStates []map[string]string) *httptest.Server {
 	t.Helper()
-	keysetsJSON := `{"keysets":[{"id":"009a1f293253e41e","unit":"sat","active":true,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}]}`
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/keys", "/v1/keysets":
-			fmt.Fprint(w, keysetsJSON)
+			fmt.Fprint(w, correlationTestKeysetsJSON)
 		case "/v1/checkstate":
 			var req struct {
 				Ys []string `json:"Ys"`
@@ -63,10 +64,13 @@ func newLyingCheckStateMint(t *testing.T, extraStates []map[string]string) *http
 	}))
 }
 
-func checkStateToken(t *testing.T, mintURL, secret string) cashu.Token {
+func checkStateToken(t *testing.T, mintURL string, secrets ...string) cashu.Token {
 	t.Helper()
-	proof := checkStateProof(t, secret)
-	token, err := cashu.NewTokenV3(cashu.Proofs{proof}, mintURL, cashu.Sat, false)
+	proofs := make(cashu.Proofs, len(secrets))
+	for i, s := range secrets {
+		proofs[i] = checkStateProof(t, s)
+	}
+	token, err := cashu.NewTokenV3(proofs, mintURL, cashu.Sat, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,5 +128,52 @@ func TestCheckTokenSpent_DuplicateYIsRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "answered twice") {
 		t.Errorf("error should name the duplicate-Y rejection, got: %v", err)
+	}
+}
+
+// newFixedAnswerCheckStateMint serves one fixed /v1/checkstate body no
+// matter what was asked — the shape of a mint that silently drops proofs
+// from its reply (the third rejection class, the shortfall).
+func newFixedAnswerCheckStateMint(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/keys", "/v1/keysets":
+			fmt.Fprint(w, correlationTestKeysetsJSON)
+		case "/v1/checkstate":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, body)
+		default:
+			http.Error(w, "not found", 404)
+		}
+	}))
+}
+
+func TestCheckTokenSpent_ShortfallIsRejected(t *testing.T) {
+	firstY := func() string {
+		Y, err := crypto.HashToCurve([]byte("shortfall-secret-1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return hex.EncodeToString(Y.SerializeCompressed())
+	}()
+	// Two proofs asked about, one answered: the mint dropped the second Y
+	// from its reply. Under the old counting this was the same hole the
+	// duplicate pads — a partial answer must never count as a verdict.
+	mint := newFixedAnswerCheckStateMint(t, `{"states":[{"Y":"`+firstY+`","state":"UNSPENT"}]}`)
+	defer mint.Close()
+
+	tw, err := New(t.TempDir(), []string{mint.URL}, false)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer tw.Shutdown()
+
+	_, err = tw.CheckTokenSpent(checkStateToken(t, mint.URL, "shortfall-secret-1", "shortfall-secret-2"))
+	if err == nil {
+		t.Fatal("answering fewer Ys than were asked about must be an error, never a verdict")
+	}
+	if !strings.Contains(err.Error(), "1 of 2") {
+		t.Errorf("error should state the shortfall, got: %v", err)
 	}
 }
