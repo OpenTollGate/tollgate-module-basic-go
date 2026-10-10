@@ -11,6 +11,16 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 ### Changed / Internal
 
+- **The duplicate-guard harness installs the ndsctl its grant assertion
+  exercises.** `newDuplicateGuardMerchant` ended by asserting a *granted*
+  session — the only grant-exercising assertion in its file — but installed no
+  fake `ndsctl`, unlike every other grant-exercising test. On a host without
+  `ndsctl` on PATH the third submission died as a grant-pending notice instead,
+  so the file's battery was deterministically red on every bare host/CI runner
+  regardless of any other fix. The harness now installs the same renewal fake
+  the other tests use, scoped to each test's lifetime
+  ([#822](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/822)).
+
 - **The bcm2709 artifact rows build again.** `build-sdk-package.sh`
   defaulted bcm2709 to `EXPECTED_ARCH=arm_cortex-a7`, but the SDK stages
   its packages under `arm_cortex-a7_neon-vfpv4` — the staged-packages
