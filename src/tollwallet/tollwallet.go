@@ -51,6 +51,16 @@ type TollWallet struct {
 	// (late-admission of a recovered mint) while Receive reads it on every
 	// payment.
 	mintMu sync.RWMutex
+	// bootSwapReplayDone closes exactly once, when New's background
+	// pending-swap replay pass has finished (it is also closed immediately
+	// when no intents are journaled). Consumers that must observe
+	// post-replay proof state — the merchant's NUT-07 receive-intent
+	// reconcile, which must not abandon an intent whose proofs the replay
+	// is about to spend — await it via BootSwapReplayDone (#793 review,
+	// crash-lane Appendix B). Completion is bounded by construction: the
+	// pass is one finite loop whose every network call carries a 30 s
+	// client timeout.
+	bootSwapReplayDone chan struct{}
 }
 
 // New creates a new Cashu wallet instance
@@ -82,6 +92,7 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 		acceptedMints:              acceptedMints,
 		allowAndSwapUntrustedMints: allowAndSwapUntrustedMints,
 		registeredMints:            map[string]bool{normalizeMintURL(acceptedMints[0]): true},
+		bootSwapReplayDone:         make(chan struct{}),
 	}
 
 	for _, mintURL := range acceptedMints[1:] {
@@ -119,6 +130,7 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	// "Wallet Balance" line excludes recovered value; the recovery pass
 	// logs its own recovered total as its reconciliation point.)
 	go func() {
+		defer close(tw.bootSwapReplayDone)
 		recovered, failed, resumeErr := cashuWallet.ResumePendingSwaps()
 		switch {
 		case resumeErr != nil:
@@ -131,6 +143,18 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	}()
 
 	return tw, nil
+}
+
+// BootSwapReplayDone yields the channel that closes when the boot
+// pending-swap replay pass has finished attempting every journaled intent
+// (immediately, when none are journaled). Awaiting it is how a caller that
+// needs post-replay proof state — the merchant's NUT-07 receive-intent
+// reconcile, whose abandonment evidence is only stable once no replay can
+// spend the proofs under inspection — sequences itself after the replay
+// without coupling boot to the pass: boot itself never waits on this
+// channel, only affected reconcilers do (#793 crash-lane Appendix B).
+func (tw *TollWallet) BootSwapReplayDone() <-chan struct{} {
+	return tw.bootSwapReplayDone
 }
 
 // normalizeMintURL returns the canonical form of a mint URL: scheme and
