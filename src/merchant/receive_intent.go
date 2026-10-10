@@ -130,6 +130,7 @@ func (s *receiveIntentStore) saveIntents(intents map[string]*receiveIntentRecord
 		return fmt.Errorf("rename temp receive-intents file: %w", err)
 	}
 	cleanup = false
+	fsyncDirAfterRename(s.filePath)
 	return nil
 }
 

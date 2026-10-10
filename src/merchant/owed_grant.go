@@ -155,6 +155,7 @@ func (s *owedGrantStore) saveGrants(grants map[string]*owedGrantRecord) error {
 		return fmt.Errorf("rename temp owed-grants file: %w", err)
 	}
 	cleanup = false
+	fsyncDirAfterRename(s.filePath)
 	return nil
 }
 

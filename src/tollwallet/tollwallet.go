@@ -633,15 +633,39 @@ func (w *TollWallet) CheckTokenSpent(token cashu.Token) (bool, error) {
 		return false, fmt.Errorf("CheckTokenSpent: %w", err)
 	}
 
+	// NUT-07's answer is mint-controlled input, so every state must
+	// answer a Y this wallet actually asked about (#834): a foreign,
+	// duplicated or missing Y is a tampered or buggy answer, and the
+	// pending-intent decisions downstream (abandoned vs owed) must never
+	// be made on it. A token carrying duplicate secrets (therefore
+	// duplicate Ys) is malformed for this evidence and is refused too.
 	anySpent := false
 	seen := 0
 	for _, st := range resp.States {
+		wasAsked := false
+		for _, y := range ys {
+			if y == st.Y {
+				wasAsked = true
+				break
+			}
+		}
+		if !wasAsked {
+			return false, fmt.Errorf("CheckTokenSpent: mint answered for Y=%s, which was never asked about — a foreign or tampered answer", st.Y)
+		}
+		repeats := 0
+		for _, other := range resp.States {
+			if other.Y == st.Y {
+				repeats++
+			}
+		}
+		if repeats > 1 {
+			return false, fmt.Errorf("CheckTokenSpent: mint answered Y=%s %d times — a duplicate answer can mask a missing one", st.Y, repeats)
+		}
+		seen++
 		switch st.State {
 		case nut07.Spent:
 			anySpent = true
-			seen++
 		case nut07.Unspent:
-			seen++
 		case nut07.Pending:
 			// The mint itself reports the state as not yet determined — that
 			// is an ambiguous answer, not an unspent one.
