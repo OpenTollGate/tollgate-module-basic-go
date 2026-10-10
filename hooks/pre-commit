@@ -65,3 +65,7 @@ if git diff --cached --name-only | grep -qE '^changelog\.d/.*\.md$'; then
     echo "🔍 Checking changelog fragments..."
     python3 scripts/changelog-assemble.py check
 fi
+
+# --- Secret scanning (credential-leak class, PRTA#199 pattern): gitleaks over
+# the staged diff. Runs last; refuses the commit when a secret pattern is staged.
+"$(dirname "$0")/../scripts/secret-scan.sh"
