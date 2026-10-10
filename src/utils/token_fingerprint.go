@@ -114,7 +114,17 @@ func writeTokenFingerprintSalt(salt []byte) error {
 	// every fingerprint after the next restart would change, breaking the
 	// journal correlation without any error anywhere.
 	_, err = f.Write([]byte(hex.EncodeToString(salt)))
-	return err
+	if err != nil {
+		return err
+	}
+	// fsync before close: a salt lost to a power cut after first boot means
+	// a NEW salt next boot, silently changing every fingerprint already
+	// recorded — the exact correlation break the hex encoding above exists
+	// to prevent (#505 audit).
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // decodeSaltFile accepts the current hex-encoded format (whitespace-trimmed:
