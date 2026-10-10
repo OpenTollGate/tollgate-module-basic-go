@@ -384,8 +384,13 @@ NDS_CONFIG="$TMP/nodogsplash.config"
 SCRIPT_UNDER_TEST="$TMP/99-tollgate-setup"
 export LOGFILE
 
-GUEST_SSID="TollGate-SEED"
-GUEST_SSID_5G="TollGate-SEED"
+# The seeded guest SSID carries the shipped sort decoration ('!TollGate-…', so
+# the guest network sorts first in a WiFi list). A router already in the field
+# may still carry the bare TollGate-… form; the reader (code_from_name) strips
+# at most one leading '!' either way, and the full path converges on the
+# decorated DEVICE_SSID.
+GUEST_SSID="!TollGate-SEED"
+GUEST_SSID_5G="!TollGate-SEED"
 OPERATOR_KEY="Operator-Chosen-Key-01"
 OPERATOR_HOSTNAME="OperatorBox"
 
