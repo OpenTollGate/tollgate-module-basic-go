@@ -5,6 +5,20 @@ on:
     branches: [main, master, develop]
   pull_request:
     branches: [main, master, develop]
+  # Ad-hoc re-run path for the push-only jobs below (spec-quote):
+  # "Re-run ad hoc via workflow_dispatch" in that job's comment is only
+  # honest because this trigger exists.
+  workflow_dispatch:
+
+# A superseded push to the same PR stops burning the matrix mid-flight
+# (#816 frugality) — the newest commit's checks replace the stale ones.
+# PR-ref groups cancel; branch-push groups (the main-lane PROOF) queue
+# instead: cancelling an in-flight proof of a merge contradicts the
+# main-lane-proof doctrine — the proof of a merge must complete, not
+# vanish when the next merge lands.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   go-test:
@@ -276,23 +290,6 @@ jobs:
           # returns empty for `export`, so their harness commits unconditionally.
           bash tests/uci-defaults-gatewayname-banner_test.sh
 
-
-      - name: Spec-quote drift check
-        run: |
-          # Pinned greatspectations ref (scheduled bump: update when releasing).
-          GS_REF=0f226495657e5febebd270b6a07b8562cca003d3
-          # Pinned cashubtc/nuts snapshot (scheduled bump: update when releasing).
-          NUTS_REF=49a909ce4d0739824b3859d4b3da21e6c1abdaeb
-          pip install --user --break-system-packages "git+https://github.com/rustyrussell/greatspectations.git@$GS_REF"
-          export PATH="$PATH:$HOME/.local/bin"
-          git init -q nuts
-          git -C nuts remote add origin https://github.com/cashubtc/nuts.git
-          git -C nuts fetch --depth=1 origin "$NUTS_REF"
-          git -C nuts checkout --detach FETCH_HEAD
-          FILES=$(find src -name "*.go" -not -name "*_test.go")
-          # Spec drift FAILS the build: quotes verified against pinned nuts snapshot.
-          greatspectate check --config specquotes.toml --comment-start "// " --comment-continue "//" $FILES
-
   build-purity:
     runs-on: ubuntu-latest
     steps:
@@ -324,131 +321,39 @@ jobs:
       - name: Changelog duplicates check verdicts
         run: bash tests/contract/changelog-duplicates_test.sh
 
-  # The customer-facing happy path is gated HERE, on every push and every pull
-  # request, because this is the workflow that runs on a branch BEFORE anyone
-  # reviews it: a PR that breaks the happy path is the PR that goes red.
-  #
-  # What runs is tests/happy-path/ (merged in #544) against a package built from
-  # THIS commit by the repo's own packaging scripts, so the bytes booted are the
-  # bytes this commit would ship - not a fixture. It is offline: no mint, no
-  # payment, no secret, so it is safe to run for fork PRs.
-  #
-  # --strict is deliberate. The tip carries upstream #541 (/session-state) and
-  # the pinned portal ships the in-page renewal CTA (#60), so those surfaces MUST
-  # be there; --strict turns "an expected surface is absent" from SKIP into FAIL.
-  # That is exactly the class this gate exists to stop: the renewal-after-expiry
-  # dead end, the stale vendored portal bundle, and (once the mint-URL
-  # normalisation lands) the Lightning lane that cannot buy time.
-  happy-path:
-    name: Happy path (suite on a package built from this commit)
+  # Spec-quote drift moved out of contract-lint (#816): its preamble (a
+  # pip install from git plus a nuts snapshot fetch) is minutes of setup
+  # per PR for a check whose inputs are src/**/*.go — which every push to
+  # main carries anyway. PRs keep the offline contract checks; merges
+  # prove the quotes. Re-run ad hoc via workflow_dispatch.
+  spec-quote:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-
-      # Same manifest the release lane reads, so this job cannot drift from the
-      # pinned toolchain. packaging/local-build-ipk.sh enforces the Go pin and
-      # packaging/portal-build.sh enforces the node/npm pins, both from
-      # packaging/build-inputs.json.
-      - name: Resolve the pinned toolchain from the manifest
-        id: pins
+      - name: Spec-quote drift check
         run: |
-          set -euo pipefail
-          {
-            echo "go=$(jq -r '.go.version' packaging/build-inputs.json)"
-            echo "node=$(jq -r '.node.version' packaging/build-inputs.json)"
-          } >> "$GITHUB_OUTPUT"
+          # Pinned greatspectations ref (scheduled bump: update when releasing).
+          GS_REF=0f226495657e5febebd270b6a07b8562cca003d3
+          # Pinned cashubtc/nuts snapshot (scheduled bump: update when releasing).
+          NUTS_REF=49a909ce4d0739824b3859d4b3da21e6c1abdaeb
+          pip install --user --break-system-packages "git+https://github.com/rustyrussell/greatspectations.git@$GS_REF"
+          export PATH="$PATH:$HOME/.local/bin"
+          git init -q nuts
+          git -C nuts remote add origin https://github.com/cashubtc/nuts.git
+          git -C nuts fetch --depth=1 origin "$NUTS_REF"
+          git -C nuts checkout --detach FETCH_HEAD
+          FILES=$(find src -name "*.go" -not -name "*_test.go")
+          # Spec drift FAILS the build: quotes verified against pinned nuts snapshot.
+          greatspectate check --config specquotes.toml --comment-start "// " --comment-continue "//" $FILES
 
-      - uses: actions/setup-go@v6
-        with:
-          go-version: ${{ steps.pins.outputs.go }}
-          cache: true
-          cache-dependency-path: src/go.sum
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ steps.pins.outputs.node }}
-
-      # packaging/files/tollgate-captive-portal-site/assets/ is a GITIGNORED
-      # build product: a fresh checkout has no portal JS at all, so the bundle
-      # must be rebuilt from the SHA pinned in packaging/build-inputs.json. A
-      # checkout that used the committed tree as-is would boot an artifact with
-      # no portal and test nothing.
-      - name: Build the captive-portal bundle from the pinned revision
-        run: bash packaging/portal-build.sh
-
-      - name: Assert the portal bundle contract
-        run: bash tests/packaging/assert-portal-bundle-contract.sh
-
-      # The .ipk and the SDK-built .apk carry the same runtime payload the suite
-      # consumes (usr/bin/tollgate-wrt + the portal bundle under
-      # etc/tollgate/tollgate-captive-portal-site). Building the x86_64 .ipk with
-      # the in-tree packaging scripts keeps this a PR-speed job - no OpenWrt SDK
-      # download - and still tests a package assembled from this commit. The
-      # release lane (build-package.yml) runs the same suite against the
-      # SDK-built .apk it is about to publish.
-      - name: Build an x86_64 package from this commit
-        run: ARCH=x86_64 bash packaging/local-build-ipk.sh
-
-      - name: Assert the packaged runtime files
-        run: |
-          set -euo pipefail
-          PKG=$(ls -1 packaging/tollgate-wrt_*_x86_64.ipk | head -1)
-          echo "package: $PKG"
-          bash tests/packaging/assert-artifact-contents.sh "$PKG"
-
-      # packaging/build-ipk.sh wraps the .ipk as a GZIPPED TAR holding
-      # debian-binary + data.tar.gz + control.tar.gz (the OpenWrt opkg-build
-      # layout opkg itself and `tar -xzOf foo.ipk ./control.tar.gz` expect), NOT
-      # the Debian `ar` layout - so tar, not ar, is the tool that reads it.
-      - name: Extract the package
-        run: |
-          set -euo pipefail
-          PKG=$(ls -1 "$GITHUB_WORKSPACE"/packaging/tollgate-wrt_*_x86_64.ipk | head -1)
-          echo "package: $PKG"
-          mkdir -p /var/tmp/hp-artifact
-          cd /var/tmp/hp-artifact
-          tar xzf "$PKG"
-          tar xzf data.tar.gz
-          rm -f debian-binary data.tar.gz control.tar.gz
-          ls -l usr/bin/
-          ls etc/tollgate/tollgate-captive-portal-site/ | head -20
-
-      - name: Install the runner-side dependencies of the suite
-        run: |
-          set -euo pipefail
-          # The artifact binary is musl x86_64. The suite runs it natively using
-          # /lib/ld-musl-x86_64.so.1 (the `musl` package) and extracts the
-          # matching libgcc_s.so.1 out of alpine:3.20 itself, so pre-pull that
-          # image. Playwright drives the portal half in a real browser.
-          sudo apt-get update
-          sudo apt-get install -y musl
-          docker pull alpine:3.20
-          python3 -m pip install --break-system-packages playwright
-          python3 -m playwright install --with-deps chromium
-
-      - name: Run the happy-path suite
-        env:
-          # How run.sh finds the interpreter that has playwright installed.
-          HP_PYTHON: python3
-        run: |
-          set -euo pipefail
-          # .github/scripts/happy-path-gate.sh runs the suite with --strict and
-          # tolerates ONLY the check ids listed in tests/happy-path/known-issues.txt
-          # (one documented, pre-existing defect: the Lightning lane's mint-URL
-          # mismatch). Every other failure fails the release. See its header.
-          bash .github/scripts/happy-path-gate.sh \
-            --artifact /var/tmp/hp-artifact \
-            --out "$RUNNER_TEMP/happy-path-evidence"
-
-      - name: Upload the suite evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: happy-path-evidence
-          path: ${{ runner.temp }}/happy-path-evidence
-          if-no-files-found: ignore
-          retention-days: 7
+  # The customer-facing happy path moved to its own workflow
+  # (.github/workflows/happy-path.yml, #816 frugality): it is the PR lane's
+  # most expensive job (45-minute budget, docker + playwright + a local
+  # package build), so it now runs on PRs only when the diff can change
+  # runtime behavior (paths-filtered there) and on every push to main. The
+  # doctrine is unchanged: a PR that breaks the happy path is the PR that
+  # goes red — for code, packaging and portal changes.
 
   router-happy-path-selftest:
     # tests/router-happy-path/run.sh talks to REAL hardware (an MT3000 on the

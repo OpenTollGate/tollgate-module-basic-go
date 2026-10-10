@@ -10,7 +10,9 @@ name: Reproducibility check
 on:
   push:
     branches: [main]
-  pull_request:
+  # pull_request dropped (#816): reproducibility is a merge-time property —
+  # the proof belongs on main's bytes, and per-PR dual clean-root builds
+  # were the lane's costliest redundancy. Re-run ad hoc via dispatch.
   workflow_dispatch:
     inputs:
       target:

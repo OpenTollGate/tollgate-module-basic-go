@@ -14,6 +14,21 @@ on:
       - "**.md"
       - "docs/**"
   pull_request:
+    # #816 frugality: ~22 jobs (5 cross-compiles + 17 package lanes +
+    # happy-path) is release-candidate spend. A PR only owes that proof when
+    # it can change what ships; docs-, tests- and CI-only PRs skip the
+    # matrix entirely. Pushes to main and tags keep the full pipeline.
+    paths:
+      - "src/**"
+      - "packaging/**"
+      - "tests/packaging/**"
+      - "tests/happy-path/**"
+      - "scripts/build-sdk-package.sh"
+      - "scripts/build-env.sh"
+      - ".github/workflows/build-package.yml"
+      - "go.mod"
+      - "src/**/go.mod"
+      - "src/**/go.sum"
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -191,6 +206,18 @@ jobs:
       hashes: ${{ steps.blossom-upload.outputs.hashes }}
       epoch: ${{ steps.epoch.outputs.epoch }}
     steps:
+
+      # Runner-image hygiene, copied from openwrt/actions-shared-workflows'
+      # multi-arch-test-build.yml (#816): the stock ubuntu image carries
+      # ~25 GB of Android/.NET/Swift/GHC toolchains this job never touches,
+      # and SDK/docker builds are the #1 disk-pressure class. Freeing it
+      # first is minutes-cheap insurance against mid-build disk exhaustion.
+      - name: Reclaim runner disk (unused toolchains)
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/share/swift
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -464,6 +491,18 @@ jobs:
       fail-fast: true
       matrix: ${{ fromJson(needs.define-package-matrix.outputs.ipk_matrix) }}
     steps:
+
+      # Runner-image hygiene, copied from openwrt/actions-shared-workflows'
+      # multi-arch-test-build.yml (#816): the stock ubuntu image carries
+      # ~25 GB of Android/.NET/Swift/GHC toolchains this job never touches,
+      # and SDK/docker builds are the #1 disk-pressure class. Freeing it
+      # first is minutes-cheap insurance against mid-build disk exhaustion.
+      - name: Reclaim runner disk (unused toolchains)
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/share/swift
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
@@ -660,6 +699,18 @@ jobs:
       fail-fast: true
       matrix: ${{ fromJson(needs.define-package-matrix.outputs.apk_matrix) }}
     steps:
+
+      # Runner-image hygiene, copied from openwrt/actions-shared-workflows'
+      # multi-arch-test-build.yml (#816): the stock ubuntu image carries
+      # ~25 GB of Android/.NET/Swift/GHC toolchains this job never touches,
+      # and SDK/docker builds are the #1 disk-pressure class. Freeing it
+      # first is minutes-cheap insurance against mid-build disk exhaustion.
+      - name: Reclaim runner disk (unused toolchains)
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/share/swift
       - uses: actions/checkout@v6
         with:
           path: src-checkout
