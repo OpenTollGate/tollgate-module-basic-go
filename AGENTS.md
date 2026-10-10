@@ -273,6 +273,22 @@ the artifact is the published bytes from a kind-`1063` event
 `scripts/build-sdk-package.sh` build whose sha256 is recorded in the
 evidence.
 
+VM-lane pitfalls earned on the 2026-10-08 rc1 bench-verify (evidence:
+`ai-legion:~/tollgate-vm/bench-verify/`):
+
+- Under QEMU user networking the guest's `10.0.2.2` IS the host's
+  loopback — a pristine VM's "upstream" can be another lane's service
+  (the mockgate incident). Never assume rig network isolation, and never
+  modify or kill a host service a guest probe happens to reach.
+- A radio-less VM still exercises NDS enforcement fully with a synthetic
+  pre-auth client: `apk add ip-full kmod-veth`, a netns with a veth
+  slaved into the captive bridge. BusyBox `nc` has no `-w`/`-z` — probe
+  with `wget` and read the errno ("Operation not permitted" is the nft
+  reject signature; a timeout means the packet passed the gate).
+- `fw4 reload` procd-restarts nodogsplash, so runtime trust/auth state
+  is wiped on every firewall reload — re-trust inside any test that
+  depends on it, and suspect it whenever counters "reset themselves".
+
 ## Contributing process
 
 Follow [CONTRIBUTING.md](CONTRIBUTING.md). The parts agents most often
@@ -303,6 +319,11 @@ get wrong:
   or a shipped default, also run `node tests/contract/js-schema-lint.mjs`,
   `bash tests/contract/build-purity.sh` and
   `bash tests/contract/check-ssid-format.sh` from the repo root.
+- `src/merchant` payment-timing tests (the purchase-session guard and the
+  late-receive outcome windows) are the repo's known flake class — if one
+  fails under your change, first reproduce it on pristine `origin/main`
+  in a throwaway worktree before assuming you broke it (2026-10-08: both
+  named windows failed on a clean checkout mid-battery).
 - PRs are squash-merged; the maintainer rewrites the final commit
   message.
 
