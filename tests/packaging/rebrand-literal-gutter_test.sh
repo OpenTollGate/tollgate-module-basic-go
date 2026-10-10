@@ -131,16 +131,57 @@ fi
 # ------------------------------------------- the uci-defaults' section vocabulary
 # Structural half of the same invariant: the section names the shipped
 # uci-defaults reference must be the ones the install contract knows about.
-# A new name here is how a second admin writer gets introduced.
+# A new name here is how a second admin writer gets introduced. Prose is not
+# a reference: a comment mentioning a uhttpd section (#723's `uhttpd.luci`)
+# ships no config, so the tokenizer reads active code only. Full-line
+# comments are dropped whole; ` #` onward is dropped from a mixed line
+# (whitespace-anchored, so `${v#x}`, `${#v}` and URL fragments survive).
 echo
 echo "== the shipped uci-defaults reference only known uhttpd sections"
 KNOWN='main|portal|trusted|admin|crt|key|cert'
-foreign="$(grep -rhoE 'uhttpd\.[a-zA-Z][a-zA-Z0-9_]*' packaging/files/etc/uci-defaults/ 2>/dev/null |
-           sed 's/^uhttpd\.//' | sort -u | grep -v -E "^($KNOWN)$" || true)"
+extract_uhttpd_names() { # extract_uhttpd_names <dir>: distinct uhttpd.<name> in active code
+    grep -rhvE '^[[:space:]]*#' "$1" 2>/dev/null \
+        | sed 's/[[:space:]]#.*$//' \
+        | grep -oE 'uhttpd\.[a-zA-Z][a-zA-Z0-9_]*' \
+        | sed 's/^uhttpd\.//' | sort -u
+}
+foreign="$(extract_uhttpd_names packaging/files/etc/uci-defaults/ |
+               grep -v -E "^($KNOWN)$" || true)"
 if [ -z "$foreign" ]; then
-    ok "every uhttpd.<name> in packaging/files/etc/uci-defaults/ is a known section (or a cert/key path)"
+    ok "every uhttpd.<name> in the uci-defaults' active code is a known section (or a cert/key path)"
 else
     bad "unknown uhttpd section name(s) in the uci-defaults: $(printf '%s' "$foreign" | tr '\n' ' ')"
+fi
+
+# Control: the comment exemption must not blunt the check. A foreign name in
+# comment prose stays invisible (that is #723's fix); a foreign name in active
+# code is still extracted — so the vocabulary check can still fail.
+echo
+echo "== control: the section tokenizer ignores comments, not code"
+vocab="$TMP/uci-defaults-vocab-control"
+mkdir -p "$vocab"
+{
+    printf '# a stale uhttpd.luci-style section must not own the admin port\n'
+    printf 'uci set uhttpd.main=uhttpd # trailing prose: uhttpd.luci again\n'
+    printf 'uci set uhttpd.portal=uhttpd\n'
+} > "$vocab/99-control"
+names="$(extract_uhttpd_names "$vocab" || true)"
+if printf '%s\n' "$names" | grep -qx 'luci'; then
+    bad "a section name appearing only in comments was flagged — the tokenizer reads prose (#723 regression)"
+else
+    ok "comment-only section names (full-line and trailing) are not flagged"
+fi
+if printf '%s\n' "$names" | grep -qx 'main' && printf '%s\n' "$names" | grep -qx 'portal'; then
+    ok "known sections in active code are still extracted"
+else
+    bad "known sections in active code were not extracted — the tokenizer is not reading code"
+fi
+printf 'uci set uhttpd.foreign=uhttpd\n' >> "$vocab/99-control"
+control_foreign="$(extract_uhttpd_names "$vocab" | grep -v -E "^($KNOWN)$" || true)"
+if [ "$control_foreign" = 'foreign' ]; then
+    ok "a foreign section in active code is still extracted (the check keeps its teeth)"
+else
+    bad "a foreign section in active code was NOT extracted — the comment fix blunted the gutter"
 fi
 
 echo
