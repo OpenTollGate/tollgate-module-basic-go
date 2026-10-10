@@ -106,6 +106,9 @@ func (qs *quoteStore) saveQuotes(quotes map[string]*lightningQuoteRecord) error 
 	if err := os.Rename(tmpName, qs.filePath); err != nil {
 		return fmt.Errorf("rename temp quotes file: %w", err)
 	}
+	if err := syncParentDir(qs.filePath); err != nil {
+		return fmt.Errorf("sync quotes directory after rename: %w", err)
+	}
 	cleanup = false
 	return nil
 }
