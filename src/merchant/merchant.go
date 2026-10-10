@@ -505,7 +505,11 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false)
 
 	if walletErr != nil {
-		log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
+		if tollwallet.IsStorageMmapUnsupported(walletErr) {
+			log.Printf("WARNING: Wallet initialization failed — storage filesystem does not support shared mmap (jffs2 overlay?): %v — the wallet can never initialize on this filesystem; move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)", walletErr)
+		} else {
+			log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
+		}
 		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
 		mintHealthTracker.StartProactiveChecks()
 		mintHealthTracker.SetOnFirstReachableForDegraded(func() {

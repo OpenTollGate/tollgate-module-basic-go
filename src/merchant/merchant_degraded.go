@@ -29,6 +29,12 @@ type MerchantDegraded struct {
 	wallet            Wallet
 	walletLoaded      bool
 	walletPath        string
+	// walletInitErr is why the offline wallet load failed, if it failed.
+	// It distinguishes "no wallet yet" causes so operator-facing errors can
+	// stop blaming the mints when the mints are fine (#583): a storage
+	// filesystem that cannot back bbolt's shared mmap is permanent, while
+	// "no reachable mints" promises a recovery that will never come.
+	walletInitErr error
 }
 
 func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, mintHealthTracker *MintHealthTracker, walletFactory WalletFactory, walletPath string) *MerchantDegraded {
@@ -51,7 +57,12 @@ func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, 
 
 	wallet, err := walletFactory(walletPath, mintURLs)
 	if err != nil {
-		log.Printf("Degraded mode: offline wallet load failed (first boot or no cached data): %v", err)
+		deg.walletInitErr = err
+		if tollwallet.IsStorageMmapUnsupported(err) {
+			log.Printf("Degraded mode: wallet storage filesystem does not support shared mmap (jffs2 overlay?): %v — the wallet can NEVER initialize on this filesystem; move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)", err)
+		} else {
+			log.Printf("Degraded mode: offline wallet load failed (first boot or no cached data): %v", err)
+		}
 		return deg
 	}
 
@@ -65,6 +76,29 @@ func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, 
 
 func (m *MerchantDegraded) OnUpgrade(callback func(MerchantInterface)) {
 	m.onUpgrade = callback
+}
+
+// StorageIncompatible reports whether the degraded state is caused by a
+// wallet storage filesystem that cannot back bbolt's shared mmap (#583) —
+// the one degraded cause a mint recovery can never fix, so boot banners
+// and upgrade logs must not promise otherwise.
+func (m *MerchantDegraded) StorageIncompatible() bool {
+	return tollwallet.IsStorageMmapUnsupported(m.walletInitErr)
+}
+
+// walletUnavailableReason says why there is no wallet behind the merchant:
+// the storage-mmap class names the filesystem and its remedy; everything
+// else keeps the historic "no reachable mints" wording, which stays true
+// for its own cause (#583's misleading-errors half).
+func (m *MerchantDegraded) walletUnavailableReason() string {
+	if m.StorageIncompatible() {
+		return "wallet storage does not support shared mmap (jffs2 overlay?) — move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs); see README storage requirements"
+	}
+	return "no reachable mints"
+}
+
+func (m *MerchantDegraded) walletNotInitializedError() error {
+	return fmt.Errorf("wallet not initialized: %s", m.walletUnavailableReason())
 }
 
 // WireRecoveryTrigger registers the tracker's first-reachable callback so a
@@ -122,28 +156,28 @@ func (m *MerchantDegraded) GetMintHealthTracker() *MintHealthTracker {
 
 func (m *MerchantDegraded) CreatePaymentToken(mintURL string, amount uint64) (string, error) {
 	if !m.walletLoaded {
-		return "", fmt.Errorf("wallet not initialized: no reachable mints")
+		return "", m.walletNotInitializedError()
 	}
 	return "", fmt.Errorf("CreatePaymentToken not supported in degraded mode; use CreatePaymentTokenWithOverpayment")
 }
 
 func (m *MerchantDegraded) CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
 	if !m.walletLoaded {
-		return "", fmt.Errorf("wallet not initialized: no reachable mints")
+		return "", m.walletNotInitializedError()
 	}
 	return m.wallet.SendWithOverpayment(amount, mintURL, maxOverpaymentPercent, maxOverpaymentAbsolute)
 }
 
 func (m *MerchantDegraded) DrainMint(mintURL string) (string, uint64, error) {
-	return "", 0, fmt.Errorf("wallet not initialized: no reachable mints")
+	return "", 0, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*LightningInvoice, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) GetLightningInvoiceStatus(quoteID, macAddress string) (*LightningQuoteStatus, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) GetAcceptedMints() []config_manager.MintConfig {
@@ -206,7 +240,7 @@ func (m *MerchantDegraded) CreateNoticeEvent(level, code, message, customerPubke
 }
 
 func (m *MerchantDegraded) GetSession(macAddress string) (*CustomerSession, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.walletNotInitializedError()
 }
 
 // GetSessionState answers "none" in degraded mode: without a wallet no session
@@ -216,7 +250,7 @@ func (m *MerchantDegraded) GetSessionState(macAddress string) (SessionState, err
 }
 
 func (m *MerchantDegraded) AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) GetUsage(macAddress string) (string, error) {
@@ -227,15 +261,15 @@ func (m *MerchantDegraded) GetUsage(macAddress string) (string, error) {
 // AddAllotment is: there is no wallet, so there is no session to name and
 // nothing a ticket could hand over.
 func (m *MerchantDegraded) IssueSessionTicket(macAddress string) (string, int64, error) {
-	return "", 0, fmt.Errorf("wallet not initialized: no reachable mints")
+	return "", 0, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) RebindSession(ticket, macAddress string) (*CustomerSession, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) Fund(cashuToken string) (uint64, error) {
-	return 0, fmt.Errorf("wallet not initialized: no reachable mints")
+	return 0, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) WalletLoaded() bool {
