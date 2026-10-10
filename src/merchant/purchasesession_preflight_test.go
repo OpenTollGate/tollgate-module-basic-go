@@ -3,7 +3,6 @@ package merchant
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -79,31 +78,35 @@ func stubPreflightProbe(t *testing.T, m *Merchant, probe func(mac string) (valve
 	t.Cleanup(func() { m.setClientProbe(nil, 0) })
 }
 
-// TestPurchaseSessionPreflightRefusesUnregisteredClient pins the fund-safety
-// contract of issue #403 trigger (a): when NDS has no client session for the
-// paying MAC, the payment must be refused BEFORE Receive — the token is never
-// consumed, so the customer keeps custody.
-func TestPurchaseSessionPreflightRefusesUnregisteredClient(t *testing.T) {
+// TestPurchaseSessionPreflightProceedsWhenClientUnlisted pins the #582
+// relaxation: a probe that cleanly answers "not registered" for a first-time
+// client no longer refuses the payment before Receive. Presence is proven by
+// the socket-resolved MAC the caller passed in; the probe's remaining job is
+// the bounded wait for NoDogSplash's asynchronous registration (the reseller
+// flow below), and the fund-safety backstop moved to what already covers
+// renewals — the valve auth retry at grant time, the grant rollback, and the
+// durable owed-grant store.
+func TestPurchaseSessionPreflightProceedsWhenClientUnlisted(t *testing.T) {
 	m, receiveCalled := newPreflightMerchant(t)
+	probes := 0
 	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
+		probes++
 		return valve.ClientState{}, nil
 	})
 
 	event, err := m.PurchaseSession("cashuAstub", "AA:BB:CC:DD:EE:FF")
 	if err != nil {
-		t.Fatalf("expected notice event with nil error, got error: %v", err)
+		t.Fatalf("expected notice-or-session event with nil error, got error: %v", err)
 	}
-	if event == nil || event.Kind != 21023 {
-		t.Fatalf("expected kind-21023 notice, got %+v", event)
+	if event == nil {
+		t.Fatal("expected an event, got nil")
 	}
-	if code := noticeCode(t, event); code != "client-not-registered" {
-		t.Fatalf("notice code = %q, want %q", code, "client-not-registered")
+	if !*receiveCalled {
+		t.Fatal("an unlisted-but-present client's first purchase must reach Receive")
 	}
-	if !strings.Contains(event.Content, "Reconnect") {
-		t.Fatalf("notice content = %q, want an actionable reconnect instruction", event.Content)
-	}
-	if *receiveCalled {
-		t.Fatal("Receive must not be called when the pre-flight refuses the client")
+	if probes != preflightProbeAttempts {
+		t.Fatalf("expected the probe to be retried through the full budget (%d probes), got %d",
+			preflightProbeAttempts, probes)
 	}
 }
 
