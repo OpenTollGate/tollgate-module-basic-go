@@ -1,12 +1,16 @@
 package merchant
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/OpenTollGate/gonuts-tollgate/crypto"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 // switchableMintServer serves unreachable (503) until setHealthy(true), then
@@ -17,9 +21,28 @@ type switchableMintServer struct {
 	healthy atomic.Bool
 }
 
+// switchableMintKeysetID is the NUT-02 ID the wallet derives from the
+// stub's fixed amount-1 key. Served verbatim because gonuts v0.14.0
+// refuses a keyset whose advertised ID differs from its keys ("forged
+// keyset id", tollgate #705) — an invented ID makes wallet construction
+// fail and the degraded-start precondition of these tests unreachable.
+func switchableMintKeysetID(t *testing.T) string {
+	t.Helper()
+	raw, err := hex.DecodeString("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")
+	if err != nil {
+		t.Fatalf("decode stub key: %v", err)
+	}
+	pk, err := secp256k1.ParsePubKey(raw)
+	if err != nil {
+		t.Fatalf("parse stub key: %v", err)
+	}
+	return crypto.DeriveKeysetId(crypto.PublicKeys{1: pk})
+}
+
 func newSwitchableMintServer(t *testing.T) *switchableMintServer {
 	t.Helper()
 	s := &switchableMintServer{}
+	keysetID := switchableMintKeysetID(t)
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.healthy.Load() {
 			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
@@ -28,10 +51,10 @@ func newSwitchableMintServer(t *testing.T) *switchableMintServer {
 		switch r.URL.Path {
 		case "/v1/keysets":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true,"input_fee_ppk":0}]}`)
+			fmt.Fprint(w, `{"keysets":[{"id":"`+keysetID+`","unit":"sat","active":true,"input_fee_ppk":0}]}`)
 		case "/v1/keys":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}]}`)
+			fmt.Fprint(w, `{"keysets":[{"id":"`+keysetID+`","unit":"sat","active":true,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}]}`)
 		default:
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, `{}`)

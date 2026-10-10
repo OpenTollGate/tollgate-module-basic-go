@@ -1858,6 +1858,10 @@ func isBelowSwapFeeError(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "nothing to swap") ||
 		strings.Contains(msg, "no outputs provided") ||
+		// gonuts-tollgate v0.13.1's belt check (#752): a swap that reached
+		// zero outputs through any path is refused before the mint is
+		// asked — same fee-vs-value family, same clean notice.
+		strings.Contains(msg, "produced no outputs") ||
 		strings.Contains(msg, "swap fees")
 }
 

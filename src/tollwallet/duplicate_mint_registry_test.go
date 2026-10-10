@@ -4,10 +4,10 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
+	"github.com/OpenTollGate/gonuts-tollgate/crypto"
 	"github.com/OpenTollGate/gonuts-tollgate/wallet"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
@@ -25,7 +25,18 @@ func newTestMint(t *testing.T) (server *httptest.Server, keysetID, pubKeyHex str
 		t.Fatalf("generate private key: %v", err)
 	}
 	pubKeyHex = hex.EncodeToString(priv.PubKey().SerializeCompressed())
-	keysetID = strings.Repeat("ab", 16) // hex-decodable, as AddMint requires
+	// The keyset ID is DERIVED from the published keys, not invented:
+	// gonuts v0.14.0's NUT-13 verification (tollgate #705, fork #37)
+	// refuses a mint whose advertised ID disagrees with its keys.
+	raw, err := hex.DecodeString(pubKeyHex)
+	if err != nil {
+		t.Fatalf("decode pubkey: %v", err)
+	}
+	pk, err := secp256k1.ParsePubKey(raw)
+	if err != nil {
+		t.Fatalf("parse pubkey: %v", err)
+	}
+	keysetID = crypto.DeriveKeysetId(crypto.PublicKeys{1: pk})
 
 	mux := http.NewServeMux()
 	// gonuts requests {mint-base}/v1/keys, i.e. with the mint's path

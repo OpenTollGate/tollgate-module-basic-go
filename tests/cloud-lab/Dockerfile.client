@@ -3,6 +3,16 @@
 # Contains cdk-cli (for Cashu wallet operations), nak (for Nostr event
 # signing), and Python+pytest (for test execution).
 
+# Declared before the first FROM so the go-builder stage's FROM can
+# interpolate it — an ARG declared after a FROM is stage-scoped and
+# invisible to every later FROM, which buildkit rejects as the empty
+# reference "golang:-bookworm" (#724). This fix landed as #728, was
+# regressed by #687's file rewrite, and #716's re-fix closed unmerged —
+# every client-container lane (including the crash-injection harness
+# this file's killer image builds from) has been unbuildable on main
+# since 2026-10-06. Third landing; the hoist is load-bearing.
+ARG GO_VERSION=1.26.8
+
 FROM rust:1.88-bookworm AS rust-builder
 
 # Build cdk-cli for wallet operations
