@@ -194,6 +194,12 @@ jobs:
         run: bash tests/contract/build-purity.sh
       - name: Shipped AP SSID format check
         run: bash tests/contract/check-ssid-format.sh
+      - name: NDS pre-auth allowlist nft ordering check
+        run: bash tests/contract/check-nds-preauth-nft.sh
+      - name: nft guard interface defines check
+        run: bash tests/contract/check-nft-interface-defs.sh
+      - name: firewall zone-ref resolution check
+        run: bash tests/contract/check-firewall-zone-refs.sh
 
   deps-and-imports:
     runs-on: ubuntu-latest
