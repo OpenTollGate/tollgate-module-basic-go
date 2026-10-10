@@ -11,6 +11,64 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 ### Changed / Internal
 
+- **Leaked owed-grant monitors and the late-receive recorder no longer spray
+  AUTH lines into later tests.** Every recorded owed grant owns a retry
+  monitor goroutine (first attempt at 5 s + jitter, backoff to 30 s) that
+  keeps exec-ing `ndsctl auth` after its test ends — resolved through
+  whichever later test's PATH-scoped fake is live — and the late-receive
+  recorder's own grant attempt is a 5×400 ms auth-retry storm starting at
+  cleanup. Both outlived their tests and failed
+  `TestFirstTimePurchaseStillRefusedWhenNdsDoesNotKnowTheClient` 1-in-8
+  suite runs (`ndsctl auth calls = 1, want 0`; causally reproduced 8/10 in a
+  padded trio, #845). The harnesses now drain the record map at cleanup —
+  every monitor's next wake is terminal — and the late-outcome harness waits
+  out the recorder's storm inside its own cleanup, before any later test's
+  fake exists
+  ([#845](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/845)).
+
+- **Gate cleanup clears an abandoned close streak instead of inheriting one.**
+  The valve's per-gate close-streak state outlives the test that spent it: an
+  abandoned streak blocks every later `CloseGate` of that MAC behind
+  `ErrGateCloseAbandoned`, and plain `CloseGate` cannot clear it — so the
+  unmeterable abandoned-close test passed its first `-count` iteration and
+  failed every later one in milliseconds (9/10 in isolation, 2-of-3 iterations
+  in full-suite runs). `closeGateCleanup` now falls back to
+  `ReconcileGateClose` — the reconciliation path the design names as the only
+  way to un-abandon a gate — and the test lifts its `failDeauth` marker in a
+  LIFO-ordered cleanup so that reconciliation can succeed
+  ([#841](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/841)).
+- **The first-reachable once-test now pins the contract the wire actually
+  depends on.** `TestSetOnFirstReachableForDegraded_FiredOnce` asserted "no
+  callback when already reachable from initial probe" — the exact opposite of
+  `TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset`, and of
+  production: the wallet-failure degraded start registers the trigger while
+  mints are already reachable (the failure was the wallet, not the mints), and
+  the setter's latch reset is what fires the upgrade attempt on the next
+  check. Both tests could only coexist because the once-test read its counter
+  before the callback's goroutine could land — passing ~92% of runs on
+  scheduler luck, flaking the other ~8% (#732). It now waits deterministically
+  and asserts the real contract: exactly one fire, never a second.
+- **The duplicate-guard harness installs the ndsctl its grant assertion
+  exercises.** `newDuplicateGuardMerchant` ended by asserting a *granted*
+  session — the only grant-exercising assertion in its file — but installed no
+  fake `ndsctl`, unlike every other grant-exercising test. On a host without
+  `ndsctl` on PATH the third submission died as a grant-pending notice instead,
+  so the file's battery was deterministically red on every bare host/CI runner
+  regardless of any other fix. The harness now installs the same renewal fake
+  the other tests use, scoped to each test's lifetime
+  ([#822](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/822)).
+
+- **The Receive deadline seam is per merchant, not a package-level var.**
+  `receiveTimeout` was a mutable package global — the same shape the
+  pre-flight probe seam abandoned after its own `-race` catch — so a harness
+  shrinking it raced the deadline read of a `PurchaseSession` goroutine an
+  earlier test had leaked, and the race detector killed
+  `TestLateReceiveOutcomeIsRecordedWhenReceiveCompletesAfterTheDeadline`
+  roughly one targeted run in five (#821). The deadline is now
+  `Merchant.receiveTimeout` with the old 30 s as its zero-value default;
+  harnesses narrow it on their own instance, so no shared state remains to
+  race. A 25-iteration targeted soak of the racing pair runs clean.
+
 - **The bcm2709 artifact rows build again.** `build-sdk-package.sh`
   defaulted bcm2709 to `EXPECTED_ARCH=arm_cortex-a7`, but the SDK stages
   its packages under `arm_cortex-a7_neon-vfpv4` — the staged-packages

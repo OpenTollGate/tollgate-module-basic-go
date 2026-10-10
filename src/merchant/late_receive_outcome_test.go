@@ -172,17 +172,45 @@ func lateOutcomeCase(t *testing.T, amount uint64, receiveErr error) (*Merchant, 
 	}
 	var once sync.Once
 	release := func() { once.Do(func() { close(wallet.release) }) }
-	t.Cleanup(release)
 
 	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
-
 	prevTimeout := receiveTimeout
 	receiveTimeout = 150 * time.Millisecond
 	t.Cleanup(func() { receiveTimeout = prevTimeout })
+	drainOwedGrantMonitors(t, m)
 
-	return m, wallet, release, captureSyncLogs(t)
+	logs := captureSyncLogs(t)
+
+	// A late SUCCESS owes the customer their grant, and the recorder pays that
+	// debt on its own goroutine: log the COMPLETED record, then attempt the
+	// grant — a 5-attempt auth retry storm taking ~2 s. Release is deferred to
+	// cleanup for tests that forget it, and once it fires the storm must be
+	// DRAINED HERE, inside this test's cleanup: no later test's PATH-scoped
+	// fake is live yet, so the failing execs resolve nothing and write no AUTH
+	// lines anywhere. Without the drain the storm ran on into the next tests
+	// and its `ndsctl auth` attempts landed in whichever fake was current —
+	// the 1-in-8 stray-AUTH failure of TestFirstTimePurchaseStill... in the
+	// #733 soak ledger. The owed-grant ERROR line is logged after the grant
+	// attempt fails, so it is the storm-has-ended signal (success variants
+	// only; a late failure owes nothing and records nothing).
+	if amount >= 1 {
+		t.Cleanup(func() {
+			release()
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				if strings.Contains(logs.String(), "could not be granted") {
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	} else {
+		t.Cleanup(release)
+	}
+
+	return m, wallet, release, logs
 }
 
 func awaitReceiveStarted(t *testing.T, wallet *completingReceiveWallet) {

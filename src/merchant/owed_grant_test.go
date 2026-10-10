@@ -50,7 +50,27 @@ func newOwedGrantMerchant(t *testing.T, storeDir string) *Merchant {
 	// by the whole test binary; start from a closed gate for the MAC under
 	// test (the same discipline as newRenewalMerchant).
 	_ = valve.CloseGate(owedGrantMAC)
+	drainOwedGrantMonitors(t, m)
 	return m
+}
+
+// drainOwedGrantMonitors retires every owed-grant record of this merchant when
+// the test ends. Each record owns a retry monitor goroutine that keeps exec-ing
+// `ndsctl auth` (first retry after owedGrantRetryInterval, then backoff, for
+// ever until granted/expired/removed) — with no drain, the monitor outlives its
+// test and its next attempt resolves `ndsctl` through whichever LATER test's
+// PATH-scoped fake is current, writing stray AUTH lines into that test's log
+// (#733 ledger: TestFirstTimePurchaseStillRefusedWhenNdsDoesNotKnowTheClient
+// failed exactly this way, 1-in-8 full-suite runs). An emptied record map makes
+// every monitor's next wake terminal — see monitorOwedGrant's `!ok` exit.
+func drainOwedGrantMonitors(t *testing.T, m *Merchant) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		m.owedGrantsMu.Lock()
+		m.owedGrants = make(map[string]*owedGrantRecord)
+		m.owedGrantsMu.Unlock()
+	})
 }
 
 // owedGrantNoticeToken gives the token a serializable form so the receive
