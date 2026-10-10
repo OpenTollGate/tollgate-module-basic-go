@@ -75,7 +75,7 @@ else
         else
             bad "exemption set #$sets is '$got' (want '$OWNER_IFACES') — a client on an unlisted bridge cannot reach the API"
         fi
-    done < <(grep -o 'iifname != {[^}]*}' "$API_NFT" | sed 's/^iifname != { *//; s/ *}$//; s/"//g')
+    done < <(grep -o 'iifname != {[^}]*}' "$API_NFT" | sed 's/^iifname != { *//; s/ *}$//; s/"//g; s/\$tg_portal_if/br-lan/; s/\$tg_private_if/br-private/')
 
     if [ "$sets" = 2 ]; then
         ok "both protocol families are covered (ipv4 + ipv6)"
@@ -152,10 +152,10 @@ fi
 # downgraded to a comment.
 echo "== the admin-board and LuCI guards are still captive-bridge-scoped"
 for frag in 31-admin-board-not-guest-reachable 32-luci-not-guest-reachable; do
-    if grep -qF -- 'iifname "br-lan"' "$NFT_DIR/$frag.nft" 2>/dev/null; then
-        ok "$frag.nft is still iifname \"br-lan\"-literal"
+    if grep -qF -- 'iifname $tg_portal_if' "$NFT_DIR/$frag.nft" 2>/dev/null; then
+        ok "$frag.nft is scoped by \$tg_portal_if (the captive bridge's define)"
     else
-        bad "$frag.nft lost its iifname \"br-lan\" scope — re-check whether br-private is still the owner network (this test's premise)"
+        bad "$frag.nft lost its \$tg_portal_if scope — re-check whether the captive bridge is still the guarded scope (this test's premise)"
     fi
 done
 

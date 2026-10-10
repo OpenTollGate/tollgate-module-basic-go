@@ -214,6 +214,8 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nds-preauth-render $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nft-interfaces-render $(1)/usr/local/bin/
 
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
@@ -279,6 +281,7 @@ FILES_$(PKG_NAME) += \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart \
+	/etc/nftables.d/00-tollgate-defs.nft \
 	/etc/nftables.d/20-nds-enforce.nft \
 	/etc/nftables.d/30-backend-firewall.nft \
 	/etc/nftables.d/31-admin-board-not-guest-reachable.nft \
