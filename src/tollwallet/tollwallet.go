@@ -656,3 +656,18 @@ func (w *TollWallet) CheckTokenSpent(token cashu.Token) (bool, error) {
 	}
 	return anySpent, nil
 }
+
+// ResumePendingSwaps implements WalletPort: boot-time crash recovery for
+// swaps the mint accepted but whose proofs were never durably saved (a
+// SIGKILL between the mint's signature and SaveProofs — the #719 crash
+// window). The intent (exact request bytes, secrets, blinding factors,
+// counter range) was journaled atomically before the original POST, so
+// replaying the bytes to a deterministically-signing mint reconstructs the
+// same proofs. See gonuts-tollgate wallet/pending_swaps.go for the replay
+// semantics; per-intent failures leave the intent journaled.
+func (w *TollWallet) ResumePendingSwaps() (uint64, int, error) {
+	if w.wallet == nil {
+		return 0, 0, ErrWalletNotInitialized
+	}
+	return w.wallet.ResumePendingSwaps()
+}

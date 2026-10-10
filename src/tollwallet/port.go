@@ -255,6 +255,21 @@ type WalletPort interface {
 	// caller must not decide on it.
 	CheckTokenSpent(token Token) (bool, error)
 
+	// ResumePendingSwaps replays every swap intent the wallet journaled
+	// before its original POST (crash recovery, #497/#719): the exact
+	// request bytes are re-sent to the mint, and a mint that signs
+	// deterministically (verified against cdk-mintd 0.17.6 in #497)
+	// returns the same signatures, from which the proofs are
+	// reconstructed and saved — recovering value a crash between the
+	// mint's acceptance and the proof save would otherwise have
+	// destroyed. Idempotent (proofs are stored keyed by secret); a
+	// per-intent failure leaves that intent journaled for the next
+	// attempt. An error means "some intents unrecoverable this pass",
+	// NEVER lost value: callers must not delete or regenerate anything
+	// on it. The daemon calls this once at boot, before serving
+	// payments.
+	ResumePendingSwaps() (recovered uint64, failed int, err error)
+
 	// AcceptMint admits a configured mint into the accepted set at
 	// runtime (idempotent). Mints unreachable at wallet construction are
 	// otherwise rejected forever, even after they recover — the health
