@@ -33,22 +33,9 @@ const whitelabelCaptivePrefix = "Net4" + "sats" + "-"
 // agreement.
 var tollGateBrandPrefixes = []string{"TollGate-", whitelabelCaptivePrefix}
 
-// ssidSortDecoration is the optional leading character the captive-SSID writer
-// prepends so the guest network sorts first in an alphabetically ordered WiFi
-// list ('!' is 0x21 — before digits and letters). It is PRESENTATION ONLY, not
-// part of the discovery contract: the bare TollGate-<code> form is what
-// already-deployed routers and third-party clients carry, and both forms
-// identify the same gateway. Readers strip at most ONE decoration, so a
-// double '!' is not a TollGate name.
-const ssidSortDecoration = "!"
-
-// hasTollGateSSID reports whether ssid is one of the brand captive names, with
-// the leading sort decoration ('!') treated as optional. It is the single Go
-// reader of the SSID discovery contract (reseller-mode upstream selection, the
-// vendor-element score heuristic); the shell side's equivalent strips the same
-// decoration via strip_ssid_decoration in 99-tollgate-setup.
+// hasTollGateSSID reports whether ssid starts with any brand prefix the
+// captive-SSID writer can emit, case-insensitively.
 func hasTollGateSSID(ssid string) bool {
-	ssid = strings.TrimPrefix(ssid, ssidSortDecoration)
 	for _, prefix := range tollGateBrandPrefixes {
 		if len(ssid) >= len(prefix) && strings.EqualFold(ssid[:len(prefix)], prefix) {
 			return true
