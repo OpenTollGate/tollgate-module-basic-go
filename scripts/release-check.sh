@@ -55,6 +55,11 @@ run_deps_imports() {
     python3 tests/contract/check-deps-sync.py >"$tmpdir/deps.log" 2>&1 || ok=1
     python3 tests/contract/check-mirror-sync.py >>"$tmpdir/deps.log" 2>&1 || ok=1
     python3 tests/contract/check-import-paths.py >>"$tmpdir/deps.log" 2>&1 || ok=1
+    # The gonuts pin: identity offline, plus the --latest release-time verdict
+    # (#791) — a release is not cut while the wallet fork has a newer stable
+    # tag than the one every carrier pins (the #705-in-v0.13.2 near-miss).
+    python3 tests/contract/check-gonuts-pin.py >>"$tmpdir/deps.log" 2>&1 || ok=1
+    python3 tests/contract/check-gonuts-pin.py --latest >>"$tmpdir/deps.log" 2>&1 || ok=1
     if [ "$ok" = 0 ]; then
         record "Dependency/import consistency" PASS
     else
