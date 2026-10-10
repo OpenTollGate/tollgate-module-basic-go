@@ -112,20 +112,25 @@ wait_for_iface() {
 }
 
 # The uci-defaults run in NUMERIC order — the order the boot path uses
-# (/etc/init.d/boot applies them 90, 92, 99). The postinst used to run 90, 99, 92
-# instead, so the LAST writer of uhttpd.main differed between the install pass and
-# the boot pass: an install converged to whatever that order produced until the
-# next reboot re-ran them numerically, which is a divergence nobody sees until the
-# reboot. Both scripts derive uhttpd.main.redirect_https — 99-tollgate-setup from
-# certificate COVERAGE, and 92-tollgate-admin-setup (staged from the pinned portal
-# tree) from the same coverage rule since the pin advanced to 4158030, guarded by
-# tests/packaging/assert-portal-bundle-contract.sh CHECK F. Running them in the
-# order the boot path uses is what makes an install converge to the state the next
-# boot would produce, whatever either script decides.
+# (/etc/init.d/boot applies them in one collated glob). Running them in that order
+# is what makes an install converge to the state the next boot would produce,
+# whatever either script decides.
+#
+# WHICH order that is matters as much as agreeing with it: the board's setup
+# script (999-tollgate-admin-setup, staged from the pinned portal tree) is FAIL
+# CLOSED — while root's /etc/shadow hash is empty it deletes uhttpd.admin's
+# listeners, on the principle that the board must be UNREACHABLE, not merely
+# unhelpful — and 99-tollgate-setup is what CREATES that credential. So the gate
+# runs LAST: 90, 99, 999. Numeric order 90, 92, 99 ran the gate before the
+# credential existed and killed the admin board on a fresh hand-install with
+# nothing to restore it. The gate's numeric prefix carries the order because the
+# boot glob collates the filenames: 999 sorts after 99 there as well as here, so
+# an install and a boot agree on which script is last. The feed's recipe runs the
+# same gate-last order.
 # Pinned by tests/packaging/uci-defaults-run-order_test.sh.
 for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
-              /etc/uci-defaults/92-tollgate-admin-setup \
-              /etc/uci-defaults/99-tollgate-setup; do
+              /etc/uci-defaults/99-tollgate-setup \
+              /etc/uci-defaults/999-tollgate-admin-setup; do
     if [ -x "$$script" ]; then
         echo "Running $$script ..."
         "$$script" || echo "Warning: $$script exited with code $$?"
@@ -198,10 +203,13 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/99-tollgate-setup $(1)/etc/uci-defaults/
 	$(SED) 's|__TOLLGATE_VERSION__|$(TOLLGATE_DISPLAY_VERSION)|g' $(1)/etc/uci-defaults/99-tollgate-setup
-	# 92-tollgate-admin-setup (dedicated uhttpd instance on :8090) is staged by
+	# 999-tollgate-admin-setup (the board's dedicated uhttpd instance — the port
+	# pair it binds follows the entry_ui mapping) is staged by
 	# packaging/portal-build.sh from the pinned portal tree with __ADMIN_HOME__
 	# already substituted for this build's webroot, so it carries no placeholder.
-	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/92-tollgate-admin-setup $(1)/etc/uci-defaults/
+	# It runs LAST: it is the fail-closed gate, and 99-tollgate-setup is what
+	# creates the credential it looks for.
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/999-tollgate-admin-setup $(1)/etc/uci-defaults/
 
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
@@ -263,7 +271,7 @@ FILES_$(PKG_NAME) += \
 	/usr/local/bin/first-login-setup \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/uci-defaults/99-tollgate-setup \
-	/etc/uci-defaults/92-tollgate-admin-setup \
+	/etc/uci-defaults/999-tollgate-admin-setup \
 	/www/tollgate/* \
 	/usr/libexec/rpcd/tollgate \
 	/usr/share/rpcd/acl.d/tollgate.json \

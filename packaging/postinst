@@ -15,8 +15,13 @@ wait_for_iface() {
     return 1
 }
 
+# The credential-creating script runs BEFORE the fail-closed admin gate, which
+# runs LAST: the gate drops the board's listeners while root has no credential,
+# and 99-tollgate-setup is what creates one. Numeric order 90, 92, 99 put the gate
+# first and killed the board on a fresh hand-install.
 for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
-              /etc/uci-defaults/99-tollgate-setup; do
+              /etc/uci-defaults/99-tollgate-setup \
+              /etc/uci-defaults/999-tollgate-admin-setup; do
     if [ -x "$script" ]; then
         echo "Running $script ..."
         "$script" || echo "Warning: $script exited with code $?"

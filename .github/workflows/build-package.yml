@@ -417,7 +417,7 @@ jobs:
       # the recipe the SDK apk lane compiles - installs all five. The artifact
       # above carries only the guest SPA, so the apk job's tree was missing the
       # other four and its compile died at
-      #   install: cannot stat '.../files/etc/uci-defaults/92-tollgate-admin-setup'
+      #   install: cannot stat '.../files/etc/uci-defaults/999-tollgate-admin-setup'
       # (measured on the 2026-09-24 run). Hand the apk lane the whole set as one
       # tarball of repository-relative paths, so what it unpacks is exactly the
       # tree portal-build.sh produced - no per-file list to drift, and no
@@ -433,7 +433,7 @@ jobs:
               packaging/files/tollgate-admin \
               packaging/files/usr/libexec/rpcd/tollgate \
               packaging/files/usr/share/rpcd/acl.d/tollgate.json \
-              packaging/files/etc/uci-defaults/92-tollgate-admin-setup ; do
+              packaging/files/etc/uci-defaults/999-tollgate-admin-setup ; do
             if [ ! -e "$p" ]; then
               echo "ERROR: portal-build.sh produced no $p - refusing to hand the apk lane a partial bundle" >&2
               exit 1
@@ -755,7 +755,7 @@ jobs:
           # the guest SPA, the admin SPA, the rpcd plugin and its ACL, and the
           # admin uci-default. packaging/Makefile installs all five, so a
           # guest-SPA-only artifact leaves the compile red
-          # ("install: cannot stat '.../92-tollgate-admin-setup'", 2026-09-24).
+          # ("install: cannot stat '.../999-tollgate-admin-setup'", 2026-09-24).
           tar xzf /var/tmp/portal-generated.tar.gz -C src-checkout
           # The guest SPA's entry file is splash.html (the bundle has no
           # index.html - the admin webroot is the one with index.html), so this
@@ -768,7 +768,7 @@ jobs:
               src-checkout/packaging/files/tollgate-admin/index.html \
               src-checkout/packaging/files/usr/libexec/rpcd/tollgate \
               src-checkout/packaging/files/usr/share/rpcd/acl.d/tollgate.json \
-              src-checkout/packaging/files/etc/uci-defaults/92-tollgate-admin-setup ; do
+              src-checkout/packaging/files/etc/uci-defaults/999-tollgate-admin-setup ; do
             [ -e "$p" ] || { echo "ERROR: missing generated portal file $p" >&2; exit 1; }
           done
           ls -l src-checkout/packaging/files/etc/uci-defaults/ \
