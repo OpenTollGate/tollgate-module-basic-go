@@ -33,6 +33,12 @@ type UpstreamManagerConfig struct {
 
 type Connector struct {
 	DHCPTimeout time.Duration
+
+	// runUCI runs one uci invocation; nil means the real binary (router
+	// state in /etc/config/wireless). Tests inject an in-memory fake so the
+	// STA convergence logic is exercised for real (#817 — the mock-level
+	// tests asserted canned returns and never touched it).
+	runUCI func(args ...string) (string, error)
 }
 
 type Scanner struct {
