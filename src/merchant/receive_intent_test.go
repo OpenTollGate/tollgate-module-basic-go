@@ -69,7 +69,7 @@ func (w *intentWallet) Receive(tollwallet.Token) (uint64, error) {
 	return renewalSats, nil
 }
 
-func newIntentMerchant(t *testing.T, wallet *intentWallet, storeDir string) *Merchant {
+func newIntentMerchant(t *testing.T, wallet tollwallet.WalletPort, storeDir string) *Merchant {
 	t.Helper()
 
 	cm, _ := setupTestConfigManager(t)

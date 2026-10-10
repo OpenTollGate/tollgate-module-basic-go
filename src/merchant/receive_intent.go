@@ -257,6 +257,24 @@ func (m *Merchant) reconcileReceiveIntent(reference string) {
 	macAddress := rec.MacAddress
 	m.receiveIntentMu.Unlock()
 
+	// Sequencing before evidence (#793 review, crash-lane Appendix B): the
+	// wallet's boot pending-swap replay runs concurrently with this
+	// reconcile, and for an intent whose proofs that replay is about to
+	// re-POST, a checkstate issued NOW can answer unspent — abandoning on
+	// it would hand the customer a dead note while the operator's replay
+	// recovers the value moments later. An unspent answer is only stable
+	// evidence once no replay can spend the proofs under inspection, so the
+	// reconcile first observes the replay pass when the wallet exposes it
+	// (gonuts does; cdk resumes at open and the sidecar owns its intents,
+	// so neither needs the gate). Boot itself never waits here — only this
+	// already-async reconcile does, and the pass is bounded by
+	// construction.
+	if awaiter, ok := m.tollwallet.(interface {
+		BootSwapReplayDone() <-chan struct{}
+	}); ok {
+		<-awaiter.BootSwapReplayDone()
+	}
+
 	spent, err := m.checkTokenSpent(tokenSerialized)
 	switch {
 	case err != nil:
