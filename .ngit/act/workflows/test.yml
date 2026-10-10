@@ -67,6 +67,14 @@ jobs:
           python3 scripts/changelog-assemble.py check
           bash tests/contract/changelog-fragments_test.sh
 
+      # Offline only here: ngit jobs get no GITHUB_TOKEN, and unauthenticated
+      # API checks from a shared runner IP are rate-limit flakiness, not a
+      # fence. The GitHub twin runs the same checker with --online.
+      - name: Changelog fragment identity (numbers present, no placeholders)
+        run: |
+          bash tests/contract/changelog-fragment-numbers_test.sh
+          python3 tests/contract/check-changelog-fragments.py
+
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
@@ -194,6 +202,8 @@ jobs:
         run: bash tests/contract/build-purity.sh
       - name: Shipped AP SSID format check
         run: bash tests/contract/check-ssid-format.sh
+      - name: SSID naming contract (the matcher's acceptance table)
+        run: bash tests/contract/check-ssid-naming.sh
 
   deps-and-imports:
     runs-on: ubuntu-latest

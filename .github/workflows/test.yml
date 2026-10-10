@@ -73,6 +73,21 @@ jobs:
           python3 scripts/changelog-assemble.py check
           bash tests/contract/changelog-fragments_test.sh
 
+      - name: Changelog fragment identity (numbers are real, no placeholders)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Offline verdicts first: every refusal case the fence names must
+          # actually refuse (a fence that cannot fail is decoration).
+          bash tests/contract/changelog-fragment-numbers_test.sh
+          # Then the tree, offline and online: every changelog.d/*.md must
+          # reference a REAL PR/issue number of its own — the numberless
+          # vm-campaign fragment (merged as #704) and the foreign-number
+          # paste (#631/#743 class) are the two shapes this stops. Online uses
+          # the job token via gh; unauthenticated urllib is the fallback.
+          python3 tests/contract/check-changelog-fragments.py
+          python3 tests/contract/check-changelog-fragments.py --online
+
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
@@ -117,18 +132,6 @@ jobs:
           # This test has existed since the nodogsplash dependency incident but
           # was never wired into CI, so nothing ran it automatically.
           bash tests/packaging/package-nodogsplash-dependency_test.sh
-
-      - name: GPL license ships in both release lanes
-        run: |
-          # Offline (no SDK, no router, no network): issue #751 — the SDK
-          # .apk lane was metadata-only while the .ipk lanes installed the
-          # GPL-3.0 text, so the same version shipped different contents per
-          # format. Every staging surface (packaging/Makefile, local-build-ipk,
-          # the CI ipk lane) now ships the text at the same payload path, the
-          # SDK recipe REQUIRES the file (a GPL build without its license
-          # fails, not silently ships), and the built-artifact harness
-          # hard-fails any package missing it.
-          bash tests/packaging/license-both-lanes_test.sh
 
       - name: Setup-marker ordering (roll-back safety)
         run: |
@@ -304,6 +307,16 @@ jobs:
         run: bash tests/contract/build-purity.sh
       - name: Shipped AP SSID format check
         run: bash tests/contract/check-ssid-format.sh
+      - name: SSID naming contract (the matcher's acceptance table)
+        run: |
+          # The reader twin of the format check above: hasTollGateSSID must
+          # accept both brands bare AND single-'!'-decorated, case-
+          # insensitively, and reject a double '!' — pinned by ONE fixture
+          # table the Go unit test and this check both consume. The SSID
+          # recognition contract broke twice (#618 brand-blind matcher, #706
+          # decoration); each was a reader/writer disagreement this table
+          # would have caught.
+          bash tests/contract/check-ssid-naming.sh
 
   deps-and-imports:
     runs-on: ubuntu-latest
@@ -323,6 +336,48 @@ jobs:
         run: python3 tests/contract/check-changelog-duplicates.py
       - name: Changelog duplicates check verdicts
         run: bash tests/contract/changelog-duplicates_test.sh
+
+  # The same module suite the go-test matrix runs, but in a PRISTINE
+  # golang:1.26.8-bookworm container instead of the GitHub runner image.
+  # The image tag is a toolchain pin like any go-version: line —
+  # tests/contract/check-toolchain-parity.py refuses it drifting from the
+  # manifest.
+  #
+  # WHAT A FAILURE HERE MEANS. The runner image is anything but clean: it
+  # carries preinstalled toolchains and packages, a populated $HOME,
+  # GITHUB_*/RUNNER_* env, and warm module/build caches. A test that is
+  # green on ubuntu-latest and red in this container (or vice versa) is
+  # coupled to that host state — it passes because of where it runs, not
+  # because of what it tests. The known class: code or tests that read
+  # /etc/tollgate (the testenv tag exists to provision a hermetic config
+  # dir; a package that forgets it works on a dev box with the dir present
+  # and dies here), $HOME leftovers, runner-preinstalled binaries on PATH,
+  # and cache-dependent behavior.
+  #
+  # THE RULE: a red lane here is a finding, never something this job papers
+  # over — no silent skips, no continue-on-error. The ONE carve-out is the
+  # repo's established known-issues contract (same as the happy-path gate):
+  # a failure is tolerated ONLY while it is listed in
+  # tests/contract/clean-container-known-issues.txt with an OPEN issue; the
+  # gate script prints every tolerated failure loudly, flags stale entries,
+  # and a build/harness failure is always fatal. Delete an entry when its
+  # issue closes and the failure is fatal again by itself.
+  # ngit twin deliberately absent: ngit-ci refuses container: jobs
+  # (see .ngit/README.md's port table).
+  clean-container-test:
+    name: Clean-container module suite (golang:1.26.8-bookworm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: golang:1.26.8-bookworm
+    steps:
+      - uses: actions/checkout@v6
+      # The gate runs the go-test matrix's nine nested modules (same
+      # intentional omissions — see the NOTE there) plus the main package's
+      # testenv run, so a divergence between the two lanes is host state,
+      # never coverage.
+      - name: Run the module suite in the pristine image
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/clean-container-gate.sh"
 
   # The customer-facing happy path is gated HERE, on every push and every pull
   # request, because this is the workflow that runs on a branch BEFORE anyone

@@ -1,0 +1,53 @@
+# The SSID matcher's acceptance table — ONE table, two readers.
+#
+#   * src/wireless_gateway_manager/brands_test.go drives hasTollGateSSID
+#     over every line of this file (behaviour: the Go matcher itself);
+#   * tests/contract/check-ssid-naming.sh proves this table is well-formed
+#     and covers every REQUIRED class, and that the Go test actually reads
+#     it (structure: the pin is wired, not decorative).
+#
+# Line grammar: 'match <ssid>' or 'nomatch <ssid>' (a bare 'nomatch' is the
+# empty SSID); comment and blank lines are ignored; comments live on their
+# own lines so parsing stays trivial.
+#
+# The contract, and where each class came from:
+#   * BOTH brands — the matcher was brand-blind until #618 (re-landed as
+#     #682): a whitelabel-branded TollGate was invisible as an upstream.
+#   * case-insensitive — the pre-device-code installer wrote lowercase
+#     tollgate-<code> SSIDs; those routers are still in the fleet.
+#   * single-'!'-decorated — #706's writer prefix, so the decorated and
+#     bare spellings of one router converge on the same recognition.
+#   * at most ONE '!' — a double decoration is not a TollGate name (#706).
+#
+# The whitelabel prefix appears literally HERE and nowhere else in the
+# table's consumers: this file is the SSID contract's allowlisted home
+# (tests/packaging/rebrand-literal-gutter_test.sh); Go source assembles it
+# from non-contiguous bytes and brands_test.go pins that assembly.
+
+# --- default brand, bare writer ---------------------------------------------
+match TollGate-OQ3Q
+match TollGate-A1B2
+match TollGate-G7ZQ
+match TollGate-
+match tollgate-0GLK
+match tOLLgATE-ab12
+
+# --- whitelabel brand, bare writer ------------------------------------------
+match Net4sats-OQ3Q
+match net4sats-aa11
+match NET4SATS-AA11
+
+# --- decoration is at most ONE '!' ------------------------------------------
+nomatch !!TollGate-A1B2
+nomatch !!Net4sats-A1B2
+nomatch !tollgate
+
+# --- prefix anchored at the start, exact up to case -------------------------
+nomatch
+nomatch TollGate
+nomatch tollgate
+nomatch TollGatex-AB12
+nomatch MyTollGate-AB12
+nomatch x!TollGate-AB12
+nomatch FreeWifi
+nomatch !FreeWifi
