@@ -1334,8 +1334,8 @@ drop_admin_listeners() {
 #   set    -> nothing to do, the board is authenticatable
 #   locked -> nothing to do, password login is refused
 #   empty  -> generate a credential, apply it, and PROVE it by re-reading the
-#             hash; the value is shown once (install output + root-only log,
-#             the same channel as the generated private WiFi key)
+#             hash; the value is NEVER printed (the owner sets their own at the
+#             board's first-run page, or with `passwd root`)
 #   empty-but-unprovable / unknown -> refuse to serve the board at all
 enforce_admin_credential() {
     local state password chosen had board_http board_https
@@ -1404,13 +1404,13 @@ enforce_admin_credential() {
         fi
         if [ -n "$password" ] && [ "$(admin_credential_state)" = "set" ]; then
             mark_admin_credential_provisional
-            # Shown ONCE: the install output, plus the root-only log (600, and
-            # already the home of the generated private WiFi key). It is never
-            # written to UCI — /etc/config is world-readable — and never
-            # re-displayed; the operator changes it with `passwd root`.
-            printf 'TollGate: root had no password; generated one for the :%s admin board — shown once: %s\n' "$board_http" "$password"
-            printf 'TollGate: that password is PROVISIONAL. Choose your own with `passwd root` over SSH, or reinstall with TOLLGATE_ADMIN_PASSWORD set; the board serves either way.\n'
-            log "No root password was set: generated one for the admin board (shown once, change it with 'passwd root'): $password"
+            # The generated value is NEVER printed and never written to any
+            # world-readable file. The owner chooses their own password at the
+            # board's FIRST-RUN page (pre-auth; the portal admin SPA serves it
+            # while /etc/tollgate/admin-credential-provisional stands) or with
+            # `passwd root` / a reinstall that sets TOLLGATE_ADMIN_PASSWORD.
+            printf 'TollGate: root had no password. The admin board (:%s) serves a FIRST-RUN page — set your own root and private-WiFi passwords there, or run `passwd root`. No generated password is printed.\n' "$board_http"
+            log "No root password was set: a provisional credential was generated (NOT printed). The board serves a first-run page; the owner sets their own password there, or with 'passwd root'."
             return 0
         fi
         log "ERROR: no credential could be established (passwd did not take, or no entropy to generate one) — refusing to serve the :${board_http}/:${board_https} admin board (rpcd would accept ANY password against the empty hash); set one with 'passwd root' and re-run this script"
@@ -2289,21 +2289,28 @@ setup_private_network() {
     private_ssid=$(private_ssid_for_code "$(uci -q get wireless.private_radio0.ssid)")
 
     private_key=$(uci -q get wireless.private_radio0.key)
-    if [ -z "$private_key" ]; then
+    if [ -z "$private_key" ] && [ -n "${TOLLGATE_PRIVATE_WIFI_PASSWORD:-}" ]; then
+        # Operator chose it (install-time prompt, B) — never generated-and-printed.
+        private_key="$TOLLGATE_PRIVATE_WIFI_PASSWORD"
+        log "Private WiFi key set from TOLLGATE_PRIVATE_WIFI_PASSWORD (not printed)"
+    elif [ -z "$private_key" ]; then
         # Memorable password: 3 words + 2-digit number. Single
         # /dev/urandom read, awk picks words — avoids forking per word.
+        # NOT printed: the owner sets their own in the board's first-run page
+        # (or `tollgate network private set-password`).
         private_key=$(awk -v seed="$(hexdump -n 8 -e '"%u"' /dev/urandom)" '
         BEGIN {
             srand(seed);
             n = split("Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet Kilo Lima Mike November Oscar Papa Quebec Romeo Sierra Tango Uniform Victor Whiskey Xray Yankee Zulu", w, " ");
             printf("%s-%s-%s-%02d", w[int(rand()*n)+1], w[int(rand()*n)+1], w[int(rand()*n)+1], int(rand()*100));
         }')
-        log "Generated new private WiFi key (none was configured)"
+        log "Generated new private WiFi key (NOT printed; the owner sets it in the board first-run page or 'tollgate network private set-password')"
     else
         log "Preserving existing private WiFi key"
     fi
+    # The key VALUE is deliberately never logged: the install log is not a
+    # channel for a credential (that is the whole point of this change).
     log "Private SSID ${private_ssid}, IP ${private_ip}"
-    log "Private key: $private_key"
 
     uci set network.private='interface'
     uci set network.private.proto='static'
