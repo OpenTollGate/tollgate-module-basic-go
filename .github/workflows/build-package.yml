@@ -100,12 +100,25 @@ jobs:
             mv matrix.filtered.json matrix.json
           fi
 
-          echo "matrix=$(jq -c '{include: [
-            (.include[] | select(.ipk) | del(.ipk, .apk) + {format: "ipk", digest: .digest_ipk, sdk_release: .release_ipk}),
-            (.include[] | select(.apk) | del(.ipk, .apk) + {format: "apk", digest: .digest_apk, sdk_release: .release_apk})
-          ]}' matrix.json)" >> $GITHUB_OUTPUT
-          echo "ipk_matrix=$(jq -c '{include: [.include[] | select(.ipk) | del(.ipk, .apk, .digest_apk, .release_apk, .digest_ipk, .release_ipk) + {format: "ipk", digest: .digest_ipk, sdk_release: .release_ipk}]}' matrix.json)" >> $GITHUB_OUTPUT
-          echo "apk_matrix=$(jq -c '{include: [.include[] | select(.apk) | del(.ipk, .apk, .digest_apk, .release_apk, .digest_ipk, .release_ipk) + {format: "apk", digest: .digest_apk, sdk_release: .release_apk}]}' matrix.json)" >> $GITHUB_OUTPUT
+          # One pass: the era attachment rule lives exactly once; the three
+          # outputs (combined, ipk-only, apk-only) are projections of it.
+          # Each row gains its format's digest+release FIRST, then the
+          # both-era source keys are stripped (order matters — the pairs
+          # must exist when read).
+          jq -r '
+            def split_rows:
+              [.include[]
+               | (if .ipk then
+                    (. + {format: "ipk", digest: .digest_ipk, sdk_release: .release_ipk})
+                  else empty end),
+                 (if .apk then
+                    (. + {format: "apk", digest: .digest_apk, sdk_release: .release_apk})
+                  else empty end)
+               | del(.digest_apk, .release_apk, .digest_ipk, .release_ipk, .ipk, .apk)];
+            "matrix=" + ({include: split_rows} | tostring),
+            "ipk_matrix=" + ({include: [split_rows[] | select(.format == "ipk")]} | tostring),
+            "apk_matrix=" + ({include: [split_rows[] | select(.format == "apk")]} | tostring)
+          ' matrix.json >> "$GITHUB_OUTPUT"
 
   determine-versioning:
     runs-on: ubuntu-latest
