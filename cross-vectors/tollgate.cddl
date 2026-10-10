@@ -1,0 +1,246 @@
+; PORTED CANONICAL SCHEMA — do not edit here independently.
+; Source of truth: OpenTollGate/tollgate-rs, crates/tollgate-protocol/tollgate.cddl
+; at commit 87b03eef4e2c (2026-09-25, "Add a normative CDDL schema for the wire
+; protocol, checked against the codec"). Ported per tollgate-module-basic-go #750
+; (amendment: port the CDDL alongside the cross-vectors so the contract stays
+; reviewable in one place). The amendment originally pointed at the archived
+; Amperstrand repo's protocol/tollgate.cddl @ 8e49f3de87f1 (2026-07-15) — that copy was
+; superseded when the Rust implementation redesigned its wire protocol and
+; rewrote the CDDL "fresh from the current codec"; this port tracks the live
+; normative file. When the upstream schema changes, re-port in the same commit
+; that updates any consumer.
+; TollGate wire protocol, version 1 -- CDDL schema (RFC 8610)
+;
+; NORMATIVE. This file is the definition of what a TollGate message looks
+; like on the wire. `src/codec.rs` implements it and `tests/schema.rs`
+; checks every message the codec emits against it. When the code and this
+; schema disagree, the code is wrong -- or both change, in the same PR.
+;
+; The idea of a machine-checkable schema comes from PR #8 by Amperstrand,
+; which proposed one for the protocol as it stood before the redesign. This
+; file is written fresh from the current codec.
+;
+; ---------------------------------------------------------------------------
+; Framing (not CBOR, so not expressible below)
+; ---------------------------------------------------------------------------
+;
+; On the raw-TCP transport each message is preceded by its length as a
+; 2-byte little-endian unsigned integer, then exactly that many bytes of
+; one CBOR-encoded `tollgate-message`:
+;
+;   +------------+-----------------+------------+-----------------+----
+;   |  len (LE)  |  CBOR message   |  len (LE)  |  CBOR message   | ...
+;   +------------+-----------------+------------+-----------------+----
+;      2 bytes      <len> bytes       2 bytes      <len> bytes
+;
+; A message is therefore at most 65535 bytes.
+;
+; ---------------------------------------------------------------------------
+; Encoding rules CDDL cannot state
+; ---------------------------------------------------------------------------
+;
+; - Every message is a DEFINITE-length map. Indefinite-length maps and
+;   arrays are rejected.
+; - Key 0 carries the message type and may appear anywhere in the map;
+;   receivers do not assume it comes first.
+; - Map keys are unsigned integers 0..255. A key outside that range makes
+;   the message undecodable.
+; - Unknown keys are skipped, so a later minor version can add fields. Each
+;   message ends in the catch-all `* uint => any` to say so. Strictly the
+;   catch-all is `* (0..255) => any`; it is written as `uint` because the
+;   reference validator (the `cddl` crate) cannot match a range-typed map
+;   key, and the 0..255 bound is the rule above.
+; - Known keys are written `key: type`, which in CDDL implies a cut: a known
+;   key whose value has the wrong type makes the message invalid, rather
+;   than being absorbed by the catch-all as an unknown one.
+; - Integer fields accept any CBOR integer encoding whose value fits the
+;   stated range; senders use the shortest form.
+
+tollgate-message = announce
+                 / offer
+                 / accept
+                 / channel-ready
+                 / topup
+                 / topup-reject
+                 / rollover-init
+                 / rollover-ready
+                 / channel-close
+                 / close-ack
+                 / reject
+                 / disconnect
+
+; ---------------------------------------------------------------------------
+; Scalars
+; ---------------------------------------------------------------------------
+
+u8  = uint .size 1
+u16 = uint .size 2
+u32 = uint .size 4
+u64 = uint .size 8
+
+pubkey     = bstr .size 33   ; compressed secp256k1 public key
+channel-id = bstr .size 32   ; Spilman channel identifier
+signature  = bstr .size 64   ; BIP-340 Schnorr signature
+
+; Quantity unit a node denominates in: "byte", "wh", "ml", ...
+unit = tstr
+
+; Channel funding, as Accept and RolloverInit carry it. OPAQUE at the
+; protocol level: its contents belong to the channel backend. For the
+; Spilman backend they are described by
+; crates/tollgate-net/src/channel/spilman/funding.cddl.
+funding = bstr
+
+; Machine-readable refusal reasons, shared by TopUpReject, Reject and
+; Disconnect. These are the values a sender may write. A receiver treats
+; any other value in 0..255 as `reason-other` rather than failing, so a
+; peer on a later version can add reasons.
+reason-code = &(
+  reason-multiplier-unacceptable: 0x01,
+  reason-mint-not-accepted:       0x02,
+  reason-unit-not-accepted:       0x03,
+  reason-window-out-of-range:     0x04,
+  reason-funding-invalid:         0x05,
+  reason-grant-invalid:           0x06,
+  reason-rate-exceeds-capacity:   0x07,
+  reason-grant-exceeds-channel:   0x08,
+  reason-version-unsupported:     0x09,
+  reason-other:                   0xFF,
+)
+
+; Why a channel is closing. A receiver treats any other value in 0..255 as
+; `close-normal`.
+close-reason = &(
+  close-normal:         0,
+  close-price-rejected: 1,
+  close-peer-leaving:   2,
+)
+
+; ---------------------------------------------------------------------------
+; Messages. Key 0 is the type tag, 0x00..0x0B.
+; ---------------------------------------------------------------------------
+
+; 0x00 -- "I am a TollGate node". First message each peer sends.
+announce = {
+  0: 0x00,
+  1: u8,                  ; protocol version; 1, and must match the peer's
+  2: pubkey,              ; sender's identity
+  3: unit,
+  ? 4: u32,               ; capabilities; all bits reserved in v1.
+                          ;   Always written; absent means 0
+  * uint => any,
+}
+
+; 0x01 -- what this node takes payment in, and how welcome uploads are.
+offer = {
+  0: 0x01,
+  1: [+ tstr],            ; accepted mint URLs, most preferred first.
+                          ;   Mandatory and never empty, even with key 5
+  2: unit,
+  3: [
+    min-window-ms: u32,    ; smallest grant window accepted
+    max-window-ms: u32,    ; largest grant window accepted
+  ],
+  ? 4: u16,               ; received multiplier; 0 = no surcharge.
+                          ;   Always written; absent means 0
+  ? 5: bool,              ; no-charge: this node will not charge the peer.
+                          ;   Senders write it only as `true` and omit it
+                          ;   otherwise; absent or `false` means charging
+  * uint => any,
+}
+
+; 0x02 -- accept the Offer and fund the outgoing channel.
+accept = {
+  0: 0x02,
+  ? 1: funding,           ; always written; empty for free peering, where
+                          ;   no channel exists. Absent means empty
+  * uint => any,
+}
+
+; 0x03 -- the funding verified; the channel is active.
+channel-ready = {
+  0: 0x03,
+  1: channel-id,
+  * uint => any,
+}
+
+; 0x04 -- ratchet one or more channels and buy a rate for a window. The
+; grant is the combined increase across every update, applied atomically.
+topup = {
+  0: 0x04,
+  1: [1*8 channel-update],; at most MAX_CHANNEL_UPDATES = 8
+  2: u32,                 ; window-ms, measured from receipt
+  * uint => any,
+}
+
+; Signed over (channel-id, cumulative) only.
+channel-update = [
+  channel-id,
+  cumulative: u64,        ; total units ever authorized; strictly increasing
+  signature,
+]
+
+; 0x05 -- the provider will not honor a grant.
+topup-reject = {
+  0: 0x05,
+  1: [0*8 refused-update],; the states declined, echoed without signatures
+  2: u64,                 ; max-rate-available, units per second
+  ? 3: reason-code,       ; always written; absent means reason-other
+  * uint => any,
+}
+
+refused-update = [
+  channel-id,
+  cumulative: u64,
+]
+
+; 0x06 -- open a replacement alongside a channel approaching exhaustion.
+rollover-init = {
+  0: 0x06,
+  1: channel-id,          ; old channel, which keeps draining
+  2: funding,             ; funding for the replacement; required here
+  * uint => any,
+}
+
+; 0x07 -- the replacement channel is funded and ready.
+rollover-ready = {
+  0: 0x07,
+  1: channel-id,          ; old channel
+  2: channel-id,          ; new channel
+  * uint => any,
+}
+
+; 0x08 -- request a cooperative close.
+channel-close = {
+  0: 0x08,
+  1: channel-id,
+  2: u64,                 ; proposed final balance
+  3: signature,           ; over the final balance
+  ? 4: close-reason,      ; always written; absent means close-normal
+  * uint => any,
+}
+
+; 0x09 -- acknowledge a close.
+close-ack = {
+  0: 0x09,
+  1: channel-id,
+  2: u64,                 ; accepted final balance
+  * uint => any,
+}
+
+; 0x0A -- general-purpose rejection of a proposal.
+reject = {
+  0: 0x0A,
+  1: u8,                  ; type tag of the message rejected
+  ? 2: reason-code,       ; always written; absent means reason-other
+  ? 3: tstr / null,       ; human-readable detail. Always written, as null
+                          ;   when there is none; absent means none
+  * uint => any,
+}
+
+; 0x0B -- orderly teardown of the whole relationship.
+disconnect = {
+  0: 0x0B,
+  ? 1: reason-code,       ; always written; absent means reason-other
+  * uint => any,
+}
