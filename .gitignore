@@ -25,6 +25,14 @@ src/tollgate-module-basic-go
 src/cmd/tollgate-cli/tollgate-cli
 *.exe
 
+# Per-developer Go workspace overrides. Local fork redirects belong in a
+# go.work file (gitignored, never committed or stashed), never in go.mod —
+# a replace directive whose target directory is missing makes every build
+# fail like a code regression (#550). scripts/check-dangling-replace.sh
+# guards the go.mod side.
+go.work
+go.work.sum
+
 # Test artifacts
 **/tollwallet_db/*
 tests/*.bin

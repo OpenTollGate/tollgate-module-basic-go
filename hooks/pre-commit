@@ -6,6 +6,8 @@ set -euo pipefail
 if git diff --cached --name-only | grep -q '\.mod$\|go\.sum$'; then
     echo "🔍 Checking dependency sync across go.mod files..."
     python3 tests/contract/check-deps-sync.py
+    echo "🔍 Checking for dangling replace directives..."
+    bash scripts/check-dangling-replace.sh
 fi
 
 if git diff --cached --name-only | grep -q '\.go$'; then
@@ -55,6 +57,14 @@ fi
 if git diff --cached --name-only | grep -qE '^packaging/files/'; then
     echo "🔍 Checking the AP SSID format contract..."
     bash tests/contract/check-ssid-format.sh
+fi
+
+# A cloud-lab run stamps install_time through the compose bind mount; the
+# tracked file is the pristine template. Runtime state must not ride a
+# commit or a stash (#550) — restore it instead of staging the mutation.
+if git diff --cached --name-only | grep -q '^tests/cloud-lab/configs/install\.json$'; then
+    echo "🔍 Checking the cloud-lab install.json is the pristine template..."
+    python3 tests/contract/check-cloud-lab-pristine.py
 fi
 
 # Changelog fragments carry a PR's changelog entry (changelog.d/README.md). A

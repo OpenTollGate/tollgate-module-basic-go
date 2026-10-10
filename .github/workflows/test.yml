@@ -315,6 +315,21 @@ jobs:
       - name: Dependency sync check
         run: python3 tests/contract/check-deps-sync.py
 
+      # #550: a replace directive whose target directory is missing (a
+      # half-set-up local fork) makes every go build/test in that module
+      # fail like a code regression — the false-negative verification class.
+      # The guard runs on the real tree and its verdicts are pinned by a
+      # fixture test, so it can neither cry wolf nor go inert.
+      - name: Dangling replace directives (local-override hygiene, #550)
+        run: |
+          bash scripts/check-dangling-replace.sh
+          bash tests/contract/dangling-replace_test.sh
+      # #550's second half: the lab stamps install_time through the compose
+      # bind mount; the tracked file is the pristine template, and runtime
+      # state must never ride a commit.
+      - name: Cloud-lab pristine config check
+        run: python3 tests/contract/check-cloud-lab-pristine.py
+
       - name: Toolchain parity (manifest is the single source of truth)
         run: python3 tests/contract/check-toolchain-parity.py
       - name: Stale import path check
