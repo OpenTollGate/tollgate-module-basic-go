@@ -1,6 +1,7 @@
 package merchant
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -108,11 +109,21 @@ func deauthsFor(t *testing.T, ndsctl *renewalNdsctl, macAddress string) int {
 
 // closeGateCleanup returns the addressed gate to a closed state when the test
 // ends, so a gate this file opens cannot become the next test's stale binding.
+// It must also clear the valve's close-streak state for that gate: an abandoned
+// close streak blocks every later CloseGate of the MAC behind
+// ErrGateCloseAbandoned — plain CloseGate cannot clear it, only the
+// reconciliation path can — and the streak otherwise outlives the test that
+// spent it, failing whichever later run (a -count iteration, or a suite
+// ordering) asserts a fresh abandonment for the same MAC.
 func closeGateCleanup(t *testing.T, macAddress string) {
 	t.Helper()
 
 	t.Cleanup(func() {
-		if err := valve.CloseGate(macAddress); err != nil {
+		err := valve.CloseGate(macAddress)
+		if errors.Is(err, valve.ErrGateCloseAbandoned) {
+			err = valve.ReconcileGateClose(macAddress)
+		}
+		if err != nil {
 			t.Logf("cleanup: could not close the gate of %s: %v", macAddress, err)
 		}
 	})
