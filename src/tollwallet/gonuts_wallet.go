@@ -26,6 +26,14 @@ type GonutsWallet struct {
 	inner *TollWallet
 }
 
+// BootSwapReplayDone forwards the boot replay-pass completion channel so
+// the WalletPort's dynamic type still satisfies the merchant's sequencing
+// assertion (cdk/sidecar ports deliberately do not implement it: they
+// resume at open or own their intents).
+func (g *GonutsWallet) BootSwapReplayDone() <-chan struct{} {
+	return g.inner.BootSwapReplayDone()
+}
+
 // NewWalletPort creates a WalletPort backed by gonuts-tollgate.
 // This is the default factory; the cdk_wallet build tag provides an alternative.
 func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool) (WalletPort, error) {
