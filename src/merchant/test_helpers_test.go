@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -26,6 +27,43 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
 		time.Sleep(5 * time.Millisecond)
 	}
 	return cond()
+}
+
+// installCloudLabNdsctlSeam stages the one fake ndsctl this repository ships
+// (tests/cloud-lab/fake-ndsctl.sh — "the cloud-lab seam, not a second one", in
+// the happy-path harness's words) as `ndsctl` on this test's PATH, for a
+// merchant test that drives the real valve and needs a gate to actually open.
+// Without it the suite's colour depends on the host: on any machine with no
+// ndsctl binary every gate open fails, the owed path answers grant-pending,
+// and the guard suite's grant assertion fails (#726, #770). The seam's
+// contract is the cloud lab's — auth/deauth always succeed, `json` answers an
+// Authenticated client with readable counters — which is exactly what a grant
+// needs. The auth/deauth log is pointed at the test's own TempDir via
+// NDSCTL_LOG, so concurrent suites never share /tmp/ndsctl.log.
+func installCloudLabNdsctlSeam(t *testing.T) string {
+	t.Helper()
+
+	seam, err := filepath.Abs(filepath.Join("..", "..", "tests", "cloud-lab", "fake-ndsctl.sh"))
+	if err != nil {
+		t.Fatalf("resolve the cloud-lab ndsctl seam: %v", err)
+	}
+	if info, statErr := os.Stat(seam); statErr != nil || info.IsDir() {
+		t.Fatalf("the cloud-lab ndsctl seam is missing (the happy-path harness depends on the same file): %s", seam)
+	}
+	body, err := os.ReadFile(seam)
+	if err != nil {
+		t.Fatalf("read the cloud-lab ndsctl seam: %v", err)
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ndsctl"), body, 0o755); err != nil {
+		t.Fatalf("stage the cloud-lab ndsctl seam: %v", err)
+	}
+
+	logPath := filepath.Join(dir, "ndsctl.log")
+	t.Setenv("NDSCTL_LOG", logPath)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return logPath
 }
 
 func setupTestConfigManager(t *testing.T) (*config_manager.ConfigManager, string) {
