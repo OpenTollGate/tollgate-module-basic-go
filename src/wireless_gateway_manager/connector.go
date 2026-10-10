@@ -184,6 +184,9 @@ func (c *Connector) GetConnectedSSID() (string, error) {
 
 // ExecuteUCI executes a UCI command.
 func (c *Connector) ExecuteUCI(args ...string) (string, error) {
+	if c.runUCI != nil {
+		return c.runUCI(args...)
+	}
 	cmd := exec.Command("uci", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -858,7 +861,27 @@ func (c *Connector) FindOrCreateSTAForSSID(ssid, passphrase, encryption, radio s
 			logger.WithFields(logrus.Fields{
 				"interface": section.Name,
 				"ssid":      ssid,
-			}).Info("Reusing existing disabled STA interface")
+			}).Info("Reusing existing disabled STA interface — refreshing its credentials")
+			// #817: the reused section keeps the key, encryption and network
+			// it was created with. A rotated passphrase must overwrite the
+			// stored key, or the join fails WRONG_KEY while the connect flow
+			// reports a DHCP wait.
+			if _, err := c.ExecuteUCI("set", "wireless."+section.Name+".encryption="+encryption); err != nil {
+				return "", fmt.Errorf("failed to refresh encryption on %s: %w", section.Name, err)
+			}
+			if passphrase != "" {
+				if _, err := c.ExecuteUCI("set", "wireless."+section.Name+".key="+passphrase); err != nil {
+					return "", fmt.Errorf("failed to refresh key on %s: %w", section.Name, err)
+				}
+			} else {
+				c.ExecuteUCI("delete", "wireless."+section.Name+".key")
+			}
+			if _, err := c.ExecuteUCI("set", "wireless."+section.Name+".network=wwan"); err != nil {
+				return "", fmt.Errorf("failed to set network on %s: %w", section.Name, err)
+			}
+			if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
+				return "", err
+			}
 			return section.Name, nil
 		}
 	}
@@ -964,6 +987,30 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		if _, err := c.ExecuteUCI("set", "wireless."+activeIface+".disabled=1"); err != nil {
 			return fmt.Errorf("failed to disable active upstream %s: %w", activeIface, err)
 		}
+	}
+
+	// #817: mt76 exposes ONE STA netdev per radio. Any other enabled STA
+	// section on the candidate radio keeps that netdev, so its key —
+	// possibly stale or foreign — is the one wpa_supplicant joins with,
+	// while the freshly written candidate never gets an interface. Disable
+	// every enabled STA on the target radio, not just the section
+	// GetActiveSTA happened to name.
+	if sections, serr := c.GetSTASections(); serr == nil {
+		for _, section := range sections {
+			if section.Name == candidateIface || section.Disabled || section.Device != candidateRadio {
+				continue
+			}
+			logger.WithFields(logrus.Fields{
+				"interface": section.Name,
+				"radio":     candidateRadio,
+				"ssid":      section.SSID,
+			}).Info("Disabling competing STA interface on the target radio")
+			if _, err := c.ExecuteUCI("set", "wireless."+section.Name+".disabled=1"); err != nil {
+				logger.WithError(err).WithField("interface", section.Name).Warn("Failed to disable competing STA on the target radio")
+			}
+		}
+	} else {
+		logger.WithError(serr).Warn("Could not enumerate STA sections — competing enabled STAs on the target radio are not guaranteed disabled")
 	}
 
 	if _, err := c.ExecuteUCI("commit", "wireless"); err != nil {
