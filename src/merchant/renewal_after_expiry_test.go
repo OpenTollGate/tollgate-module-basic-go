@@ -516,3 +516,34 @@ func TestFirstTimePurchaseStillRefusedWhenNdsDoesNotKnowTheClient(t *testing.T) 
 		t.Fatalf("ndsctl auth calls = %d, want 0 — a refused purchase must not authorise anything", got)
 	}
 }
+
+// TestSuccessfulPaymentMarksMintReachable pins the #747 success-side wiring:
+// a payment that completes the full swap path feeds MarkReachable to the
+// health tracker, so a mint that just served a customer is readmitted at
+// once — recovery does not wait for probe thresholds after real traffic.
+func TestSuccessfulPaymentMarksMintReachable(t *testing.T) {
+	_ = installRenewalNdsctl(t)
+	m, _ := newRenewalMerchant(t, "milliseconds")
+
+	// The tracker's post-outage state: the mint is down (payment-observed
+	// failure side) and carries a stale Retry-After hold.
+	m.mintHealthTracker.MarkUnreachable(renewalMintURL)
+	m.mintHealthTracker.mu.Lock()
+	m.mintHealthTracker.nextProbeAfter[renewalMintURL] = time.Now().Add(time.Hour)
+	m.mintHealthTracker.mu.Unlock()
+
+	event, err := m.PurchaseSession("cashuBfirst", renewalMAC)
+	if err != nil {
+		t.Fatalf("PurchaseSession returned error: %v", err)
+	}
+	if event.Kind != 1022 {
+		t.Fatalf("purchase returned kind %d (code=%q), want 1022", event.Kind, noticeErrorCode(t, event))
+	}
+
+	if !m.mintHealthTracker.IsReachable(renewalMintURL) {
+		t.Fatal("a completed swap must MarkReachable — the mint just served a full payment and the tracker still considers it down (#747)")
+	}
+	if !m.mintHealthTracker.probeDue(renewalMintURL, time.Now()) {
+		t.Fatal("a completed swap must void the mint's Retry-After hold")
+	}
+}
