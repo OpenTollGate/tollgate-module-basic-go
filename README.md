@@ -147,6 +147,88 @@ setup run says so in the log — the one-time line is gone as soon as the log is
 truncated, which every full-setup run does. A deliberately **locked** root
 account is never re-enabled by any of this.
 
+### Verifying a manual install (the signed manifest)
+
+Installing the package by hand skips the installer, and with it the installer's
+verification. The release carries what you need to do that check yourself: a
+SHA256SUMS listing every asset, and a SHA256SUMS.sig that is an OpenSSH ed25519
+signature of that listing. The signing key's public half is committed to
+FreedomTechFeed/packages, and the file the verifier consumes is the
+allowed-signers entry at .github/release-keys/allowed_signers — NOT the bare key
+beside it at .github/release-keys/release-signing.pub. Both carry the same key,
+but only the allowed-signers file supplies the principal that the verifier's
+identity argument is matched against, so that is the one to fetch.
+
+Verify the signature, then the bytes — in that order:
+
+```sh
+# Run this on a machine you trust; ssh-keygen is not on a stock router.
+BASE=https://github.com/FreedomTechFeed/packages/releases/download/v0.6.0-rc1-pre26
+# Pin the key file to a commit, not the moving master branch:
+KEYS=https://raw.githubusercontent.com/FreedomTechFeed/packages/1f16dae9c67d528dea57b76d89257d32745a50cd
+# A stock OpenWrt router ships wget (BusyBox) or uclient-fetch, not curl; use
+# whichever this machine has. curl -fsSLO "$URL" works too.
+wget -qO SHA256SUMS      "$BASE/SHA256SUMS"
+wget -qO SHA256SUMS.sig  "$BASE/SHA256SUMS.sig"
+wget -qO allowed_signers "$KEYS/.github/release-keys/allowed_signers"
+ssh-keygen -Y verify -f allowed_signers -I release-signing@freedomtechfeed \
+  -n freedomtechfeed-release-manifest -s SHA256SUMS.sig < SHA256SUMS
+sha256sum --check --strict SHA256SUMS
+```
+
+Two honest notes. First, the artifact itself carries no apk-level signature, so
+apk refuses it as UNTRUSTED unless it is told otherwise; the provenance comes
+from the signed manifest above, not from the package, which is exactly why the
+manifest is verified first and the hash checked second. Second, a stock router
+is a thin userspace: it ships dropbear rather than ssh-keygen, and wget or
+uclient-fetch rather than curl. Verify the manifest on a machine you trust,
+then check the downloaded file's sha256 on the router, and only then install it.
+
+#### Installing on a box that cannot verify TLS
+
+The declared dependency fixes a package install on a box that can still reach
+the feed: apk resolves the closure, pulls ca-bundle with it, and the box ends up
+with a trust store. It does not — and cannot — bootstrap a box that has no trust
+anchors at all. There, apk's first HTTPS fetch already fails with an SSL verify
+error, and no dependency can repair a fetch that must itself be verified. If the
+box reports that error while updating, bring the package files to it by other
+means instead of over the network, then install them locally in one apk call
+with a single explicit trust override:
+
+```sh
+# 1. On a machine you trust, obtain BOTH files and verify each against its own
+#    published hash. The tollgate asset is covered by the release's signed
+#    SHA256SUMS (above). ca-bundle is an OpenWrt feed package, so verify it
+#    against the sha256sums the feed publishes beside it, e.g.
+#      wget -qO - FEED/sha256sums | grep 'ca-bundle-.*\.apk$'
+#    Do not skip this: ca-bundle IS the trust anchor, so installing it
+#    unverified and then asking apk to trust it is circular.
+scp ca-bundle-*.apk tollgate-wrt_*.apk root@ROUTER:/tmp/
+
+# 2. On the router (OpenWrt 25.12 ships apk-tools 3), install both in one call.
+#    --allow-untrusted is the ONE deliberate override in this document, and it
+#    is safe only because step 1 verified both files before they were copied.
+cd /tmp
+set -- ./ca-bundle-*.apk ./tollgate-wrt_*.apk
+for f in "$@"; do
+  [ -e "$f" ] || { echo "missing staged file: $f"; exit 1; }
+done
+apk add --allow-untrusted "$@"
+
+# On the older opkg lane (OpenWrt 24.10) the equivalent needs no signature
+# override for local files:
+#   opkg install ./ca-bundle_*.ipk ./tollgate-wrt_*.ipk
+```
+
+Set the clock before any of this: a router whose clock is far off still fails
+certificate validity checks even once it has a trust store.
+
+The same applies to any other package the install needs — the module's runtime
+dependencies (nodogsplash, jq) must either already be installed or be brought as
+local files the same way, because a box in this state cannot fetch them from
+the feed either.
+
+
 For local packaging experiments use
 [scripts/build-sdk-package.sh](scripts/build-sdk-package.sh). It cross-compiles
 the target binaries locally, stages the canonical `packaging/` recipe into the

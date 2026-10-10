@@ -89,8 +89,10 @@ jobs:
           #   checks C/D/E  the MAC on the Lightning calls, the LN003/LN004
           #            strings, the swap-fee gate's keyset objects, the in-page
           #            renewal and the note's mint.
-          #   check F  packaging/files/etc/uci-defaults/92-tollgate-admin-setup
-          #            is NOT in this repository (the module ships 90 and 99; 92
+          #   check F  the pinned portal's 92-tollgate-admin-setup (installed as
+          #            999-tollgate-admin-setup, and run LAST so the credential
+          #            exists first) is NOT in this repository (the module ships
+          #            90 and 99; the portal's 92
           #            is staged from the pin into the package), so it is resolved
           #            FROM THE PIN and must derive uhttpd.admin.redirect_https
           #            from the module CLI's own coverage predicate

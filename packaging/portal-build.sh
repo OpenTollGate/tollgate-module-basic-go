@@ -14,7 +14,7 @@
 #   2. admin SPA         build/admin/*                   -> packaging/files/tollgate-admin/   (→ /www/tollgate)
 #   3. rpcd plugin       openwrt/rpcd/tollgate           -> packaging/files/usr/libexec/rpcd/tollgate
 #   4. rpcd ACL          openwrt/rpcd/tollgate_acl.json  -> packaging/files/usr/share/rpcd/acl.d/tollgate.json
-#   5. admin uci-default packaging/files/etc/uci-defaults/92-tollgate-admin-setup
+#   5. admin uci-default packaging/files/etc/uci-defaults/999-tollgate-admin-setup
 #                                                        -> same path, __ADMIN_HOME__ substituted
 #
 # A source artifact missing at the pin is a hard error: deriving the bundle from
@@ -35,7 +35,7 @@ cd "$REPO_ROOT"
 PORTAL_DIR="${PORTAL_DIR:-/tmp/tollgate-captive-portal-site}"
 OUTPUT_DIR="${OUTPUT_DIR:-packaging/files/tollgate-captive-portal-site}"
 ADMIN_OUTPUT_DIR="${ADMIN_OUTPUT_DIR:-packaging/files/tollgate-admin}"
-# Brand webroot the shipped 92-tollgate-admin-setup points at. TollGate is the
+# Brand webroot the shipped 999-tollgate-admin-setup points at. TollGate is the
 # default brand; a whitelabel build passes ADMIN_HOME=/www/<brand>.
 ADMIN_HOME="${ADMIN_HOME:-/www/tollgate}"
 PORTAL_REF="${PORTAL_REF:-$PORTAL_COMMIT}"
@@ -54,7 +54,11 @@ OUTPUT_DIR="$(tg_repo_path "$OUTPUT_DIR")"
 ADMIN_OUTPUT_DIR="$(tg_repo_path "$ADMIN_OUTPUT_DIR")"
 RPC_PLUGIN_DEST="$(tg_repo_path "packaging/files/usr/libexec/rpcd/tollgate")"
 RPC_ACL_DEST="$(tg_repo_path "packaging/files/usr/share/rpcd/acl.d/tollgate.json")"
-ADMIN_SETUP_DEST="$(tg_repo_path "packaging/files/etc/uci-defaults/92-tollgate-admin-setup")"
+# Installed LAST, after 99-tollgate-setup: it is the fail-closed admin gate (it
+# drops the board's listeners while root has no credential), so the credential
+# must exist before it runs. The numeric prefix IS the boot order, because
+# /etc/init.d/boot applies /etc/uci-defaults/* in one collated glob.
+ADMIN_SETUP_DEST="$(tg_repo_path "packaging/files/etc/uci-defaults/999-tollgate-admin-setup")"
 
 if [ "$PORTAL_REF" != "$PORTAL_COMMIT" ]; then
     if [ "${PORTAL_ALLOW_FLOATING:-0}" = "1" ]; then
@@ -141,8 +145,9 @@ install -m 0755 "$PORTAL_DIR/openwrt/rpcd/tollgate" "$RPC_PLUGIN_DEST"
 mkdir -p "$(dirname "$RPC_ACL_DEST")"
 install -m 0644 "$PORTAL_DIR/openwrt/rpcd/tollgate_acl.json" "$RPC_ACL_DEST"
 
-# 5. Admin uci-default (creates/repairs the dedicated :8090 uhttpd instance)
-#    with the brand webroot substituted for __ADMIN_HOME__. The script falls back
+# 5. Admin uci-default (creates/repairs the board's dedicated uhttpd instance —
+#    the pair it binds follows the entry_ui mapping) with the brand webroot
+#    substituted for __ADMIN_HOME__. The script falls back
 #    to /www/tollgate when the token is still present, but substituting here
 #    keeps the shipped file self-describing for the brand that was built.
 mkdir -p "$(dirname "$ADMIN_SETUP_DEST")"
