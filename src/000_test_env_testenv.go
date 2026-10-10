@@ -30,6 +30,12 @@ func init() {
 	// test runner two packages' binaries would collide on it.
 	apiListenAddr = "127.0.0.1:0"
 
+	// The test binary is one process with one client IP behind every request
+	// the suites make, so the payment path's per-IP rate limit would fail the
+	// suites mid-run (#748). The bypass's contract and its never-in-prod
+	// guarantee are documented at the declaration in main.go.
+	rateLimitTestBypass = true
+
 	if os.Getenv("TOLLGATE_TEST_CONFIG_DIR") != "" {
 		return
 	}
