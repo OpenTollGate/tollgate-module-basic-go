@@ -92,6 +92,7 @@ func newIntentMerchant(t *testing.T, wallet *intentWallet, storeDir string) *Mer
 		m.receiveIntentStore = newReceiveIntentStore(filepath.Join(storeDir, "receive-intents.json"))
 	}
 	_ = valve.CloseGate(intentMAC)
+	drainOwedGrantMonitors(t, m)
 	return m
 }
 
