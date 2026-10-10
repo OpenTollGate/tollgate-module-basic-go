@@ -19,6 +19,9 @@
 # Isolation knobs (same conventions as lab.sh):
 #   COMPOSE_PROJECT_NAME     project isolation (default: cl-crash)
 #   CLOUD_LAB_EXTRA_COMPOSE  extra -f override
+#   CONCURRENT=1             also fire a fresh payment DURING the recovery
+#                            window (the #793 review's concurrent-traffic
+#                            scenario) and assert it lands
 set -euo pipefail
 
 SELF="$(cd "$(dirname -- "$0")" && pwd)/$(basename -- "$0")"
@@ -197,6 +200,44 @@ echo "   killed at $(date +%T)"
 echo "== restarting the tollgate; boot resume must replay the intent"
 "${COMPOSE[@]}" -f "$RUN_DIR/override.yml" up -d upstream >/dev/null
 sleep 5
+
+# CONCURRENT=1 (the #793 review's item-4 scenario): fire a FRESH payment
+# while the background recovery pass is still replaying the crashed
+# intent — the daemon serves new swaps (fresh counter ranges) concurrent
+# with the re-POST of journaled bytes, and SaveProofs is secret-keyed, so
+# the two traffic classes must coexist. The payment is asserted to land
+# (HTTP 200); the recovery assertion below is unaffected.
+if [ "${CONCURRENT:-0}" = "1" ]; then
+    echo "== concurrent traffic: a fresh payment during the recovery window"
+    if "${COMPOSE[@]}" -f "$RUN_DIR/override.yml" run --rm --no-deps --entrypoint python3 client -c '
+import sys, time, tempfile, requests
+sys.path.insert(0, "/tests")
+from conftest import create_cashu_token, UPSTREAM_URL, run_cmd, generate_nostr_keypair, build_payment_event
+for _ in range(10):
+    try:
+        upk = requests.get(UPSTREAM_URL, timeout=5).json()["pubkey"]
+        break
+    except Exception:
+        time.sleep(1)
+else:
+    print("concurrent: upstream never answered")
+    sys.exit(1)
+wd = tempfile.mkdtemp()
+run_cmd(["cdk-cli", "-w", wd, "mint", "http://killer:8085", "10000"])
+token = create_cashu_token(wd, 20, mint_url="http://killer:8085")
+sec, pub = generate_nostr_keypair()
+ev = build_payment_event(sec, pub, upk, "02:cc:66:12:00:ff", token)
+r = requests.post(UPSTREAM_URL + "?mac=02:cc:66:12:00:ff", json=ev, timeout=90)
+print("CONCURRENT payment (during recovery):", r.status_code)
+exit(0 if r.status_code == 200 else 1)
+'; then
+        echo "   concurrent payment: OK"
+    else
+        echo "FAIL: concurrent payment during recovery did not land"
+        docker logs "$PROJECT-upstream" 2>&1 | grep -iE 'PurchaseSession|swap|recovery|resume' | tail -8
+        exit 1
+    fi
+fi
 
 RECOVERED=""
 for i in $(seq 1 40); do
