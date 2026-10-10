@@ -1675,7 +1675,9 @@ setup_hostname() {
 #
 # The list says what a PRE-AUTHENTICATION client may reach ON THE ROUTER, and
 # nothing else belongs on it: the portal itself (:2050 NDS gateway, :2051 SPA),
-# the backend API (:2121) and the gateway's own NTP service (udp/123 — see
+# the backend API (:2121), DNS on the router's own dnsmasq (tcp/53 + udp/53 —
+# stub resolvers query UDP first and the portal is usually reached by name,
+# #749), and the gateway's own NTP service (udp/123 — see
 # setup_ntp_server below; a client with a wrong clock cannot pay honestly:
 # Cashu proofs carry timestamps, keysets expire, sessions are time-boxed, and a
 # downstream TollGate in reseller mode joins the open portal with whatever
@@ -1705,6 +1707,23 @@ assert_nodogsplash_allow_entries() {
     fi
     if ! uci_list_has_port 2051; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
+    fi
+    # DNS to the router's own dnsmasq — the pre-auth client's primary need
+    # after the portal itself (#749): stub resolvers (glibc/musl, Android,
+    # browsers) query UDP first, and a UDP query dropped by ndsRTR costs a
+    # ~5s timeout per attempt before any TCP fallback — resolution is dead
+    # in practice, and the portal page is usually reached by name, so DNS is
+    # on the customer journey. tcp/53 is asserted alongside (not left to the
+    # feed default that carries it): this writer's contract is that a stale
+    # or absent list is REPAIRED on every setup path, and a list that lost
+    # tcp/53 would break TCP-fallback resolvers the same way. The guards are
+    # protocol-aware — `uci_list_has_port 53` matches the port on either
+    # protocol and would see the feed's tcp/53 default and skip the udp add.
+    if ! uci_list_has_entry 'allow tcp port 53'; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 53'
+    fi
+    if ! uci_list_has_entry 'allow udp port 53'; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow udp port 53'
     fi
     # The gateway's own time service: the one thing a pre-auth client needs
     # that is not the portal or the payment API. sysntpd must be told to
@@ -1792,6 +1811,17 @@ assert_nodogsplash_allow_entries() {
 # every rerun (#516).
 uci_list_has_port() {
     printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])port $1([[:space:]]|'|\$)"
+}
+
+# uci_list_has_entry E: succeeds when the users_to_router listing already
+# contains the whole entry E (e.g. 'allow udp port 53'). Protocol-aware,
+# unlike uci_list_has_port — which matches a port on either protocol and so
+# cannot guard two entries sharing one port (DNS tcp/53 + udp/53, #749): a
+# port-only guard would see the feed's tcp/53 default and skip the udp add.
+# Same two-rendering delimiter logic as uci_list_has_port: one entry per
+# line, space-joined single line, or uci's quoted single-line form.
+uci_list_has_entry() {
+    printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])$1([[:space:]']|\$)"
 }
 
 # The gateway serves time to its own clients, pre-authentication (#627).

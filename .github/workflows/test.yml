@@ -203,6 +203,17 @@ jobs:
           # both setup paths re-assert it.
           bash tests/uci-defaults-trusted-entry-80_test.sh
 
+      - name: Pre-auth DNS is allowed on UDP, not only TCP
+        run: |
+          # Offline (no router, no daemon, no network): issue #749 - the
+          # pre-auth allow list carried only tcp/53 (the feed default), so the
+          # UDP query every stub resolver sends first was dropped by ndsRTR and
+          # hostname resolution from a captive client timed out (the portal is
+          # usually reached by name). The suite pins both 'allow tcp port 53'
+          # and 'allow udp port 53' with protocol-aware guards: a port-only
+          # guard would see the feed's tcp/53 entry and skip the udp add.
+          bash tests/uci-defaults-dns-preauth_test.sh
+
       - name: The wired LAN ports move onto the operator's private bridge
         run: |
           # Offline (no router, no daemon, no network): the wired LAN ports
