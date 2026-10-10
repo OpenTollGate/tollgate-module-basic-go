@@ -156,6 +156,17 @@ board_http_port()        { [ "$ENTRY_UI_MODE" = board ] && printf 8080 || printf
 board_https_port()       { [ "$ENTRY_UI_MODE" = board ] && printf 443  || printf 8443; }
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
+# log_syslog: both surfaces — the setup log above AND the system log the
+# operator reads in logread on the router. For warnings whose whole point is
+# that a human must see them (a fallback that changed a decision, a check
+# that failed loudly): a $LOGFILE-only line is invisible to exactly the
+# operator it was written for.
+log_syslog() {
+    log "$1"
+    command -v logger >/dev/null 2>&1 && logger -t tollgate-setup "$1" 2>/dev/null
+    return 0
+}
+
 # -- setup-marker ordering ---------------------------------------------------
 #
 # /etc/tollgate-setup-done records the version whose FULL setup last ran, and
@@ -1580,9 +1591,64 @@ configure_radio_ap() {
     uci set "wireless.$iface.device=$radio"
     uci set "wireless.$iface.name=$label"
     uci set "wireless.$iface.mode=ap"
-    uci set "wireless.$iface.network=lan"
-    uci set "wireless.$iface.ssid=$GATEWAY_NAME"
-    uci set "wireless.$iface.encryption=none"
+
+    # The AP's network is bound EXISTENCE-CHECKED, never unconditionally to
+    # 'lan' (#756 class 1, bench-verified on rc1): on a split-plane DUT whose
+    # config has no network.lan, the unconditional rebind bridged every AP to
+    # a network that did not exist — clients associate, DHCP dies, the portal
+    # is unreachable, and nothing warned. Stock routers keep the byte-identical
+    # 'lan'; a config without network.lan adopts the network that owns the
+    # NDS gatewayinterface (the portal plane); a config with neither keeps
+    # whatever the section already carries — binding to a ghost is never the
+    # outcome, and every non-stock decision is logged.
+    local bind_net=""
+    if uci -q show network.lan >/dev/null 2>&1; then
+        bind_net="lan"
+    else
+        bind_net="$(resolve_portal_network)"
+        if [ -n "$bind_net" ]; then
+            log "network.lan absent — binding $iface to the existing portal network '$bind_net' (adopting the deployed topology)"
+        else
+            bind_net="$(uci -q get "wireless.$iface.network" 2>/dev/null || true)"
+            if [ -n "$bind_net" ]; then
+                log "WARNING: network.lan absent and no network owns the captive bridge — preserving $iface's existing binding to '$bind_net' (not rebinding to a nonexistent network)"
+            else
+                log "WARNING: network.lan absent, no network owns the captive bridge, and $iface carries no network binding — leaving it unbound rather than binding it to a network that does not exist"
+            fi
+        fi
+    fi
+    [ -n "$bind_net" ] && uci set "wireless.$iface.network=$bind_net"
+
+    # The SSID follows the one-way rewrite discipline of setup_hostname
+    # (#444): a machine-shaped name (empty, the current derivation, or
+    # <anything>-<this device's code>) is re-derived from the stored code; an
+    # operator-chosen name is preserved. The unconditional rewrite was the
+    # other half of the #756 bench damage — a staged operator SSID was
+    # silently renamed to the generated one.
+    local current_ssid machine_shaped=0
+    current_ssid="$(uci -q get "wireless.$iface.ssid" 2>/dev/null || true)"
+    case "$current_ssid" in
+        ""|"$GATEWAY_NAME") machine_shaped=1 ;;
+        *-"$CODE")          machine_shaped=1 ;;
+    esac
+    if [ "$machine_shaped" = 1 ]; then
+        uci set "wireless.$iface.ssid=$GATEWAY_NAME"
+    else
+        log "preserving operator-chosen SSID '$current_ssid' on $iface (not a <brand>-<device code> name) — rename it by hand if you want the generated one"
+    fi
+    # The credentials follow the SAME adoption rule as the SSID (#756 class 1
+    # review): a machine-shaped section is the module's own public AP and
+    # stays OPEN by contract (encryption=none); an operator-adopted section
+    # keeps its encryption/authmode/keys untouched. The captive flow works
+    # over an encrypted AP unchanged — nodogsplash gates at the IP layer,
+    # post-association — so silently forcing an operator's AP open would be a
+    # security regression with no portal-flow justification. The one-way
+    # rewrite discipline is about generated NAMES, never about credentials.
+    if [ "$machine_shaped" = 1 ]; then
+        uci set "wireless.$iface.encryption=none"
+    else
+        log "preserving operator credentials (encryption/authmode) on $iface — the module never opens an operator's AP"
+    fi
     # Guest client isolation (ap_isolate=1): armed here so it lands on BOTH
     # setup paths — this function is the single writer of the public APs, and
     # the same-version reinstall path reaches it through setup_band_ap() too.
@@ -1819,13 +1885,61 @@ setup_ntp_server() {
     fi
 }
 
+# converge_gatewayinterface settles the NDS gatewayinterface — ADOPTED, not
+# asserted (#788): a full setup pass (every package upgrade) used to write
+# gatewayinterface='br-lan' unconditionally, reverting a working renamed
+# portal (BEFORE=br-portal AFTER=br-lan on the rel-cluster leg) into the
+# worst mixed state — NDS dies on a bridge that no longer names the portal,
+# and the next defs render flips every nft guard to follow it. The installed
+# value is kept when it names a network's device in UCI (config-coherent on
+# purpose: setup runs in the postinst BEFORE the network restarts, so the
+# kernel is not yet a witness); the stock literal is written only for a
+# fresh install, an empty/garbage value, or an interface no network owns —
+# and every non-stock decision is logged. MUST run before the two render
+# calls in the same pass so the fragments follow the adopted interface.
+converge_gatewayinterface() {
+    local installed net
+    installed="$(uci -q get nodogsplash.@nodogsplash[0].gatewayinterface 2>/dev/null || true)"
+    if [ -n "$installed" ]; then
+        case "$installed" in
+            *[!A-Za-z0-9._-]*)
+                log "WARNING: nodogsplash gatewayinterface '$installed' is not a usable interface name — resetting to the stock br-lan (#788)"
+                command -v logger >/dev/null 2>&1 && logger -t tollgate-setup "WARNING: nodogsplash gatewayinterface '$installed' is not a usable interface name — resetting to the stock br-lan (#788)" 2>/dev/null
+                ;;
+            *)
+                net="$(uci -q show network 2>/dev/null | sed -n "s/^network\.\([^.]*\)\.device='$installed'\$/\1/p" | head -n 1)"
+                if [ -n "$net" ]; then
+                    [ "$installed" = "br-lan" ] || \
+                        log "adopting the installed gatewayinterface '$installed' (network '$net' owns it) — a correctly-renamed portal is not reverted on upgrade (#788)"
+                    return 0
+                fi
+                log "WARNING: nodogsplash gatewayinterface '$installed' is owned by no network in uci — resetting to the stock br-lan (#788)"
+                command -v logger >/dev/null 2>&1 && logger -t tollgate-setup "WARNING: nodogsplash gatewayinterface '$installed' is owned by no network in uci — resetting to the stock br-lan (#788)" 2>/dev/null
+                ;;
+        esac
+    fi
+    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
+}
+
 setup_nodogsplash() {
     # The section, its pre-auth allow list and the whole-list repair live in
     # one place so the same-version path can call exactly the same writer.
     assert_nodogsplash_allow_entries
+    # The gatewayinterface converges FIRST — both renderers below read it,
+    # and a reverted rename must never reach them (#788).
+    converge_gatewayinterface
+    # The FORWARD half of the pre-auth allowlist: nodogsplash compiles
+    # preauthenticated_users at nft priority 0, which the package's own
+    # priority -1 enforce chain rejects before those accepts can run (#754).
+    # The renderer emits the accepts INTO the enforce chain, ahead of its
+    # first rule (the -2-chain shape was refuted live on nft 1.1.7 — see the
+    # #782 review); no reload here — the postinst/boot sequence reloads the
+    # firewall around this convergence anyway, and the tollgate-wrt reload
+    # trigger covers operator edits.
+    /usr/local/bin/tollgate-nds-preauth-render
+    /usr/local/bin/tollgate-nft-interfaces-render
     uci set nodogsplash.@nodogsplash[0].enabled='1'
     uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
-    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
     # gatewaydomainname deliberately NOT set — and actively deleted on
     # upgrade: nodogsplash 5.0.2 redirects every splash request carrying
     # a redir param back to the splash when it is configured, looping
@@ -2037,7 +2151,83 @@ converge_nodogsplash_runtime() {
     return 0
 }
 
+# resolve_portal_network answers "which network section owns the captive
+# bridge?" — the NDS gatewayinterface (a bridge) → the network section whose
+# device it is. Empty when nothing owns it: the CALLER decides what that
+# means (the zone resolver falls back with a warning; the AP-binding guard
+# refuses to bind to a network that does not exist).
+resolve_portal_network() {
+    local gw net
+    gw="$(uci -q get nodogsplash.@nodogsplash[0].gatewayinterface 2>/dev/null || true)"
+    [ -n "$gw" ] || gw="br-lan"
+    net="$(uci -q show network 2>/dev/null | sed -n "s/^network\.\([^.]*\)\.device='$gw'\$/\1/p" | head -n 1)"
+    [ -n "$net" ] && printf '%s' "$net"
+    return 0
+}
+
+# resolve_captive_zone answers "which firewall zone owns the captive bridge?"
+# by walking the router's own config: the NDS gatewayinterface (a bridge) →
+# the network section whose device it is → the firewall zone whose network
+# list carries that section. A deployment that renames zones (segmentation
+# doctrine: 'portal', 'island') renames the bridge and its network with
+# them, and the package's firewall sections — which reference zones BY NAME —
+# would be silently skipped by fw4: exit 0, nothing in logread, a portal
+# that appears to work with no rules (#755, bench-verified on rc1: renaming
+# firewall.@zone[0] alone removed Allow-TollGate-In from the ruleset with
+# zero diagnostics). Falls back to the stock 'lan' and says why — never to a
+# guess, and never silently.
+resolve_captive_zone() {
+    local net zone zone_esc zone_name
+    net="$(resolve_portal_network)"
+    if [ -n "$net" ]; then
+        zone="$(uci -q show firewall 2>/dev/null | sed -n "s/^\(firewall\.[^.]*\)\.network='$net'\$/\1/p" | head -n 1)"
+        if [ -n "$zone" ]; then
+            # The section id is interpolated into the sed program, so its
+            # regex metacharacters (a named zone can carry [n] indices or
+            # cfg ids) are escaped first; the name comes from the same show
+            # stream — no second lookup to disagree with it.
+            zone_esc="$(printf '%s' "$zone" | sed 's/[.[\*^$]/\\&/g')"
+            zone_name="$(uci -q show firewall 2>/dev/null | sed -n "s/^${zone_esc}\.name='\([^']*\)'\$/\1/p" | head -n 1)"
+            if [ -n "$zone_name" ]; then
+                echo "$zone_name"
+                return 0
+            fi
+            log_syslog "WARNING: the zone owning the portal network '$net' has no name — using the stock zone 'lan' for the tollgate firewall rules"
+            echo "lan"
+            return 0
+        fi
+        log_syslog "WARNING: no firewall zone carries the portal network '$net' — using the stock zone 'lan' for the tollgate firewall rules"
+        echo "lan"
+        return 0
+    fi
+    log_syslog "WARNING: no network section owns the captive bridge — using the stock zone 'lan' for the tollgate firewall rules"
+    echo "lan"
+}
+
+# assert_firewall_zone_refs is #755's fail-loudly half: fw4 skips a section
+# whose src zone does not exist — exit 0, warnings on stderr only, never
+# logread. After converging the refs, every referenced zone is verified to
+# exist, and a missing one is named in BOTH the setup log and syslog, with
+# the remedy. Silent-skip is the worst outcome: a portal that appears to
+# work with no enforcement.
+assert_firewall_zone_refs() {
+    local section zone
+    for section in tollgate_in tollgate_protocol; do
+        zone="$(uci -q get "firewall.$section.src" 2>/dev/null || true)"
+        [ -n "$zone" ] || continue
+        if ! uci -q show firewall 2>/dev/null | grep -q "\.name='$zone'"; then
+            log "ERROR: firewall.$section references zone '$zone', which does not exist — fw4 will SILENTLY SKIP this rule (no enforcement, exit 0, nothing in logread). Fix: name the zone that owns the captive bridge, or create it (#755)."
+            command -v logger >/dev/null 2>&1 && \
+                logger -t tollgate-setup "ERROR: firewall.$section references missing zone '$zone' — fw4 silently skips it; the rule is NOT enforced (#755)"
+        fi
+    done
+    return 0
+}
+
 setup_tollgate_firewall_rules() {
+    # Resolved FIRST so even the section's creation writes the right zone —
+    # no transient stock name ever lands in the config (#755).
+    TOLLGATE_CAPTIVE_ZONE="$(resolve_captive_zone)"
     uci -q get firewall.tollgate_protocol >/dev/null 2>&1 || {
         uci set firewall.tollgate_protocol='rule'
         uci set firewall.tollgate_protocol.name='Allow-TollGate-Protocol'
@@ -2049,11 +2239,16 @@ setup_tollgate_firewall_rules() {
     uci -q get firewall.tollgate_in >/dev/null 2>&1 || {
         uci set firewall.tollgate_in='rule'
         uci set firewall.tollgate_in.name='Allow-TollGate-In'
-        uci set firewall.tollgate_in.src='lan'
+        uci set firewall.tollgate_in.src="$TOLLGATE_CAPTIVE_ZONE"
         uci set firewall.tollgate_in.proto='tcp'
         uci set firewall.tollgate_in.dest_port='2121'
         uci set firewall.tollgate_in.target='ACCEPT'
     }
+    # And converged on every later pass: a router whose zones were renamed
+    # before install would keep the stock names forever under a create-once
+    # shape, and fw4 skips a wrong-name rule with zero diagnostics (#755).
+    uci set firewall.tollgate_in.src="$TOLLGATE_CAPTIVE_ZONE"
+    assert_firewall_zone_refs
 }
 
 setup_profile_hook() {
@@ -2687,6 +2882,12 @@ if [ "$BRANCH" != "FULL" ]; then
     else
         log "nodogsplash allow list already complete — nothing to commit"
     fi
+    # The renders follow the same state (#754/#757), and the
+    # gatewayinterface converges first here too (#788): a reverted rename
+    # must never reach the renderers on any setup path.
+    converge_gatewayinterface
+    /usr/local/bin/tollgate-nds-preauth-render
+    /usr/local/bin/tollgate-nft-interfaces-render
 
     # The wired LAN ports' placement is re-asserted here for the same reason
     # the uhttpd contract and the allow list are: the port list is IMAGE-
