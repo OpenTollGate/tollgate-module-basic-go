@@ -1823,6 +1823,13 @@ setup_nodogsplash() {
     # The section, its pre-auth allow list and the whole-list repair live in
     # one place so the same-version path can call exactly the same writer.
     assert_nodogsplash_allow_entries
+    # The FORWARD half of the pre-auth allowlist: nodogsplash compiles
+    # preauthenticated_users at nft priority 0, which the package's own
+    # priority -1 enforce chain rejects before those accepts can run (#754).
+    # The renderer emits them at priority -2 instead; no reload here — the
+    # postinst/boot sequence reloads the firewall around this convergence
+    # anyway, and the tollgate-wrt reload trigger covers operator edits.
+    /usr/local/bin/tollgate-nds-preauth-render
     uci set nodogsplash.@nodogsplash[0].enabled='1'
     uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
     uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
@@ -2687,6 +2694,10 @@ if [ "$BRANCH" != "FULL" ]; then
     else
         log "nodogsplash allow list already complete — nothing to commit"
     fi
+    # The priority -2 rendering of the FORWARD allowlist follows the same
+    # state (#754): whatever the list looks like after repair, the fragment
+    # must match it.
+    /usr/local/bin/tollgate-nds-preauth-render
 
     # The wired LAN ports' placement is re-asserted here for the same reason
     # the uhttpd contract and the allow list are: the port list is IMAGE-
