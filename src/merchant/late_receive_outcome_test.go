@@ -173,6 +173,7 @@ func lateOutcomeCase(t *testing.T, amount uint64, receiveErr error) (*Merchant, 
 	var once sync.Once
 	release := func() { once.Do(func() { close(wallet.release) }) }
 	t.Cleanup(release)
+	retireOwedMonitorsOnCleanup(t, m)
 
 	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
@@ -196,17 +197,23 @@ func awaitReceiveStarted(t *testing.T, wallet *completingReceiveWallet) {
 }
 
 // lateOutcomeRecord picks the record that answers "what did the mint do with the
-// note?" out of the lines naming the reference. The "calling Receive" record and
-// the deadline record name the reference too; neither is an outcome.
+// note?" out of the lines naming the reference. That record is the one written by
+// recordLateReceiveOutcome: the only reference-bearing line that reports the
+// mint's late answer ("late Receive COMPLETED/FAILED …"). The deadline record
+// ("outcome unknown") and — on the late-success path — recordOwedGrant's
+// consequence lines (the no-store WARNING and the owed-entitlement ERROR) name
+// the reference too, and being written after the record under test they won a
+// "last matching line wins" pick whenever they landed before the test read the
+// log, so the assertions compared against the ERROR text (#731). Matching the
+// outcome record by content makes the pick independent of how many consequence
+// lines have landed.
 func lateOutcomeRecord(lines []string) string {
-	var record string
 	for _, line := range lines {
-		if strings.Contains(line, "token_amount=") || strings.Contains(line, "outcome unknown") {
-			continue
+		if strings.Contains(line, "late Receive") {
+			return line
 		}
-		record = line
 	}
-	return record
+	return ""
 }
 
 // submitLateReceive drives the real payment path while `Receive` is still in
@@ -223,6 +230,26 @@ func submitLateReceive(t *testing.T, m *Merchant, wallet *completingReceiveWalle
 	}
 	awaitReceiveStarted(t, wallet)
 	return event
+}
+
+// waitForLateRecorderSettled blocks until the late-recorder goroutine for the
+// reference has finished. The recorder (recordLateReceiveOutcome followed by
+// endReceive, in one goroutine) writes the intent store as part of resolving
+// the late outcome — a store that lives in the test's TempDir. Returning while
+// that goroutine is still persisting races t.TempDir's RemoveAll cleanup
+// ("directory not empty" / store rename errors observed in full-suite runs),
+// so every test in this file drains the recorder before its last assertion.
+// endReceive is the recorder's final statement, so the guard's release is the
+// deterministic witness that every persist has completed.
+func waitForLateRecorderSettled(t *testing.T, m *Merchant, reference string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for receiveGuardHeld(m, reference) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if receiveGuardHeld(m, reference) {
+		t.Fatalf("the late recorder for reference %s never settled — its outcome is still unconsumed", reference)
+	}
 }
 
 func TestLateReceiveOutcomeIsRecordedWhenReceiveCompletesAfterTheDeadline(t *testing.T) {
@@ -269,6 +296,8 @@ func TestLateReceiveOutcomeIsRecordedWhenReceiveCompletesAfterTheDeadline(t *tes
 	if strings.Contains(logs.String(), lateOutcomeSerialized) {
 		t.Errorf("the spendable note is in the log output:\n%s", logs.String())
 	}
+
+	waitForLateRecorderSettled(t, m, reference)
 }
 
 func TestLateReceiveFailureAfterTheDeadlineIsRecordedAsAFailure(t *testing.T) {
@@ -302,6 +331,7 @@ func TestLateReceiveFailureAfterTheDeadlineIsRecordedAsAFailure(t *testing.T) {
 	// And the reconciliation decided: the stub answers unspent, so the
 	// intent must leave pending (abandoned) within the window.
 	waitForIntentResolved(t, m, reference, 5*time.Second)
+	waitForLateRecorderSettled(t, m, reference)
 }
 
 // The other half of the same question, and the finding this test was added for:
@@ -350,6 +380,8 @@ func TestLateReceiveTimeoutIsRecordedAsAmbiguousNotAsDefinitelyNotTaken(t *testi
 	if !strings.Contains(record, "reconciling on NUT-07 evidence") {
 		t.Errorf("the late record does not state the #502 contract — ambiguous outcomes reconcile on evidence, not operator guesswork: %q", record)
 	}
+
+	waitForLateRecorderSettled(t, m, reference)
 }
 
 // The mirror: when the mint *did* answer and the answer is a refusal that no
@@ -393,6 +425,8 @@ func TestLateReceiveDefinitiveRejectionKeepsTheNotTakenWording(t *testing.T) {
 	if state != intentStateAbandoned {
 		t.Errorf("a definitive late rejection must abandon the intent, got %q", state)
 	}
+
+	waitForLateRecorderSettled(t, m, reference)
 }
 
 // waitForIntentResolved fails when the reference's intent is still pending

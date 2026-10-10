@@ -28,6 +28,29 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
 	return cond()
 }
 
+// retireOwedMonitorsOnCleanup ends every still-owed entitlement's monitor
+// when the test finishes. A monitor whose grant keeps failing (no ndsctl on
+// PATH, failAuth armed) retries for the life of the process: at the
+// compressed retry clock (#733) that is a permanent ~40 ms exec storm against
+// whatever fake ndsctl the NEXT test has installed — the valve's state is
+// process-global, so the storm is exactly the load the compression was meant
+// to remove, and it re-flakes the exec-timing-sensitive tests later in the
+// suite. Flipping the record out of "owed" is the monitor's own terminal
+// exit; no goroutine is abandoned mid-retry and no production path changes.
+func retireOwedMonitorsOnCleanup(t *testing.T, m *Merchant) {
+	t.Helper()
+	t.Cleanup(func() {
+		m.owedGrantsMu.Lock()
+		for _, rec := range m.owedGrants {
+			if rec != nil && rec.State == owedGrantStateOwed {
+				rec.State = owedGrantStateExpired
+				rec.ExpiredAt = time.Now()
+			}
+		}
+		m.owedGrantsMu.Unlock()
+	})
+}
+
 func setupTestConfigManager(t *testing.T) (*config_manager.ConfigManager, string) {
 	t.Helper()
 	testDir := t.TempDir()

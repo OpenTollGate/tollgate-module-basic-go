@@ -45,6 +45,13 @@ func newOwedGrantMerchant(t *testing.T, storeDir string) *Merchant {
 	if storeDir != "" {
 		m.owedGrantStore = newOwedGrantStore(filepath.Join(storeDir, "owed-grants.json"))
 	}
+	// Compressed monitor retry clock (see newIntentMerchant, #733): the
+	// convergence polls below stop being coupled to the production 5 s
+	// first-attempt delay, and the exactly-once settle window in
+	// TestPaidPurchaseWhoseGateFailsIsOwedThenGrantedExactlyOnce scales with it.
+	m.owedGrantRetryBase = 10 * time.Millisecond
+	m.owedGrantRetryCap = 40 * time.Millisecond
+	retireOwedMonitorsOnCleanup(t, m)
 
 	// The valve keeps its gate/timer/baseline state in package globals shared
 	// by the whole test binary; start from a closed gate for the MAC under
@@ -132,10 +139,25 @@ func TestPaidPurchaseWhoseGateFailsIsOwedThenGrantedExactlyOnce(t *testing.T) {
 		}
 	}
 
-	// In-memory session was rolled back (the gate never opened).
-	if _, err := m.GetSession(owedGrantMAC); err == nil {
-		t.Fatal("no session should exist while the grant is owed")
-	}
+	// No session may linger from a failed grant: the gate never opened, so
+	// the tentative AddAllotment is rolled back. A monitor attempt in flight
+	// transiently holds the session it is trying to grant (observable under
+	// the compressed retry clock, #733), so the pinned invariant is "no
+	// session whenever no attempt is running" — which still catches exactly
+	// the lingering-session failure this assertion exists for.
+	waitForOwed(t, 5*time.Second, func() bool {
+		m.owedGrantsMu.Lock()
+		processing := false
+		for _, rec := range m.owedGrants {
+			processing = processing || rec.Processing
+		}
+		m.owedGrantsMu.Unlock()
+		if processing {
+			return false
+		}
+		_, err := m.GetSession(owedGrantMAC)
+		return err != nil
+	}, "no session while the grant is owed and no attempt is in flight")
 
 	authsBefore := ndsctl.count(t, "AUTH ")
 
@@ -170,9 +192,13 @@ func TestPaidPurchaseWhoseGateFailsIsOwedThenGrantedExactlyOnce(t *testing.T) {
 		return false
 	}, "the persisted grant to be marked granted")
 
-	// No double grant: the allotment stays one paid purchase's worth after
-	// the monitor would have had time to retry.
-	time.Sleep(2 * time.Second)
+	// No double grant: the allotment stays one paid purchase's worth across a
+	// settle window of several compressed retry cycles — a monitor that
+	// wrongly granted again would have doubled it. (The AUTH log cannot be
+	// the exactly-once evidence under the compressed clock: it records every
+	// attempt, and the monitor legitimately fires failing attempts while
+	// failAuth is still armed during the test's own bookkeeping.)
+	time.Sleep(10 * 40 * time.Millisecond) // 10 compressed retry cycles (#733)
 	session, err = m.GetSession(owedGrantMAC)
 	if err != nil {
 		t.Fatalf("session after settle: %v", err)
