@@ -3,11 +3,14 @@ package cli
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
@@ -39,7 +42,32 @@ type CLIServer struct {
 	upstreamManager  *wireless_gateway_manager.UpstreamManager
 	startTime        time.Time
 	listener         net.Listener
-	running          bool
+	// running is read by the accept loop (another goroutine) and written
+	// by Stop — an atomic, because a plain bool here was a data race the
+	// socket-ownership tests tripped under -race (#504 audit fallout).
+	running atomic.Bool
+}
+
+// isStaleSocket reports whether a dial failure proves no daemon is serving
+// on the socket: for a unix socket that is "connection refused" (a file
+// exists but nothing accepts on it) or the file being absent. Any other
+// failure — permission denied, a timeout — leaves ownership undetermined,
+// and the caller must refuse rather than remove.
+func isStaleSocket(err error) bool {
+	if err == nil {
+		return false
+	}
+	// errors.Is unwraps the net.OpError → os.SyscallError → ENOENT chain;
+	// os.IsNotExist alone does not, and an absent socket must read as
+	// stale (nothing is listening on a file that is not there).
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	var sysErr *os.SyscallError
+	if errors.As(err, &sysErr) && sysErr.Syscall == "connect" {
+		return errors.Is(sysErr.Err, syscall.ECONNREFUSED)
+	}
+	return false
 }
 
 func NewCLIServer(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider, connector wireless_gateway_manager.ConnectorInterface, scanner wireless_gateway_manager.ScannerInterface, upstreamManager *wireless_gateway_manager.UpstreamManager) *CLIServer {
@@ -66,6 +94,23 @@ func (s *CLIServer) manualPauseDuration() time.Duration {
 
 // Start begins listening on the Unix socket
 func (s *CLIServer) Start() error {
+	// A socket file can be leftover debris (crashed daemon) or the live
+	// surface of a RUNNING daemon. Removing it unconditionally — the old
+	// behavior — let a second daemon steal the CLI surface from a healthy
+	// first one: the file is gone, the new daemon binds its own socket, and
+	// every `tollgate` command executes against the second (wallet-less,
+	// degraded) process while the first keeps the wallet (#504). Distinguish
+	// the two cases by dialing: a daemon that answers owns the socket, and
+	// this start must refuse; a connect refusal means nothing is listening
+	// and the file is safe to reclaim.
+	if conn, err := net.DialTimeout("unix", getSocketPath(), 2*time.Second); err == nil {
+		conn.Close()
+		return fmt.Errorf("another tollgate daemon is already serving on %s — "+
+			"refusing to replace its CLI socket (stop it first)", getSocketPath())
+	} else if !isStaleSocket(err) {
+		return fmt.Errorf("cannot determine ownership of existing socket %s: %v", getSocketPath(), err)
+	}
+
 	// Remove existing socket file if it exists
 	if err := os.Remove(getSocketPath()); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove existing socket: %v", err)
@@ -84,7 +129,7 @@ func (s *CLIServer) Start() error {
 	}
 
 	s.listener = listener
-	s.running = true
+	s.running.Store(true)
 
 	cliLogger.WithField("socket_path", getSocketPath()).Info("CLI server started")
 
@@ -96,11 +141,11 @@ func (s *CLIServer) Start() error {
 
 // Stop shuts down the CLI server
 func (s *CLIServer) Stop() error {
-	if !s.running {
+	if !s.running.Load() {
 		return nil
 	}
 
-	s.running = false
+	s.running.Store(false)
 
 	if s.listener != nil {
 		s.listener.Close()
@@ -115,10 +160,10 @@ func (s *CLIServer) Stop() error {
 
 // acceptConnections handles incoming connections
 func (s *CLIServer) acceptConnections() {
-	for s.running {
+	for s.running.Load() {
 		conn, err := s.listener.Accept()
 		if err != nil {
-			if s.running {
+			if s.running.Load() {
 				cliLogger.WithError(err).Error("Failed to accept connection")
 			}
 			continue
