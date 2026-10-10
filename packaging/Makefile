@@ -55,12 +55,24 @@ include $(INCLUDE_DIR)/package.mk
 #
 # So: declare the daemon, never also claim to replace it. Same contract as the
 # shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq`).
+# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
+# with FreedomTechFeed/packages#57, the feed-side mirror of this change).
+#
+# ca-bundle is the SAME class of defect, found the same way: on a GL-MT3000
+# (OpenWrt 25.12.5) installing the shipped package by hand, `wget` AND
+# `apk update` both died with "SSL verify error: unknown error" -- the image
+# had no CA store, so no HTTPS could be verified. This module's whole job is
+# money: it talks to Cashu mints and Lightning over TLS, and the Go binary uses
+# the system root pool (there is no InsecureSkipVerify and no bundled pool), so
+# without a CA bundle every mint and Lightning call fails verification. A
+# gateway that cannot verify TLS cannot take a payment. The installer used to
+# paper over this by fixing the box first; installing the package alone must
+# work, so the dependency is declared here rather than assumed.
 define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=TollGate Basic Module
-	DEPENDS:=+nodogsplash +jq
+	DEPENDS:=+nodogsplash +jq +ca-bundle
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
 	REPLACES:=base-files

@@ -181,14 +181,26 @@ normalize_mtime "$PAYLOAD"
 #
 # So: declare the daemon, never also claim to replace it. Same contract as the
 # shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq`).
+# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
+# with FreedomTechFeed/packages#57, which this module's change mirrors).
+#
+# ca-bundle is the same class of defect: this module does money over TLS with
+# Go's system root pool and no insecure escape hatch, so an image with no CA
+# store cannot verify a single mint or Lightning connection. Declaring it here
+# fixes an install on a box that can still reach the feed (opkg pulls the
+# closure). It does NOT bootstrap a box that has no trust anchors at all --
+# there, the first HTTPS fetch already fails verification and no dependency can
+# repair it; README's "Installing on a box that cannot verify TLS" states the
+# offline path (scp the files, install locally). Kept in step with the SDK
+# recipe (packaging/Makefile) and asserted from the built control metadata by
+# tests/packaging/apk-install-resolution_test.sh.
 env \
   PKG_NAME="$PKG_NAME" \
   PKG_VERSION="$PKG_VERSION" \
   ARCH="$ARCH" \
   MAINTAINER="TollGate <tollgate@tollgate.me>" \
   LICENSE="GPL-3.0-only" \
-  DEPENDS="libc, nodogsplash, jq" \
+  DEPENDS="libc, nodogsplash, jq, ca-bundle" \
   PROVIDES="nodogsplash-files" \
   REPLACES="base-files" \
   DESCRIPTION="TollGate Basic Module for OpenWrt" \
