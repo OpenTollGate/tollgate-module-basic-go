@@ -874,7 +874,9 @@ func (c *Connector) FindOrCreateSTAForSSID(ssid, passphrase, encryption, radio s
 					return "", fmt.Errorf("failed to refresh key on %s: %w", section.Name, err)
 				}
 			} else {
-				c.ExecuteUCI("delete", "wireless."+section.Name+".key")
+				if _, err := c.ExecuteUCI("delete", "wireless."+section.Name+".key"); err != nil {
+					logger.WithError(err).WithField("interface", section.Name).Debug("stale key delete failed on the open-network transition")
+				}
 			}
 			if _, err := c.ExecuteUCI("set", "wireless."+section.Name+".network=wwan"); err != nil {
 				return "", fmt.Errorf("failed to set network on %s: %w", section.Name, err)
@@ -994,7 +996,9 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 	// possibly stale or foreign — is the one wpa_supplicant joins with,
 	// while the freshly written candidate never gets an interface. Disable
 	// every enabled STA on the target radio, not just the section
-	// GetActiveSTA happened to name.
+	// GetActiveSTA happened to name. A switch that fails its DHCP wait and
+	// reverts still leaves these competitors disabled — deliberate (the
+	// stale key must not regain the netdev), pinned by the revert test.
 	if sections, serr := c.GetSTASections(); serr == nil {
 		for _, section := range sections {
 			if section.Name == candidateIface || section.Disabled || section.Device != candidateRadio {
