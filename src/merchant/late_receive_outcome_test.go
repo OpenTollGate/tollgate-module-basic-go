@@ -183,18 +183,20 @@ func lateOutcomeCase(t *testing.T, amount uint64, receiveErr error) (*Merchant, 
 
 	logs := captureSyncLogs(t)
 
-	// A late SUCCESS owes the customer their grant, and the recorder pays that
-	// debt on its own goroutine: log the COMPLETED record, then attempt the
-	// grant — a 5-attempt auth retry storm taking ~2 s. Release is deferred to
-	// cleanup for tests that forget it, and once it fires the storm must be
-	// DRAINED HERE, inside this test's cleanup: no later test's PATH-scoped
-	// fake is live yet, so the failing execs resolve nothing and write no AUTH
-	// lines anywhere. Without the drain the storm ran on into the next tests
-	// and its `ndsctl auth` attempts landed in whichever fake was current —
-	// the 1-in-8 stray-AUTH failure of TestFirstTimePurchaseStill... in the
-	// #733 soak ledger. The owed-grant ERROR line is logged after the grant
-	// attempt fails, so it is the storm-has-ended signal (success variants
-	// only; a late failure owes nothing and records nothing).
+	// A late SUCCESS owes the customer their grant. On its own goroutine the
+	// recorder logs the COMPLETED record, then records the owed grant —
+	// which logs the owed-grant ERROR line and starts the retry monitor
+	// (first attempt at 5 s + jitter). Release is deferred to cleanup for
+	// tests that forget it, and the recording must complete HERE, inside
+	// this test's cleanup with its log capture still live: the wait below
+	// proves the record is IN the map before the drain cleanup (registered
+	// earlier, so run later — LIFO) swaps the map empty, which is what makes
+	// every monitor's next wake terminal before any later test's PATH-scoped
+	// fake exists. Without the pair, the monitor's ndsctl auth attempts
+	// landed in whichever later test's fake was current — the 1-in-8
+	// stray-AUTH failure of TestFirstTimePurchaseStill... in the #733 soak
+	// ledger (success variants only; a late failure owes nothing and records
+	// nothing).
 	if amount >= 1 {
 		t.Cleanup(func() {
 			release()
