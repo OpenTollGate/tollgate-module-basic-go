@@ -11,7 +11,7 @@
   },
   "gonuts": {
     "repo": "https://github.com/OpenTollGate/gonuts-tollgate",
-    "version": "v0.13.0",
+    "version": "v0.14.0",
     "comment": "The wallet fork every Go module pins IDENTICALLY. tests/contract/check-gonuts-pin.py enumerates carriers by glob (never a hand list) and fails on any disagreement with this value; scripts/bump-gonuts.sh rewrites manifest and every carrier together. Before a release is cut, release-check verifies this is the fork's latest stable tag. Pseudo-version integration pins are for branches only and must not outlive their tag on main."
   },
   "node": {

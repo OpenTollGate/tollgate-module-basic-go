@@ -53,6 +53,13 @@ func TestIsBelowSwapFeeError(t *testing.T) {
 		want bool
 	}{
 		{"could not swap proofs: token amount 1 is below the mint's swap fees (1): nothing to swap", true},
+		// gonuts-tollgate v0.13.1 (#752): the amount == fee case used to
+		// pass the wallet's below-fees guard and POST an empty outputs
+		// array — the mint's raw CU107 400 reached the payer. The wallet
+		// now refuses it with this message, and the classifier must map
+		// it to the same clean below-swap-fee notice.
+		{"could not swap proofs: token amount 1 is entirely consumed by the mint's swap fees (1): nothing to swap", true},
+		{"could not swap proofs: swap request for 1 sat (fees 1) produced no outputs: refusing to send an empty swap", true},
 		{"could not swap proofs: no outputs provided", true},
 		{"token already spent", false},
 		{"short keyset ID 0118 not found in mint keysets", false},

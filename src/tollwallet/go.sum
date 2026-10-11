@@ -8,6 +8,8 @@ github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEV
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8D7ML55dXQrVaamCz2vxCfdQBasLZfHKk=
 github.com/OpenTollGate/gonuts-tollgate v0.13.1-0.20261006144824-d7591d2f3cb3 h1:5JfIoYgmbiZmUUHSMbJF67BFiFUpwv/OXZH5x+3bWTo=
 github.com/OpenTollGate/gonuts-tollgate v0.13.1-0.20261006144824-d7591d2f3cb3/go.mod h1:4er8keqQ4yg3Zuz0w1BuXclKSeKOk3SGqsEl4b0oI7M=
+github.com/OpenTollGate/gonuts-tollgate v0.14.0 h1:eKMJ8ECrbccPn2r82/M9DvCSiWfoGT1ulut5kDLMZtY=
+github.com/OpenTollGate/gonuts-tollgate v0.14.0/go.mod h1:4er8keqQ4yg3Zuz0w1BuXclKSeKOk3SGqsEl4b0oI7M=
 github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da h1:KjTM2ks9d14ZYCvmHS9iAKVt9AyzRSqNU1qabPih5BY=
 github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da/go.mod h1:eHEWzANqSiWQsof+nXEI9bUVUyV6F53Fp89EuCh2EAA=
 github.com/aead/siphash v1.0.1 h1:FwHfE/T45KPKYuuSAKyyvE+oPWcaQ+CUmFW0bPlM+kg=
