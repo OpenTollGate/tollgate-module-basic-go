@@ -191,6 +191,11 @@ func TestUnmeterableSessionEscalationStillExposesTheAbandonedClose(t *testing.T)
 
 	ndsctl.setRegistered(t, true)
 	ndsctl.failDeauth(t, true)
+	// The gate cleanup below must be able to reconcile the abandoned streak
+	// this test spends, which needs a working deauth: lift the failure before
+	// that cleanup runs (cleanups are LIFO, so this registers last, runs
+	// first).
+	t.Cleanup(func() { ndsctl.failDeauth(t, false) })
 
 	buf := captureMerchantLog(t)
 
