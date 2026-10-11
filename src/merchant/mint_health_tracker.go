@@ -424,6 +424,53 @@ func (t *MintHealthTracker) MarkUnreachable(mintURL string) {
 	}
 }
 
+// MarkReachable is the success-side health event (#747): a mint that just
+// completed a real operation (a full token swap, a successful Fund) is up —
+// evidence stronger than any probe. It readmits the mint immediately,
+// resets both counters and any Retry-After hold-off, and fires the same
+// callbacks a probe-driven recovery fires, so discovery and the degraded
+// merchant react at once instead of waiting for recoveryThreshold poll
+// successes at the 5-minute cadence (the ~15-minute stuck-degraded window
+// the issue measured while the prober already answered ok=true twice).
+func (t *MintHealthTracker) MarkReachable(mintURL string) {
+	t.mu.Lock()
+
+	// Symmetric with MarkUnreachable: only a genuine set change fires the
+	// callback, and the count is kept exact.
+	setChanged := !t.reachableMints[mintURL]
+	if setChanged {
+		t.reachableCount++
+	}
+	t.reachableMints[mintURL] = true
+	t.consecutiveFailures[mintURL] = 0
+	// Seeded to the threshold exactly like a boot probe that answered OK:
+	// one flaky answer afterwards must not demote the mint again
+	// immediately.
+	t.consecutiveSuccesses[mintURL] = t.recoveryThreshold
+	// A mint that just served us has no backoff left: the wait a stale
+	// Retry-After asked for is void, and its throttle history starts over.
+	delete(t.nextProbeAfter, mintURL)
+	t.consecutiveThrottles[mintURL] = 0
+	t.throttleStreakStart[mintURL] = time.Time{}
+	t.lastSuccess[mintURL] = t.now()
+
+	var callbacks []func()
+	if setChanged && t.onReachableSetChanged != nil {
+		callbacks = append(callbacks, t.onReachableSetChanged)
+	}
+	if !t.hadReachableMint && t.onFirstReachable != nil {
+		t.hadReachableMint = true
+		callbacks = append(callbacks, t.onFirstReachable)
+	}
+
+	t.mu.Unlock()
+
+	for _, cb := range callbacks {
+		log.Printf("MarkReachable: firing callback (setChanged=%v)", setChanged)
+		go cb()
+	}
+}
+
 // SetOnFirstReachableForDegraded registers a callback that fires once when a mint
 // becomes reachable after starting with none. The hadReachableMint flag is reset to
 // false so the callback fires on the first mint recovery — this is only meaningful
@@ -432,7 +479,19 @@ func (t *MintHealthTracker) SetOnFirstReachableForDegraded(callback func()) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.onFirstReachable = callback
+	// "After starting with none": a mint that is ALREADY reachable at
+	// registration means there is no first recovery left to observe, so the
+	// latch is pre-set and the next poll cannot fire a spurious
+	// first-reachable. Clearing it unconditionally armed exactly that (the
+	// guard test passed only by beating the callback goroutine to the
+	// assertion — a scheduling-dependent flake under load).
 	t.hadReachableMint = false
+	for _, ok := range t.reachableMints {
+		if ok {
+			t.hadReachableMint = true
+			break
+		}
+	}
 }
 
 func (t *MintHealthTracker) SetOnReachableSetChanged(callback func()) {
@@ -546,6 +605,9 @@ func (t *MintHealthTracker) runProactiveCheck() {
 
 	var demoted []string
 	var readmitted []string
+	// pendingRecovery collects the mints this pass answered OK for while the
+	// tracker still considers them down — the arm-the-burst signal below.
+	var pendingRecovery []string
 
 	for _, mint := range config.AcceptedMints {
 		if skipped[mint.URL] {
@@ -568,6 +630,10 @@ func (t *MintHealthTracker) runProactiveCheck() {
 		if results[mint.URL].reachable() {
 			t.consecutiveSuccesses[mint.URL]++
 			t.consecutiveFailures[mint.URL] = 0
+
+			if !t.reachableMints[mint.URL] {
+				pendingRecovery = append(pendingRecovery, mint.URL)
+			}
 
 			if !t.reachableMints[mint.URL] && t.consecutiveSuccesses[mint.URL] >= t.recoveryThreshold {
 				t.reachableMints[mint.URL] = true
@@ -622,6 +688,22 @@ func (t *MintHealthTracker) runProactiveCheck() {
 	for _, mintURL := range readmitted {
 		log.Printf("runProactiveCheck: mint=%s answered a probe again — re-admitted to the advertisement", mintURL)
 	}
+
+	// A probe answered OK for a mint the tracker still considers down: that
+	// is a recovery in progress, and confirming it on the 5-minute cadence
+	// needs recoveryThreshold more polls — the ~15-minute window #747
+	// measured (prober ok=true twice while discovery still served
+	// degraded). Arm the 15-second loop instead: it honours the same
+	// Retry-After holds (probeDue) and stops itself the moment the mint is
+	// readmitted, so the extra probe rate exists only while a recovery is
+	// actually pending. This also re-arms after the aggressive window
+	// expired mid-outage — the one-shot window was why repeated
+	// block/unblock cycles stopped recovering inside any test budget.
+	if len(pendingRecovery) > 0 {
+		log.Printf("runProactiveCheck: probe answered OK for unreachable mint(s) %s — arming the recovery-burst loop",
+			strings.Join(pendingRecovery, " "))
+		t.ArmAggressiveRetry()
+	}
 }
 
 // runAggressiveCheck probes mints with immediate recovery (threshold=1).
@@ -652,18 +734,31 @@ func (t *MintHealthTracker) runAggressiveCheck(aggressiveClient *http.Client) bo
 
 	t.mu.Lock()
 
+	// Flap protection (#747): with the reachable set EMPTY, any answer the
+	// burst gets is an improvement — readmit at threshold 1, exactly the
+	// one-shot behaviour this loop always had. With the set non-empty (this
+	// burst was armed because a probe answered OK for a DOWN mint while
+	// others serve), the usual recoveryThreshold applies: a single 15-second
+	// answer must not readmit a mint that three probes would still be
+	// weighing at the 5-minute cadence.
+	readmitThreshold := t.recoveryThreshold
+	if t.reachableCount == 0 {
+		readmitThreshold = 1
+	}
+
 	recovered := false
 	for _, mint := range config.AcceptedMints {
 		if skipped[mint.URL] {
 			continue
 		}
 		t.applyThrottleAnswerLocked(mint.URL, results[mint.URL], waits[mint.URL], now)
-		// Throttled (429) counts as reachable here too: this loop only runs
-		// while nothing is reachable, and a mint that answers 429 is up.
+		// Throttled (429) counts as reachable here too: a mint that answers
+		// 429 is up — and with the empty-set threshold of 1, it is enough to
+		// end a degraded period by itself.
 		if results[mint.URL].reachable() {
 			t.consecutiveSuccesses[mint.URL]++
 			t.consecutiveFailures[mint.URL] = 0
-			if !t.reachableMints[mint.URL] {
+			if !t.reachableMints[mint.URL] && t.consecutiveSuccesses[mint.URL] >= readmitThreshold {
 				t.reachableMints[mint.URL] = true
 				recovered = true
 			}

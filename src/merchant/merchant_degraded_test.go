@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -391,6 +392,20 @@ func TestNew_ReturnsDegradedWhenNoMintsReachable(t *testing.T) {
 }
 
 func TestOnFirstReachable_SetCallbackResetsHadReachableMint(t *testing.T) {
+	// The latch follows the documented contract — the callback fires when a
+	// mint becomes reachable "after starting with none" — from BOTH sides:
+	//
+	//   a mint reachable at registration  -> the latch stays set: there is no
+	//                                       first recovery left to observe
+	//                                       (the registration used to clear
+	//                                       it unconditionally, arming a
+	//                                       spurious fire on the next poll —
+	//                                       the guard suite could only pass
+	//                                       that by beating the callback
+	//                                       goroutine to its assertion)
+	//   no mint reachable at registration -> the latch is cleared: the
+	//                                       degraded posture the API exists
+	//                                       for, and the next recovery fires
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeKeysetsOK(w)
 	}))
@@ -413,14 +428,36 @@ func TestOnFirstReachable_SetCallbackResetsHadReachableMint(t *testing.T) {
 	tracker.mu.RLock()
 	hadMint = tracker.hadReachableMint
 	tracker.mu.RUnlock()
+	if !hadMint {
+		t.Error("a mint is reachable at registration — the latch must stay set (no spurious first-reachable on the next poll)")
+	}
+
+	// The degraded side: mark everything down, re-register, and the latch
+	// must now be cleared.
+	tracker.MarkUnreachable(srv.URL)
+	tracker.SetOnFirstReachableForDegraded(func() {})
+	tracker.mu.RLock()
+	hadMint = tracker.hadReachableMint
+	tracker.mu.RUnlock()
 	if hadMint {
-		t.Error("expected hadReachableMint to be reset to false after SetOnFirstReachableForDegraded")
+		t.Error("no mint is reachable at registration — the latch must be cleared so the recovery fires")
 	}
 }
 
 func TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset(t *testing.T) {
+	// The production shape of this flow: registration happens on the
+	// DEGRADED merchant, i.e. with nothing reachable, and the fire arrives
+	// with the recovery. (The previous shape registered while the mint was
+	// reachable and asserted the spurious next-poll fire — the exact
+	// behavior TestSetOnFirstReachableForDegraded_FiredOnce guards against;
+	// the two could not both pass deterministically.)
+	var healthy atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeKeysetsOK(w)
+		if healthy.Load() {
+			writeKeysetsOK(w)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
 
@@ -428,12 +465,8 @@ func TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset(t *testi
 	tracker.recoveryThreshold = 1
 
 	tracker.RunInitialProbe()
-
-	tracker.mu.RLock()
-	hadMint := tracker.hadReachableMint
-	tracker.mu.RUnlock()
-	if !hadMint {
-		t.Fatal("expected hadReachableMint to be true after initial probe")
+	if tracker.IsReachable(srv.URL) {
+		t.Fatal("setup: mint should be unreachable at registration (the degraded posture)")
 	}
 
 	done := make(chan struct{})
@@ -441,12 +474,13 @@ func TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset(t *testi
 		close(done)
 	})
 
+	healthy.Store(true)
 	tracker.RunProactiveCheck()
 
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Error("expected onFirstReachable to fire after SetOnFirstReachableForDegraded reset and proactive check")
+		t.Error("expected onFirstReachable to fire on the recovery after degraded registration")
 	}
 }
 
