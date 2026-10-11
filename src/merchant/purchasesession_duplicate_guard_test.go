@@ -120,6 +120,7 @@ func newDuplicateGuardMerchant(t *testing.T, wallet *scriptedReceiveWallet, time
 	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
+	retireOwedMonitorsOnCleanup(t, m)
 	m.receiveTimeout = timeout
 	return m
 }

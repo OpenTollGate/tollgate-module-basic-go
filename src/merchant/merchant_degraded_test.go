@@ -411,9 +411,9 @@ func TestOnFirstReachable_SetCallbackResetsHadReachableMint(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	// Reachable set non-empty: the flag must stay armed-as-seen.
 	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
 	tracker.recoveryThreshold = 3
-
 	tracker.RunInitialProbe()
 
 	tracker.mu.RLock()
