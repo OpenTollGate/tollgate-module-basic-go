@@ -567,6 +567,19 @@ func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) 
 		WalletOK:  s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
 		NetworkOK: s.upstreamManager != nil && s.upstreamManager.CheckConnectivity(),
 	}
+	// Optional-interface assertion (#824): MerchantDegraded (and only it)
+	// carries the degraded story; a full merchant answers nothing and the
+	// defaults (false, "") hold. Assertion rather than an interface method
+	// so every MerchantInterface implementer needs no change.
+	if s.merchantProvider != nil {
+		if m := s.merchantProvider.GetMerchant(); m != nil {
+			if info, ok := m.(interface {
+				WalletDegradedInfo() (bool, string)
+			}); ok {
+				status.WalletDegraded, status.WalletReason = info.WalletDegradedInfo()
+			}
+		}
+	}
 
 	return CLIResponse{
 		Success:   true,

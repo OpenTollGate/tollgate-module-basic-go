@@ -461,6 +461,45 @@ vendors both halves applies it. The alternative — binding 443 on both instance
 deliberate. See the entry-port decision record in docs/architecture for the
 mapping table, the invariants and the release boundary.
 
+### Wallet storage requirements (shared mmap)
+
+The wallet database (`/etc/tollgate/wallet.db`) is a bbolt file, and bbolt
+maps it with a **shared `mmap`** — the mapped pages *are* the database. The
+filesystem holding `wallet.db` must therefore support shared mappings:
+
+| Overlay/filesystem | Wallet works | Typical targets |
+| --- | --- | --- |
+| ext4 / f2fs / ubifs | yes | bcm27xx (SD), mediatek-filogic (NAND/UBI), x86 |
+| tmpfs | yes, but **loses funds on reboot** | never for a funded wallet |
+| **jffs2** | **no — `mmap` returns `EINVAL`** | squashfs NOR-flash combo images (ipq40xx, ath79, ramips mt76x8 class) |
+
+On a jffs2-overlay device the service still boots — config, portal, SSIDs and
+mint probes all work — but the wallet can **never** initialize, and older
+releases reported this as `no reachable mints` even while every mint answered
+200 OK ([#583](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/583)).
+Current releases say so explicitly (`wallet storage does not support shared
+mmap`) at startup and on every wallet operation.
+
+**Workaround for jffs2-only devices**: keep `wallet.db` on a small ext4 image
+mounted via loop device, with `/etc/tollgate/wallet.db` symlinked into it
+(bbolt follows symlinks; the mapping lands on the ext4 inode). Sketch:
+
+```sh
+opkg install kmod-loop e2fsprogs
+truncate -s 16M /mnt/data/wallet.img        # any mmap-capable backing location
+mkfs.ext4 -F /mnt/data/wallet.img
+losetup /dev/loop0 /mnt/data/wallet.img
+mkdir -p /mnt/wallet && mount -t ext4 /dev/loop0 /mnt/wallet
+mv /etc/tollgate/wallet.db /mnt/wallet/ 2>/dev/null || true
+ln -s /mnt/wallet/wallet.db /etc/tollgate/wallet.db
+```
+
+Make the `losetup`/`mount` pair part of the boot (e.g. a hotplug or rc.local
+script) **before** the tollgate service starts. Do not point the wallet at
+tmpfs on a funded device — a reboot would destroy the proofs and the funds
+with them. The long-term fix is the CDK/sqlite wallet lane (no shared-mmap
+dependency).
+
 ## SSID conventions
 
 On first boot the router derives its Wi-Fi names from a single generated
