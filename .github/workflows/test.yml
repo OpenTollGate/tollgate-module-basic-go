@@ -1,5 +1,9 @@
 name: Test
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main, master, develop]
@@ -8,6 +12,7 @@ on:
 
 jobs:
   go-test:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     strategy:
       # Fail fast: one red module lane stops the run instead of burning the
@@ -46,6 +51,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/.github/scripts/go-test-summary.sh" "${{ matrix.module }}" ./... -v -count=1 -race
 
   main-test:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -57,6 +63,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/.github/scripts/go-test-summary.sh" "main package (testenv)" -v -count=1 -race -tags testenv .
 
   contract-lint:
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -294,6 +301,7 @@ jobs:
           greatspectate check --config specquotes.toml --comment-start "// " --comment-continue "//" $FILES
 
   build-purity:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -316,6 +324,7 @@ jobs:
           bash tests/contract/check-ssid-naming.sh
 
   deps-and-imports:
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

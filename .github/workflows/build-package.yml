@@ -454,6 +454,10 @@ jobs:
           retention-days: 7
 
   package-ipk:
+    # Frugality: SDK packaging is release-critical, not PR-blocking — PRs run the
+    # fast path (compile + happy-path + contract lanes); the matrix runs on
+    # push-to-main and tags. Override via workflow_dispatch.
+    if: github.event_name != 'pull_request'
     timeout-minutes: 30
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
@@ -647,6 +651,10 @@ jobs:
           echo "Uploaded $PACKAGE_FILENAME → $PKG_HASH"
 
   package-apk:
+    # Frugality: SDK packaging is release-critical, not PR-blocking — PRs run the
+    # fast path (compile + happy-path + contract lanes); the matrix runs on
+    # push-to-main and tags. Override via workflow_dispatch.
+    if: github.event_name != 'pull_request'
     timeout-minutes: 90
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
