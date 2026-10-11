@@ -425,6 +425,11 @@ type Merchant struct {
 	clientProbeMu    sync.RWMutex
 	clientProbe      func(string) (valve.ClientState, error)
 	clientProbeDelay time.Duration
+	// unmeterableReportInterval overrides
+	// defaultUnmeterableReportInterval for this merchant's unmeterable-session
+	// repeats; zero keeps the default. Per merchant for the same -race reason
+	// as the probe seam above (#858).
+	unmeterableReportInterval time.Duration
 	// monitorMu guards the usage sweep's stop/done channels. They are created by
 	// startUsageSweep and closed by stopDataUsageMonitoring, which exists so a
 	// test that drives the real startup path can end the sweep it started: the
@@ -767,12 +772,16 @@ type unmeteredSession struct {
 	lastCloseAbandoned   bool
 }
 
-// unmeterableSessionReportInterval is how often the module repeats the state of a
-// session it can neither meter nor close. The sweep runs every 2 s, so without
-// this the module wrote an ERROR — and the close failure under it — on every
-// sweep for as long as NoDogSplash refused (the bench log's "has been unreadable
-// for 39 sweeps"). A var so tests can shrink it.
-var unmeterableSessionReportInterval = time.Minute
+// defaultUnmeterableReportInterval is how often the module repeats the state
+// of a session it can neither meter nor close. The sweep runs every 2 s, so
+// without this the module wrote an ERROR — and the close failure under it —
+// on every sweep for as long as NoDogSplash refused (the bench log's "has
+// been unreadable for 39 sweeps"). It is the zero-value default of
+// Merchant.unmeterableReportInterval — per merchant, like the Receive
+// deadline seam, because this one was a package-level var once too, and the
+// same -race discipline applies: the read runs on the sweep goroutine while
+// a harness write would race it (#858).
+const defaultUnmeterableReportInterval = time.Minute
 
 // unmeteredStateLocked returns the bookkeeping of mac, creating it on first use.
 // Caller must hold unmeteredMu.
@@ -831,7 +840,11 @@ func (m *Merchant) noteUnmeterableCloseFailure(macAddress string, closeErr error
 	state := m.unmeteredStateLocked(macAddress)
 	escalate = !state.forceCloseEscalated
 	changed = !escalate && abandoned != state.lastCloseAbandoned
-	repeat = escalate || now.Sub(state.lastForceCloseReport) >= unmeterableSessionReportInterval
+	reportInterval := m.unmeterableReportInterval
+	if reportInterval <= 0 {
+		reportInterval = defaultUnmeterableReportInterval
+	}
+	repeat = escalate || now.Sub(state.lastForceCloseReport) >= reportInterval
 
 	if escalate {
 		state.forceCloseEscalated = true
@@ -1007,7 +1020,7 @@ func (m *Merchant) establishBaseline(macAddress string) {
 // The REPORTING of that state is bounded, because the sweep runs every 2 s: the
 // force-close is escalated once, a change of state (the close being abandoned, or
 // coming back) is reported at once, and the same state repeating is reported at
-// most once per unmeterableSessionReportInterval. Before this, one session NoDogSplash
+// most once per unmeterableReportInterval. Before this, one session NoDogSplash
 // would not deauthorize wrote two ERROR lines every second for ever, which is how
 // the bench log's real escalation ("has been unreadable for 39 sweeps") became
 // unreadable itself.
@@ -1025,8 +1038,12 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 
 		switch {
 		case escalate:
+			reportInterval := m.unmeterableReportInterval
+			if reportInterval <= 0 {
+				reportInterval = defaultUnmeterableReportInterval
+			}
 			log.Printf("ERROR: the usage of the bytes session of %s has been unreadable for %d sweeps (%v): the session cannot be metered, so its gate is closed rather than left open unmetered (escalated once: the session stays TRACKED until the close is confirmed, and this state is repeated at most every %s — a change of state is reported at once)",
-				macAddress, sweeps, usageErr, unmeterableSessionReportInterval)
+				macAddress, sweeps, usageErr, reportInterval)
 			log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v — the session is retained and %s (unconfirmed gate closes=%d)",
 				macAddress, err, closeRetryStateClause(err), valve.GateCloseFailures())
 		case changed:
