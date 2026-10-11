@@ -72,7 +72,7 @@ check_fragment() { # <fragment path>
     # leaves the rest reachable only by accident.
     local port
     for port in $ADMIN_PORTS; do
-        if grep -qE "meta nfproto ipv4 iifname \"br-mgmt\" tcp dport \{[^}]*[[:space:],]${port}[[:space:],}][^}]*\}[[:space:]]+counter accept" "$rules"; then
+        if grep -qE "meta nfproto ipv4 iifname [$]tg_mgmt_if tcp dport \{[^}]*[[:space:],]${port}[[:space:],}][^}]*\}[[:space:]]+counter accept" "$rules"; then
             ok "the fragment accepts :$port on br-mgmt"
         else
             bad "the fragment does not accept :$port on br-mgmt — the administration surface is unreachable from the cable"
@@ -87,19 +87,19 @@ check_fragment() { # <fragment path>
         && ok "the administration allow rule names exactly :443/:8080/:8090/:8443" \
         || bad "the administration allow rule names '$frag_ports' (want '443 8080 8090 8443')"
     # What a client needs to exist on the bridge at all.
-    grep -qE 'meta nfproto ipv4 iifname "br-mgmt" udp dport \{ 53, 67, 68 \} counter accept' "$rules" \
+    grep -qE 'meta nfproto ipv4 iifname [$]tg_mgmt_if udp dport \{ 53, 67, 68 \} counter accept' "$rules" \
         && ok "the fragment accepts DHCP/DNS (udp 53/67/68) on br-mgmt" \
         || bad "the fragment does not accept DHCP on br-mgmt — a client would get no lease and no DNS"
-    grep -qE 'meta nfproto ipv4 iifname "br-mgmt" tcp dport 53 counter accept' "$rules" \
+    grep -qE 'meta nfproto ipv4 iifname [$]tg_mgmt_if tcp dport 53 counter accept' "$rules" \
         && ok "the fragment accepts DNS over TCP on br-mgmt" \
         || bad "the fragment does not accept DNS over TCP on br-mgmt"
-    grep -qE 'meta nfproto ipv4 iifname "br-mgmt" tcp dport 22 counter accept' "$rules" \
+    grep -qE 'meta nfproto ipv4 iifname [$]tg_mgmt_if tcp dport 22 counter accept' "$rules" \
         && ok "the fragment accepts SSH on br-mgmt" \
         || bad "the fragment does not accept SSH on br-mgmt — the recovery path is gone"
     # The catch-all drop, last, per family: this is the half that keeps the
     # payment surfaces and every other service out of reach.
     for proto in ipv4 ipv6; do
-        if grep -qE "meta nfproto $proto iifname \"br-mgmt\" counter drop" "$rules"; then
+        if grep -qE "meta nfproto $proto iifname [$]tg_mgmt_if counter drop" "$rules"; then
             ok "the fragment ends with a $proto catch-all drop for br-mgmt"
         else
             bad "the fragment has no $proto catch-all drop for br-mgmt — the allow list is decorative"
@@ -109,7 +109,7 @@ check_fragment() { # <fragment path>
     # would kill the administration surfaces the fragment exists to allow.
     local last_rule
     last_rule=$(grep -nE '^[[:space:]]*(meta|tcp|udp|ct|iifname|oifname|counter|jump|return|accept|drop|reject)' "$rules" | tail -n1 | cut -d: -f2-)
-    if printf '%s' "$last_rule" | grep -qE 'iifname "br-mgmt" counter drop'; then
+    if printf '%s' "$last_rule" | grep -qE 'iifname [$]tg_mgmt_if counter drop'; then
         ok "the catch-all drop is the fragment's last rule (nothing after it is reachable)"
     else
         bad "the fragment's last rule is '$(printf '%s' "$last_rule" | sed -e 's/^[[:space:]]*//')' — the catch-all drop must be last"
@@ -291,7 +291,7 @@ else
         bad "nft -c rejected the fragment set: $(sudo nft -c -f "$WRAP" 2>&1 | head -n 2 | tr '\n' ' ')"
     fi
     BROKEN="$WORK/broken.nft"
-    { cat "$WRAP"; echo 'meta nfproto ipv4 iifname "br-mgmt" counter bogus drop'; } > "$BROKEN"
+    { cat "$WRAP"; echo 'meta nfproto ipv4 iifname [$]tg_mgmt_if counter bogus drop'; } > "$BROKEN"
     if sudo nft -c -f "$BROKEN" >/dev/null 2>&1; then
         bad "the nft -c check is vacuous: a deliberately malformed rule was accepted"
     else
@@ -304,8 +304,8 @@ fi
 # copy of the fragment and require the same checks to fail against it.
 echo "== RED control: the catch-all drop is what makes the allow list real"
 MUTANT="$WORK/33-mgmt-bridge-scope.mutant.nft"
-grep -v -E 'meta nfproto (ipv4|ipv6) iifname "br-mgmt" counter drop' "$FRAG" > "$MUTANT"
-if grep -qE 'meta nfproto ipv4 iifname "br-mgmt" counter drop' "$MUTANT"; then
+grep -v -E 'meta nfproto (ipv4|ipv6) iifname [$]tg_mgmt_if counter drop' "$FRAG" > "$MUTANT"
+if grep -qE 'meta nfproto ipv4 iifname [$]tg_mgmt_if counter drop' "$MUTANT"; then
     bad "RED control: could not strip the catch-all drop — the control is vacuous"
 else
     before_fail=$FAIL
