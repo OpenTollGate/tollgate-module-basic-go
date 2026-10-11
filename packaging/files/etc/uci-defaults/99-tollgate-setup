@@ -1243,17 +1243,29 @@ admin_credential_state() {
 
 # The operator may CHOOSE the admin credential at install time instead of
 # receiving a generated one they have to write down in the seconds it is on
-# screen. This is the supported mechanism because uci-defaults run from the
-# package manager with no controlling terminal: there is nowhere to hold a
-# prompt, so the choice arrives in the environment.
+# screen. There is nowhere to hold a prompt (uci-defaults run from the package
+# manager with no controlling terminal), so the choice arrives one of two ways:
 #
 #   TOLLGATE_ADMIN_PASSWORD='…' apk add --allow-untrusted /tmp/tollgate-wrt.apk
 #
-# The value is taken as-is (no trimming — a deliberate leading/trailing space
-# is the operator's business) and is NEVER echoed: it is already known to the
-# operator, so printing it would only leak it into the install log.
+# or, because apk-tools 3 (OpenWrt >= 25.12) does NOT forward the caller's
+# environment to package scriptlets, a ROOT-ONLY file the operator writes first:
+#
+#   umask 077; printf '%s' '…' > /etc/tollgate/admin-password
+#   apk add --allow-untrusted /tmp/tollgate-wrt.apk
+#
+# The env wins when both are present. The value is taken as-is (no trimming — a
+# deliberate leading/trailing space is the operator's business) and is NEVER
+# echoed: it is already known to the operator, so printing it would only leak it
+# into the install log.
+ADMIN_PASSWORD_FILE="${ADMIN_PASSWORD_FILE:-/etc/tollgate/admin-password}"
+PRIVATE_WIFI_PASSWORD_FILE="${PRIVATE_WIFI_PASSWORD_FILE:-/etc/tollgate/wifi-password}"
 operator_chosen_admin_password() {
-    printf '%s' "${TOLLGATE_ADMIN_PASSWORD:-}"
+    if [ -n "${TOLLGATE_ADMIN_PASSWORD:-}" ]; then
+        printf '%s' "$TOLLGATE_ADMIN_PASSWORD"
+        return 0
+    fi
+    [ -r "$ADMIN_PASSWORD_FILE" ] && cat "$ADMIN_PASSWORD_FILE"
 }
 
 # Marks a credential a PAST version of this package GENERATED rather than one
@@ -1338,18 +1350,20 @@ enforce_admin_credential() {
         if [ "$(admin_credential_state)" = "set" ]; then
             # The operator chose it, so there is nothing provisional to mark —
             # and it is deliberately NOT echoed: they already know it, and the
-            # install log must not become a place it can be read from.
+            # install log must not become a place it can be read from. Consume
+            # any staged password file: it has done its job and must not linger.
             clear_admin_credential_provisional
+            rm -f "$ADMIN_PASSWORD_FILE" "${PRIVATE_WIFI_PASSWORD_FILE:-/etc/tollgate/wifi-password}" 2>/dev/null || true
             if [ "$had" = "1" ]; then
-                log "Admin credential REPLACED by the operator-chosen password (TOLLGATE_ADMIN_PASSWORD) — :${board_http}/:${board_https} admin board allowed"
+                log "Admin credential REPLACED by the operator-chosen password — :${board_http}/:${board_https} admin board allowed"
             else
-                log "Admin credential established from the operator-chosen password (TOLLGATE_ADMIN_PASSWORD) — :${board_http}/:${board_https} admin board allowed"
+                log "Admin credential established from the operator-chosen password — :${board_http}/:${board_https} admin board allowed"
             fi
             return 0
         fi
-        log "ERROR: the operator-supplied password (TOLLGATE_ADMIN_PASSWORD) did not take — refusing to serve the :${board_http}/:${board_https} admin board rather than leave it on the old credential"
+        log "ERROR: the operator-supplied password did not take — refusing to serve the :${board_http}/:${board_https} admin board rather than leave it on the old credential"
         drop_admin_listeners
-        printf 'TollGate: the password you supplied (TOLLGATE_ADMIN_PASSWORD) was not applied, so the :%s admin board is NOT served. Set one with `passwd root` and re-run /etc/uci-defaults/99-tollgate-setup\n' "$board_http" >&2
+        printf 'TollGate: the password you supplied was not applied, so the :%s admin board is NOT served. Set one with `passwd root` and re-run /etc/uci-defaults/99-tollgate-setup\n' "$board_http" >&2
         return 1
     fi
 
@@ -2290,6 +2304,11 @@ setup_private_network() {
         # Operator chose it (install-time prompt, B) — never generated-and-printed.
         private_key="$TOLLGATE_PRIVATE_WIFI_PASSWORD"
         log "Private WiFi key set from TOLLGATE_PRIVATE_WIFI_PASSWORD (not printed)"
+    elif [ -z "$private_key" ] && [ -r "${PRIVATE_WIFI_PASSWORD_FILE:-/etc/tollgate/wifi-password}" ]; then
+        # apk-tools 3 does not forward the environment to scriptlets, so the
+        # operator may leave the passphrase in a root-only file instead.
+        private_key="$(cat "${PRIVATE_WIFI_PASSWORD_FILE:-/etc/tollgate/wifi-password}")"
+        log "Private WiFi key set from the staged password file (not printed)"
     elif [ -z "$private_key" ]; then
         # Memorable password: 3 words + 2-digit number. Single
         # /dev/urandom read, awk picks words — avoids forking per word.

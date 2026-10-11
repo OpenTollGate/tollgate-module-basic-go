@@ -561,6 +561,41 @@ rc=$?
     || bad "a stale provisional mark survived the operator's own password"
 assert_board_kept "operator-chosen password, set hash"
 
+echo "== a staged password FILE is applied when the env is unavailable"
+# apk-tools 3 (OpenWrt >= 25.12) does NOT forward the caller's environment to
+# package scriptlets, so the install-time env never reaches this script there.
+# The root-only file is the mechanism that works on BOTH apk and opkg.
+seed_deployed_router
+seed_shadow ''
+reset_run
+FILE_PW='StagedFile-9x'
+printf '%s' "$FILE_PW" > "$TMP/admin-password"
+out=$(ADMIN_PASSWORD_FILE="$TMP/admin-password" TOLLGATE_ADMIN_PASSWORD="" enforce_admin_credential 2>"$TMP/err")
+rc=$?
+[ "$(admin_credential_state)" = "set" ] \
+    && ok "the staged password file establishes the credential when the env is empty" \
+    || bad "the staged password file did not establish a credential (state: $(admin_credential_state))"
+[ "$(cat "$PASSWD_SEEN" 2>/dev/null || true)" = "$FILE_PW" ] \
+    && ok "the password actually applied is the one in the staged file" \
+    || bad "the applied password is not the staged file's value"
+[ ! -e "$TMP/admin-password" ] \
+    && ok "the staged password file is consumed (removed) after use" \
+    || bad "the staged password file was left on disk"
+[ "$rc" = "0" ] \
+    && ok "the gate reports success for a staged-file password" \
+    || bad "the gate returned $rc for a staged-file password"
+assert_board_kept "staged password file, empty hash"
+# env still wins over the file when both are present
+seed_deployed_router
+seed_shadow ''
+reset_run
+printf '%s' 'FromFile-123' > "$TMP/admin-password"
+out=$(ADMIN_PASSWORD_FILE="$TMP/admin-password" TOLLGATE_ADMIN_PASSWORD="FromEnv-123" enforce_admin_credential 2>"$TMP/err")
+[ "$(cat "$PASSWD_SEEN" 2>/dev/null || true)" = "FromEnv-123" ] \
+    && ok "the env wins over the staged file when both are present" \
+    || bad "the env did not win over the file (applied: $(cat "$PASSWD_SEEN" 2>/dev/null || true))"
+rm -f "$TMP/admin-password"
+
 echo "== a provisional mark carried over from an older install is still honoured"
 # This package no longer generates credentials, but a router upgraded from a
 # version that DID carries the marker. A later run must keep telling the
