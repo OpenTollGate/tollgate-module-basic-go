@@ -1301,7 +1301,10 @@ func TestMerchantDegraded_GetMintHealthTracker(t *testing.T) {
 func drainUsageSweep(t *testing.T, mi MerchantInterface) {
 	t.Helper()
 	if m, ok := mi.(*Merchant); ok {
-		t.Cleanup(m.stopDataUsageMonitoring)
+		t.Cleanup(func() {
+			m.stopDataUsageMonitoring()
+			m.stopPayoutAndJanitor()
+		})
 		return
 	}
 	if deg, ok := mi.(*MerchantDegraded); ok && deg != nil {
