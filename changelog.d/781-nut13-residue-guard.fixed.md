@@ -18,5 +18,5 @@
   Existing wallets are unaffected (the guard fires only on new
   registrations); this repo's fake-mint fixtures were made honest under
   the same rule
-  ([#705](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/705))
+  (#705)
   ([#781](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/781)).

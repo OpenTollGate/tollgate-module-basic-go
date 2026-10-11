@@ -6,3 +6,4 @@
   new additive ngit workflow scans every mirror push with the same
   pinned binary and the same config — previously the build-of-record
   lane ran no secret scan at all (the #520 silent-job class).
+  ([#759](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/759)).

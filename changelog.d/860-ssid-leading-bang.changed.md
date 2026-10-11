@@ -14,3 +14,4 @@
   the `!`. The shipped SSID contract
   (`tests/contract/check-ssid-format.sh`) and the device-code suite
   (`tests/uci-defaults-device-code_test.sh`) pin both forms.
+  ([#860](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/860)).

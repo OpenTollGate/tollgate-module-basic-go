@@ -8,4 +8,4 @@
   bounded tests set it on their own merchant. With it, the merchant binary
   has zero harness-written package globals left
   ([#883](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/883),
-  closes [#858](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/858)).
+  closes #858).

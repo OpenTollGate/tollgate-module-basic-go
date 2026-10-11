@@ -8,5 +8,5 @@
   `ReconcileGateClose` — the reconciliation path the design names as the only
   way to un-abandon a gate — and the test lifts its `failDeauth` marker in a
   LIFO-ordered cleanup so that reconciliation can succeed
-  ([#841](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/841)).
+  (#841).
   ([#842](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/842)).

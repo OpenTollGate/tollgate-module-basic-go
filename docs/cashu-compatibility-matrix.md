@@ -33,7 +33,7 @@ keys, making them self-verifying (NUT-02).
 ## The 6 Combinations
 
 
-> **Re-verified against `gonuts-tollgate` v0.13.0 (2026-10-06), code-level
+> **Re-verified against `gonuts-tollgate` v0.14.0 (2026-10-11), code-level
 > plus the executable suite** (`src/tollwallet/compatibility_matrix_test.go`
 > and the round-trip/cross-vector tests, run under `-tags testenv` in
 > `make go-battery` — all green on the pinned baseline). What changed
