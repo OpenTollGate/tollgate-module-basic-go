@@ -10,4 +10,8 @@ on:
 jobs:
   # Frugality: weekly (was daily) — pre-commit hook + PR lane carry daily coverage
   gitleaks:
-    uses: Amperstrand/.github/.github/workflows/gitleaks.yml@main
+    # Org-wide reusable scanner, single definition in OpenTollGate/.github
+    # (migrated from Amperstrand/.github — tollgate-module-basic-go#758).
+    # Rules + allowlists live in THIS repo's .gitleaks.toml, shared with
+    # the ngit lane so both build paths scan the same config.
+    uses: OpenTollGate/.github/.github/workflows/gitleaks.yml@main
