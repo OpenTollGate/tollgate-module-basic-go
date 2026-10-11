@@ -47,6 +47,7 @@ write_uci() {
 case "\$*" in
     *"nodogsplash.@nodogsplash[0].gatewayinterface") echo "$1"; exit 0 ;;
     *"network.private_bridge.name") echo "$2"; exit 0 ;;
+    *"network.mgmt.device") echo "${3:-}"; exit 0 ;;
 esac
 exit 1
 EOF
@@ -56,13 +57,15 @@ EOF
 DEFS="$WORK/00-tollgate-defs.nft"
 export TOLLGATE_NFT_DEFS_FRAG="$DEFS"
 
-write_uci "br-portal" "br-mgmt"
+write_uci "br-portal" "br-mgmt" "br-mgmt-custom"
 PATH="$WORK/bin:$PATH" sh "$RENDER" >/dev/null 2>"$WORK/stderr.log" \
     && ok "renderer ran" || { bad "renderer exited nonzero"; cat "$WORK/stderr.log"; }
 grep -q 'define tg_portal_if = "br-portal"' "$DEFS" \
     && ok "gatewayinterface becomes tg_portal_if" || bad "tg_portal_if wrong"
 grep -q 'define tg_private_if = "br-mgmt"' "$DEFS" \
     && ok "private bridge name honoured" || bad "tg_private_if wrong"
+grep -q 'define tg_mgmt_if = "br-mgmt-custom"' "$DEFS" \
+    && ok "management bridge name honoured" || bad "tg_mgmt_if wrong"
 
 write_uci "not!an!ifname" "br-mgmt"
 PATH="$WORK/bin:$PATH" sh "$RENDER" >/dev/null 2>"$WORK/stderr.log"
@@ -80,6 +83,7 @@ chmod +x "$WORK/bin/uci"
 PATH="$WORK/bin:$PATH" sh "$RENDER" >/dev/null 2>"$WORK/stderr.log"
 grep -q 'define tg_portal_if = "br-lan"' "$DEFS" && ok "unset falls back to br-lan" || bad "unset fallback wrong"
 grep -q 'define tg_private_if = "br-private"' "$DEFS" && ok "missing private falls back to br-private" || bad "private fallback wrong"
+grep -q 'define tg_mgmt_if = "br-mgmt"' "$DEFS" && ok "missing mgmt falls back to br-mgmt" || bad "mgmt fallback wrong"
 
 # idempotence
 cp "$DEFS" "$WORK/first.defs"
@@ -92,6 +96,7 @@ grep -hE '^\s*(meta )?.*(iifname|oifname)' "$NFTDIR"/2*.nft "$NFTDIR"/3*.nft | g
     || ok "no rule-line interface literals in any guard"
 grep -q 'define tg_portal_if = "br-lan"' "$NFTDIR/00-tollgate-defs.nft" \
     && grep -q 'define tg_private_if = "br-private"' "$NFTDIR/00-tollgate-defs.nft" \
+    && grep -q 'define tg_mgmt_if = "br-mgmt"' "$NFTDIR/00-tollgate-defs.nft" \
     && ok "static default defines ship (unresolved-define guard)" \
     || bad "shipped 00-tollgate-defs.nft lacks the default defines"
 grep -q 'ip link show' "$INIT" && grep -q 'user.warn' "$INIT" \
@@ -111,7 +116,8 @@ if command -v nft >/dev/null 2>&1 && unshare -Urn true 2>/dev/null; then
             "$NFTDIR/20-nds-enforce.nft" \
             "$NFTDIR/30-backend-firewall.nft" \
             "$NFTDIR/31-admin-board-not-guest-reachable.nft" \
-            "$NFTDIR/32-luci-not-guest-reachable.nft"
+            "$NFTDIR/32-luci-not-guest-reachable.nft" \
+            "$NFTDIR/33-mgmt-bridge-scope.nft"
         echo "}"
     }
     assemble "$NFTDIR/00-tollgate-defs.nft" > "$WORK/assembled-default.nft"
@@ -129,7 +135,8 @@ if command -v nft >/dev/null 2>&1 && unshare -Urn true 2>/dev/null; then
             "$NFTDIR/20-nds-enforce.nft" \
             "$NFTDIR/30-backend-firewall.nft" \
             "$NFTDIR/31-admin-board-not-guest-reachable.nft" \
-            "$NFTDIR/32-luci-not-guest-reachable.nft"
+            "$NFTDIR/32-luci-not-guest-reachable.nft" \
+            "$NFTDIR/33-mgmt-bridge-scope.nft"
         echo "}"
     } > "$WORK/assembled-renamed.nft"
     if unshare -Urn nft -c -f "$WORK/assembled-renamed.nft" 2>>"$WORK/nft.err"; then

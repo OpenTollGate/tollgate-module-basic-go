@@ -9,3 +9,4 @@
 # generated from nothing. This file sorts first; the guards follow.
 define tg_portal_if = "br-lan"
 define tg_private_if = "br-private"
+define tg_mgmt_if = "br-mgmt"

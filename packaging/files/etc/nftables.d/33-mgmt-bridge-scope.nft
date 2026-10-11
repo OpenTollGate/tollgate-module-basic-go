@@ -60,27 +60,27 @@ chain mgmt_bridge_scope {
 	type filter hook input priority -1; policy accept
 
 	# What a client needs to exist on this bridge at all: a lease and DNS.
-	meta nfproto ipv4 iifname "br-mgmt" udp dport { 53, 67, 68 } counter accept
-	meta nfproto ipv4 iifname "br-mgmt" tcp dport 53 counter accept
+	meta nfproto ipv4 iifname $tg_mgmt_if udp dport { 53, 67, 68 } counter accept
+	meta nfproto ipv4 iifname $tg_mgmt_if tcp dport 53 counter accept
 
 	# SSH: one of the two documented recovery paths (the other is the private
 	# SSID), and the only diagnostic that works here because ICMP is dropped.
-	meta nfproto ipv4 iifname "br-mgmt" tcp dport 22 counter accept
+	meta nfproto ipv4 iifname $tg_mgmt_if tcp dport 22 counter accept
 
 	# The four administration surfaces: LuCI (:8080, and the :443 TLS listener
 	# uhttpd.main opens when a cert/key exists) and the board (:8090, and its
 	# opt-in :8443 TLS listener). See the header for why they are reachable
 	# here and nowhere else.
-	meta nfproto ipv4 iifname "br-mgmt" tcp dport { 443, 8080, 8090, 8443 } counter accept
+	meta nfproto ipv4 iifname $tg_mgmt_if tcp dport { 443, 8080, 8090, 8443 } counter accept
 
 	# No IPv6 is configured on this bridge (`network.mgmt.ip6assign='0'`,
 	# `dhcp.mgmt.ra`/`dhcpv6` disabled — the same posture the captive bridge
 	# takes in setup_disable_ipv6_lan), so nothing legitimate arrives over IPv6
 	# and the family is dropped outright rather than left to the zone policy.
-	meta nfproto ipv6 iifname "br-mgmt" counter drop
+	meta nfproto ipv6 iifname $tg_mgmt_if counter drop
 
 	# The tail: everything else from the wired bridge, including the payment
 	# surfaces (`:2050`, `:2051`, `:2121`) and any path off the router that is
 	# not one of the accepts above. Keep it last.
-	meta nfproto ipv4 iifname "br-mgmt" counter drop
+	meta nfproto ipv4 iifname $tg_mgmt_if counter drop
 }
