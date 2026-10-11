@@ -71,6 +71,14 @@ grep -q 'define tg_portal_if = "br-lan"' "$DEFS" \
 grep -qi "not a usable interface name" "$WORK/stderr.log" \
     && ok "refusal logged loudly" || bad "no warning for garbage interface"
 
+# A syntactically valid name longer than IFNAMSIZ-1 (15) can never exist in
+# the kernel, so it must be refused too — otherwise the define names nothing
+# and the guard matches no interface (the silent-blackhole class, #757).
+write_uci "a-very-long-bridge-name-16" "br-mgmt"
+PATH="$WORK/bin:$PATH" sh "$RENDER" >/dev/null 2>"$WORK/stderr.log"
+grep -q 'define tg_portal_if = "br-lan"' "$DEFS" \
+    && ok "over-long interface name refused, shipped default restored" || bad "over-long interface accepted"
+
 write_uci "" "br-mgmt"
 cat > "$WORK/bin/uci" <<'EOF'
 #!/bin/sh

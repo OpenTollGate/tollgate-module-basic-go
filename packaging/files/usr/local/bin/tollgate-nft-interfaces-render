@@ -36,12 +36,16 @@ say() {
 }
 
 valid_ifname() {
-    # Interface names: [A-Za-z0-9._-], non-empty. The complement class is
-    # the portable busybox-sh way to say "nothing else".
+    # Interface names: [A-Za-z0-9._-], non-empty, at most IFNAMSIZ-1 (15)
+    # chars, and not "." / "..". The complement class is the portable
+    # busybox-sh way to say "nothing else"; the length bound matters because
+    # a 16+ char value passes the grammar but can never exist in the kernel,
+    # so the define would name nothing and the guard would match no interface
+    # — the silent-blackhole class this renderer exists to remove.
     case "$1" in
-        ""|*[!A-Za-z0-9._-]*) return 1 ;;
-        *)                    return 0 ;;
+        ""|.|..|*[!A-Za-z0-9._-]*) return 1 ;;
     esac
+    [ "${#1}" -le 15 ]
 }
 
 render() {
