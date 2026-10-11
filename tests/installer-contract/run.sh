@@ -306,10 +306,19 @@ esac
 
 # --- 5. contract: the safe degraded path while #888 stands ------------------
 if [ "$CREDMODE" = "file" ]; then
-    if vm 'test ! -e /tmp/tollgate-admin-password && test ! -e /tmp/tollgate-wifi-key'; then
-        record contract:credentials-consumed PASS "both staged secret files were consumed (unlinked) by the install"
+    ADMIN_GONE="$(vm 'test ! -e /tmp/tollgate-admin-password && echo gone')"
+    WIFI_GONE="$(vm 'test ! -e /tmp/tollgate-wifi-key && echo gone')"
+    HAS_WIRELESS="$(vm 'uci show wireless 2>/dev/null | grep -c wireless\.radio' || true)"
+    if [ "$ADMIN_GONE" = "gone" ]; then
+        if [ "$WIFI_GONE" = "gone" ]; then
+            record contract:credentials-consumed PASS "both staged secret files were consumed (unlinked) by the install"
+        elif [ "$HAS_WIRELESS" = "0" ]; then
+            record contract:credentials-consumed PASS "admin secret consumed; wifi secret unconsumed because the device has no radios (the reader lives in the wireless setup)"
+        else
+            record contract:credentials-consumed FAIL "wifi secret survived on a wireless device — a later boot would re-apply an old key"
+        fi
     else
-        record contract:credentials-consumed FAIL "staged secret file(s) survived the install — a later boot would re-apply an old credential"
+        record contract:credentials-consumed FAIL "admin secret survived the install — a later boot would re-apply an old credential"
     fi
 fi
 if vm 'test -f /etc/tollgate/admin-credential-provisional'; then
