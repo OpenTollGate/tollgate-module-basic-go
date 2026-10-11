@@ -9,7 +9,6 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
-<<<<<<< ours
 ### Changed / Internal
 
 - **The duplicate-guard harness installs the ndsctl its grant assertion
@@ -162,7 +161,6 @@ and [Semantic Versioning](https://semver.org/).
   in the same action, and keep carried CHANGELOG entries under
   `[Unreleased]` with their PR link.
   ([#693](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/693))
-=======
 ### Added
 
 - **`tollgate wallet recover`.** Checks every token in the drain journal
@@ -175,7 +173,6 @@ and [Semantic Versioning](https://semver.org/).
   checked by the greatspectations CI job.
   ([#549](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/549))
 
->>>>>>> theirs
 
 ## [v0.6.0-rc1] - 2026-10-05
 ### Added
