@@ -480,6 +480,10 @@ func (w *mockWallet) GetAllMintBalances() map[string]uint64 {
 	return make(map[string]uint64)
 }
 
+func (w *mockWallet) CheckTokenSpendable(tokenStr string) (bool, error) {
+	return false, fmt.Errorf("mockWallet: CheckTokenSpendable not configured")
+}
+
 func (w *mockWallet) SendWithOverpayment(amount uint64, mintUrl string, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
 	if w.overpaymentErr != nil {
 		return "", w.overpaymentErr
