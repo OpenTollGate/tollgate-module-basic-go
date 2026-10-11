@@ -435,8 +435,14 @@ func (s *Scanner) DetectEncryption(encryptionStr string) string {
 	if strings.Contains(e, "wpa2") && strings.Contains(e, "psk") {
 		return "psk2"
 	}
+	// "WPA PSK" without a WPA2 marker is ambiguous in the field: iwinfo
+	// prints it both for genuine WPA1 networks and for mixed/WPA2-preferring
+	// APs whose beacon leads with the WPA1 IE (measured: such an AP rejects
+	// a `psk` section's WPA1 auth and only completes WPA2 — #817's second
+	// root cause). psk-mixed negotiates either, so map the ambiguous shape
+	// there instead of gambling on WPA1.
 	if strings.Contains(e, "wpa") && strings.Contains(e, "psk") {
-		return "psk"
+		return "psk-mixed"
 	}
 	if strings.Contains(e, "eap") {
 		return "wpa2-eap"
