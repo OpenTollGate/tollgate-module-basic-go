@@ -30,6 +30,10 @@ if git diff --cached --name-only | grep -qE '(^|/)go\.mod$|(^|/)go\.sum$|^packag
     echo "🔍 Checking the gonuts-tollgate pin (one version, everywhere)..."
     python3 tests/contract/check-gonuts-pin.py
 fi
+if git diff --cached --name-only | grep -qE 'build-inputs\.json|scripts/.*\.sh|packaging/.*\.sh|tests/cloud-lab/Dockerfile|\.github/workflows/.*\.yml'; then
+    echo "🔍 Checking the two-path build surface (manifest, eras, allowlist, agnosticism)..."
+    python3 tests/contract/check-build-surface.py
+fi
 
 # Single source of truth for the release version (VERSION at the repo root).
 # Only runs when a file that carries the version is staged.
