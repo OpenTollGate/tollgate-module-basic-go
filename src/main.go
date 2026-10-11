@@ -40,6 +40,17 @@ var mainLogger = logrus.WithField("module", "main")
 var ipLimiters = make(map[string]*rate.Limiter)
 var ipLimitersMu sync.Mutex
 
+// rateLimitTestBypass turns the per-IP rate limit off for the whole test
+// binary. It is false in the shipped binary — nothing outside the
+// `testenv`-tagged test-context provisioning ever writes it — and true only
+// under `go test -tags testenv`, where the suites (root-handler e2e, payment
+// POST, /session-state fall-through) share one client IP and one process, so
+// a 10 RPM/IP budget fails them mid-suite exactly as it failed the deployed
+// test labs (#748). The `apiListenAddr` shape: a production default that the
+// test-context init (000_test_env_testenv.go) overrides, never the reverse.
+// A test may set it back to false to pin the production behaviour.
+var rateLimitTestBypass = false
+
 func getIPLimiter(ip string) *rate.Limiter {
 	ipLimitersMu.Lock()
 	defer ipLimitersMu.Unlock()
@@ -59,6 +70,10 @@ func getIPLimiter(ip string) *rate.Limiter {
 
 func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if rateLimitTestBypass {
+			next(w, r)
+			return
+		}
 		ip := getIP(r)
 		if !getIPLimiter(ip).Allow() {
 			mainLogger.WithField("ip", ip).Warn("Rate limit exceeded")
