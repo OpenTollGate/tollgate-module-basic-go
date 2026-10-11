@@ -41,6 +41,18 @@ start_service() {
     echo "TollGate basic started with nodogsplash" > /tmp/basic.log
 }
 
+# Operator edits to nodogsplash uci (pre-auth allowlist changes among them)
+# re-render the priority -2 allow fragment and reload the firewall — WITHOUT
+# bouncing the daemon (#754: the allowlist must track uci, and nodogsplash's
+# own restart reloads nothing in /etc/nftables.d, which fw4 owns).
+service_triggers() {
+    procd_add_reload_trigger nodogsplash
+}
+
+reload_service() {
+    /usr/local/bin/tollgate-nds-preauth-render --reload
+}
+
 stop() {
     # Log the stop for debugging
     echo "TollGate basic stopped and nodogsplash disabled" >> /tmp/basic.log

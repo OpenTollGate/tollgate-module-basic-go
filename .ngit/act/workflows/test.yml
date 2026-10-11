@@ -196,6 +196,8 @@ jobs:
         run: bash tests/contract/check-ssid-format.sh
       - name: SSID naming contract (the matcher's acceptance table)
         run: bash tests/contract/check-ssid-naming.sh
+      - name: NDS pre-auth allowlist nft ordering check
+        run: bash tests/contract/check-nds-preauth-nft.sh
 
   deps-and-imports:
     runs-on: ubuntu-latest
