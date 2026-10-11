@@ -315,6 +315,7 @@ func newRenewalMerchant(t *testing.T, metric string) (*Merchant, *renewalWallet)
 	// The valve keeps its gate/timer/baseline state in package globals shared by
 	// the whole test binary; start from a closed gate for the MAC under test.
 	_ = valve.CloseGate(renewalMAC)
+	drainOwedGrantMonitors(t, m)
 
 	return m, wallet
 }
