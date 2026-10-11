@@ -1819,13 +1819,61 @@ setup_ntp_server() {
     fi
 }
 
+# converge_gatewayinterface settles the NDS gatewayinterface — ADOPTED, not
+# asserted (#788): a full setup pass (every package upgrade) used to write
+# gatewayinterface='br-lan' unconditionally, reverting a working renamed
+# portal (BEFORE=br-portal AFTER=br-lan on the rel-cluster leg) into the
+# worst mixed state — NDS dies on a bridge that no longer names the portal,
+# and the next defs render flips every nft guard to follow it. The installed
+# value is kept when it names a network's device in UCI (config-coherent on
+# purpose: setup runs in the postinst BEFORE the network restarts, so the
+# kernel is not yet a witness); the stock literal is written only for a
+# fresh install, an empty/garbage value, or an interface no network owns —
+# and every non-stock decision is logged. MUST run before the two render
+# calls in the same pass so the fragments follow the adopted interface.
+converge_gatewayinterface() {
+    local installed net
+    installed="$(uci -q get nodogsplash.@nodogsplash[0].gatewayinterface 2>/dev/null || true)"
+    if [ -n "$installed" ]; then
+        case "$installed" in
+            *[!A-Za-z0-9._-]*)
+                log "WARNING: nodogsplash gatewayinterface '$installed' is not a usable interface name — resetting to the stock br-lan (#788)"
+                command -v logger >/dev/null 2>&1 && logger -t tollgate-setup "WARNING: nodogsplash gatewayinterface '$installed' is not a usable interface name — resetting to the stock br-lan (#788)" 2>/dev/null
+                ;;
+            *)
+                net="$(uci -q show network 2>/dev/null | sed -n "s/^network\.\([^.]*\)\.device='$installed'\$/\1/p" | head -n 1)"
+                if [ -n "$net" ]; then
+                    [ "$installed" = "br-lan" ] || \
+                        log "adopting the installed gatewayinterface '$installed' (network '$net' owns it) — a correctly-renamed portal is not reverted on upgrade (#788)"
+                    return 0
+                fi
+                log "WARNING: nodogsplash gatewayinterface '$installed' is owned by no network in uci — resetting to the stock br-lan (#788)"
+                command -v logger >/dev/null 2>&1 && logger -t tollgate-setup "WARNING: nodogsplash gatewayinterface '$installed' is owned by no network in uci — resetting to the stock br-lan (#788)" 2>/dev/null
+                ;;
+        esac
+    fi
+    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
+}
+
 setup_nodogsplash() {
     # The section, its pre-auth allow list and the whole-list repair live in
     # one place so the same-version path can call exactly the same writer.
     assert_nodogsplash_allow_entries
+    # The gatewayinterface converges FIRST — both renderers below read it,
+    # and a reverted rename must never reach them (#788).
+    converge_gatewayinterface
+    # The FORWARD half of the pre-auth allowlist: nodogsplash compiles
+    # preauthenticated_users at nft priority 0, which the package's own
+    # priority -1 enforce chain rejects before those accepts can run (#754).
+    # The renderer emits the accepts INTO the enforce chain, ahead of its
+    # first rule (the -2-chain shape was refuted live on nft 1.1.7 — see the
+    # #782 review); no reload here — the postinst/boot sequence reloads the
+    # firewall around this convergence anyway, and the tollgate-wrt reload
+    # trigger covers operator edits.
+    /usr/local/bin/tollgate-nds-preauth-render
+    /usr/local/bin/tollgate-nft-interfaces-render
     uci set nodogsplash.@nodogsplash[0].enabled='1'
     uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
-    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
     # gatewaydomainname deliberately NOT set — and actively deleted on
     # upgrade: nodogsplash 5.0.2 redirects every splash request carrying
     # a redir param back to the splash when it is configured, looping
@@ -2687,6 +2735,12 @@ if [ "$BRANCH" != "FULL" ]; then
     else
         log "nodogsplash allow list already complete — nothing to commit"
     fi
+    # The renders follow the same state (#754/#757), and the
+    # gatewayinterface converges first here too (#788): a reverted rename
+    # must never reach the renderers on any setup path.
+    converge_gatewayinterface
+    /usr/local/bin/tollgate-nds-preauth-render
+    /usr/local/bin/tollgate-nft-interfaces-render
 
     # The wired LAN ports' placement is re-asserted here for the same reason
     # the uhttpd contract and the allow list are: the port list is IMAGE-
