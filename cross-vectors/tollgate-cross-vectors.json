@@ -1,0 +1,270 @@
+{
+  "schema": 1,
+  "provenance": "Canonical home: cross-vectors/tollgate-cross-vectors.json in OpenTollGate/tollgate-module-basic-go (issue #750). Consumers embed a copy with this provenance and update together when this file changes; cross-vectors/generate regenerates everything deterministically.",
+  "note": "Every vector carries the SAME advertisement in two encodings: a signed Nostr kind-10021 event (the TIP-01/TIP-02 discovery wire) and cbor_hex (the semantic data model of cross-vectors/advertisement.cddl). A consumer is conformant when both decodings agree with 'expected' — and when the tampered-signature vector fails authenticity while remaining decodable.",
+  "vectors": [
+    {
+      "name": "milliseconds-single-mint",
+      "description": "TIP-01's example advertisement with TIP-02's example pricing: one-minute steps, one cashu mint at 210 sat, min 1 step.",
+      "tampered_signature": false,
+      "event": {
+        "kind": 10021,
+        "id": "bcd8ffd59853409d097850d7b48d8034da59220d6c5b142d6e7d345bee24ed1b",
+        "pubkey": "f1217209735bc5fe1f721c32eb0f58fb9dc67b45f4266b6a2e73ad9c89cf1fd1",
+        "created_at": 1791000000,
+        "tags": [
+          [
+            "metric",
+            "milliseconds"
+          ],
+          [
+            "step_size",
+            "60000"
+          ],
+          [
+            "price_per_step",
+            "cashu",
+            "210",
+            "sat",
+            "https://mint.domain.net",
+            "1"
+          ],
+          [
+            "tips",
+            "1",
+            "2"
+          ]
+        ],
+        "content": "",
+        "sig": "26c2836fd71a1cac9ecfc2f0c40f1c9719e3eb79ce15e836bf54fd757f910b2c257bc131e729336613a01c1772e78eadba14bf03d2c12c19b84ac10d8cb0df38"
+      },
+      "cbor_hex": "a50001016c6d696c6c697365636f6e64730219ea600381a5016563617368750218d20363736174047768747470733a2f2f6d696e742e646f6d61696e2e6e65740501048261316132",
+      "expected": {
+        "metric": "milliseconds",
+        "step_size": 60000,
+        "prices": [
+          {
+            "asset_type": "cashu",
+            "price_per_step": 210,
+            "unit": "sat",
+            "mint_url": "https://mint.domain.net",
+            "min_steps": 1
+          }
+        ],
+        "tips": [
+          "1",
+          "2"
+        ]
+      }
+    },
+    {
+      "name": "bytes-multi-mint",
+      "description": "A data-metered advertisement (the Go module's default shape): 22020096-byte steps priced at 1 sat on one mint and 2 sat (min 3 steps) on another.",
+      "tampered_signature": false,
+      "event": {
+        "kind": 10021,
+        "id": "b51370b2352efdbb1c27a3a4142d0e9b1ef1877c4c6ad8c350a7ba350d12740d",
+        "pubkey": "f1217209735bc5fe1f721c32eb0f58fb9dc67b45f4266b6a2e73ad9c89cf1fd1",
+        "created_at": 1791000000,
+        "tags": [
+          [
+            "metric",
+            "bytes"
+          ],
+          [
+            "step_size",
+            "22020096"
+          ],
+          [
+            "price_per_step",
+            "cashu",
+            "1",
+            "sat",
+            "https://mint.coinos.io",
+            "0"
+          ],
+          [
+            "price_per_step",
+            "cashu",
+            "2",
+            "sat",
+            "https://other.mint.net",
+            "3"
+          ],
+          [
+            "tips",
+            "1",
+            "2",
+            "5"
+          ]
+        ],
+        "content": "",
+        "sig": "cdf0659515c6f9ad1d4240f0f669baf1a83a518e11e6def8fe919834043edede79aa3e4b5a07f388ed78fae3ab3a81f6305db6f42919cd594d24222da35a8440"
+      },
+      "cbor_hex": "a5000101656279746573021a015000000382a50165636173687502010363736174047668747470733a2f2f6d696e742e636f696e6f732e696f0500a50165636173687502020363736174047668747470733a2f2f6f746865722e6d696e742e6e657405030483613161326135",
+      "expected": {
+        "metric": "bytes",
+        "step_size": 22020096,
+        "prices": [
+          {
+            "asset_type": "cashu",
+            "price_per_step": 1,
+            "unit": "sat",
+            "mint_url": "https://mint.coinos.io",
+            "min_steps": 0
+          },
+          {
+            "asset_type": "cashu",
+            "price_per_step": 2,
+            "unit": "sat",
+            "mint_url": "https://other.mint.net",
+            "min_steps": 3
+          }
+        ],
+        "tips": [
+          "1",
+          "2",
+          "5"
+        ]
+      }
+    },
+    {
+      "name": "multi-currency-eur",
+      "description": "TIP-02's multi-currency rule in vector form: the same 210 sat price on two mints (the MUST-be-equal rule is per unit), plus a 500 eur mint at min 3 steps.",
+      "tampered_signature": false,
+      "event": {
+        "kind": 10021,
+        "id": "21bde44fe8f8bee8f860e8c8896920faab62ca1179f4afac481e7ea3cbce88e6",
+        "pubkey": "f1217209735bc5fe1f721c32eb0f58fb9dc67b45f4266b6a2e73ad9c89cf1fd1",
+        "created_at": 1791000000,
+        "tags": [
+          [
+            "metric",
+            "milliseconds"
+          ],
+          [
+            "step_size",
+            "60000"
+          ],
+          [
+            "price_per_step",
+            "cashu",
+            "210",
+            "sat",
+            "https://mint.domain.net",
+            "1"
+          ],
+          [
+            "price_per_step",
+            "cashu",
+            "210",
+            "sat",
+            "https://other.mint.net",
+            "1"
+          ],
+          [
+            "price_per_step",
+            "cashu",
+            "500",
+            "eur",
+            "https://mint.thirddomain.eu",
+            "3"
+          ],
+          [
+            "tips",
+            "1",
+            "2"
+          ]
+        ],
+        "content": "",
+        "sig": "b6c38517771c19cab65f5405ea189af7418b6ad0c60821f87696c4475eadcb6d33e02fab874b1a950d2e8418a12ae801ab12e58ac7201b3919bcf63cfa6ffcde"
+      },
+      "cbor_hex": "a50001016c6d696c6c697365636f6e64730219ea600383a5016563617368750218d20363736174047768747470733a2f2f6d696e742e646f6d61696e2e6e65740501a5016563617368750218d20363736174047668747470733a2f2f6f746865722e6d696e742e6e65740501a501656361736875021901f4036365757204781b68747470733a2f2f6d696e742e7468697264646f6d61696e2e65750503048261316132",
+      "expected": {
+        "metric": "milliseconds",
+        "step_size": 60000,
+        "prices": [
+          {
+            "asset_type": "cashu",
+            "price_per_step": 210,
+            "unit": "sat",
+            "mint_url": "https://mint.domain.net",
+            "min_steps": 1
+          },
+          {
+            "asset_type": "cashu",
+            "price_per_step": 210,
+            "unit": "sat",
+            "mint_url": "https://other.mint.net",
+            "min_steps": 1
+          },
+          {
+            "asset_type": "cashu",
+            "price_per_step": 500,
+            "unit": "eur",
+            "mint_url": "https://mint.thirddomain.eu",
+            "min_steps": 3
+          }
+        ],
+        "tips": [
+          "1",
+          "2"
+        ]
+      }
+    },
+    {
+      "name": "tampered-signature",
+      "description": "milliseconds-single-mint with the low bit of the signature's last byte flipped: shape-valid, semantic content intact, and the signature MUST fail verification. Consumers must not treat a decodable advertisement as an authentic one.",
+      "tampered_signature": true,
+      "event": {
+        "kind": 10021,
+        "id": "bcd8ffd59853409d097850d7b48d8034da59220d6c5b142d6e7d345bee24ed1b",
+        "pubkey": "f1217209735bc5fe1f721c32eb0f58fb9dc67b45f4266b6a2e73ad9c89cf1fd1",
+        "created_at": 1791000000,
+        "tags": [
+          [
+            "metric",
+            "milliseconds"
+          ],
+          [
+            "step_size",
+            "60000"
+          ],
+          [
+            "price_per_step",
+            "cashu",
+            "210",
+            "sat",
+            "https://mint.domain.net",
+            "1"
+          ],
+          [
+            "tips",
+            "1",
+            "2"
+          ]
+        ],
+        "content": "",
+        "sig": "26c2836fd71a1cac9ecfc2f0c40f1c9719e3eb79ce15e836bf54fd757f910b2c257bc131e729336613a01c1772e78eadba14bf03d2c12c19b84ac10d8cb0df39"
+      },
+      "cbor_hex": "a50001016c6d696c6c697365636f6e64730219ea600381a5016563617368750218d20363736174047768747470733a2f2f6d696e742e646f6d61696e2e6e65740501048261316132",
+      "expected": {
+        "metric": "milliseconds",
+        "step_size": 60000,
+        "prices": [
+          {
+            "asset_type": "cashu",
+            "price_per_step": 210,
+            "unit": "sat",
+            "mint_url": "https://mint.domain.net",
+            "min_steps": 1
+          }
+        ],
+        "tips": [
+          "1",
+          "2"
+        ]
+      }
+    }
+  ]
+}

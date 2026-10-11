@@ -2,7 +2,11 @@ module github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol
 
 go 1.26.0
 
-require github.com/nbd-wtf/go-nostr v0.51.12
+require (
+	github.com/fxamacker/cbor/v2 v2.9.6
+	github.com/nbd-wtf/go-nostr v0.51.12
+	github.com/stretchr/testify v1.12.1
+)
 
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
@@ -21,11 +25,12 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
-	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/arch v0.17.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
 	golang.org/x/net v0.59.0 // indirect
