@@ -4,8 +4,10 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -398,4 +400,72 @@ func TestUICmdRegistersLinks(t *testing.T) {
 	if flag == nil {
 		t.Error("the --json flag the rpcd plugin passes is not visible on `ui links`")
 	}
+}
+
+// TestUIPortsShellEmissionIsTheSetupContract pins `tollgate ui ports
+// --format shell` byte-for-byte: this output is EVALUATED by
+// 99-tollgate-setup's load_ui_port_table, so a renamed variable, a missing
+// mode, or anything needing shell quoting is a wire break, not a style
+// change. The values themselves are pinned by the D2 anchors in
+// tests/contract/check-entry-ui-ports.sh; this test pins the SHAPE.
+func TestUIPortsShellEmissionIsTheSetupContract(t *testing.T) {
+	var out strings.Builder
+	orig := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	printUIPortsShell()
+	w.Close()
+	os.Stdout = orig
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatalf("capture stdout: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 8 {
+		t.Fatalf("shell emission has %d lines, want 8 (4 helpers × 2 modes):\n%s", len(lines), out.String())
+	}
+	// Every line must be exactly NAME=digits — bare values only, nothing a
+	// naive eval could execute beyond an assignment.
+	nameRe := regexp.MustCompile(`^(uhttpd_main_http_port|uhttpd_main_https_port|board_http_port|board_https_port)_(board|luci)=[0-9]+$`)
+	seen := make(map[string]string, 8)
+	for _, line := range lines {
+		if !nameRe.MatchString(line) {
+			t.Errorf("line %q is not a plain NAME=digits assignment", line)
+			continue
+		}
+		kv := strings.SplitN(line, "=", 2)
+		if prev, dup := seen[kv[0]]; dup {
+			t.Errorf("variable %s emitted twice (%s, %s)", kv[0], prev, kv[1])
+		}
+		seen[kv[0]] = kv[1]
+	}
+	if len(seen) != 8 {
+		t.Fatalf("emitted %d distinct variables, want 8", len(seen))
+	}
+
+	// Orientation spot-checks (full grid is the contract check's job):
+	// luci mode → LuCI on the entry pair, board mode → board on it.
+	if seen["uhttpd_main_http_port_luci"] != "8080" || seen["uhttpd_main_https_port_luci"] != "443" {
+		t.Errorf("luci mode puts uhttpd.main on %s+%s, want the entry pair 8080+443",
+			seen["uhttpd_main_http_port_luci"], seen["uhttpd_main_https_port_luci"])
+	}
+	if seen["board_http_port_board"] != "8080" || seen["board_https_port_board"] != "443" {
+		t.Errorf("board mode puts the board on %s+%s, want the entry pair 8080+443",
+			seen["board_http_port_board"], seen["board_https_port_board"])
+	}
+}
+
+// TestUIPortsCommandRejectsUnknownFormat guards the flag surface: the setup
+// script calls `--format shell`; a typo'd format must be an error, never a
+// silent default that changes the output shape under the eval.
+func TestUIPortsCommandRejectsUnknownFormat(t *testing.T) {
+	uiPortsFormat = "yaml"
+	err := uiPortsCmd.RunE(uiPortsCmd, nil)
+	if err == nil {
+		t.Fatal("unknown --format must error, not silently emit")
+	}
+	if !strings.Contains(err.Error(), "shell") || !strings.Contains(err.Error(), "json") {
+		t.Errorf("error should name the valid formats, got: %v", err)
+	}
+	uiPortsFormat = "shell" // restore
 }
