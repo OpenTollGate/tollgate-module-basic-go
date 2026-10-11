@@ -8,7 +8,8 @@ untouched; the two systems run side by side.
 
 | File | Checks |
 | --- | --- |
-| `act/workflows/test.yml` | The port of `.github/workflows/test.yml`: per-module Go tests over the module matrix, the main-package `testenv` test, `js-schema-lint`, the `Spec-quote drift check`, `build-purity`, and the dependency/import-path checks. |
+| `act/workflows/test.yml` | The Go and contract legs: per-module Go tests over the module matrix, the main-package `testenv` test, `js-schema-lint`, the `Spec-quote drift check`, `build-purity`, and the dependency/import-path checks. |
+| `act/workflows/test-gates.yml` | The gate-shaped legs the test lane carried until #520: the full packaging + uci-defaults shell-suite set (`packaging-suites`), the conflict-marker `hygiene` check, and `release-check-fast` (main-only, gated inside the step). Split out so the heaviest push invocation is no longer one 16-job file on a 2-concurrent-job, 1800 s runner — the lane the coordinator dropped or phantom-failed. |
 | `act/workflows/go-test.yml` | The pre-PR sequence documented in [AGENTS.md](../AGENTS.md), run from `src/`: `gofmt -l .`, `go vet ./...`, `go build ./...`, `go test -race -count=1 -tags testenv ./...`. |
 | `act/workflows/repro-check.yml` | The fast lane of `.github/workflows/repro-check.yml`: rebuild both Go binaries in two independent clean roots (separate HOME, module and build caches) and require byte-identical SHA-256s. The package targets (`portal`, `ipk`, `ipk-upx`, `apk`) stay on the GitHub workflow's `workflow_dispatch` slow lane and on a build host (they need `docker`), and are covered here by `build-package*.yml` below. |
 | `act/workflows/build-package-binaries.yml` | Stage 1 of the release pipeline: cross-compile the five GOARCH/GOARM/GOMIPS targets, build the captive-portal assets, mirror both to Blossom, and publish the build-id records stage 2 consumes. |
@@ -20,21 +21,47 @@ Two Go files because they cover different things: `test.yml` tests the nested
 modules (which `./...` from `src/` does not reach — they are separate modules)
 and the `tests/contract` checks, while `go-test.yml` runs the documented gate
 that `test.yml` omits (`gofmt`, `go vet`, `go build`, and a race-enabled run of
-the root module).
+the root module). `test-gates.yml` carries the shell-suite and release-gate
+legs (see the table above).
 
-### `test.yml` was NOT a faithful copy until 2026-09-12
+### `test.yml` and the GitHub twin: a purpose-built port, NOT a copy
 
 The first port claimed to be "a faithful, verbatim port" but **silently dropped
-the `Spec-quote drift check` step** that `.github/workflows/test.yml` runs (the
-two files agreed everywhere else, so a diff was the only way to see it). The
-step is restored, so the two files are now byte-identical in content. Verify
-with:
+the `Spec-quote drift check` step** (caught by a diff, 2026-09-12). The two
+files were then made byte-identical — but that could not last: the twin kept
+growing jobs the runner cannot execute at all (`happy-path` needs
+`actions/upload-artifact`, which fails here with `Unable to get the
+ACTIONS_RUNTIME_TOKEN env variable`, plus docker + playwright + apt
+assumptions), while the port grew runner-native replacements the twin lacks
+(`packaging-suites`, `hygiene`, `release-check-fast`). The twins therefore
+diverged **on purpose**, and `diff -u` between them is no longer a meaningful
+check.
 
-```bash
-diff -u .github/workflows/test.yml .ngit/act/workflows/test.yml   # empty
-```
+The contract that replaced byte-identity:
 
-Local evidence for the restored step (run in a worktree at `1a3cbb4`):
+- the ngit lane must run every *check* the twin runs that is executable on this
+  runner, in some job of `test.yml` / `test-gates.yml` / `go-test.yml` — a new
+  twin job is a porting TODO, not a free omission;
+- runner-hostile constructs are replaced per the port table below (no
+  `upload-artifact`, no job-level `if:` other than `always()`, ref-dependent
+  logic inside the step as bash, no `git`-metadata dependence);
+- `tests/ngit-act-lanes_test.sh` pins the lane split and the job-level `if:`
+  ban statically.
+
+**#520 split (2026-10-08).** The single 16-job `test.yml` was by far the
+heaviest push invocation on this runner (`NGIT_CI_MAX_CONCURRENT_JOBS=2`,
+1800 s act ceiling), and it was the lane the coordinator dropped entirely or
+concluded `failure` on with every published job green. The gate legs moved to
+`test-gates.yml`; two of them had also been unobservable in the old shape —
+`release-check-fast`'s job-level `if:` meant a skipped job never published a
+kind 9841 (14 of 16 declared jobs ever published), and `hygiene`'s `git grep`
+was vacuously green on a checkout with no git metadata. Both are fixed in the
+new file. If the coordinator still drops either lane after this, the next cut
+is halving the module matrix in `test.yml` — the split is arranged so that is
+a one-file edit.
+
+Local evidence for the spec-quote step restored in the 2026-09-12 fix (run in
+a worktree at `1a3cbb4`):
 
 ```
 pip install --user "git+https://github.com/rustyrussell/greatspectations.git@0f22649"
@@ -46,7 +73,8 @@ greatspectate check --config specquotes.toml \
 
 ## Triggers
 
-`test.yml` and `go-test.yml` run on **push to `main`** and on **pull requests**.
+`test.yml`, `test-gates.yml` and `go-test.yml` run on **push to `main`** and on
+**pull requests**.
 Stage 1 (`build-package-binaries.yml`) does too, with the GitHub twin's
 `paths-ignore` (`**.md`, `docs/**`), plus `v*` tags.
 

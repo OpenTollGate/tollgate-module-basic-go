@@ -14,6 +14,12 @@
 #   `peter-evans/repository-dispatch` step, which dispatched into
 #   OpenTollGate/tollgate-os with a cross-repo token that no longer exists.
 #
+#   It is ALSO the replay path for a push-triggered lane the coordinator
+#   dropped (#520: test.yml invocations that produced zero events): the
+#   coordinator starts those lanes itself on push, but a manual kind-9840
+#   naming the same workflow/commit/ref makes it run them again, e.g.
+#     scripts/ngit-ci-trigger.sh .ngit/act/workflows/test.yml <sha> main
+#
 # NIP-C1 shape (ngit-ci NIP.md, "Manual Trigger"):
 #   kind 9840, empty content, exactly one `p` tag naming the coordinator,
 #   `a` the repository announcement, `c` the commit to run, `w` the workflow
