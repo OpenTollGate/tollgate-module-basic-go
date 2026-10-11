@@ -362,7 +362,13 @@ Rules, in order of leverage:
 2. **Fan out sequentially.** Start coding agents one at a time with ~8 s
    gaps; check `free -h` and `journalctl -t earlyoom -n 5` BEFORE any
    fan-out; cap concurrent opencode sessions (~10 including the fleet's
-   — each holds 0.8–1.2 GiB for its lifetime).
+   — each holds 0.8–1.2 GiB for its lifetime). For fan-outs and soaks,
+   launch agents through `/usr/local/bin/opencode-bounded` (ai-legion):
+   it wraps the session in an `agent.slice` scope with MemoryMax=3G /
+   MemorySwapMax=1G (raise via `OC_BOUND_MEM`/`OC_BOUND_SWAP`), so a
+   runaway session hits its own ceiling — herdr still detects it, and
+   `herdr pane run <pane> opencode-bounded` + `herdr agent rename` is
+   the start incantation.
 3. **Fixtures are on-demand, not always-on.** AVDs boot via
    `avd-acquire` and come down via `avd-release`; the `avd-reaper` timer
    reaps an un-acquired emulator after 15 min and a stale
