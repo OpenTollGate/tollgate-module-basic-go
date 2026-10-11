@@ -13,7 +13,7 @@ if git diff --cached --name-only | grep -q '\.go$'; then
     python3 tests/contract/check-import-paths.py
 fi
 
-if git diff --cached --name-only | grep -qE 'build-inputs\.json|tests/cloud-lab/Dockerfile|\.github/workflows/.*\.yml'; then
+if git diff --cached --name-only | grep -qE 'build-inputs\.json|tests/cloud-lab/Dockerfile|\.github/workflows/.*\.yml|\.ngit/act/workflows/.*\.yml|(^|/)go\.mod$'; then
     echo "🔍 Checking toolchain parity across build paths..."
     python3 tests/contract/check-toolchain-parity.py
 fi
@@ -71,7 +71,12 @@ fi
 # malformed one — wrong filename, unknown type, a body that is not the bullet —
 # is refused here rather than when a release tries to fold it. The fold tool is
 # what writes them into CHANGELOG.md; PRs do not edit the changelog directly.
+# The identity fence sits next to the shape fence: a fragment must NAME its own
+# change (real PR/issue number in filename and body, no foreign links, no
+# placeholders) or the release notes cite the wrong thing. Offline only here;
+# CI additionally runs it with --online (every number must exist on GitHub).
 if git diff --cached --name-only | grep -qE '^changelog\.d/.*\.md$'; then
     echo "🔍 Checking changelog fragments..."
     python3 scripts/changelog-assemble.py check
+    python3 tests/contract/check-changelog-fragments.py
 fi
