@@ -1345,8 +1345,8 @@ drop_admin_listeners() {
 #   set    -> nothing to do, the board is authenticatable
 #   locked -> nothing to do, password login is refused
 #   empty  -> generate a credential, apply it, and PROVE it by re-reading the
-#             hash; the value is shown once (install output + root-only log,
-#             the same channel as the generated private WiFi key)
+#             hash; the value is NEVER printed (the owner sets their own at the
+#             board's first-run page, or with `passwd root`)
 #   empty-but-unprovable / unknown -> refuse to serve the board at all
 enforce_admin_credential() {
     local state password chosen had board_http board_https
@@ -1415,13 +1415,13 @@ enforce_admin_credential() {
         fi
         if [ -n "$password" ] && [ "$(admin_credential_state)" = "set" ]; then
             mark_admin_credential_provisional
-            # Shown ONCE: the install output, plus the root-only log (600, and
-            # already the home of the generated private WiFi key). It is never
-            # written to UCI — /etc/config is world-readable — and never
-            # re-displayed; the operator changes it with `passwd root`.
-            printf 'TollGate: root had no password; generated one for the :%s admin board — shown once: %s\n' "$board_http" "$password"
-            printf 'TollGate: that password is PROVISIONAL. Choose your own with `passwd root` over SSH, or reinstall with TOLLGATE_ADMIN_PASSWORD set; the board serves either way.\n'
-            log "No root password was set: generated one for the admin board (shown once, change it with 'passwd root'): $password"
+            # The generated value is NEVER printed and never written to any
+            # world-readable file. The owner chooses their own password at the
+            # board's FIRST-RUN page (pre-auth; the portal admin SPA serves it
+            # while /etc/tollgate/admin-credential-provisional stands) or with
+            # `passwd root` / a reinstall that sets TOLLGATE_ADMIN_PASSWORD.
+            printf 'TollGate: root had no password. The admin board (:%s) serves a FIRST-RUN page — set your own root and private-WiFi passwords there, or run `passwd root`. No generated password is printed.\n' "$board_http"
+            log "No root password was set: a provisional credential was generated (NOT printed). The board serves a first-run page; the owner sets their own password there, or with 'passwd root'."
             return 0
         fi
         log "ERROR: no credential could be established (passwd did not take, or no entropy to generate one) — refusing to serve the :${board_http}/:${board_https} admin board (rpcd would accept ANY password against the empty hash); set one with 'passwd root' and re-run this script"
@@ -1741,7 +1741,9 @@ setup_hostname() {
 #
 # The list says what a PRE-AUTHENTICATION client may reach ON THE ROUTER, and
 # nothing else belongs on it: the portal itself (:2050 NDS gateway, :2051 SPA),
-# the backend API (:2121) and the gateway's own NTP service (udp/123 — see
+# the backend API (:2121), DNS on the router's own dnsmasq (tcp/53 + udp/53 —
+# stub resolvers query UDP first and the portal is usually reached by name,
+# #749), and the gateway's own NTP service (udp/123 — see
 # setup_ntp_server below; a client with a wrong clock cannot pay honestly:
 # Cashu proofs carry timestamps, keysets expire, sessions are time-boxed, and a
 # downstream TollGate in reseller mode joins the open portal with whatever
@@ -1771,6 +1773,23 @@ assert_nodogsplash_allow_entries() {
     fi
     if ! uci_list_has_port 2051; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
+    fi
+    # DNS to the router's own dnsmasq — the pre-auth client's primary need
+    # after the portal itself (#749): stub resolvers (glibc/musl, Android,
+    # browsers) query UDP first, and a UDP query dropped by ndsRTR costs a
+    # ~5s timeout per attempt before any TCP fallback — resolution is dead
+    # in practice, and the portal page is usually reached by name, so DNS is
+    # on the customer journey. tcp/53 is asserted alongside (not left to the
+    # feed default that carries it): this writer's contract is that a stale
+    # or absent list is REPAIRED on every setup path, and a list that lost
+    # tcp/53 would break TCP-fallback resolvers the same way. The guards are
+    # protocol-aware — `uci_list_has_port 53` matches the port on either
+    # protocol and would see the feed's tcp/53 default and skip the udp add.
+    if ! uci_list_has_entry 'allow tcp port 53'; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 53'
+    fi
+    if ! uci_list_has_entry 'allow udp port 53'; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow udp port 53'
     fi
     # The gateway's own time service: the one thing a pre-auth client needs
     # that is not the portal or the payment API. sysntpd must be told to
@@ -1858,6 +1877,17 @@ assert_nodogsplash_allow_entries() {
 # every rerun (#516).
 uci_list_has_port() {
     printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])port $1([[:space:]]|'|\$)"
+}
+
+# uci_list_has_entry E: succeeds when the users_to_router listing already
+# contains the whole entry E (e.g. 'allow udp port 53'). Protocol-aware,
+# unlike uci_list_has_port — which matches a port on either protocol and so
+# cannot guard two entries sharing one port (DNS tcp/53 + udp/53, #749): a
+# port-only guard would see the feed's tcp/53 default and skip the udp add.
+# Same two-rendering delimiter logic as uci_list_has_port: one entry per
+# line, space-joined single line, or uci's quoted single-line form.
+uci_list_has_entry() {
+    printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])$1([[:space:]']|\$)"
 }
 
 # The gateway serves time to its own clients, pre-authentication (#627).
@@ -2496,21 +2526,28 @@ setup_private_network() {
     private_ssid=$(private_ssid_for_code "$(uci -q get wireless.private_radio0.ssid)")
 
     private_key=$(uci -q get wireless.private_radio0.key)
-    if [ -z "$private_key" ]; then
+    if [ -z "$private_key" ] && [ -n "${TOLLGATE_PRIVATE_WIFI_PASSWORD:-}" ]; then
+        # Operator chose it (install-time prompt, B) — never generated-and-printed.
+        private_key="$TOLLGATE_PRIVATE_WIFI_PASSWORD"
+        log "Private WiFi key set from TOLLGATE_PRIVATE_WIFI_PASSWORD (not printed)"
+    elif [ -z "$private_key" ]; then
         # Memorable password: 3 words + 2-digit number. Single
         # /dev/urandom read, awk picks words — avoids forking per word.
+        # NOT printed: the owner sets their own in the board's first-run page
+        # (or `tollgate network private set-password`).
         private_key=$(awk -v seed="$(hexdump -n 8 -e '"%u"' /dev/urandom)" '
         BEGIN {
             srand(seed);
             n = split("Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet Kilo Lima Mike November Oscar Papa Quebec Romeo Sierra Tango Uniform Victor Whiskey Xray Yankee Zulu", w, " ");
             printf("%s-%s-%s-%02d", w[int(rand()*n)+1], w[int(rand()*n)+1], w[int(rand()*n)+1], int(rand()*100));
         }')
-        log "Generated new private WiFi key (none was configured)"
+        log "Generated new private WiFi key (NOT printed; the owner sets it in the board first-run page or 'tollgate network private set-password')"
     else
         log "Preserving existing private WiFi key"
     fi
+    # The key VALUE is deliberately never logged: the install log is not a
+    # channel for a credential (that is the whole point of this change).
     log "Private SSID ${private_ssid}, IP ${private_ip}"
-    log "Private key: $private_key"
 
     uci set network.private='interface'
     uci set network.private.proto='static'

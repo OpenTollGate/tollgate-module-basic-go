@@ -118,10 +118,18 @@ than inventing new harnesses.
 - **gonuts-tollgate is our fork to maintain.** Upstream `elnosh/gonuts`
   is dead (last release v0.4.2, 2025); we carry ~40 patches. Every
   wallet-level fix lands in `OpenTollGate/gonuts-tollgate` first, is
-  tagged, then bumped here via the `replace` directive — the require lands
-  in every nested module that carries it: `src/`, `src/cli`, `src/merchant`
-  and `src/tollwallet`, four `go.mod` files today. Never fix a wallet bug
-  by patching around the fork locally.
+  tagged, then bumped here. Never fix a wallet bug by patching around
+  the fork locally. **The pin is ONE version, identical in every `go.mod`
+  that references the fork** — `tests/contract/check-gonuts-pin.py`
+  discovers carriers by glob and names
+  `packaging/build-inputs.json`'s `.gonuts.version` as the single
+  truth; never update a carrier count or list anywhere by hand (that is
+  exactly how #791 drifted). Bumps go through
+  `scripts/bump-gonuts.sh <tag>`, which rewrites the manifest and every
+  carrier together; `release-check` refuses to cut a release while the
+  fork has a newer stable tag than the one pinned. Pseudo-version
+  integration pins are for branches awaiting their tag and must not
+  outlive that tag on `main`.
 - **bbolt persistence.** Keyset records (which own derivation counters)
   are nested under mint-URL-named buckets; the DB has no transactions
   spanning "fetch keysets + swap + save proofs". This is why counter
