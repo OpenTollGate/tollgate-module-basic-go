@@ -41,17 +41,16 @@ ICEXIT 0|1
 
 ## The known-red checks
 
-Two checks are shipped red on purpose:
-
-1. `contract:credential-applied` — **the acceptance criterion of #888**: the
-   operator-chosen password must become root's hash (verified by recomputing
-   sha256crypt with the stored salt). While #888 stands — apk-tools on 25.12
-   does not deliver the environment to the uci-defaults script — this check
-   FAILS by design, and `contract:provisional-lifecycle` pins the safe
-   degraded behavior that ships instead (random provisional credential,
-   never printed, marker present, FIRST-RUN page offered, board still
-   fail-closed). When #888's fix lands, `credential-applied` goes green and
-   `provisional-lifecycle` flips to SKIP on the same run.
+1. `contract:credential-applied` — in the default `--credentials-mode file`
+   (the #894 channel) this must PASS: the staged secret becomes root's hash
+   (sha256crypt comparison host-side) and `contract:credentials-consumed`
+   asserts both files were unlinked. Running with `--credentials-mode env`
+   instead demonstrates **#888**: apk-tools on 25.12 drops the installer's
+   environment, so the env channel cannot apply the credential — that mode
+   stays red until apk-tools behavior changes, by design.
+   `contract:provisional-lifecycle` pins the safe degraded path whenever the
+   chosen credential did NOT apply (random provisional credential, never
+   printed, marker present, FIRST-RUN page offered, board still fail-closed).
 2. `listeners:8090` / `listeners:8443` — **the acceptance criterion of #890**:
    LuCI's pair in board mode did not converge after a true fresh-image
    install (the `main` uhttpd section ends up with no listeners), while the

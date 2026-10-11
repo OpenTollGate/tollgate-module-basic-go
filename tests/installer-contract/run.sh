@@ -43,6 +43,12 @@
 #                     ssh can return. Without --serial, pass --skip-pristine.
 #   --skip-pristine   do not `firstboot -y` before installing (dev only —
 #                     makes credential-state assertions unreliable)
+#   --credentials-mode env|file
+#                     how the chosen credentials reach the install. Default
+#                     `file`: the root-only staged secret files of #894 (the
+#                     apk-reliable channel — apk-tools drops the env).
+#                     `env`: the raw environment channel, kept as the living
+#                     demonstration of #888's apk-tools env loss.
 #   --skip-reboot     skip the persistence phase
 #   --keep            keep the run's remote scratch dir
 #   --out DIR         evidence dir (default: <tmpdir>/installer-contract.out)
@@ -61,6 +67,7 @@ SKIP_PRISTINE=0
 SKIP_REBOOT=0
 KEEP=0
 OUT=""
+CREDMODE="file"
 
 usage() {
     sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'
@@ -76,6 +83,7 @@ while [ $# -gt 0 ]; do
         --serial) SERIAL="${2:?}"; shift 2 ;;
         --skip-pristine) SKIP_PRISTINE=1; shift ;;
         --skip-reboot) SKIP_REBOOT=1; shift ;;
+        --credentials-mode) CREDMODE="${2:?}"; shift 2 ;;
         --keep) KEEP=1; shift ;;
         --out) OUT="${2:?}"; shift 2 ;;
         *) usage ;;
@@ -247,8 +255,21 @@ fi
 
 ADMIN_PW="$(cat "$CHOSEN_ADMIN")"
 WIFI_PW="$(cat "$CHOSEN_WIFI")"
-vm "TOLLGATE_ADMIN_PASSWORD='$ADMIN_PW' TOLLGATE_PRIVATE_WIFI_PASSWORD='$WIFI_PW' apk add --allow-untrusted /tmp/ic-lane/$ARTIFACT_NAME" \
-    > "$OUT/install.log" 2>&1
+case "$CREDMODE" in
+    file)
+        # The apk-reliable channel (#894): root-only staged secrets,
+        # consumed on read by the package's setup script.
+        vm "umask 077; printf '%s' '$ADMIN_PW' > /tmp/tollgate-admin-password; printf '%s' '$WIFI_PW' > /tmp/tollgate-wifi-key" >/dev/null 2>&1
+        vm "TOLLGATE_ADMIN_PASSWORD='$ADMIN_PW' TOLLGATE_PRIVATE_WIFI_PASSWORD='$WIFI_PW' apk add --allow-untrusted /tmp/ic-lane/$ARTIFACT_NAME" \
+            > "$OUT/install.log" 2>&1
+        ;;
+    env)
+        vm "TOLLGATE_ADMIN_PASSWORD='$ADMIN_PW' TOLLGATE_PRIVATE_WIFI_PASSWORD='$WIFI_PW' apk add --allow-untrusted /tmp/ic-lane/$ARTIFACT_NAME" \
+            > "$OUT/install.log" 2>&1
+        ;;
+    *)
+        echo "unknown --credentials-mode: $CREDMODE" >&2; exit 2 ;;
+esac
 INSTALL_EC=$?
 if [ "$INSTALL_EC" -eq 0 ] && vm 'apk info 2>/dev/null | grep -q "^tollgate-wrt"'; then
     record install:apk-add PASS "apk add exit 0, tollgate-wrt registered"
@@ -284,6 +305,13 @@ case "$HASH" in
 esac
 
 # --- 5. contract: the safe degraded path while #888 stands ------------------
+if [ "$CREDMODE" = "file" ]; then
+    if vm 'test ! -e /tmp/tollgate-admin-password && test ! -e /tmp/tollgate-wifi-key'; then
+        record contract:credentials-consumed PASS "both staged secret files were consumed (unlinked) by the install"
+    else
+        record contract:credentials-consumed FAIL "staged secret file(s) survived the install — a later boot would re-apply an old credential"
+    fi
+fi
 if vm 'test -f /etc/tollgate/admin-credential-provisional'; then
     if grep -q "FIRST-RUN" "$OUT/install.log"; then
         record contract:provisional-lifecycle PASS "provisional credential generated silently + first-run page offered (the safe degraded path of #888)"
