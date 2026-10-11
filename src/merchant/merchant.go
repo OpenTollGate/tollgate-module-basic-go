@@ -211,14 +211,14 @@ const preflightProbeAttempts = 5
 // probes. It is the zero-value default of Merchant.clientProbeDelay.
 const preflightRetryDelayDefault = 400 * time.Millisecond
 
-// receiveTimeout bounds how long PurchaseSession waits for the mint's answer to
-// a money-moving `Receive` before it answers the customer with "outcome
-// unknown". It is a var so a test can shrink the window instead of waiting it
-// out; nothing in production reassigns it, and — unlike the pre-flight's delay
-// (Merchant.clientProbeDelay, which is per merchant because the usage monitor
-// reads it from its own goroutine) — every reader of this one is on the
-// goroutine that called PurchaseSession.
-var receiveTimeout = 30 * time.Second
+// defaultReceiveTimeout bounds how long PurchaseSession waits for the mint's
+// answer to a money-moving `Receive` before it answers the customer with
+// "outcome unknown". It is the zero-value default of Merchant.receiveTimeout —
+// per merchant, like the pre-flight's seam above, because this one was a
+// package-level var once too, and a test shrinking it raced the deadline read
+// of a PurchaseSession goroutine an earlier test had leaked; the full-suite
+// `-race` gate caught it (#821).
+const defaultReceiveTimeout = 30 * time.Second
 
 // receiveResult is the answer of one money-moving `Receive` call.
 type receiveResult struct {
@@ -425,6 +425,10 @@ type Merchant struct {
 	clientProbeMu    sync.RWMutex
 	clientProbe      func(string) (valve.ClientState, error)
 	clientProbeDelay time.Duration
+	// receiveTimeout overrides defaultReceiveTimeout for this merchant's
+	// money-moving Receive deadline; zero keeps the default. Per merchant for
+	// the same -race reason as the probe seam above (#821).
+	receiveTimeout time.Duration
 	// monitorMu guards the usage sweep's stop/done channels. They are created by
 	// startUsageSweep and closed by stopDataUsageMonitoring, which exists so a
 	// test that drives the real startup path can end the sweep it started: the
@@ -1639,6 +1643,10 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	var amountAfterSwap uint64
 	err = nil
+	receiveTimeout := m.receiveTimeout
+	if receiveTimeout <= 0 {
+		receiveTimeout = defaultReceiveTimeout
+	}
 	select {
 	case res := <-ch:
 		amountAfterSwap = res.amount

@@ -204,7 +204,10 @@ allow tcp port 8443
 allow tcp port 443"
 # Entries the allow list MUST hold exactly once after any run: the customer
 # journey and nothing else.
-JOURNEY_PORTS="2121 2050 2051"
+JOURNEY_PORTS="53 2121 2050 2051"
+# The pre-auth list's UDP entries: DNS (#749 — stub resolvers query UDP
+# first) and the gateway's own NTP service (#627).
+JOURNEY_UDP_PORTS="53 123"
 # Entries the allow list must NEVER hold: LuCI (an admin login) and the admin
 # board (a root-capable login over plain HTTP), all reachable over the captive
 # bridge today.
@@ -223,6 +226,11 @@ journey_ports_once() { # <label> — every customer-journey port present exactly
         n=$(count_entry "allow tcp port $port")
         [ "$n" = 1 ] && ok "$label: 'allow tcp port $port' present exactly once" \
                      || bad "$label: 'allow tcp port $port' present $n times (want 1)"
+    done
+    for port in $JOURNEY_UDP_PORTS; do
+        n=$(count_entry "allow udp port $port")
+        [ "$n" = 1 ] && ok "$label: 'allow udp port $port' present exactly once" \
+                     || bad "$label: 'allow udp port $port' present $n times (want 1)"
     done
 }
 
