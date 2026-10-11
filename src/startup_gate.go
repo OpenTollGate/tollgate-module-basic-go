@@ -179,6 +179,10 @@ func (startingMerchant) GetLightningInvoiceStatus(string, string) (*merchant.Lig
 	return nil, errMerchantStarting
 }
 
+func (startingMerchant) CheckTokenSpendable(string) (bool, error) {
+	return false, errMerchantStarting
+}
+
 // GetAcceptedMints answers an empty set rather than an error: it is what the
 // advertisement is built from, and every route that serves it is gated.
 func (startingMerchant) GetAcceptedMints() []config_manager.MintConfig { return nil }

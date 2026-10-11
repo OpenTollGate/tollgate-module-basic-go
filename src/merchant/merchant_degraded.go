@@ -182,6 +182,10 @@ func (m *MerchantDegraded) DrainMint(mintURL string) (string, uint64, error) {
 	return "", 0, m.walletNotInitializedError()
 }
 
+func (m *MerchantDegraded) CheckTokenSpendable(token string) (bool, error) {
+	return false, fmt.Errorf("wallet not initialized: no reachable mints")
+}
+
 func (m *MerchantDegraded) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*LightningInvoice, error) {
 	return nil, m.walletNotInitializedError()
 }

@@ -221,6 +221,27 @@ type WalletPort interface {
 	// Drain creates a token for the full balance of a mint.
 	Drain(mintUrl string) (Token, uint64, error)
 
+	// CheckTokenSpendable reports whether every proof of the serialized
+	// token is still UNSPENT at the token's mint (NUT-07 checkstate).
+	// Stateless with respect to the wallet: used by drain recovery to
+	// classify journaled tokens as live or already redeemed. An error
+	// means the state could not be determined (mint unreachable, token
+	// undecodable) — callers must treat that as unknown, not spent.
+	//
+	// Verdict semantics are caller-dependent: the mint cannot know who
+	// holds the proof secrets. For tokens we still own (drain-journal
+	// entries, reserved proofs), spendable means stranded value that can
+	// be re-imported without racing anyone. For tokens handed to a third
+	// party (payments whose outcome is unknown — scripts/token-recovery's
+	// tokens-to-recover.txt), spendable means the recipient has NOT
+	// redeemed: whoever holds the secrets may re-spend, so acting on the
+	// verdict is a clawback racing the recipient's redemption, and "spent"
+	// means "the counterparty took the value", not "secured". Recovering
+	// owned tokens and clawing back handed-out tokens are different
+	// operations with different risk and policy; this method is only the
+	// shared primitive and deliberately does not choose.
+	CheckTokenSpendable(tokenStr string) (bool, error)
+
 	// MeltToLightning pays a Lightning address from wallet funds.
 	MeltToLightning(mintUrl string, targetAmount uint64, maxCost uint64, lnurl string) error
 
