@@ -1,10 +1,13 @@
 - **The package never generates an admin credential the operator cannot see.**
-  When root had no password and `TOLLGATE_ADMIN_PASSWORD` was unset, the
+  When root had no password and no operator credential was provided, the
   package generated a provisional credential and served a first-run page. That
   generated value is no longer created (the `generate_admin_password` helper is
   removed): the package now generates **nothing** and refuses to serve the
-  admin board until the operator provides a password — `TOLLGATE_ADMIN_PASSWORD`
-  at install time, or `passwd root` on the router, then the gate is re-run. A
+  admin board until the operator provides a password — via
+  `TOLLGATE_ADMIN_PASSWORD`, or, because apk-tools 3 (OpenWrt >= 25.12) does not
+  forward the caller's environment to package scriptlets, a root-only file
+  (`/etc/tollgate/admin-password`, and `/etc/tollgate/wifi-password` for the
+  private-WiFi passphrase). The file is read, applied and removed. A
   generated-but-withheld password is exactly how routers got locked out when
   the installer deferred one credential while the package generated another and
   the operator ended up holding neither. A provisional marker carried over from
