@@ -129,6 +129,9 @@ func (s *receiveIntentStore) saveIntents(intents map[string]*receiveIntentRecord
 	if err := os.Rename(tmpName, s.filePath); err != nil {
 		return fmt.Errorf("rename temp receive-intents file: %w", err)
 	}
+	if err := syncParentDir(s.filePath); err != nil {
+		return fmt.Errorf("sync receive-intents directory after rename: %w", err)
+	}
 	cleanup = false
 	return nil
 }
