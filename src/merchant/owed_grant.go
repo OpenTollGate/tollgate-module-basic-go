@@ -261,11 +261,28 @@ func owedGrantDeadline(rec *owedGrantRecord) time.Time {
 	return rec.CreatedAt.Add(owedGrantBytesMaxAge)
 }
 
+// owedGrantRetrySchedule resolves this merchant's monitor backoff bounds,
+// falling back to the production constants for a zero-value Merchant (the
+// same convention as receiveTimeout: zero means the default, and only tests
+// ever set the fields — see the Merchant fields for why they exist, #733).
+func (m *Merchant) owedGrantRetrySchedule() (base, cap time.Duration) {
+	base = m.owedGrantRetryBase
+	if base <= 0 {
+		base = owedGrantRetryInterval
+	}
+	cap = m.owedGrantRetryCap
+	if cap <= 0 {
+		cap = owedGrantMaxBackoff
+	}
+	return base, cap
+}
+
 // monitorOwedGrant retries one owed grant with backoff until it is granted,
 // expires, or its record disappears. Exits are terminal: a granted or expired
 // record is never revisited by this goroutine.
 func (m *Merchant) monitorOwedGrant(reference string) {
-	backoff := owedGrantRetryInterval
+	retryBase, retryCap := m.owedGrantRetrySchedule()
+	backoff := retryBase
 
 	for {
 		m.owedGrantsMu.Lock()
@@ -288,11 +305,11 @@ func (m *Merchant) monitorOwedGrant(reference string) {
 		// on the same socket), and immediately re-running it only hammers a
 		// wedged ndsctl — the storm that stops a PAID purchase from being
 		// authorised at all.
-		owedGrantSleep(backoff)
-		if backoff < owedGrantMaxBackoff {
+		owedGrantSleep(backoff, retryCap/8)
+		if backoff < retryCap {
 			backoff *= 2
-			if backoff > owedGrantMaxBackoff {
-				backoff = owedGrantMaxBackoff
+			if backoff > retryCap {
+				backoff = retryCap
 			}
 		}
 
@@ -302,9 +319,18 @@ func (m *Merchant) monitorOwedGrant(reference string) {
 	}
 }
 
-// owedGrantSleep sleeps for d plus a random jitter in [0, owedGrantMaxJitter).
-func owedGrantSleep(d time.Duration) {
-	jitter := time.Duration(rand.Int63n(int64(owedGrantMaxJitter)))
+// owedGrantSleep sleeps for d plus a random jitter in [0, jitterCap). The
+// jitter de-synchronises monitors that started together; it is scaled to the
+// retry schedule (an eighth of its cap) so a test with a compressed clock
+// does not have the production jitter dominate its backoff.
+func owedGrantSleep(d, jitterCap time.Duration) {
+	if jitterCap > owedGrantMaxJitter {
+		jitterCap = owedGrantMaxJitter
+	}
+	if jitterCap < 0 {
+		jitterCap = 0
+	}
+	jitter := time.Duration(rand.Int63n(int64(jitterCap) + 1))
 	time.Sleep(d + jitter)
 }
 
