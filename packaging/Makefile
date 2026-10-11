@@ -144,7 +144,14 @@ wait_for_iface br-private || echo "Note: br-private not found — this is expect
 
 echo "Reloading remaining services..."
 wifi reload 2>/dev/null || true
-/etc/init.d/firewall reload 2>/dev/null || true
+/etc/init.d/firewall reload >/tmp/tollgate-fw4-reload.log 2>&1 || true
+# fw4 skips a section whose zone/interface ref is wrong — exit 0, stderr
+# only, never logread: exactly the silent-skip #755 is about. Surfacing the
+# skip diagnostics into syslog is the difference between an operator seeing
+# one ERROR line and debugging "the portal works but nothing is enforced".
+if grep -q "specifies invalid value\|skipped" /tmp/tollgate-fw4-reload.log 2>/dev/null; then
+    logger -t tollgate-setup "fw4 reload skipped section(s): $$(grep -E 'specifies invalid value|skipped' /tmp/tollgate-fw4-reload.log | head -n 3 | tr '\n' ' ')"
+fi
 /etc/init.d/dnsmasq restart 2>/dev/null || true
 /etc/init.d/uhttpd restart 2>/dev/null || true
 /etc/init.d/nodogsplash restart 2>/dev/null || true
@@ -214,6 +221,8 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nds-preauth-render $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nft-interfaces-render $(1)/usr/local/bin/
 
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
@@ -279,6 +288,7 @@ FILES_$(PKG_NAME) += \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart \
+	/etc/nftables.d/00-tollgate-defs.nft \
 	/etc/nftables.d/20-nds-enforce.nft \
 	/etc/nftables.d/30-backend-firewall.nft \
 	/etc/nftables.d/31-admin-board-not-guest-reachable.nft \
