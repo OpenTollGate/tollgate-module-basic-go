@@ -194,3 +194,27 @@ func mustGet(t *testing.T, f *fakeUCI, key string) string {
 	}
 	return v
 }
+
+// The measured AP shapes iwinfo reports around PSK security, and the uci
+// encryption each must map to (#817's second root cause: "WPA PSK (CCMP)"
+// beacons that only complete WPA2 auth).
+func TestDetectEncryptionMapsAmbiguousWPAPSKToMixed(t *testing.T) {
+	c := &Connector{}
+	cases := []struct{ in, want string }{
+		{"WPA2 PSK (CCMP)", "psk2"},
+		{"psk2", "psk2"},
+		{"WPA PSK (CCMP)", "psk-mixed"}, // WPA1-advertised, WPA2-only in practice
+		{"WPA PSK", "psk-mixed"},
+		{"none", "none"},
+		{"open", "none"},
+		{"SAE", "sae"},
+		{"WPA3-SAE mixed", "sae-mixed"},
+		{"WPA2 EAP", "wpa2-eap"},
+		{"", "psk2"},
+	}
+	for _, tc := range cases {
+		if got := (&Scanner{Connector: c}).DetectEncryption(tc.in); got != tc.want {
+			t.Errorf("DetectEncryption(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
