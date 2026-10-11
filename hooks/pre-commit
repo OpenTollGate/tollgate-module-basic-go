@@ -122,3 +122,7 @@ if git diff --cached --name-only | grep -qE '^cross-vectors/|tollgate-cross-vect
     echo "🔍 Checking cross-vectors sync..."
     bash tests/contract/check-cross-vectors-sync.sh
 fi
+
+# --- Secret scanning (credential-leak class, PRTA#199 pattern): gitleaks over
+# the staged diff. Runs last; refuses the commit when a secret pattern is staged.
+"$(dirname "$0")/../scripts/secret-scan.sh"
