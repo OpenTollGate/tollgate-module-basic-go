@@ -28,7 +28,7 @@ import (
 //
 // The contract: the force-close is escalated ONCE, and while the session stays
 // unmeterable the module reports at most once per
-// unmeterableSessionReportInterval, at WARNING. What must NOT change: the
+// the merchant's unmeterableReportInterval, at WARNING. What must NOT change: the
 // session stays TRACKED (a failed close is not a close) and the module keeps
 // attempting the close, so the state still converges when ndsctl recovers.
 func TestUnmeterableSessionEscalationIsBounded(t *testing.T) {
@@ -45,8 +45,9 @@ func TestUnmeterableSessionEscalationIsBounded(t *testing.T) {
 	// cannot be retired.
 	ndsctl.setRegistered(t, true)
 	ndsctl.failDeauth(t, true)
-	restoreReportInterval := setUnmeterableReportInterval(time.Hour)
-	t.Cleanup(restoreReportInterval)
+	// Per-merchant seam (#858): a one-hour repeat window on this test's own
+	// merchant, not the package global — the sweep goroutine reads it.
+	m.unmeterableReportInterval = time.Hour
 
 	buf := captureMerchantLog(t)
 	usageErr := errors.New("client counters unavailable")
@@ -234,14 +235,10 @@ func TestUnmeterableSessionEscalationStillExposesTheAbandonedClose(t *testing.T)
 // value: the test only needs to be past the budget.
 const closeAttemptBudget = 8
 
-// setUnmeterableReportInterval shrinks the repeat interval for one test and
-// returns the restore, so this file's tuning of a package-level var cannot
-// silence or accelerate the reporting of a later test.
-func setUnmeterableReportInterval(interval time.Duration) func() {
-	previous := unmeterableSessionReportInterval
-	unmeterableSessionReportInterval = interval
-	return func() { unmeterableSessionReportInterval = previous }
-}
+// The unmeterable repeat interval is a per-Merchant seam
+// (Merchant.unmeterableReportInterval, #858): tests set it on their own
+// merchant instance, so nothing a test writes can race another test's
+// sweep goroutine.
 
 // TestUnmeterableEpisodeEscalatesAgainAfterItsSessionIsRetired pins that the
 // escalation is written once per EPISODE and not once per MAC for the life of
@@ -263,8 +260,7 @@ func TestUnmeterableEpisodeEscalatesAgainAfterItsSessionIsRetired(t *testing.T) 
 	const macAddress = "aa:bb:cc:dd:ee:7d"
 	closeGateCleanup(t, macAddress)
 
-	restoreReportInterval := setUnmeterableReportInterval(time.Hour)
-	t.Cleanup(restoreReportInterval)
+	m.unmeterableReportInterval = time.Hour
 
 	usageErr := errors.New("client counters unavailable")
 
