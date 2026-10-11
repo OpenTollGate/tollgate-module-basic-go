@@ -1,0 +1,79 @@
+#!/bin/sh
+# tollgate-topology-selfcheck — the postinst self-check the #756 verdict
+# asked for, run after the network and firewall have converged (the postinst
+# calls it after its reloads; operators can run it by hand).
+#
+# Two invariants, both bench-motivated:
+#
+#   A. Every enabled AP wifi-iface is a member of a network whose bridge
+#      device exists. The class-1 damage shape: an AP bound to a network
+#      that does not exist bridges to nothing — clients associate, DHCP
+#      dies, the portal is unreachable.
+#
+#   B. Exactly one connected route per portal subnet. The class-2/3 damage
+#      shape (24.10.7/mt7621 bench, not reproducible in the radio-less
+#      rc1 VM): a replaced bridge the kernel never tore down leaves TWO
+#      connected routes for the same portal subnet, and egress picks the
+#      member-less one — replies queue forever on failed neighbour
+#      resolution while broadcast keeps working. A total silent blackhole
+#      invisible to tcpdump on the wire.
+#
+# Assert-style, loud on failure: every violation is named on stdout AND
+# syslog, and the script always exits 0 — it reports topology damage, it
+# does not fail the install that discovered it.
+
+say() {
+    echo "tollgate-topology-selfcheck: $*"
+    command -v logger >/dev/null 2>&1 && logger -t tollgate-selfcheck "$*" 2>/dev/null
+    return 0
+}
+
+errors=0
+
+# --- A. enabled APs sit on existing bridges ---------------------------------
+for section in $(uci -q show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.]*\)=wifi-iface\$/\1/p"); do
+    mode="$(uci -q get "wireless.$section.mode" 2>/dev/null || echo ap)"
+    [ "$mode" = "ap" ] || continue
+    disabled="$(uci -q get "wireless.$section.disabled" 2>/dev/null || echo 0)"
+    [ "$disabled" = "1" ] && continue
+    net="$(uci -q get "wireless.$section.network" 2>/dev/null || true)"
+    if [ -z "$net" ]; then
+        say "ERROR: AP section '$section' (ssid '$(uci -q get "wireless.$section.ssid" 2>/dev/null)') has no network binding — it bridges to nothing; clients associate but DHCP and the portal are unreachable (#756 class 1)"
+        errors=$((errors + 1))
+        continue
+    fi
+    dev="$(uci -q get "network.$net.device" 2>/dev/null || true)"
+    if [ -z "$dev" ]; then
+        say "ERROR: AP section '$section' is bound to network '$net', which has no bridge device — the network does not exist on this router (#756 class 1)"
+        errors=$((errors + 1))
+        continue
+    fi
+    if ! ip link show "$dev" >/dev/null 2>&1; then
+        say "ERROR: AP section '$section' is bound to network '$net' whose device '$dev' does not exist in the kernel — uci and the running topology disagree (#756 class 1)"
+        errors=$((errors + 1))
+    fi
+done
+
+# --- B. one connected route per portal subnet -------------------------------
+gw="$(uci -q get nodogsplash.@nodogsplash[0].gatewayinterface 2>/dev/null || echo br-lan)"
+if ip link show "$gw" >/dev/null 2>&1; then
+    # The bridge's own connected prefixes (e.g. 192.168.77.0/24), then each
+    # prefix's connected-route carriers across the whole table: one is the
+    # only healthy number.
+    for prefix in $(ip route show dev "$gw" 2>/dev/null | awk '/scope link/ {print $1}'); do
+        route_devs() { ip route show 2>/dev/null | awk -v p="$prefix" '($1==p) && ($0 ~ /scope link/) {for (i=1; i<NF; i++) if ($i=="dev") print $(i+1)}' | sort -u; }
+        n_devs=$(route_devs | wc -l)
+        if [ "$n_devs" -gt 1 ]; then
+            carriers=$(route_devs | tr '\n' ' ')
+            say "ERROR: portal subnet $prefix has $n_devs connected routes (on: $carriers) — a replaced bridge was never torn down, and egress can pick the member-less one: the silent-blackhole signature (#756 classes 2-3). Remedy: ifdown the stale device and remove its uci section"
+            errors=$((errors + 1))
+        fi
+    done
+else
+    say "WARNING: the portal interface '$gw' does not exist — the AP-membership and route checks cannot run (the tollgate-wrt start WARN names this too)"
+fi
+
+if [ "$errors" = 0 ]; then
+    say "OK: every enabled AP sits on an existing bridge and every portal subnet has exactly one connected route"
+fi
+exit 0
