@@ -28,6 +28,13 @@ import (
 // ErrSidecarNotConnected is returned when the daemon cannot be reached.
 var ErrSidecarNotConnected = errors.New("tollwallet: wallet sidecar not connected")
 
+// ErrSidecarResumeUnsupported is returned by ResumePendingSwaps: the
+// sidecar daemon owns the wallet DB and the protocol has no pending-swap
+// sweep operation, so an in-process replay cannot run. The intents stay
+// journaled on the daemon side — an operator sweep (or the daemon's own
+// boot resume) is the recovery path.
+var ErrSidecarResumeUnsupported = errors.New("tollwallet: sidecar protocol does not expose pending-swap resume")
+
 // ErrSidecarAmbiguous is returned when a money-moving request was written
 // to the daemon but no valid response came back. The daemon may already
 // have executed it — re-issuing the request blindly could spend twice, so
@@ -413,4 +420,12 @@ func (s *SidecarWallet) AcceptMint(mintURL string) error {
 // typed error and must treat the outcome as unresolved — never guess.
 func (w *SidecarWallet) CheckTokenSpent(token Token) (bool, error) {
 	return false, ErrCheckStateUnsupported
+}
+
+// ResumePendingSwaps is not implemented over the sidecar protocol (see
+// ErrSidecarResumeUnsupported): the daemon owns the wallet and its
+// journaled intents, so callers must treat the result as "not recovered
+// this pass" — never as lost value, and never as grounds to regenerate.
+func (s *SidecarWallet) ResumePendingSwaps() (uint64, int, error) {
+	return 0, 0, ErrSidecarResumeUnsupported
 }
