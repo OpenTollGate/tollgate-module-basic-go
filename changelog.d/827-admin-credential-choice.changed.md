@@ -13,4 +13,6 @@
   (`passwd root` over SSH, or reinstall with the variable set). A locked root
   account and an unreadable shadow are deliberately exempt; a supplied
   password that does not take still fails closed and drops the board
-  ([#708](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/708)).
+  (tracking issue #708)
+  ([#827](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/827)).
+  ([#827](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/827)).
