@@ -501,6 +501,31 @@ times on the 0.6.0 train (#524, #531), which is why fragments exist; a
 `--ours` conflict resolution twice resurrected already-moved entries.
 (`tests/contract/check-changelog-duplicates.py` guards the fold; do not
 bypass it by hand-editing.)
+Every user-visible change lands with an entry in
+[CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`:
+
+- Categories: `Added`, `Fixed`, `Changed / Internal` (CI, tests,
+  refactors, and docs go in the last one).
+- One bullet per change, bold lead-in phrase, linking the PR as
+  `([#N](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/N))`.
+  Match the existing entries' wrapped style.
+- Doc-only or purely internal one-liners may be batched, but don't
+  skip the entry — the changelog is finalized into release notes at
+  release time (`[Unreleased]` becomes `[vX.Y.Z] - date`, and
+  [RELEASE-NOTES.md](RELEASE-NOTES.md) is rewritten per release).
+- **Temporary workarounds are registered debt, never silent markers.** Any
+  `TEMPORARY WORKAROUND` comment in `src/` must carry a row in
+  [docs/temporary-workarounds.md](docs/temporary-workarounds.md) — id,
+  owning issue, added-in, invocation contract, review-by — and
+  `tests/contract/temporary-workarounds_test.sh` fails the build otherwise,
+  including when a workaround grows a call site outside its registered
+  contract (#768: the port-80 poke shipped ungated and untracked through a
+  whole release train before a bench rig read its log line).
+- **Probe/detect code stays side-effect-free.** Out-of-protocol requests to
+  third parties (the browser-mimic port-80 class) fire only from the
+  session-adoption layer, after validation, never per poll tick — a probe
+  hit is not evidence of a TollGate, and a 30 s ticker turns any per-probe
+  side effect into a poke loop against gateways already rejected (#768).
 
 ## Builds and releases on Nostr
 
