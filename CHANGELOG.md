@@ -11,12 +11,32 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 ### Changed / Internal
 
+- **The duplicate-guard harness installs the ndsctl its grant assertion
+  exercises.** `newDuplicateGuardMerchant` ended by asserting a *granted*
+  session — the only grant-exercising assertion in its file — but installed no
+  fake `ndsctl`, unlike every other grant-exercising test. On a host without
+  `ndsctl` on PATH the third submission died as a grant-pending notice instead,
+  so the file's battery was deterministically red on every bare host/CI runner
+  regardless of any other fix. The harness now installs the same renewal fake
+  the other tests use, scoped to each test's lifetime
+  ([#822](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/822)).
+
 - **The bcm2709 artifact rows build again.** `build-sdk-package.sh`
   defaulted bcm2709 to `EXPECTED_ARCH=arm_cortex-a7`, but the SDK stages
   its packages under `arm_cortex-a7_neon-vfpv4` — the staged-packages
   directory check failed and killed the copy step on an otherwise-clean
   cross-compile (the rc1 artifact matrix's two missing rows)
   ([#717](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/717)).
+
+- **The late-receive outcome test no longer races its own log.** The
+  #700 test sampled "the last non-deadline log line" while the code path
+  under test logs two lines in fixed order (the COMPLETED record, then
+  the unconditional owed-grant ERROR) — the pass depended on
+  snapshotting between them, and the #681 dependency sweep's goroutine
+  timing flipped it deterministically in some environments, leaving
+  `make go-battery` red on main. The selection now names the record it
+  wants
+  ([#718](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/718)).
 
 - **CHANGELOG duplicate entries are now a checked contract.** Resolving a
   CHANGELOG conflict with a section-level "take ours" can resurrect an entry a

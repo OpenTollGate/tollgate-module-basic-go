@@ -25,7 +25,8 @@ drift guard to keep them honest:
 1. guest captive-portal SPA → `/etc/tollgate/tollgate-captive-portal-site`
 2. admin board (Preact SPA) → `/www/tollgate`
 3. rpcd plugin → `/usr/libexec/rpcd/tollgate` + ACL
-4. `92-tollgate-admin-setup` uci-default (dedicated `:8090` uhttpd section)
+4. `92-tollgate-admin-setup` uci-default (the board's uhttpd section; installed as
+   `999-tollgate-admin-setup`, so it runs LAST, after the credential exists)
 
 Meanwhile `packaging/build-inputs.json` pins
 `portal.commit = 86ac5fc` (**2026-09-11**) — a commit authored *before* the

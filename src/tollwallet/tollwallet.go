@@ -634,14 +634,29 @@ func (w *TollWallet) CheckTokenSpent(token cashu.Token) (bool, error) {
 	}
 
 	anySpent := false
-	seen := 0
+	// NUT-07 says states MUST match the request order — and more basically,
+	// every answer must be ABOUT a Y we asked. Correlating by value (not
+	// just counting, as before) means a mint answering for other Ys, or
+	// answering the same Y twice to pad a short reply, is rejected instead
+	// of silently deciding a pending intent (#834: the abandoned-vs-owed
+	// reconciliation trusts this evidence).
+	requested := make(map[string]bool, len(ys))
+	for _, y := range ys {
+		requested[y] = true
+	}
+	answered := make(map[string]bool, len(ys))
 	for _, st := range resp.States {
+		if !requested[st.Y] {
+			return false, fmt.Errorf("CheckTokenSpent: mint answered for Y=%s, which was not asked about", st.Y)
+		}
+		if answered[st.Y] {
+			return false, fmt.Errorf("CheckTokenSpent: mint answered twice for Y=%s", st.Y)
+		}
+		answered[st.Y] = true
 		switch st.State {
 		case nut07.Spent:
 			anySpent = true
-			seen++
 		case nut07.Unspent:
-			seen++
 		case nut07.Pending:
 			// The mint itself reports the state as not yet determined — that
 			// is an ambiguous answer, not an unspent one.
@@ -650,9 +665,9 @@ func (w *TollWallet) CheckTokenSpent(token cashu.Token) (bool, error) {
 			return false, fmt.Errorf("CheckTokenSpent: mint reports unknown state %v for Y=%s", st.State, st.Y)
 		}
 	}
-	if seen < len(ys) {
-		// The mint answered fewer states than proofs were asked about.
-		return false, fmt.Errorf("CheckTokenSpent: mint answered %d of %d proof states", seen, len(ys))
+	if len(answered) < len(ys) {
+		// The mint answered fewer distinct Ys than proofs were asked about.
+		return false, fmt.Errorf("CheckTokenSpent: mint answered %d of %d proof states", len(answered), len(ys))
 	}
 	return anySpent, nil
 }

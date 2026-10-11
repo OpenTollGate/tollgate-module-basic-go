@@ -5,7 +5,7 @@
 #
 #   * exactly ONE uhttpd section listens on :8090, and it is the portal-staged
 #     admin board — uhttpd.admin, home=/www/tollgate, written by
-#     92-tollgate-admin-setup (staged by packaging/portal-build.sh from the
+#     999-tollgate-admin-setup (staged by packaging/portal-build.sh from the
 #     pinned portal tree, installed by packaging/Makefile). A second section
 #     claiming :8090 is a bind fight in which one of the two admin UIs
 #     disappears;
