@@ -15,5 +15,5 @@
   behavior keep shadowing the seam via their per-test `t.Setenv` prepend.
   A canary (`TestDefaultNdsctlSeamAnswersGrants`) fails the day the seam
   disappears or stops answering grants, distinguishing all three shapes —
-  bare host, masquerade stub, working seam.
-  ([#853](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/853))
+  bare host, masquerade stub, working seam (#853).
+  ([#878](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/878))
