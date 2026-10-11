@@ -1,6 +1,8 @@
-# fix(setup): never print generated credentials
-
-The admin and private-WiFi credentials the module generates when the operator
-chose one are no longer printed to the install output or the log. The owner sets
-their own at the board first-run page, or with `passwd root` / a reinstall that
-sets `TOLLGATE_ADMIN_PASSWORD` and the new `TOLLGATE_PRIVATE_WIFI_PASSWORD`.
+- **Generated credentials are never printed.** The private-WiFi key the module
+  generates when the operator chose none is no longer printed to the install
+  output or the log — the owner sets their own at the board, or with `tollgate
+  network private set-password`. (The admin credential is no longer generated at
+  all; see the 0.6.0 no-generated-credentials entry.) A reinstall that sets
+  `TOLLGATE_ADMIN_PASSWORD` / `TOLLGATE_PRIVATE_WIFI_PASSWORD` uses those values
+  instead
+  ([#850](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/850)).
