@@ -78,6 +78,8 @@ fi
 if git diff --cached --name-only | grep -qE '^src/wireless_gateway_manager/brands|^tests/contract/(ssid-naming|check-ssid-naming)'; then
     echo "🔍 Checking the SSID matcher's acceptance table..."
     bash tests/contract/check-ssid-naming.sh
+fi
+
 # The entry_ui port mapping is declared twice — the shell helpers in
 # 99-tollgate-setup and Go's uiPortPair (src/cmd/tollgate-cli, #746) — and the
 # two tables must agree cell for cell or the SPA's cross-links drift from the
