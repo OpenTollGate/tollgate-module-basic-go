@@ -1,0 +1,138 @@
+# gitleaks configuration — EXTENDS the default ruleset, never replaces it.
+# (A bare config scans with zero rules; `useDefault = true` keeps every
+# built-in rule active and layers this file's allowlists on top.)
+#
+# Canonical config note (#759): this file is the single source of truth for
+# gitleaks rules + allowlists, shared by BOTH scan lanes — the GitHub
+# workflow (.github/workflows/gitleaks.yml delegating to OpenTollGate/.github)
+# and hooks/pre-commit (scripts/secret-scan.sh). Keep this file's
+# [[allowlists]] array form when merging lane configs.
+#
+# Allowlist scoping discipline (review of #764):
+#   - "history-only" verdicts  -> `commits = [...]`: the finding is silenced
+#     in exactly the commits the baseline scan recorded; the PATH stays
+#     armed, so a fresh secret at the same path still trips the scanner.
+#   - live files with a known-benign value -> value `regexes` ONLY
+#     (+ `regexTarget = "match"` for generic-api-key). gitleaks ORs the
+#     conditions inside one allowlist entry, so `paths` + `regexes`
+#     together would blanket-silence the whole path (verified empirically:
+#     a planted real password in docs/operator-guide.md stayed invisible).
+#     Regex-only entries are safe globally because each silenced value is
+#     itself the benign shape (public constants, placeholder strings,
+#     filename patterns) — any OTHER value at the path stays armed.
+#   - path-only scoping is reserved for shapes inherent to the path
+#     (e.g. one-way hashed digests in a baseline artifact).
+# Triage source: 2026-10-08 full-history baseline (89 findings, 24 groups:
+# 1 real, 88 benign). Re-run after any change: gitleaks git --redact.
+
+[extend]
+useDefault = true
+
+# --- REAL secret (history-only). Let's Encrypt EC TLS key for the real domain
+# tollgate.dns4sats.xyz, committed in 4cdeb73 ("Add HTTPS captive portal with
+# Let's Encrypt cert") and untracked when files/ was reorganized into
+# packaging/files/. VERIFIED OUT OF SERVICE (2026-10-09 probe): the domain
+# resolves to 188.34.192.41, port 443 is connection-REFUSED (no TLS listener
+# exists) and port 80 serves a stock nginx placeholder — no cert/key pair is
+# in active TLS service, so no renewed-cert exposure either. Residual risk is
+# offline reuse of the key material for a future cert: never reuse it; issue
+# fresh when this domain next needs TLS.
+# Commit-scoped: any NEW file at this (or any) TLS-key path still trips both
+# lanes — the path is armed.
+[[allowlists]]
+description = "INCIDENT (real): LE TLS key for tollgate.dns4sats.xyz — silenced in the one commit that introduced it (4cdeb73); verified out of service 2026-10-09 (no TLS listener at the domain); never reuse the key material"
+commits = ["4cdeb7330902b78781a762802487ecbca87dd53d"]
+
+# --- History-only verdicts: dev-default nym identity hex (8a45d0ad…) baked
+# into 2025 dev builds (public-by-design as a compiled-in default; no
+# hardcoded identity key exists at HEAD). Commit-scoped — src/main.go is a
+# live file and stays armed.
+[[allowlists]]
+description = "dev-default nym hex in 2025 dev builds — public-by-design default, absent at HEAD (history-only)"
+commits = [
+  "17bd6e0181ef448a50dc580ba0ed0019ab448925",
+  "5b80b984f3f7f48f9009e00abe22d6bb92505141",
+  "0cb147abfbd9e4a8651a74fa2f97ea2698f2c66d",
+  "a75cb40bcdba904e08c3b7d9707c045c620f73a6",
+  "61a819fba00a5145d6d3b7b1bb690eb9870cdb20",
+  "b2094f5a79bca9b91424f979a35edf474c0d3b53",
+]
+
+# --- History-only verdicts: placeholder/example shapes in files since gone
+# from the tree (truncated cashu token examples in an old CLI doc; fictional
+# conwrt flash-run example passwords; BIP32 HARDENED_OFFSET constant in the
+# minified portal JS bundles; throwaway nsec test identity).
+[[allowlists]]
+description = "placeholder/example shapes in files gone from HEAD — CLI doc, identity-handover doc, portal JS bundles (history-only)"
+commits = [
+  "e6150a413cf2293238b54b8bf3932d25b497976b",
+  "fd4f83a07572054c27cded783f42e0c15d25cf84",
+  "d7eb6edb29da1ad639a6722c02c4bf9376516fda",
+  "6c2cb6290914546e6161b4f3e45e168297f23dca",
+  "36cf430ea08f38954a2779843c269c4b72afea8d",
+]
+
+# --- Retired detect-secrets artifact: SHA1 one-way digests of known fixture
+# secrets ("password", "test", …), not the values themselves. Path-scoped —
+# the benign shape (hashed_secret lines) is inherent to the file, which this
+# PR deletes; history retains it until an optional purge.
+[[allowlists]]
+description = "retired detect-secrets baseline — hashed fingerprints, not secrets"
+paths = [
+  '''(^|/)\.secrets\.baseline$''',
+]
+
+# --- Live files with known-benign values: regex-only entries (see the
+# scoping note above — paths would blanket-silence). Only the exact benign
+# value is silenced; every other value at these paths stays ARMED (a real
+# credential pasted into any of them still trips the gate).
+
+# operator guide: `wallet_drain_<YYYY-MM-DD_HH-MM-SS>.txt` is a FILENAME in
+# example CLI output, not a credential.
+[[allowlists]]
+description = "operator-guide.md — wallet_drain_*.txt is an example output filename (value-scoped)"
+regexTarget = "match"
+regexes = [
+  '''wallet_drain_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}\.txt''',
+]
+
+# operator-settings private-key rotation tests: placeholder value.
+[[allowlists]]
+description = "operator_settings tests — Unique-Pass-2026 rotation-test placeholder (value-scoped)"
+regexTarget = "match"
+regexes = [
+  '''Unique-Pass-2026''',
+]
+
+# tollwallet tests: Cashu keyset/point test vectors — 0279be667e… is the
+# secp256k1 generator point G (public constant), 01a1b2c3… sequential
+# synthetic keyset ID, 0279110ff… hand-made vector.
+[[allowlists]]
+description = "tollwallet tests — secp256k1 generator point / synthetic keyset vectors (value-scoped)"
+regexTarget = "match"
+regexes = [
+  '''0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798''',
+  '''01a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2''',
+  '''0279110ffdbbaccf1f96e0641dd8794fb206e8f95eb52c0fa001487b070cb5f7b1''',
+]
+
+# cloud-lab compose identities: repeated-q3qj6 synthetic nsec placeholder for
+# the local docker-compose lab — visibly non-entropy. Value-scoped: a REAL
+# (funded) nsec swapped into these files still trips the scanner.
+[[allowlists]]
+description = "cloud-lab identity configs — synthetic placeholder nsec for the local lab (value-scoped)"
+regexTarget = "match"
+regexes = [
+  '''nsec1fgaau8m9xd7w3a9q7zwu9q3qj6q3qj6q3qj6q3qj6q3qj6q3qj6q''',
+]
+
+# happy-path lane check labels: `api:advertisement-kind-10021` and
+# `api:ln-invoice-no-quote-400` are Nostr kind / API error-tag identifiers
+# used as check names, not credentials.
+[[allowlists]]
+description = "happy-path run.sh — api:* check labels (Nostr kind / error tags), value-scoped"
+regexTarget = "match"
+regexes = [
+  '''api:advertisement-kind-10021''',
+  '''api:ln-invoice-no-quote-400''',
+]
