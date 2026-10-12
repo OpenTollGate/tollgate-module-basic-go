@@ -16,4 +16,4 @@
   an atomic. The sidecar dual-open guard stays latent (backend selection has
   no production caller yet) and flock reliability on NAND/overlayfs remains
   the documented lab item
-  ([#742](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/742)).
+  ([#742](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/870)).
