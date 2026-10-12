@@ -18,7 +18,12 @@ func TestScanner_DetectEncryption(t *testing.T) {
 		{"OPEN", "none"},
 		{"WEP-40", "none"},
 		{"WPA2 PSK (CCMP)", "psk2"},
-		{"WPA PSK (TKIP)", "psk"},
+		// WPA1-advertised PSK shapes map to psk-mixed: iwinfo prints the same
+		// string for genuine WPA1 and for WPA2-preferring APs whose beacon
+		// leads with the WPA1 IE (measured on the bench — the latter reject
+		// WPA1 auth), and psk-mixed negotiates either (#817/#880-era finding,
+		// pinned alongside TestDetectEncryptionMapsAmbiguousWPAPSKToMixed).
+		{"WPA PSK (TKIP)", "psk-mixed"},
 		{"WPA3 SAE (CCMP)", "sae"},
 		{"WPA3 SAE mixed (CCMP)", "sae-mixed"},
 		{"WPA2 EAP (CCMP)", "wpa2-eap"},

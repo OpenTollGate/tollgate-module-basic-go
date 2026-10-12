@@ -17,9 +17,11 @@
 #
 # Reachability is covered elsewhere (the pre-auth allowance and the br-lan
 # packet-filter drop). This test covers the credential half: the shipped
-# packaging must FAIL CLOSED — establish a credential when there is none
-# (surfaced to the operator exactly once), and refuse to leave an admin
-# listener standing when no credential can be established or verified.
+# packaging must FAIL CLOSED — a credential is only ever one the operator
+# PROVIDED (`passwd root`, or the LuCI password page). The package must NEVER
+# set or generate one: neither TOLLGATE_ADMIN_PASSWORD nor a staged
+# /etc/tollgate/admin-password file may reach root. When root has none, the
+# package sets NOTHING and refuses to leave an admin listener standing.
 #
 # It reuses the repo's existing packaging tier instead of inventing a harness:
 # the unit assertions source the shipped script's functions with
@@ -62,6 +64,10 @@ export TOLLGATE_ENTRY_UI_CONFIG="$TMP/config.json"
 # absolute path by default, so an un-sandboxed run lands a generated credential
 # in the build host's /etc/tollgate. Keep it in $TMP.
 export ADMIN_PROVISIONAL_MARKER="$TMP/admin-credential-provisional"
+# No supplied admin password by default: the gate must REFUSE to serve the
+# board when root has none, rather than generate a password the operator never
+# chose. Cases that supply one pass TOLLGATE_ADMIN_PASSWORD inline.
+export TOLLGATE_ADMIN_PASSWORD=""
 
 # --------------------------------------------------------------- fake apk
 # The shipped script carries the __TOLLGATE_VERSION__ placeholder, so a source
@@ -322,7 +328,7 @@ else
 fi
 assert_board_dropped "same-version reinstall, no credential"
 
-echo "== same-version reinstall with an empty hash and a working passwd"
+echo "== same-version reinstall with an empty hash and no supplied password"
 seed_deployed_router
 seed_shadow ''
 reset_run
@@ -330,12 +336,12 @@ run_same_version
 # The hash is read straight out of the shadow fixture — the assertion must not
 # depend on the function it is checking.
 root_hash="$(awk -F: '$1 == "root" { print $2; exit }' "$SHADOW_FILE" 2>/dev/null || true)"
-if [ -n "$root_hash" ]; then
-    ok "the driver established a credential on the credential-less router"
+if [ -z "$root_hash" ]; then
+    ok "no credential was generated on the credential-less router (the operator provides one)"
 else
-    bad "the driver left the router credential-less — an empty root hash behind the :8090 admin board, which rpcd authenticates ANY password against"
+    bad "the driver GENERATED a credential the operator never chose"
 fi
-assert_board_kept "same-version reinstall, credential established"
+assert_board_dropped "same-version reinstall, empty hash, no supplied password"
 
 # Source every function from the (path-rewritten) shipped script without
 # running the setup — the same seam tests/uci-defaults-band_test.sh uses.
@@ -378,114 +384,42 @@ rm -f "$SHADOW_FILE" "$PASSWD_FILE"
     && ok "an unreadable credential state reads as 'unknown'" \
     || bad "with no shadow and no passwd file the state read as '$(admin_credential_state)' (want unknown) — an unverifiable router would be assumed safe"
 
-echo "== the generated credential is strong and shell-safe"
-seed_shadow ''
-pw_probe="$(generate_admin_password 2>/dev/null || true)"
-ALPHABET="abcdefghijkmnpqrstuvwxyz23456789"  # pragma: allowlist secret
-if [ "${#pw_probe}" = "20" ]; then
-    ok "generated credential is 20 characters"
+echo "== the package no longer generates a credential at all"
+# M1: the generator was removed. There is nothing to prove about its strength
+# because no credential may be generated; the gate's refusal to serve a
+# credential-less board without a supplied password is asserted below.
+if grep -q '^generate_admin_password()' "$ROOT/$SCRIPT"; then
+    bad "generate_admin_password still exists in the shipped script — the package must never generate a credential the operator cannot see"
 else
-    bad "generated credential is ${#pw_probe} characters (want 20)"
-fi
-if [ -n "$pw_probe" ] && [ -z "${pw_probe//[$ALPHABET]/}" ]; then
-    ok "generated credential uses only the look-alike-free alphabet"
-else
-    bad "generated credential '$pw_probe' uses characters outside [$ALPHABET] — look-alikes or shell-hostile characters"
-fi
-if [ "$(generate_admin_password)" != "$(generate_admin_password)" ]; then
-    ok "two generations differ (the value is not a constant)"
-else
-    bad "generate_admin_password returned the same value twice"
+    ok "generate_admin_password was removed (the package generates no credential)"
 fi
 
-echo "== the password generator works even when od is unavailable"
-seed_shadow ''
-# The target OpenWrt 25.12.5 image ships a stripped busybox where `od` is not
-# built in; it is genuinely absent. Shadow only `od` (not its whole directory),
-# so the replacement command remains on PATH exactly as on the target image.
-mkdir -p "$TMP/bin-no-od"
-cat > "$TMP/bin-no-od/od" <<'SHIM'
-#!/bin/sh
-# deliberately fail, mimicking an absent od
-exit 127
-SHIM
-chmod +x "$TMP/bin-no-od/od"
-PATH="$TMP/bin-no-od:$PATH"
-if [ -n "$(command -v od 2>/dev/null || true)" ] && [ "$(command -v od)" != "$TMP/bin-no-od/od" ]; then
-    bad "od still resolves to something other than the failing shim (found $(command -v od))"
-elif [ -z "$(command -v od 2>/dev/null || true)" ] || [ "$(command -v od)" = "$TMP/bin-no-od/od" ]; then
-    ok "od is shadowed by a failing shim before the od-free assertion"
-fi
-pw_probe_no_od="$(generate_admin_password 2>/dev/null || true)"
-if [ "${#pw_probe_no_od}" = "20" ]; then
-    ok "generate_admin_password is 20 characters when od is unavailable"
-else
-    bad "generate_admin_password is ${#pw_probe_no_od} characters when od is unavailable (want 20)"
-fi
-if [ -n "$pw_probe_no_od" ] && [ -z "${pw_probe_no_od//[$ALPHABET]/}" ]; then
-    ok "generate_admin_password uses the alphabet when od is unavailable"
-else
-    bad "generate_admin_password '$pw_probe_no_od' uses characters outside [$ALPHABET] when od is unavailable"
-fi
-if [ -n "$pw_probe_no_od" ]; then
-    ok "generate_admin_password produces output when od is unavailable"
-else
-    bad "generate_admin_password produces EMPTY output when od is unavailable"
-fi
-# Restore PATH: prepend our fake binaries to the original PATH again.
-PATH="$TMP/bin:$ORIGINAL_PATH"
-
-# ------------------------------------------- empty hash: establish it, keep the board
-echo "== empty hash + a working passwd: a credential is established and shown once"
+# ------------------------------------------- empty hash, no supplied password: refuse
+echo "== empty hash + no TOLLGATE_ADMIN_PASSWORD: nothing is generated, the board is refused"
 seed_deployed_router
 seed_shadow ''
 reset_run
-out=$(enforce_admin_credential 2>"$TMP/err")
-rc=$?
+# Both streams: the refusal is an error (stderr) and the operator sees both on
+# the install console.
+out=$(TOLLGATE_ADMIN_PASSWORD="" enforce_admin_credential 2>&1 || true)
 
-if [ "$(admin_credential_state)" = "set" ]; then
-    ok "a credential was established on the credential-less router"
+if [ "$(admin_credential_state)" = "empty" ]; then
+    ok "no credential was generated (the root hash stays empty)"
 else
-    bad "no credential was established (root hash is still '$(admin_credential_state)') — the deploy leaves an empty root hash behind the :8090 admin board, which rpcd authenticates ANY password against"
+    bad "the gate GENERATED a credential (state: $(admin_credential_state)) — a password the operator never chose"
 fi
-[ "$(passwd_calls)" = "1" ] \
-    && ok "passwd was invoked exactly once" \
-    || bad "passwd was invoked $(passwd_calls) times (want 1)"
-if [ "$rc" = "0" ]; then
-    ok "enforce_admin_credential reports success once the credential is verified"
+[ "$(passwd_calls)" = "0" ] \
+    && ok "passwd is never invoked when no password was supplied" \
+    || bad "passwd was invoked $(passwd_calls) times although no password was supplied"
+assert_board_dropped "empty hash + no supplied password"
+if printf '%s' "$out" | grep -q 'no usable password'; then
+    ok "the refusal names the reason on the install output"
 else
-    bad "enforce_admin_credential returned $rc although the credential took (stderr: $(head -n 2 "$TMP/err" | tr '\n' ' '))"
-fi
-
-credential="$(cat "$PASSWD_SEEN" 2>/dev/null || true)"
-if [ -n "$credential" ]; then
-    ok "the credential that was applied is observable"
-    shown_out=$(printf '%s\n' "$out" | grep -F -c -- "$credential" || true)
-    [ "$shown_out" = "1" ] \
-        && ok "the credential is shown exactly once on the install output" \
-        || bad "the credential appears $shown_out times on the install output (want exactly 1 — the operator must be able to read it, and it must not be re-printed)"
-    shown_log=$(grep -F -c -- "$credential" "$LOGFILE" 2>/dev/null || true)
-    [ "$shown_log" = "1" ] \
-        && ok "the credential is recorded exactly once in the root-only setup log" \
-        || bad "the credential appears $shown_log times in the setup log (want exactly 1)"
-    if grep -F -q -- "$credential" "$UCI_STATE" 2>/dev/null; then
-        bad "the credential landed in UCI state (world-readable /etc/config)"
-    else
-        ok "the credential never reaches UCI (/etc/config is world-readable)"
-    fi
-else
-    bad "no credential was applied to the router"
+    bad "the refusal was not surfaced on the install output (got: $(printf '%s' "$out" | head -n 2 | tr '\n' ' '))"
 fi
 
-if grep -q 'generated one for the admin board' "$LOGFILE" 2>/dev/null; then
-    ok "the log names the generated credential (operator finds it after an unattended install)"
-else
-    bad "the log does not record that a credential was generated (log: $(head -n 3 "$LOGFILE" 2>/dev/null | tr '\n' ' '))"
-fi
-assert_board_kept "empty hash + working passwd"
-
-# ------------------------------------------- empty hash: passwd does not take -> fail closed
-echo "== empty hash + a passwd that does not take: the admin board is refused"
+# ------------------------------------------- empty hash + supplied value -> refuse
+echo "== empty hash + a supplied value: the admin board is refused (the package sets nothing)"
 seed_deployed_router
 seed_shadow ''
 reset_run
@@ -493,15 +427,15 @@ PASSWD_FAILS=1
 export PASSWD_FAILS
 # Both streams: the refusal is an error (stderr) and the operator sees both on
 # the install console.
-out=$(enforce_admin_credential 2>&1 || true)
+out=$(TOLLGATE_ADMIN_PASSWORD="WillNotTake1234" enforce_admin_credential 2>&1 || true)
 
 if [ "$(admin_credential_state)" = "empty" ]; then
     ok "the router still has no credential (the failure is the one under test)"
 else
     bad "the fixture did not stay credential-less (state: $(admin_credential_state))"
 fi
-assert_board_dropped "empty hash + failed passwd"
-if printf '%s' "$out" | grep -q 'no usable password'; then
+assert_board_dropped "empty hash + failed supplied passwd"
+if printf '%s' "$out" | grep -q 'was not applied\|did not take\|no usable password'; then
     ok "the refusal names the reason on the install output"
 else
     bad "the refusal was not surfaced on the install output (got: $(printf '%s' "$out" | head -n 2 | tr '\n' ' '))"
@@ -511,11 +445,13 @@ if grep -q 'refusing to serve the :8090/:8443 admin board' "$LOGFILE" 2>/dev/nul
 else
     bad "the log does not record the refusal (log: $(head -n 3 "$LOGFILE" 2>/dev/null | tr '\n' ' '))"
 fi
-if grep -q 'passwd root' "$LOGFILE" 2>/dev/null; then
-    ok "the log tells the operator how to undo the refusal (passwd root)"
+if printf '%s' "$out" | grep -q 'passwd root'; then
+    ok "the refusal tells the operator how to restore the board (passwd root)"
 else
-    bad "the log does not tell the operator how to restore the board"
+    bad "the refusal does not tell the operator how to restore the board"
 fi
+PASSWD_FAILS=0
+export PASSWD_FAILS
 
 # ------------------------------------------- unreadable state: fail closed too
 echo "== unreadable credential state: the admin board is refused"
@@ -571,94 +507,125 @@ fi
     || bad "passwd was invoked $(passwd_calls) times on a locked account"
 assert_board_kept "locked account"
 
-# ------------------------------------- the operator CHOOSES the credential
-# "Shown once" is easy to miss. The supported alternative is to choose the
-# credential as part of the install, which only works if the install honours
-# it: uci-defaults run from the package manager with no controlling terminal,
-# so the choice arrives in the environment.
-echo "== an operator-chosen password is applied and never echoed"
+# =====================================================================
+# THE REGRESSION THIS RELEASE EXISTS FOR
+# The package must NEVER set a credential — not from TOLLGATE_ADMIN_PASSWORD,
+# not from the /etc/tollgate/admin-password file. An operator who pasted a
+# run-book EXAMPLE value verbatim must not end up with root set to it.
+# =====================================================================
+echo "== a supplied TOLLGATE_ADMIN_PASSWORD does NOT set the credential"
 seed_deployed_router
 seed_shadow ''
 reset_run
 CHOSEN='Chosen4tInstallTime'
 out=$(TOLLGATE_ADMIN_PASSWORD="$CHOSEN" enforce_admin_credential 2>"$TMP/err")
 rc=$?
-[ "$(admin_credential_state)" = "set" ] \
-    && ok "the operator-chosen password establishes the credential" \
-    || bad "the operator-chosen password did not establish a credential (state: $(admin_credential_state))"
-[ "$rc" = "0" ] \
-    && ok "the gate reports success for an operator-chosen password" \
-    || bad "the gate returned $rc for an operator-chosen password"
-applied="$(cat "$PASSWD_SEEN" 2>/dev/null || true)"
-[ "$applied" = "$CHOSEN" ] \
-    && ok "the password actually applied is the one the operator chose" \
-    || bad "the applied password is not the operator's choice (want the value passed in TOLLGATE_ADMIN_PASSWORD)"
-if printf '%s' "$out" | grep -F -q -- "$CHOSEN"; then
-    bad "the operator's own password was echoed to the install output"
-else
-    ok "the operator's password is never echoed on the install output"
-fi
-if grep -F -q -- "$CHOSEN" "$LOGFILE" 2>/dev/null; then
-    bad "the operator's password was written to the setup log"
-else
-    ok "the operator's password is never written to the setup log"
-fi
-[ ! -f "$ADMIN_PROVISIONAL_MARKER" ] \
-    && ok "an operator-chosen credential is not marked provisional" \
-    || bad "an operator-chosen credential was marked provisional — the UI would demand a change of a password the operator just chose"
-assert_board_kept "operator-chosen password, empty hash"
+[ "$(admin_credential_state)" = "empty" ] \
+    && ok "the supplied env value does not establish a credential" \
+    || bad "the supplied env value established a credential (state: $(admin_credential_state)) — the package set a password the operator never asked it to"
+[ "$(passwd_calls)" = "0" ] \
+    && ok "passwd is never invoked for a supplied env value" \
+    || bad "passwd was invoked $(passwd_calls) times for a supplied env value"
+[ "$rc" != "0" ] \
+    && ok "the gate fails closed (refuses the board) on a credential-less router" \
+    || bad "the gate reported success although it set nothing"
+assert_board_dropped "supplied env value, empty hash"
 
-echo "== an operator-chosen password replaces a generated one and clears the mark"
+echo "== a supplied env value cannot even REPLACE an existing credential"
 seed_deployed_router
 seed_shadow '$6$generated$hash'
+before="$(cat "$SHADOW_FILE")"
 reset_run
 PICK='ReplacedBy0perator'
 out=$(TOLLGATE_ADMIN_PASSWORD="$PICK" enforce_admin_credential 2>"$TMP/err")
 rc=$?
-[ "$(cat "$PASSWD_SEEN" 2>/dev/null || true)" = "$PICK" ] \
-    && ok "an operator-chosen password replaces an existing credential" \
-    || bad "the existing credential was not replaced by the operator's choice"
+[ "$(cat "$SHADOW_FILE")" = "$before" ] \
+    && ok "the existing root hash is byte-identical after a supplied env value" \
+    || bad "a supplied env value rewrote the operator's existing password"
+[ "$(passwd_calls)" = "0" ] \
+    && ok "passwd is never invoked to replace a credential" \
+    || bad "passwd was invoked $(passwd_calls) times to replace a credential"
 [ "$rc" = "0" ] \
-    && ok "the gate reports success when replacing a credential" \
-    || bad "the gate returned $rc when replacing a credential"
-[ ! -f "$ADMIN_PROVISIONAL_MARKER" ] \
-    && ok "the provisional mark is cleared when the operator replaces the credential" \
-    || bad "a stale provisional mark survived the operator's own password"
-assert_board_kept "operator-chosen password, set hash"
+    && ok "the gate reports success for a set credential" \
+    || bad "the gate returned $rc for a set credential"
+assert_board_kept "set hash + supplied env value"
 
-echo "== a generated credential is marked provisional (so the UI can force a change)"
+echo "== env AND staged file present: nothing is applied, root is untouched"
+# This is the exact shape of the lockout: an operator pasted the run-book's
+# EXAMPLE value and (on apk-tools 3, where the install env is not forwarded to
+# scriptlets) left it in the root-only file. Neither may reach root.
 seed_deployed_router
 seed_shadow ''
 reset_run
-out=$(enforce_admin_credential 2>"$TMP/err")
-generated="$(cat "$PASSWD_SEEN" 2>/dev/null || true)"
-[ -f "$ADMIN_PROVISIONAL_MARKER" ] \
-    && ok "a generated credential is marked provisional" \
-    || bad "a generated credential was NOT marked provisional — nothing tells the UI to force a change"
-if [ -n "$generated" ] && grep -F -q -- "$generated" "$ADMIN_PROVISIONAL_MARKER" 2>/dev/null; then
-    bad "the provisional marker contains the credential itself (it must record the fact, not the secret)"
-else
-    ok "the provisional marker holds no secret"
-fi
-if printf '%s' "$out" | grep -q 'PROVISIONAL'; then
-    ok "the install output tells the operator the generated password is provisional"
-else
-    bad "the install output does not say the generated password is provisional"
-fi
+printf '%s' 'FromFile-1234' > "$TMP/admin-password"
+before="$(cat "$SHADOW_FILE")"
+out=$(ADMIN_PASSWORD_FILE="$TMP/admin-password" TOLLGATE_ADMIN_PASSWORD="FromEnv-1234" enforce_admin_credential 2>"$TMP/err")
+rc=$?
+[ "$(cat "$SHADOW_FILE")" = "$before" ] \
+    && ok "root's hash is byte-identical — a supplied env/file cannot set a password" \
+    || bad "a supplied env/file SET root's password"
+[ "$(admin_credential_state)" = "empty" ] \
+    && ok "no credential was established from the supplied env/file" \
+    || bad "a credential was established from the supplied env/file (state: $(admin_credential_state))"
+[ "$(passwd_calls)" = "0" ] \
+    && ok "passwd is never invoked even when a password is supplied" \
+    || bad "passwd was invoked $(passwd_calls) times although the package must set nothing"
+[ -e "$TMP/admin-password" ] \
+    && ok "the staged password file is left on disk (the package does not consume it)" \
+    || bad "the package consumed a file it must not touch"
+[ "$rc" != "0" ] \
+    && ok "the gate fails closed (refuses the board) when no real credential exists" \
+    || bad "the gate reported success on a credential-less router"
+assert_board_dropped "env + staged file, empty hash"
+rm -f "$TMP/admin-password"
 
-echo "== the provisional mark re-states the recovery path on a later run"
+echo "== a staged password FILE alone is ignored too"
+seed_deployed_router
+seed_shadow ''
+reset_run
+printf '%s' 'StagedFile-9x' > "$TMP/admin-password"
+out=$(ADMIN_PASSWORD_FILE="$TMP/admin-password" TOLLGATE_ADMIN_PASSWORD="" enforce_admin_credential 2>"$TMP/err")
+rc=$?
+[ "$(admin_credential_state)" = "empty" ] \
+    && ok "the staged password file does not establish a credential" \
+    || bad "the staged password file established a credential (state: $(admin_credential_state))"
+[ "$(passwd_calls)" = "0" ] \
+    && ok "passwd is never invoked for a staged file" \
+    || bad "passwd was invoked $(passwd_calls) times for a staged file"
+[ -e "$TMP/admin-password" ] \
+    && ok "the staged file is left on disk" \
+    || bad "the package consumed the staged file"
+[ "$rc" != "0" ] \
+    && ok "the gate refuses the board" \
+    || bad "the gate returned $rc with no credential"
+assert_board_dropped "staged file alone, empty hash"
+rm -f "$TMP/admin-password"
+
+echo "== a provisional mark carried over from an older install is still honoured"
+# This package no longer generates credentials, but a router upgraded from a
+# version that DID carries the marker. A later run must keep telling the
+# operator the credential was generated, not chosen, until the operator sets
+# their own.
 seed_deployed_router
 seed_shadow '$6$generated$hash'
+mkdir -p "$(dirname "$ADMIN_PROVISIONAL_MARKER")"
+printf 'generated by an older tollgate-wrt\n' > "$ADMIN_PROVISIONAL_MARKER"
 reset_run
-out=$(enforce_admin_credential 2>"$TMP/err")
-if grep -q 'GENERATED by this package' "$LOGFILE" 2>/dev/null; then
-    ok "a later run re-states that the credential was generated, not chosen"
+out=$(TOLLGATE_ADMIN_PASSWORD="" enforce_admin_credential 2>"$TMP/err")
+rc=$?
+if grep -q 'GENERATED by an older package version' "$LOGFILE" 2>/dev/null; then
+    ok "a carried-over marker re-states that the credential was generated, not chosen"
 else
     bad "a later run implies the credential was chosen by the operator — the one-time line is long gone by then"
 fi
 [ "$(passwd_calls)" = "0" ] \
     && ok "re-stating the recovery path does not touch the credential" \
     || bad "passwd was invoked $(passwd_calls) times while merely reporting state"
+[ "$rc" = "0" ] \
+    && ok "the gate reports success for a set credential carrying a marker" \
+    || bad "the gate returned $rc for a set credential"
+assert_board_kept "set hash + carried-over provisional mark"
+rm -f "$ADMIN_PROVISIONAL_MARKER"
 
 echo "== a locked account is exempt from an operator-supplied password"
 seed_deployed_router
@@ -673,23 +640,7 @@ out=$(TOLLGATE_ADMIN_PASSWORD="$SKIP" enforce_admin_credential 2>"$TMP/err")
 [ "$(passwd_calls)" = "0" ] \
     && ok "passwd is not invoked on a locked account even when a password is supplied" \
     || bad "passwd was invoked $(passwd_calls) times on a locked account"
-assert_board_kept "locked account with an operator-supplied password"
-
-echo "== an operator-supplied password that does not take is refused"
-seed_deployed_router
-seed_shadow ''
-reset_run
-PASSWD_FAILS=1
-export PASSWD_FAILS
-NOPE='WillNotTake1234'
-out=$(TOLLGATE_ADMIN_PASSWORD="$NOPE" enforce_admin_credential 2>"$TMP/err")
-rc=$?
-PASSWD_FAILS=0
-export PASSWD_FAILS
-[ "$rc" != "0" ] \
-    && ok "the gate fails closed when the supplied password does not take" \
-    || bad "the gate reported success although the supplied password never landed"
-assert_board_dropped "operator-supplied password that does not take"
+assert_board_kept "locked account with a supplied env value"
 
 # ------------------------------------------------- the full-setup path too
 # The full setup path is not executed here: it writes /etc/profile, the kernel
