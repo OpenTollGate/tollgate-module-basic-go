@@ -18,9 +18,10 @@
 # Reachability is covered elsewhere (the pre-auth allowance and the br-lan
 # packet-filter drop). This test covers the credential half: the shipped
 # packaging must FAIL CLOSED — a credential is only ever one the operator
-# PROVIDED (TOLLGATE_ADMIN_PASSWORD at install, or `passwd root`); when root
-# has none and none was supplied, the package must generate NOTHING and refuse
-# to leave an admin listener standing.
+# PROVIDED (`passwd root`, or the LuCI password page). The package must NEVER
+# set or generate one: neither TOLLGATE_ADMIN_PASSWORD nor a staged
+# /etc/tollgate/admin-password file may reach root. When root has none, the
+# package sets NOTHING and refuses to leave an admin listener standing.
 #
 # It reuses the repo's existing packaging tier instead of inventing a harness:
 # the unit assertions source the shipped script's functions with
@@ -417,8 +418,8 @@ else
     bad "the refusal was not surfaced on the install output (got: $(printf '%s' "$out" | head -n 2 | tr '\n' ' '))"
 fi
 
-# ------------------------------------------- empty hash: passwd does not take -> fail closed
-echo "== empty hash + a supplied passwd that does not take: the admin board is refused"
+# ------------------------------------------- empty hash + supplied value -> refuse
+echo "== empty hash + a supplied value: the admin board is refused (the package sets nothing)"
 seed_deployed_router
 seed_shadow ''
 reset_run
@@ -506,94 +507,98 @@ fi
     || bad "passwd was invoked $(passwd_calls) times on a locked account"
 assert_board_kept "locked account"
 
-# ------------------------------------- the operator CHOOSES the credential
-# "Shown once" is easy to miss. The supported alternative is to choose the
-# credential as part of the install, which only works if the install honours
-# it: uci-defaults run from the package manager with no controlling terminal,
-# so the choice arrives in the environment.
-echo "== an operator-chosen password is applied and never echoed"
+# =====================================================================
+# THE REGRESSION THIS RELEASE EXISTS FOR
+# The package must NEVER set a credential — not from TOLLGATE_ADMIN_PASSWORD,
+# not from the /etc/tollgate/admin-password file. An operator who pasted a
+# run-book EXAMPLE value verbatim must not end up with root set to it.
+# =====================================================================
+echo "== a supplied TOLLGATE_ADMIN_PASSWORD does NOT set the credential"
 seed_deployed_router
 seed_shadow ''
 reset_run
 CHOSEN='Chosen4tInstallTime'
 out=$(TOLLGATE_ADMIN_PASSWORD="$CHOSEN" enforce_admin_credential 2>"$TMP/err")
 rc=$?
-[ "$(admin_credential_state)" = "set" ] \
-    && ok "the operator-chosen password establishes the credential" \
-    || bad "the operator-chosen password did not establish a credential (state: $(admin_credential_state))"
-[ "$rc" = "0" ] \
-    && ok "the gate reports success for an operator-chosen password" \
-    || bad "the gate returned $rc for an operator-chosen password"
-applied="$(cat "$PASSWD_SEEN" 2>/dev/null || true)"
-[ "$applied" = "$CHOSEN" ] \
-    && ok "the password actually applied is the one the operator chose" \
-    || bad "the applied password is not the operator's choice (want the value passed in TOLLGATE_ADMIN_PASSWORD)"
-if printf '%s' "$out" | grep -F -q -- "$CHOSEN"; then
-    bad "the operator's own password was echoed to the install output"
-else
-    ok "the operator's password is never echoed on the install output"
-fi
-if grep -F -q -- "$CHOSEN" "$LOGFILE" 2>/dev/null; then
-    bad "the operator's password was written to the setup log"
-else
-    ok "the operator's password is never written to the setup log"
-fi
-[ ! -f "$ADMIN_PROVISIONAL_MARKER" ] \
-    && ok "an operator-chosen credential is not marked provisional" \
-    || bad "an operator-chosen credential was marked provisional — the UI would demand a change of a password the operator just chose"
-assert_board_kept "operator-chosen password, empty hash"
+[ "$(admin_credential_state)" = "empty" ] \
+    && ok "the supplied env value does not establish a credential" \
+    || bad "the supplied env value established a credential (state: $(admin_credential_state)) — the package set a password the operator never asked it to"
+[ "$(passwd_calls)" = "0" ] \
+    && ok "passwd is never invoked for a supplied env value" \
+    || bad "passwd was invoked $(passwd_calls) times for a supplied env value"
+[ "$rc" != "0" ] \
+    && ok "the gate fails closed (refuses the board) on a credential-less router" \
+    || bad "the gate reported success although it set nothing"
+assert_board_dropped "supplied env value, empty hash"
 
-echo "== an operator-chosen password replaces a generated one and clears the mark"
+echo "== a supplied env value cannot even REPLACE an existing credential"
 seed_deployed_router
 seed_shadow '$6$generated$hash'
+before="$(cat "$SHADOW_FILE")"
 reset_run
 PICK='ReplacedBy0perator'
 out=$(TOLLGATE_ADMIN_PASSWORD="$PICK" enforce_admin_credential 2>"$TMP/err")
 rc=$?
-[ "$(cat "$PASSWD_SEEN" 2>/dev/null || true)" = "$PICK" ] \
-    && ok "an operator-chosen password replaces an existing credential" \
-    || bad "the existing credential was not replaced by the operator's choice"
+[ "$(cat "$SHADOW_FILE")" = "$before" ] \
+    && ok "the existing root hash is byte-identical after a supplied env value" \
+    || bad "a supplied env value rewrote the operator's existing password"
+[ "$(passwd_calls)" = "0" ] \
+    && ok "passwd is never invoked to replace a credential" \
+    || bad "passwd was invoked $(passwd_calls) times to replace a credential"
 [ "$rc" = "0" ] \
-    && ok "the gate reports success when replacing a credential" \
-    || bad "the gate returned $rc when replacing a credential"
-[ ! -f "$ADMIN_PROVISIONAL_MARKER" ] \
-    && ok "the provisional mark is cleared when the operator replaces the credential" \
-    || bad "a stale provisional mark survived the operator's own password"
-assert_board_kept "operator-chosen password, set hash"
+    && ok "the gate reports success for a set credential" \
+    || bad "the gate returned $rc for a set credential"
+assert_board_kept "set hash + supplied env value"
 
-echo "== a staged password FILE is applied when the env is unavailable"
-# apk-tools 3 (OpenWrt >= 25.12) does NOT forward the caller's environment to
-# package scriptlets, so the install-time env never reaches this script there.
-# The root-only file is the mechanism that works on BOTH apk and opkg.
+echo "== env AND staged file present: nothing is applied, root is untouched"
+# This is the exact shape of the lockout: an operator pasted the run-book's
+# EXAMPLE value and (on apk-tools 3, where the install env is not forwarded to
+# scriptlets) left it in the root-only file. Neither may reach root.
 seed_deployed_router
 seed_shadow ''
 reset_run
-FILE_PW='StagedFile-9x'
-printf '%s' "$FILE_PW" > "$TMP/admin-password"
+printf '%s' 'FromFile-1234' > "$TMP/admin-password"
+before="$(cat "$SHADOW_FILE")"
+out=$(ADMIN_PASSWORD_FILE="$TMP/admin-password" TOLLGATE_ADMIN_PASSWORD="FromEnv-1234" enforce_admin_credential 2>"$TMP/err")
+rc=$?
+[ "$(cat "$SHADOW_FILE")" = "$before" ] \
+    && ok "root's hash is byte-identical — a supplied env/file cannot set a password" \
+    || bad "a supplied env/file SET root's password"
+[ "$(admin_credential_state)" = "empty" ] \
+    && ok "no credential was established from the supplied env/file" \
+    || bad "a credential was established from the supplied env/file (state: $(admin_credential_state))"
+[ "$(passwd_calls)" = "0" ] \
+    && ok "passwd is never invoked even when a password is supplied" \
+    || bad "passwd was invoked $(passwd_calls) times although the package must set nothing"
+[ -e "$TMP/admin-password" ] \
+    && ok "the staged password file is left on disk (the package does not consume it)" \
+    || bad "the package consumed a file it must not touch"
+[ "$rc" != "0" ] \
+    && ok "the gate fails closed (refuses the board) when no real credential exists" \
+    || bad "the gate reported success on a credential-less router"
+assert_board_dropped "env + staged file, empty hash"
+rm -f "$TMP/admin-password"
+
+echo "== a staged password FILE alone is ignored too"
+seed_deployed_router
+seed_shadow ''
+reset_run
+printf '%s' 'StagedFile-9x' > "$TMP/admin-password"
 out=$(ADMIN_PASSWORD_FILE="$TMP/admin-password" TOLLGATE_ADMIN_PASSWORD="" enforce_admin_credential 2>"$TMP/err")
 rc=$?
-[ "$(admin_credential_state)" = "set" ] \
-    && ok "the staged password file establishes the credential when the env is empty" \
-    || bad "the staged password file did not establish a credential (state: $(admin_credential_state))"
-[ "$(cat "$PASSWD_SEEN" 2>/dev/null || true)" = "$FILE_PW" ] \
-    && ok "the password actually applied is the one in the staged file" \
-    || bad "the applied password is not the staged file's value"
-[ ! -e "$TMP/admin-password" ] \
-    && ok "the staged password file is consumed (removed) after use" \
-    || bad "the staged password file was left on disk"
-[ "$rc" = "0" ] \
-    && ok "the gate reports success for a staged-file password" \
-    || bad "the gate returned $rc for a staged-file password"
-assert_board_kept "staged password file, empty hash"
-# env still wins over the file when both are present
-seed_deployed_router
-seed_shadow ''
-reset_run
-printf '%s' 'FromFile-123' > "$TMP/admin-password"
-out=$(ADMIN_PASSWORD_FILE="$TMP/admin-password" TOLLGATE_ADMIN_PASSWORD="FromEnv-123" enforce_admin_credential 2>"$TMP/err")
-[ "$(cat "$PASSWD_SEEN" 2>/dev/null || true)" = "FromEnv-123" ] \
-    && ok "the env wins over the staged file when both are present" \
-    || bad "the env did not win over the file (applied: $(cat "$PASSWD_SEEN" 2>/dev/null || true))"
+[ "$(admin_credential_state)" = "empty" ] \
+    && ok "the staged password file does not establish a credential" \
+    || bad "the staged password file established a credential (state: $(admin_credential_state))"
+[ "$(passwd_calls)" = "0" ] \
+    && ok "passwd is never invoked for a staged file" \
+    || bad "passwd was invoked $(passwd_calls) times for a staged file"
+[ -e "$TMP/admin-password" ] \
+    && ok "the staged file is left on disk" \
+    || bad "the package consumed the staged file"
+[ "$rc" != "0" ] \
+    && ok "the gate refuses the board" \
+    || bad "the gate returned $rc with no credential"
+assert_board_dropped "staged file alone, empty hash"
 rm -f "$TMP/admin-password"
 
 echo "== a provisional mark carried over from an older install is still honoured"
@@ -608,7 +613,7 @@ printf 'generated by an older tollgate-wrt\n' > "$ADMIN_PROVISIONAL_MARKER"
 reset_run
 out=$(TOLLGATE_ADMIN_PASSWORD="" enforce_admin_credential 2>"$TMP/err")
 rc=$?
-if grep -q 'GENERATED by this package' "$LOGFILE" 2>/dev/null; then
+if grep -q 'GENERATED by an older package version' "$LOGFILE" 2>/dev/null; then
     ok "a carried-over marker re-states that the credential was generated, not chosen"
 else
     bad "a later run implies the credential was chosen by the operator — the one-time line is long gone by then"
@@ -635,23 +640,7 @@ out=$(TOLLGATE_ADMIN_PASSWORD="$SKIP" enforce_admin_credential 2>"$TMP/err")
 [ "$(passwd_calls)" = "0" ] \
     && ok "passwd is not invoked on a locked account even when a password is supplied" \
     || bad "passwd was invoked $(passwd_calls) times on a locked account"
-assert_board_kept "locked account with an operator-supplied password"
-
-echo "== an operator-supplied password that does not take is refused"
-seed_deployed_router
-seed_shadow ''
-reset_run
-PASSWD_FAILS=1
-export PASSWD_FAILS
-NOPE='WillNotTake1234'
-out=$(TOLLGATE_ADMIN_PASSWORD="$NOPE" enforce_admin_credential 2>"$TMP/err")
-rc=$?
-PASSWD_FAILS=0
-export PASSWD_FAILS
-[ "$rc" != "0" ] \
-    && ok "the gate fails closed when the supplied password does not take" \
-    || bad "the gate reported success although the supplied password never landed"
-assert_board_dropped "operator-supplied password that does not take"
+assert_board_kept "locked account with a supplied env value"
 
 # ------------------------------------------------- the full-setup path too
 # The full setup path is not executed here: it writes /etc/profile, the kernel

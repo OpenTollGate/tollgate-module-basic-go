@@ -487,6 +487,18 @@ func applyPrivateNetworkCredentials(cfg *config_manager.Config) []SettingResult 
 				opLogger.Error(result.Detail)
 				break
 			}
+			if d.setting == "private_key" {
+				// 99-tollgate-setup leaves a credential-less private AP
+				// DISABLED; writing a passphrase is the operator asking for the
+				// private network to be up, so enable the radio the passphrase
+				// landed on.
+				if err := setUCIValue(section+".disabled", "0"); err != nil {
+					result.Status = statusFailed
+					result.Detail = fmt.Sprintf("cannot enable %s: %v", section, err)
+					opLogger.Error(result.Detail)
+					break
+				}
+			}
 			changedSections = append(changedSections, section)
 		}
 

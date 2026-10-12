@@ -1,16 +1,19 @@
-- **The package never generates an admin credential the operator cannot see.**
-  When root had no password and no operator credential was provided, the
-  package generated a provisional credential and served a first-run page. That
-  generated value is no longer created (the `generate_admin_password` helper is
-  removed): the package now generates **nothing** and refuses to serve the
-  admin board until the operator provides a password — via
-  `TOLLGATE_ADMIN_PASSWORD`, or, because apk-tools 3 (OpenWrt >= 25.12) does not
-  forward the caller's environment to package scriptlets, a root-only file
-  (`/etc/tollgate/admin-password`, and `/etc/tollgate/wifi-password` for the
-  private-WiFi passphrase). The file is read, applied and removed. A
-  generated-but-withheld password is exactly how routers got locked out when
-  the installer deferred one credential while the package generated another and
-  the operator ended up holding neither. A provisional marker carried over from
-  an older install is still honoured, so an upgraded router keeps telling the
-  operator its root password was generated rather than chosen
+- **The package never sets or generates a credential the operator did not
+  choose.** When root had no password the package once generated a provisional
+  credential and served a first-run page to set it; a later revision instead set
+  root from `TOLLGATE_ADMIN_PASSWORD`, or — because apk-tools 3 (OpenWrt >=
+  25.12) does not forward the install environment to package scriptlets — from a
+  root-only file (`/etc/tollgate/admin-password`, and
+  `/etc/tollgate/wifi-password` for the private-WiFi passphrase). **Both are
+  gone.** The package now sets **nothing**: it refuses to serve the admin board
+  until the operator has a password (set with `passwd root`, or the LuCI
+  password page) and re-runs the setup, and on the private WiFi it leaves the AP
+  **disabled** until a passphrase is set with `tollgate network private
+  set-password` (the wired `br-private` management bridge is unaffected). A
+  non-interactive "supply a value" mechanism is too easy to mis-fire: an
+  operator who pasted the run-book's **example** value verbatim ended up with a
+  password they never chose and no link to it. A provisional marker carried over
+  from an older install is still honoured, so an upgraded router keeps telling
+  the operator its root password was generated rather than chosen, and a
+  deliberately **locked** root account is never re-enabled
   ([#884](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/884)).
