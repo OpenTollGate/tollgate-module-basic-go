@@ -119,33 +119,35 @@ On OpenWrt 24.10.x and earlier:
 opkg install /tmp/tollgate-wrt_<version>_<arch>.ipk
 ```
 
-### Choosing the admin password (no installer required)
+### Setting the admin password (no installer required)
 
 Installing the package alone is enough to get a working gateway — the
-installer is a convenience, not a dependency. The one thing it cannot decide
-for you is the credential behind the `:8090` admin board, so choose it at
-install time rather than trying to catch a generated one as it scrolls past:
+installer is a convenience, not a dependency. The package does **not** set a
+password on your behalf: a credential you did not choose is one you cannot
+know, and that is how a router gets locked out. Set root's password yourself
+**before** installing, so the gateway comes up with the board already
+reachable:
 
 ```sh
-TOLLGATE_ADMIN_PASSWORD=<your choice> \
-  apk add --allow-untrusted /tmp/tollgate-wrt-<version>.apk
+passwd root
+apk add --allow-untrusted /tmp/tollgate-wrt-<version>.apk
 ```
 
-The value is applied to root — the login the board exposes is checked against
-root's shadow hash — and it is never echoed: it is
-already yours, and the install log must not become a place to read it from.
-Supplying one also replaces a credential that is already set, which is what
-makes this usable for fleet and CI provisioning. If a password is supplied but
-does not take, the install fails closed and drops the admin listeners rather
-than leaving the board on the old credential.
+The `:8090` admin board's login is checked against root's shadow hash, so the
+password you set with `passwd` — or later in LuCI — is what opens it. If root
+has **no** password when the package runs, it fails closed: it drops the admin
+listeners rather than serving a board that rpcd would open to **any** password
+against the empty hash. Set a password with `passwd root` (or the LuCI
+password page) and re-run `/etc/uci-defaults/99-tollgate-setup` to bring the
+board back.
 
-If you install without it, the package generates one and prints it exactly
-once, and writes `/etc/tollgate/admin-credential-provisional`. That marker
-means "generated, not chosen": read it, then set your own with the passwd command
-over SSH (or reinstall with the variable above). While the marker exists, each
-setup run says so in the log — the one-time line is gone as soon as the log is
-truncated, which every full-setup run does. A deliberately **locked** root
-account is never re-enabled by any of this.
+The package never accepts a credential from the install environment or a file
+either: an earlier design did, and an operator who pasted the run-book's
+**example** value verbatim ended up with a password they never chose. A
+provisional marker (`/etc/tollgate/admin-credential-provisional`) carried over
+from an older install is still honoured — it tells the board the root password
+was generated rather than chosen. A deliberately **locked** root account is
+never re-enabled by any of this.
 
 ### Verifying a manual install (the signed manifest)
 
