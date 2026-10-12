@@ -1,0 +1,32 @@
+# Dockerfile.mint018 — cdk-mintd 0.18.1 mint variant for the dual-mint
+# crash-lab matrix (tollgate #866/#867).
+#
+# Same builder shape as Dockerfile.mint (cargo install, fakewallet+sqlite),
+# but 0.18 is database-authoritative: CDK_MINTD_* env vars are no longer
+# applied at startup and literal secrets are refused at config import. The
+# entrypoint renders the settings document once from the same env vars the
+# 0.17.6 image consumed (mnemonic stays env-referenced), config-inits the
+# work dir, and execs the daemon — giving compose the identical UX, across
+# container restarts too (marker file in the /data volume).
+FROM rust:1.88-bookworm AS builder
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev protobuf-compiler && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN cargo install cdk-mintd --version 0.18.1 --no-default-features --features fakewallet,sqlite --locked
+
+# --- Runtime stage ---
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libssl3 ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/cargo/bin/cdk-mintd /usr/local/bin/cdk-mintd
+COPY mint018-entrypoint.sh /usr/local/bin/mint018-entrypoint.sh
+RUN chmod +x /usr/local/bin/cdk-mintd /usr/local/bin/mint018-entrypoint.sh
+
+EXPOSE 8085
+
+ENTRYPOINT ["/usr/local/bin/mint018-entrypoint.sh"]

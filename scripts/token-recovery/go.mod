@@ -2,7 +2,7 @@ module token-recovery
 
 go 1.26.0
 
-require github.com/OpenTollGate/gonuts-tollgate v0.13.0
+require github.com/OpenTollGate/gonuts-tollgate v0.14.1-0.20261011150228-d42a98cf8825
 
 require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
