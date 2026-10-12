@@ -1,0 +1,19 @@
+# Known issues: tests the clean-container lane (test.yml's
+# clean-container-test job) tolerates, because they fail for reasons that
+# predate the lane and are tracked elsewhere. Each line is
+# "<TestName><TAB><module><TAB><issue>".
+#
+# A tolerated failure is still printed as a failure. It does not make the
+# lane exit non-zero, because a lane that is permanently red on pre-existing
+# defects stops being read — the same contract as
+# tests/happy-path/known-issues.txt. The entry is the complete list of what
+# the lane tolerates, and it is meant to shrink: when an issue closes, its
+# line is deleted and the failure becomes fatal again by itself.
+#
+# A test's presence here MUST reference an open issue. Host-state coupling
+# discovered BY this lane gets its own issue first, a line here second —
+# never a silent skip, a continue-on-error, or a deleted test.
+#
+# ---------------------------------------------------------------------------
+TestLateReceiveOutcomeIsRecordedWhenReceiveCompletesAfterTheDeadline	src/merchant	#731 (fails in every full-package run; fix in flight on fix/merchant-flakes-731-733)
+TestPurchaseSessionGuardHoldsThroughTheOutcomeUnknownWindow	src/merchant	#772 (deterministic off-router: grant-side ndsctl exec never stubbed; missing installRenewalNdsctl)
