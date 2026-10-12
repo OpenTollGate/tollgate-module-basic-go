@@ -39,26 +39,30 @@ ICFAILED <ids...>
 ICEXIT 0|1
 ```
 
-## The known-red checks
+## The rc3 contract (and the remaining known-red)
 
-1. `contract:credential-applied` — in the default `--credentials-mode file`
-   (the #894 channel) this must PASS: the staged secret becomes root's hash
-   (sha256crypt comparison host-side) and `contract:credentials-consumed`
-   asserts both files were unlinked. Running with `--credentials-mode env`
-   instead demonstrates **#888**: apk-tools on 25.12 drops the installer's
-   environment, so the env channel cannot apply the credential — that mode
-   stays red until apk-tools behavior changes, by design.
-   `contract:provisional-lifecycle` pins the safe degraded path whenever the
-   chosen credential did NOT apply (random provisional credential, never
-   printed, marker present, FIRST-RUN page offered, board still fail-closed).
-2. `listeners:8090` / `listeners:8443` — **the acceptance criterion of #890**:
-   LuCI's pair in board mode did not converge after a true fresh-image
-   install (the `main` uhttpd section ends up with no listeners), while the
-   same package converged them on an already-booted device. Keep them
-   asserted; they go green when the flip's LuCI half converges on the
-   fresh-install path.
+Since #902 + #907 (v0.6.0-rc3) the package **sets no credential at all**
+and the **preinst refuses any install while root has no password**. The
+lane asserts exactly that:
 
-A fence that cannot fail is decoration; these are shipped red on purpose.
+- `contract:preinst-refuses-empty-root` — a pristine install attempt must
+  fail cleanly with the guidance message and register nothing;
+- `flow:operator-sets-password` + `contract:package-sets-no-credential` —
+  the operator sets the root password, the install succeeds, and root's
+  hash is byte-identical across the install (nothing applied, replaced or
+  generated); `contract:no-provisional-marker` pins the same on disk;
+- persistence: the operator's credential and the mapping survive a reboot.
+
+Earlier revisions of this lane asserted the #894 staged-secret channel;
+that mechanism was absorbed by #897 and then removed by #902's stronger
+design — the history lives in #888.
+
+The remaining known-red is **#890's**: `listeners:8090` / `listeners:8443`
+(LuCI's pair in board mode did not converge after a true fresh-image
+install). Keep them asserted; they go green when the flip's LuCI half
+converges on the fresh-install path.
+
+A fence that cannot fail is decoration; the reds are shipped on purpose.
 
 ## The pristine phase trusts nothing
 

@@ -5,12 +5,13 @@
 #   tests/installer-contract/run.sh --artifact <pkg.apk> --host <ssh-spec> [options]
 #
 # Boots a PRISTINE OpenWrt 25.12 (apk-era) VM that already answers key-based
-# root ssh, installs the package the way the docs tell an operator to —
-# including TOLLGATE_ADMIN_PASSWORD / TOLLGATE_PRIVATE_WIFI_PASSWORD in the
-# environment — and asserts the installer's credential and convergence
-# contracts against the live device. Everything this lane checks was first
-# verified by hand on the vlab lane on 2026-10-11; this script exists so the
-# next person does not have to redo the plumbing (see #888's evidence).
+# root ssh, and asserts the rc3 installer contract against the live device:
+# the preinst REFUSES a passwordless root (#907), the package itself sets no
+# credential at all (#902), the operator's own root password survives the
+# install byte-identically, and services/listeners/mapping converge and
+# persist across a reboot. Everything this lane checks was first verified by
+# hand on the vlab lane on 2026-10-11; this script exists so the next person
+# does not have to redo the plumbing (see #888's evidence).
 #
 # Every check prints one line:
 #
@@ -43,12 +44,6 @@
 #                     ssh can return. Without --serial, pass --skip-pristine.
 #   --skip-pristine   do not `firstboot -y` before installing (dev only —
 #                     makes credential-state assertions unreliable)
-#   --credentials-mode env|file
-#                     how the chosen credentials reach the install. Default
-#                     `file`: the root-only staged secret files of #894 (the
-#                     apk-reliable channel — apk-tools drops the env).
-#                     `env`: the raw environment channel, kept as the living
-#                     demonstration of #888's apk-tools env loss.
 #   --skip-reboot     skip the persistence phase
 #   --keep            keep the run's remote scratch dir
 #   --out DIR         evidence dir (default: <tmpdir>/installer-contract.out)
@@ -67,7 +62,6 @@ SKIP_PRISTINE=0
 SKIP_REBOOT=0
 KEEP=0
 OUT=""
-CREDMODE="file"
 
 usage() {
     sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'
@@ -83,7 +77,6 @@ while [ $# -gt 0 ]; do
         --serial) SERIAL="${2:?}"; shift 2 ;;
         --skip-pristine) SKIP_PRISTINE=1; shift ;;
         --skip-reboot) SKIP_REBOOT=1; shift ;;
-        --credentials-mode) CREDMODE="${2:?}"; shift 2 ;;
         --keep) KEEP=1; shift ;;
         --out) OUT="${2:?}"; shift 2 ;;
         *) usage ;;
@@ -96,13 +89,11 @@ done
 TMPDIR_RUN="$(mktemp -d /tmp/installer-contract.XXXXXX)"
 OUT="${OUT:-$TMPDIR_RUN/out}"
 mkdir -p "$OUT"
-# The chosen credentials are generated per-run and written ONLY here, root-only
-# readable, exactly like the one-time channel the installer itself uses.
+# The lane-chosen root password is generated per-run and written ONLY here,
+# root-only readable — the lane plays the operator who sets it before install.
 CHOSEN_ADMIN="$OUT/admin-password"
-CHOSEN_WIFI="$OUT/wifi-password"
 umask 077
 tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20 > "$CHOSEN_ADMIN"
-tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20 > "$CHOSEN_WIFI"
 
 PASS=0; FAIL=0; SKIP=0
 FAILED_IDS=""
@@ -241,95 +232,57 @@ else
     fi
 fi
 
-# --- 2. install with operator-chosen credentials ----------------------------
+# --- 2. the preinst must refuse a passwordless root (#907) -------------------
 vm 'mkdir -p /tmp/ic-lane' >/dev/null 2>&1
-if cat "$ARTIFACT" | vm "cat > /tmp/ic-lane/$ARTIFACT_NAME" 2>/dev/null; then
-    REMOTE_SHA="$(vm "sha256sum /tmp/ic-lane/$ARTIFACT_NAME" | awk '{print $1}')"
-    [ "$REMOTE_SHA" = "$ARTIFACT_SHA" ] \
-        && record install:transfer PASS "$ARTIFACT_NAME sha256 $REMOTE_SHA" \
-        || record install:transfer FAIL "sha256 mismatch after transfer ($REMOTE_SHA)"
+cat "$ARTIFACT" | vm "cat > /tmp/ic-lane/$ARTIFACT_NAME" 2>/dev/null \
+    && record install:transfer PASS "$ARTIFACT_NAME sha256 $(vm "sha256sum /tmp/ic-lane/$ARTIFACT_NAME" | awk '{print $1}')" \
+    || { record install:transfer FAIL "could not push the artifact over ssh"; finish; }
+
+vm "apk add --allow-untrusted /tmp/ic-lane/$ARTIFACT_NAME" > "$OUT/refuse.log" 2>&1
+REFUSE_EC=$?
+if [ "$REFUSE_EC" -ne 0 ] \
+   && grep -q "root has no password — refusing to install" "$OUT/refuse.log" \
+   && ! vm 'apk info 2>/dev/null | grep -q "^tollgate-wrt"'; then
+    record contract:preinst-refuses-empty-root PASS "clean refusal on the pristine device (exit $REFUSE_EC, guidance printed, nothing half-installed)"
 else
-    record install:transfer FAIL "could not push the artifact over ssh"
-    finish
+    record contract:preinst-refuses-empty-root FAIL "expected a clean preinst refusal on the empty-root device (exit $REFUSE_EC; see $OUT/refuse.log)"
 fi
 
+# --- 3. the operator flow: set a root password, then install ------------------
 ADMIN_PW="$(cat "$CHOSEN_ADMIN")"
-WIFI_PW="$(cat "$CHOSEN_WIFI")"
-case "$CREDMODE" in
-    file)
-        # The apk-reliable channel (#894): root-only staged secrets,
-        # consumed on read by the package's setup script.
-        vm "umask 077; printf '%s' '$ADMIN_PW' > /tmp/tollgate-admin-password; printf '%s' '$WIFI_PW' > /tmp/tollgate-wifi-key" >/dev/null 2>&1
-        vm "TOLLGATE_ADMIN_PASSWORD='$ADMIN_PW' TOLLGATE_PRIVATE_WIFI_PASSWORD='$WIFI_PW' apk add --allow-untrusted /tmp/ic-lane/$ARTIFACT_NAME" \
-            > "$OUT/install.log" 2>&1
-        ;;
-    env)
-        vm "TOLLGATE_ADMIN_PASSWORD='$ADMIN_PW' TOLLGATE_PRIVATE_WIFI_PASSWORD='$WIFI_PW' apk add --allow-untrusted /tmp/ic-lane/$ARTIFACT_NAME" \
-            > "$OUT/install.log" 2>&1
-        ;;
-    *)
-        echo "unknown --credentials-mode: $CREDMODE" >&2; exit 2 ;;
-esac
+if vm "printf '%s\n%s\n' '$ADMIN_PW' '$ADMIN_PW' | passwd root >/dev/null 2>&1"; then
+    record flow:operator-sets-password PASS "root password set by the operator before install"
+else
+    record flow:operator-sets-password FAIL "could not set the root password over ssh"
+    finish
+fi
+HASH_BEFORE="$(vm 'grep "^root:" /etc/shadow' | cut -d: -f2)"
+
+vm "apk add --allow-untrusted /tmp/ic-lane/$ARTIFACT_NAME" > "$OUT/install.log" 2>&1
 INSTALL_EC=$?
 if [ "$INSTALL_EC" -eq 0 ] && vm 'apk info 2>/dev/null | grep -q "^tollgate-wrt"'; then
-    record install:apk-add PASS "apk add exit 0, tollgate-wrt registered"
+    record install:apk-add PASS "apk add exit 0 after the operator set the credential, tollgate-wrt registered"
 else
-    record install:apk-add FAIL "apk add exit $INSTALL_EC (see $OUT/install.log)"
+    record install:apk-add FAIL "apk add exit $INSTALL_EC after password set (see $OUT/install.log)"
     finish
 fi
 
-# --- 3. contract: no credential material in the install output --------------
-HITS=$(grep -c -F -e "$ADMIN_PW" -e "$WIFI_PW" "$OUT/install.log" || true)
-[ "$HITS" -eq 0 ] \
-    && record contract:no-plaintext PASS "neither chosen value appears in the install output" \
-    || record contract:no-plaintext FAIL "$HITS plaintext hit(s) of the chosen credentials in install output"
-
-# --- 4. contract: the operator-chosen password was applied (#888) -----------
-HASH="$(vm 'grep "^root:" /etc/shadow' | cut -d: -f2)"
-case "$HASH" in
-    '$5$'*|'$6$'*)
-        SALT="$(printf '%s' "$HASH" | cut -d'$' -f3)"
-        COMPUTED="$(printf '%s' "$ADMIN_PW" | openssl passwd -5 -salt "$SALT" -stdin)"
-        if [ "$COMPUTED" = "$HASH" ]; then
-            record contract:credential-applied PASS "root hash matches the operator-chosen password"
-        else
-            record contract:credential-applied FAIL "root hash does NOT match the operator-chosen password — the env did not reach the uci-defaults script (#888; acceptance criterion for its fix)"
-        fi
-        ;;
-    '')
-        record contract:credential-applied FAIL "root credential is EMPTY after install — fail-closed path did not engage either"
-        ;;
-    *)
-        record contract:credential-applied SKIP "root credential state not comparable ($HASH)"
-        ;;
-esac
-
-# --- 5. contract: the safe degraded path while #888 stands ------------------
-if [ "$CREDMODE" = "file" ]; then
-    ADMIN_GONE="$(vm 'test ! -e /tmp/tollgate-admin-password && echo gone')"
-    WIFI_GONE="$(vm 'test ! -e /tmp/tollgate-wifi-key && echo gone')"
-    HAS_WIRELESS="$(vm 'uci show wireless 2>/dev/null | grep -c wireless\.radio' || true)"
-    if [ "$ADMIN_GONE" = "gone" ]; then
-        if [ "$WIFI_GONE" = "gone" ]; then
-            record contract:credentials-consumed PASS "both staged secret files were consumed (unlinked) by the install"
-        elif [ "$HAS_WIRELESS" = "0" ]; then
-            record contract:credentials-consumed PASS "admin secret consumed; wifi secret unconsumed because the device has no radios (the reader lives in the wireless setup)"
-        else
-            record contract:credentials-consumed FAIL "wifi secret survived on a wireless device — a later boot would re-apply an old key"
-        fi
-    else
-        record contract:credentials-consumed FAIL "admin secret survived the install — a later boot would re-apply an old credential"
-    fi
-fi
-if vm 'test -f /etc/tollgate/admin-credential-provisional'; then
-    if grep -q "FIRST-RUN" "$OUT/install.log"; then
-        record contract:provisional-lifecycle PASS "provisional credential generated silently + first-run page offered (the safe degraded path of #888)"
-    else
-        record contract:provisional-lifecycle FAIL "marker present but no FIRST-RUN guidance in the install output"
-    fi
+# --- 4. contract: the package sets no credential of its own (#902) ------------
+HASH_AFTER="$(vm 'grep "^root:" /etc/shadow' | cut -d: -f2)"
+if [ -n "$HASH_BEFORE" ] && [ "$HASH_BEFORE" = "$HASH_AFTER" ]; then
+    record contract:package-sets-no-credential PASS "root's hash is byte-identical across the install — nothing was applied, replaced or generated"
 else
-    record contract:provisional-lifecycle SKIP "no provisional marker (operator-chosen path — expected once #888 is fixed)"
+    record contract:package-sets-no-credential FAIL "root's hash changed during install (before=${HASH_BEFORE:0:8}… after=${HASH_AFTER:0:8}…)"
 fi
+if vm 'test ! -e /etc/tollgate/admin-credential-provisional'; then
+    record contract:no-provisional-marker PASS "no provisional marker on a pristine install (nothing was generated)"
+else
+    record contract:no-provisional-marker FAIL "provisional marker exists on a pristine install — a credential was generated"
+fi
+HITS=$(grep -c -F -e "$ADMIN_PW" "$OUT/install.log" || true)
+[ "$HITS" -eq 0 ] \
+    && record contract:no-plaintext PASS "the operator's root password never appears in the install output" \
+    || record contract:no-plaintext FAIL "$HITS plaintext hit(s) of the root password in install output"
 
 # --- 6. services -------------------------------------------------------------
 vm '/etc/init.d/tollgate-wrt status 2>/dev/null | head -1' | grep -q running \
@@ -364,7 +317,7 @@ esac
 if [ "$SKIP_REBOOT" -eq 1 ]; then
     record persistence:reboot SKIP "--skip-reboot"
 else
-    SALT_BEFORE="$SALT"
+    SALT_BEFORE="$(printf '%s' "$HASH_AFTER" | cut -d'$' -f3)"
     MAP_BEFORE="$MAPPING"
     vm 'sync; reboot' >/dev/null 2>&1 &
     if vm_wait_ssh 180; then
