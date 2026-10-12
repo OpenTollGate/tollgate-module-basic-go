@@ -123,6 +123,29 @@ jobs:
             "~/.hermes/scripts/router_bench_test.sh --event $EVENT --ref '$REF' \
                --commit '$SHA' --target '$TARGET' --lane '$LANE' --paid '$PAID'"
 
+  bench:
+    needs: plan
+    # The bench lanes flash clean images and run the suite on the physical
+    # routers. That is bench-hardware work (required reviewers) and never a
+    # pull_request concern — PRs use the isolated lab only.
+    if: github.event_name != 'pull_request' && needs.plan.outputs.proceed == 'true'
+    runs-on: [self-hosted, tbmg]
+    timeout-minutes: 180
+    environment: bench-hardware
+    steps:
+      - name: Run the bench lanes via the router-bench-gateway (over fips)
+        env:
+          GW_HOST: ${{ vars.ROUTER_BENCH_GATEWAY || 'cobrador' }}
+        run: |
+          set -eu
+          # bench-lanes.sh runs every configured lane on the gateway — clean
+          # flash -> install -> smoke -> radios OFF (guaranteed) — and emits a
+          # JSON summary; it exits non-zero if any lane failed.
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+            "$GW_HOST" \
+            'cd ~/physical-router-test-automation && scripts/bench/bench-lanes.sh' \
+            | tee bench-lanes.json
+
   report:
     needs: [plan, router-test]
     if: always() && github.event_name == 'pull_request'
