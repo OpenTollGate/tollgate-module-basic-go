@@ -6,4 +6,4 @@
   and cleaning quote state nobody read, one leaked goroutine set per
   downgrade/upgrade cycle, the same family as the sweep leak
   ([#733](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/733))
-  ([#888](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/888)).
+  ([#888](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/895)).
