@@ -960,7 +960,7 @@ func (c *Connector) RemoveDisabledSTA(ssid string) error {
 	return fmt.Errorf("no disabled upstream found with SSID '%s'", ssid)
 }
 
-func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID string) error {
+func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID, candidateBSSID string) error {
 	candidateRadio, _ := c.ExecuteUCI("get", "wireless."+candidateIface+".device")
 	candidateRadio = strings.TrimSpace(candidateRadio)
 	if candidateRadio == "" {
@@ -979,10 +979,24 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		"candidate_radio": candidateRadio,
 		"active_radio":    activeRadio,
 		"ssid":            candidateSSID,
+		"bssid":           candidateBSSID,
 	}).Info("Switching upstream")
 
 	if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".disabled=0"); err != nil {
 		return fmt.Errorf("failed to enable candidate upstream %s: %w", candidateIface, err)
+	}
+
+	// Pin the candidate to the exact BSSID the scan selected. One SSID can be
+	// served by several BSSIDs across different upstream networks — some with
+	// internet, some captive or isolated — so leaving the choice to the driver
+	// can rejoin the wrong one and leave the manager cycling between them. An
+	// empty BSSID clears any stale pin so the driver may pick.
+	if strings.TrimSpace(candidateBSSID) != "" {
+		if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".bssid="+candidateBSSID); err != nil {
+			return fmt.Errorf("failed to pin bssid on candidate upstream %s: %w", candidateIface, err)
+		}
+	} else if _, err := c.ExecuteUCI("delete", "wireless."+candidateIface+".bssid"); err != nil {
+		logger.WithField("interface", candidateIface).Debug("no bssid pin to clear on candidate upstream")
 	}
 
 	if activeIface != "" {

@@ -727,6 +727,28 @@ func (s *CLIServer) handleUpstreamKnown() CLIResponse {
 	}
 }
 
+// bestBSSIDForSSID returns the strongest scanned BSSID for ssid (optionally
+// restricted to a radio), or "" when the scan carried no BSSIDs. A manual
+// connect pins the same upstream the scan ranked best: one SSID can be served
+// by several BSSIDs across different upstream networks, some without internet.
+func bestBSSIDForSSID(networks []wireless_gateway_manager.NetworkInfo, ssid, radio string) string {
+	best := ""
+	bestSignal := -1 << 30
+	for _, n := range networks {
+		if n.SSID != ssid || n.BSSID == "" {
+			continue
+		}
+		if radio != "" && n.Radio != radio {
+			continue
+		}
+		if n.Signal > bestSignal {
+			bestSignal = n.Signal
+			best = n.BSSID
+		}
+	}
+	return best
+}
+
 func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 	if len(connectArgs) < 1 {
 		return CLIResponse{
@@ -811,7 +833,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		activeIface = activeSTA.Name
 	}
 
-	if err := s.connector.SwitchUpstream(activeIface, ifaceName, ssid); err != nil {
+	if err := s.connector.SwitchUpstream(activeIface, ifaceName, ssid, bestBSSIDForSSID(networks, ssid, bestRadio)); err != nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     fmt.Sprintf("Failed to connect: %v", err),
@@ -928,7 +950,7 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), "Switching upstream... waiting for DHCP")
-	if err := s.connector.SwitchUpstream(activeIface, staIface, ssid); err != nil {
+	if err := s.connector.SwitchUpstream(activeIface, staIface, ssid, bestBSSIDForSSID(networks, ssid, bestRadio)); err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to connect: %v", err), Timestamp: time.Now()})
 		return
 	}
