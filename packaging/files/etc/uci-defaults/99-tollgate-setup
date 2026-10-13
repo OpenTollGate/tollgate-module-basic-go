@@ -2528,6 +2528,45 @@ commit_all() {
     uci commit tollgate
 }
 
+# Re-check network.private for an upstream collision AFTER the network (and so
+# the uplink) is up. setup_private_network picks the subnet at uci-defaults time,
+# before a fresh DHCP WAN necessarily has a lease, so an upstream that lands on
+# the same /24 as the derived private network — the observed 192.168.2.1 against
+# a 192.168.2.0/24 upstream — is missed, and the router then answers for the
+# upstream gateway's own address, which breaks DNS on the deployed router.
+#
+# The package postinst calls this after `/etc/init.d/network restart`; when the
+# private subnet had to move it returns 0 and the caller reloads the network.
+# It is a no-op (returns 1) when there is no private network, the network is not
+# a /24, the upstream is unknown, or nothing collides.
+recheck_private_subnet() {
+    local cur_ip cur_mask lan_ip lan_mask new_prefix new_ip up
+    cur_ip=$(uci -q get network.private.ipaddr)
+    [ -n "$cur_ip" ] || return 1
+    cur_mask=$(uci -q get network.private.netmask)
+    [ -n "$cur_mask" ] || cur_mask="255.255.255.0"
+    [ "$(netmask_to_prefixlen "$cur_mask")" = "24" ] || return 1
+
+    up=$(upstream_networks)
+    [ -n "$up" ] || return 1
+    # shellcheck disable=SC2086 # upstream_networks prints one CIDR per word
+    subnet_conflicts "$(prefix24_of "$cur_ip")" $up || return 1
+
+    lan_ip=$(uci -q get network.lan.ipaddr)
+    lan_mask=$(uci -q get network.lan.netmask)
+    [ -n "$lan_mask" ] || lan_mask="255.255.255.0"
+    # shellcheck disable=SC2086
+    new_prefix=$(choose_private_subnet "$(prefix24_of "$cur_ip")" \
+        "${lan_ip}/$(netmask_to_prefixlen "$lan_mask")" $up)
+    new_ip="${new_prefix}.1"
+    [ "$new_ip" != "$cur_ip" ] || return 1
+
+    log "Private subnet ${cur_ip} collides with the upstream after the uplink came up; moving network.private to ${new_ip}"
+    uci set network.private.ipaddr="$new_ip"
+    uci commit network
+    return 0
+}
+
 # -- driver -----------------------------------------------------------------
 
 # Offline-test hook: sourcing with TOLLGATE_SETUP_LIB_ONLY=1 defines every
