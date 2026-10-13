@@ -1,91 +1,40 @@
 #!/usr/bin/env bash
-# Pre-commit hook: check dependency sync + stale import paths.
+# Pre-commit hook: run the fences in fences.d/, one file per fence, in
+# lexical (numeric-prefix) order.
+#
+# This dispatcher is STABLE — do not add a fence here. A fence is a file:
+# fences.d/NN-<slug>.sh, a complete `if <staged-trigger>; then <check>; fi`
+# block (#920). Lanes add files; nobody edits shared bytes, so two lanes
+# can never conflict on the hook again.
+#
+# The disease this cures, with the receipt: every fence-adding lane used to
+# concatenate into this one script, and a merge on main ate an entire `fi`
+# between the gonuts-pin and build-surface fences (found 2026-10-14 —
+# `bash -n hooks/pre-commit` failed on main with "unexpected end of file"),
+# so every commit through the hook was refused since.
+#
 # Install with: git config core.hooksPath hooks
 set -euo pipefail
 
-if git diff --cached --name-only | grep -q '\.mod$\|go\.sum$'; then
-    echo "🔍 Checking dependency sync across go.mod files..."
-    python3 tests/contract/check-deps-sync.py
-fi
+cd "$(git rev-parse --show-toplevel)"
 
-if git diff --cached --name-only | grep -q '\.go$'; then
-    echo "🔍 Checking for stale import paths..."
-    python3 tests/contract/check-import-paths.py
+# Each fragment is parsed STANDALONE before it can run: a fence file that
+# bash cannot read is refused here, at the commit that added it, instead of
+# wedging every later commit that triggers it.
+shopt -s nullglob
+fences=(fences.d/*.sh)
+if [ "${#fences[@]}" -eq 0 ]; then
+    echo "hooks/pre-commit: fences.d/ carries no fences — lost the directory?" >&2
+    exit 1
 fi
-
-if git diff --cached --name-only | grep -qE 'build-inputs\.json|tests/cloud-lab/Dockerfile|\.github/workflows/.*\.yml'; then
-    echo "🔍 Checking toolchain parity across build paths..."
-    python3 tests/contract/check-toolchain-parity.py
-fi
-
-# The gonuts-tollgate pin is ONE version in every carrier (#791): the manifest
-# names it, check-gonuts-pin.py discovers carriers by glob and refuses any
-# disagreement — offline and fast, so it belongs here. go.sum is a trigger too:
-# a tidy can move a pin without a go.mod hunk. The --latest staleness leg is
-# deliberately NOT here — network in a hook means flaky commits; release-check
-# owns that verdict.
-if git diff --cached --name-only | grep -qE '(^|/)go\.mod$|(^|/)go\.sum$|^packaging/build-inputs\.json$'; then
-    echo "🔍 Checking the gonuts-tollgate pin (one version, everywhere)..."
-    python3 tests/contract/check-gonuts-pin.py
-if git diff --cached --name-only | grep -qE 'build-inputs\.json|scripts/.*\.sh|packaging/.*\.sh|tests/cloud-lab/Dockerfile|\.github/workflows/.*\.yml'; then
-    echo "🔍 Checking the two-path build surface (manifest, eras, allowlist, agnosticism)..."
-    python3 tests/contract/check-build-surface.py
-fi
-
-# Single source of truth for the release version (VERSION at the repo root).
-# Only runs when a file that carries the version is staged.
-if git diff --cached --name-only \
-    | grep -qE '^VERSION$|^src/cli/version\.go$|^packaging/local-build-ipk\.sh$|^packaging/Makefile$|^packaging/files/etc/uci-defaults/99-tollgate-setup$'; then
-    echo "🔍 Checking release-version consistency..."
-    sh scripts/check-version-sync.sh
-fi
-
-# One logical change, one CHANGELOG entry: a staged CHANGELOG edit must
-# not leave the same bold lead-in in two sections (the duplicate a
-# section-level conflict resolution can resurrect).
-if git diff --cached --name-only | grep -q '^CHANGELOG\.md$'; then
-    echo "🔍 Checking CHANGELOG for duplicate entries..."
-    python3 tests/contract/check-changelog-duplicates.py
-fi
-
-# Check gofmt on staged Go files (--diff-filter=d: gofmt cannot read
-# deleted files; xargs -I{} keeps one file per line, spaces-safe)
-if git diff --cached --name-only | grep -q '\.go$'; then
-    unformatted=$(git diff --cached --name-only --diff-filter=d -- '*.go' | xargs -I{} gofmt -l -- {})
-    if [ -n "$unformatted" ]; then
-        echo "❌ gofmt found unformatted files:"
-        echo "$unformatted"
-        echo ""
-        echo "Run: gofmt -w <files>"
+for fence in "${fences[@]}"; do
+    if ! bash -n "$fence"; then
+        echo "❌ $fence does not parse on its own (bash -n). Every fence is a" >&2
+        echo "   complete if/fi block — see fences.d/README.md." >&2
         exit 1
     fi
-fi
+done
 
-# The open AP's SSID is written into the beacon of every router that takes the
-# default, and it is the name clients and the operator match on — keep it the
-# contract shape (`<brand>-<4 hex chars>`) so a band suffix or a fixed literal
-# cannot come back. Runs whenever anything under packaging/files/ is staged:
-# that tree is what the .ipk/.apk payload is staged from.
-if git diff --cached --name-only | grep -qE '^packaging/files/'; then
-    echo "🔍 Checking the AP SSID format contract..."
-    bash tests/contract/check-ssid-format.sh
-fi
-
-# The reader twin of the format contract: hasTollGateSSID's acceptance table
-# (both brands, bare and single-'!'-decorated, case-insensitive, double-!
-# rejected) is pinned by tests/contract/ssid-naming-fixtures.txt, shared
-# with the Go unit test. Runs when the matcher, the table, or the fence
-# itself is staged.
-if git diff --cached --name-only | grep -qE '^src/wireless_gateway_manager/brands|^tests/contract/(ssid-naming|check-ssid-naming)'; then
-    echo "🔍 Checking the SSID matcher's acceptance table..."
-    bash tests/contract/check-ssid-naming.sh
-fi
-
-# Changelog fragments carry a PR's changelog entry (changelog.d/README.md). A
-# malformed one — wrong filename, unknown type, a body that is not the bullet —
-# is refused here rather than when a release tries to fold it. The fold tool is
-# what writes them into CHANGELOG.md; PRs do not edit the changelog directly.
-if git diff --cached --name-only | grep -qE '^changelog\.d/.*\.md$'; then
-    echo "🔍 Checking changelog fragments..."
-    python3 scripts/changelog-assemble.py check
-fi
+for fence in "${fences[@]}"; do
+    bash "$fence"
+done
