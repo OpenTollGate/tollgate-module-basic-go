@@ -1240,24 +1240,67 @@ admin_credential_state() {
     esac
 }
 
-# This package does NOT accept an install-time credential either. An earlier
-# version read TOLLGATE_ADMIN_PASSWORD (and a root-only /etc/tollgate/
-# admin-password file, added because apk-tools 3 does not forward the install
-# environment to package scriptlets) and set root to it. A non-interactive
-# "supply a value" mechanism is too easy to mis-fire: an operator who pasted the
-# run-book's EXAMPLE value verbatim ended up with root set to a string they never
-# chose, and no link to it. The operator therefore always sets the password
-# themselves — `passwd root` before the install (see the run-book), or LuCI after
-# it — and this package only ASCERTAINS that one exists.
+# When root has NO credential this package sets a FIXED, well-known default
+# (TOLLGATE_DEFAULT_CREDENTIAL below) instead of refusing. It is deliberately a
+# constant, never a generated random value: a random password is one the
+# operator cannot know, and a router whose root password nobody knows is exactly
+# the lockout this gate exists to prevent. A default the operator can read off
+# this file and the install log is one they can always log in with, and it is
+# marked PROVISIONAL so the admin/config UI FORCES them to choose their own at
+# first login (the board's forced password choice reads the marker below).
+#
+# An install-time credential is still NOT accepted: an earlier version read
+# TOLLGATE_ADMIN_PASSWORD (and a root-only /etc/tollgate/admin-password file,
+# added because apk-tools 3 does not forward the install environment to package
+# scriptlets) and set root to that. A non-interactive "supply a value"
+# mechanism is too easy to mis-fire — an operator who pasted the run-book's
+# EXAMPLE value verbatim ended up with root set to a string they never chose.
+# The default is the only value this package writes on its own; whatever the
+# operator sets (with `passwd root`, LuCI, the installer, or the board) wins and
+# is never rewritten.
 
-# Marks a credential a PAST version of this package GENERATED rather than one
-# the operator chose. This package no longer generates credentials (see
-# enforce_admin_credential), but the marker is still read on upgrade: a router
-# that carries one from an older install must keep telling the operator the
-# root password was generated, not chosen. The file holds no secret; its
-# absence is the contract the config UI reads to decide whether it must force a
-# password change at first login.
+# Marks a credential that is the PACKAGE default (or one a past version
+# GENERATED) rather than one the operator chose. The file holds no secret; its
+# presence is the contract the admin/config UI reads to DECIDE TO FORCE a
+# password change at first login. It is cleared once the operator chooses their
+# own (through the board, `passwd root`, or the installer).
 ADMIN_PROVISIONAL_MARKER="${ADMIN_PROVISIONAL_MARKER:-/etc/tollgate/admin-credential-provisional}"
+
+# The fixed default this package sets when root has none (see above). Kept in
+# ONE place so the admin gate, the private-WiFi default, and the tests agree.
+TOLLGATE_DEFAULT_CREDENTIAL="TollGate"
+
+# Companion marker to ADMIN_PROVISIONAL_MARKER for the private (management)
+# WiFi: written when setup_private_network installs the fixed DEFAULT passphrase
+# rather than one the operator chose. The admin/config UI reads it (through the
+# rpcd auth_status probe) to force the operator to choose a WiFi passphrase at
+# first login, and clears it once they do. Holds no secret.
+PRIVATE_WIFI_PROVISIONAL_MARKER="${PRIVATE_WIFI_PROVISIONAL_MARKER:-/etc/tollgate/private-wifi-credential-provisional}"
+
+# Set root's password to $1 non-interactively and VERIFY the result — `passwd`
+# can report success while the hash never changes (a read-only /etc, a locked
+# account). BusyBox `passwd` reads the new password twice on stdin; `chpasswd`
+# (when present) takes `user:password`. Returns non-zero if the credential is
+# still not usable afterwards.
+set_admin_password() {
+    local pw="$1"
+    if command -v passwd >/dev/null 2>&1; then
+        printf '%s\n%s\n' "$pw" "$pw" | passwd root >/dev/null 2>&1 || true
+    else
+        printf '%s:%s\n' root "$pw" | chpasswd >/dev/null 2>&1 || true
+    fi
+    [ "$(admin_credential_state)" = "set" ]
+}
+
+# Set the fixed default credential and record that it is PROVISIONAL (the
+# operator must replace it at first login). Returns non-zero if the write did
+# not take, so the caller can still fail closed.
+set_admin_default_credential() {
+    set_admin_password "$TOLLGATE_DEFAULT_CREDENTIAL" || return 1
+    mkdir -p "$(dirname "$ADMIN_PROVISIONAL_MARKER")" 2>/dev/null || true
+    : > "$ADMIN_PROVISIONAL_MARKER" 2>/dev/null || true
+    return 0
+}
 
 # Drop every admin-board listener this package can own or repair. The board's
 # pair follows the mapping: uhttpd.admin owns :8090/:8443 in luci mode and the
@@ -1290,9 +1333,12 @@ drop_admin_listeners() {
 # reinstall/upgrade must not leave an empty hash behind it either.
 #   set    -> nothing to do, the board is authenticatable
 #   locked -> nothing to do, password login is refused
-#   empty  -> NO credential exists: set NOTHING and refuse to serve the board.
-#             The operator sets one (`passwd root`, or LuCI) and re-runs. This
-#             package never sets a credential, so the only write here is none.
+#   empty  -> NO credential exists: set the FIXED default (TOLLGATE_DEFAULT_
+#             CREDENTIAL), mark it PROVISIONAL, and serve the board. The
+#             admin/config UI forces the operator to choose their own at first
+#             login; the default is one they can always log in with, so nobody
+#             is locked out. Falls through to the refusal only if the write did
+#             not take.
 #   unknown -> refuse to serve the board at all
 enforce_admin_credential() {
     local state board_http board_https
@@ -1314,7 +1360,7 @@ enforce_admin_credential() {
             # recovery path instead of implying the credential is one the
             # operator chose.
             if [ -f "$ADMIN_PROVISIONAL_MARKER" ]; then
-                log "Admin credential verified (GENERATED by an older package version — not yet chosen by the operator). Change it with 'passwd root' over SSH; the board keeps working meanwhile."
+                log "Admin credential is the installed DEFAULT (or one an older package generated) — not yet chosen by the operator. The admin/config UI forces a change at first login; it can also be changed with 'passwd root' over SSH. The board keeps working meanwhile."
             else
                 log "Admin credential verified (root password set) — :${board_http}/:${board_https} admin board allowed"
             fi
@@ -1327,18 +1373,23 @@ enforce_admin_credential() {
     esac
 
     if [ "$state" = "empty" ]; then
-        # NO credential exists: set NOTHING. This package never sets a password
-        # on the operator's behalf — a value the operator never chose is how a
-        # router gets locked out. The operator sets one with `passwd root` (or
-        # the LuCI password page) and the gate is re-run then.
-        log "ERROR: root has no password — refusing to serve the :${board_http}/:${board_https} admin board (rpcd would accept ANY password against the empty hash); set one with 'passwd root' (or LuCI) and re-run this script"
+        # NO credential exists. Set the FIXED default and mark it provisional so
+        # the operator is never locked out and the admin/config UI forces them
+        # to choose their own at first login. Fall through to the refusal only
+        # if the write did not take (read-only /etc, unwritable shadow).
+        log "Root has no password — setting the default admin password (${TOLLGATE_DEFAULT_CREDENTIAL}) and marking it provisional; the admin/config UI forces a change at first login."
+        if set_admin_default_credential; then
+            log "Default admin credential set (PROVISIONAL) — :${board_http}/:${board_https} admin board allowed; the operator is prompted to choose their own at first login"
+            return 0
+        fi
+        log "ERROR: could not set the default admin password on root (${SHADOW_FILE}) — refusing to serve the :${board_http}/:${board_https} admin board"
     else
         log "ERROR: no readable root credential state ($SHADOW_FILE / $PASSWD_FILE) — refusing to serve the :${board_http}/:${board_https} admin board; set one with 'passwd root', then re-run this script"
     fi
 
     # An unauthenticatable board is worse than no board.
     drop_admin_listeners
-    printf 'TollGate: root has no usable password — the :%s admin board is NOT served. Set one with `passwd root` (or the LuCI password page), then re-run /etc/uci-defaults/99-tollgate-setup\n' "$board_http" >&2
+    printf 'TollGate: could not establish a root password — the :%s admin board is NOT served. Set one with `passwd root` (or the LuCI password page), then re-run /etc/uci-defaults/99-tollgate-setup\n' "$board_http" >&2
     return 1
 }
 
@@ -2240,15 +2291,17 @@ setup_private_network() {
     if [ -n "$private_key" ]; then
         log "Preserving existing private WiFi key"
     else
-        # No passphrase has been set. This package never mints one the operator
-        # cannot see, so the private AP is left DISABLED; the operator sets a
-        # passphrase with `tollgate network private set-password` (or the board's
-        # network page), which re-enables it. The WIRED private network
-        # (br-private) is unaffected — a cabled operator keeps management access.
-        log "No private WiFi passphrase set — leaving the private AP disabled. Set one with 'tollgate network private set-password'."
+        # No passphrase has been set. Use the FIXED default — the same value the
+        # admin gate sets when root has none — rather than leaving the AP down:
+        # the operator can always know it, and the admin/config UI forces them to
+        # choose their own at first login (the admin-provisional marker records
+        # that a default credential is in use). The key VALUE is never logged:
+        # the install log is not a channel for a credential.
+        private_key="$TOLLGATE_DEFAULT_CREDENTIAL"
+        mkdir -p "$(dirname "$PRIVATE_WIFI_PROVISIONAL_MARKER")" 2>/dev/null || true
+        : > "$PRIVATE_WIFI_PROVISIONAL_MARKER" 2>/dev/null || true
+        log "No private WiFi passphrase set — using the default (${TOLLGATE_DEFAULT_CREDENTIAL}); the operator is prompted to choose their own at first login"
     fi
-    # The key VALUE is deliberately never logged: the install log is not a
-    # channel for a credential (that is the whole point of this change).
     log "Private SSID ${private_ssid}, IP ${private_ip}"
 
     uci set network.private='interface'
@@ -2273,13 +2326,8 @@ setup_private_network() {
     uci set wireless.private_radio0.mode='ap'
     uci set wireless.private_radio0.ssid="$private_ssid"
     uci set wireless.private_radio0.encryption='psk2+ccmp'
-    if [ -n "$private_key" ]; then
-        uci set wireless.private_radio0.key="$private_key"
-        uci set wireless.private_radio0.disabled='0'
-    else
-        uci -q delete wireless.private_radio0.key
-        uci set wireless.private_radio0.disabled='1'
-    fi
+    uci set wireless.private_radio0.key="$private_key"
+    uci set wireless.private_radio0.disabled='0'
 
     # Second private AP only when a distinct 5 GHz radio exists; on
     # single-band routers the stale section would bind to a phantom radio.
@@ -2290,13 +2338,8 @@ setup_private_network() {
         uci set wireless.private_radio1.mode='ap'
         uci set wireless.private_radio1.ssid="$private_ssid"
         uci set wireless.private_radio1.encryption='psk2+ccmp'
-        if [ -n "$private_key" ]; then
-            uci set wireless.private_radio1.key="$private_key"
-            uci set wireless.private_radio1.disabled='0'
-        else
-            uci -q delete wireless.private_radio1.key
-            uci set wireless.private_radio1.disabled='1'
-        fi
+        uci set wireless.private_radio1.key="$private_key"
+        uci set wireless.private_radio1.disabled='0'
     elif uci -q get wireless.private_radio1 >/dev/null 2>&1; then
         log "No distinct 5 GHz radio; removing stale private_radio1"
         uci delete wireless.private_radio1
