@@ -1270,6 +1270,13 @@ ADMIN_PROVISIONAL_MARKER="${ADMIN_PROVISIONAL_MARKER:-/etc/tollgate/admin-creden
 # ONE place so the admin gate, the private-WiFi default, and the tests agree.
 TOLLGATE_DEFAULT_CREDENTIAL="TollGate"
 
+# Companion marker to ADMIN_PROVISIONAL_MARKER for the private (management)
+# WiFi: written when setup_private_network installs the fixed DEFAULT passphrase
+# rather than one the operator chose. The admin/config UI reads it (through the
+# rpcd auth_status probe) to force the operator to choose a WiFi passphrase at
+# first login, and clears it once they do. Holds no secret.
+PRIVATE_WIFI_PROVISIONAL_MARKER="${PRIVATE_WIFI_PROVISIONAL_MARKER:-/etc/tollgate/private-wifi-credential-provisional}"
+
 # Set root's password to $1 non-interactively and VERIFY the result — `passwd`
 # can report success while the hash never changes (a read-only /etc, a locked
 # account). BusyBox `passwd` reads the new password twice on stdin; `chpasswd`
@@ -2291,6 +2298,8 @@ setup_private_network() {
         # that a default credential is in use). The key VALUE is never logged:
         # the install log is not a channel for a credential.
         private_key="$TOLLGATE_DEFAULT_CREDENTIAL"
+        mkdir -p "$(dirname "$PRIVATE_WIFI_PROVISIONAL_MARKER")" 2>/dev/null || true
+        : > "$PRIVATE_WIFI_PROVISIONAL_MARKER" 2>/dev/null || true
         log "No private WiFi passphrase set — using the default (${TOLLGATE_DEFAULT_CREDENTIAL}); the operator is prompted to choose their own at first login"
     fi
     log "Private SSID ${private_ssid}, IP ${private_ip}"

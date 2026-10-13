@@ -33,6 +33,7 @@ export GATEWAY_NAME="TestGate"
 export RANDOM_SUFFIX="abcd"
 export FAKE_IP_UPSTREAM="$TMP/ip.upstream"
 export HEXDUMP_QUEUE_FILE="$TMP/hexdump.queue"
+export PRIVATE_WIFI_PROVISIONAL_MARKER="$TMP/private-wifi-credential-provisional"
 : > "$FAKE_IP_UPSTREAM"
 : > "$HEXDUMP_QUEUE_FILE"
 
@@ -107,6 +108,7 @@ seed() {
 }
 run_private() {
     : > "$LOGFILE"
+    rm -f "$PRIVATE_WIFI_PROVISIONAL_MARKER"
     R2G=radio0 R5G=radio1 setup_private_network >/dev/null 2>&1
 }
 
@@ -125,6 +127,9 @@ run_private
 grep -q 'using the default (TollGate)' "$LOGFILE" \
     && ok "the log tells the operator the default was applied" \
     || bad "no log line explaining the default"
+[ -f "$PRIVATE_WIFI_PROVISIONAL_MARKER" ] \
+    && ok "the private-WiFi provisional marker was written (the UI forces a change)" \
+    || bad "no private-WiFi provisional marker was written"
 
 echo "== a supplied TOLLGATE_PRIVATE_WIFI_PASSWORD does NOT reach the AP"
 seed ""
@@ -154,6 +159,9 @@ run_private
 [ "$(state_dis)" = "0" ] \
     && ok "the private AP is enabled when a key exists" \
     || bad "the private AP is not enabled with a key present (disabled='$(state_dis)')"
+[ ! -f "$PRIVATE_WIFI_PROVISIONAL_MARKER" ] \
+    && ok "no provisional marker when the operator's key is preserved" \
+    || bad "a provisional marker was written although a key already existed"
 grep -q 'Preserving existing private WiFi key' "$LOGFILE" \
     && ok "the log reports the existing key was preserved" \
     || bad "the log does not report preservation"
