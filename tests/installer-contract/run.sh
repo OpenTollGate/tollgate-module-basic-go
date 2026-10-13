@@ -280,6 +280,7 @@ fi
 
 REL="$(vm ". /etc/openwrt_release 2>/dev/null && echo \$DISTRIB_RELEASE")"
 {
+    printf 'release: %s\n' "$REL"
     vm 'cat /etc/openwrt_release 2>/dev/null'
     printf 'kernel: %s\n' "$(vm 'uname -a 2>/dev/null')"
     printf 'apk_version: %s\n' "$(vm 'apk --version 2>/dev/null')"
