@@ -84,41 +84,18 @@ endef
 
 define Package/$(PKG_NAME)/preinst
 #!/bin/sh
-# The preinst runs BEFORE the package is unpacked, so a non-zero exit here
-# refuses the install cleanly (no half-installed files) — the operator sets a
-# root password and installs again. WHY: the :8090 admin board's login is checked
-# against root's /etc/shadow hash, and rpcd's session.login accepts ANY password
-# while that hash is EMPTY. The package never sets a credential (see the
-# no-generated-credentials changelog entries), so installing on a password-less
-# root would leave an unauthenticatable board; refuse instead of shipping a
-# half-working router.
+# No gate here any more. An earlier release REFUSED to install on a router whose
+# root account had no password (the admin board's login is checked against root's
+# /etc/shadow hash, and rpcd's session.login accepts ANY password while it is
+# EMPTY). That fail-closed install hurt more than it helped: apk-tools 3 treats a
+# failing pre-install as NON-FATAL, so the two lanes disagreed, and the operator
+# was forced to set a credential before the package could even land.
 #
-# Dependency-free by design: a previous jq-dependent preinst aborted upgrades on
-# jq-less minimal systems (see Amperstrand/tollgate-module-basic-go#93), so this
-# uses only awk. It also no longer records install_time — the binary owns
-# install.json (config_manager.EnsureDefaultInstall) and stamps it itself.
-
-# Offline/image builds (opkg/apk building an image under IPKG_INSTROOT) have no
-# live root to authenticate against; the gate applies at runtime, not here.
-[ -n "$${IPKG_INSTROOT:-}" ] && exit 0
-
-# Documented escape hatch for CI / runtime smoke installs whose container root
-# is empty (e.g. the feed's "Test via Docker container" lane). Never a default.
-[ "$${TOLLGATE_ALLOW_EMPTY_ROOT:-0}" = "1" ] && exit 0
-
-# Absolute path into the live system; the offline test redirects it, exactly as
-# 99-tollgate-setup redirects its SHADOW_FILE.
-SHADOW_FILE="$${SHADOW_FILE:-/etc/shadow}"
-root_hash="$$(awk -F: '$$1 == "root" { print $$2; exit }' "$$SHADOW_FILE" 2>/dev/null)"
-if [ -z "$$root_hash" ]; then
-	printf '%s\n' "ERROR: root has no password — refusing to install." \
-		"       The TollGate admin board's login is checked against root's" \
-		"       /etc/shadow hash, and rpcd accepts ANY password while it is" \
-		"       empty. Set one with 'passwd root' (or the LuCI password page)," \
-		"       then install again." >&2
-	exit 1
-fi
-
+# The refusal is replaced by a FIXED default: 99-tollgate-setup now sets root to
+# TOLLGATE_DEFAULT_CREDENTIAL when none exists and marks it PROVISIONAL, so the
+# operator is never locked out and the admin/config UI forces them to choose
+# their own at first login. Kept as a no-op (rather than removed) so the control
+# script keeps a stable shape across the opkg/apk lanes and offline builds.
 exit 0
 endef
 

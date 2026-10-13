@@ -27,7 +27,7 @@
 #
 # Offline: no router, no SDK, no network. The shipped driver runs against a fake
 # uci/apk/passwd and a sandboxed /etc, on BOTH setup paths — the same seam
-# tests/packaging/admin-board-requires-credential_test.sh and
+# tests/packaging/admin-board-defaults-to-tollgate_test.sh and
 # tests/uci-defaults-trusted-entry-80_test.sh use.
 #
 # The legacy section name is never spelled out in this repo (see
@@ -216,7 +216,7 @@ export DEVICE_CODE_STORE="$TMP/config/tollgate"
 BRAND_FILE="$TMP/etc/tollgate/brand"
 mkdir -p "$TMP/config" "$TMP/etc/tollgate"
 # A credential EXISTS: the gate then leaves the board standing (its own
-# fail-closed behaviour is pinned by tests/packaging/admin-board-requires-credential_test.sh).
+# credential behaviour is pinned by tests/packaging/admin-board-defaults-to-tollgate_test.sh).
 printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
 : > "$PASSWD_FILE"
 rm -f "$BRAND_FILE"
