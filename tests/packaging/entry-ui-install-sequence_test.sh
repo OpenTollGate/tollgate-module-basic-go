@@ -253,6 +253,13 @@ export TOLLGATE_ENTRY_UI_CONFIG="$CONFIG_JSON"
 export TOLLGATE_CONFIG_JSON="$CONFIG_JSON"
 export TOLLGATE_ENTRY_UI_MARKER="$ENTRY_MARKER"
 export TOLLGATE_ENTRY_UI_ADMIN_SETUP="$ADMIN_SETUP_INSTALLED"
+# The credential markers (#913's fixed-default path writes them on an empty
+# root) default to absolute /etc paths; keep them in the sandbox so a source
+# run cannot touch the build host's /etc/tollgate — the same discipline the
+# mapping test pins (measured: without these, scenario 4 wrote empty markers
+# to the HOST's live /etc/tollgate).
+export ADMIN_PROVISIONAL_MARKER="$TMP/etc/tollgate/admin-credential-provisional"
+export PRIVATE_WIFI_PROVISIONAL_MARKER="$TMP/etc/tollgate/private-wifi-credential-provisional"
 export ENTRY_UI_JQ_BIN="$TMP/bin/jq"
 export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd"
@@ -334,7 +341,9 @@ seed_host() {
 # section, no marker, no config.json — exactly the issue #849 fresh install.
 seed_stock() {
     : > "$UCI_STATE"
-    rm -f "$CONFIG_JSON" "$ENTRY_MARKER" "$FLAG" "$BRAND_FILE"
+    rm -f "$CONFIG_JSON" "$ENTRY_MARKER" "$FLAG" "$BRAND_FILE" \
+        "$ADMIN_PROVISIONAL_MARKER" "$PRIVATE_WIFI_PROVISIONAL_MARKER"
+    : > "$PASSWD_LOG"
     : > "$PASSWD_FILE"
     : > "$TMP/profile"
     printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
@@ -532,20 +541,47 @@ assert_mapping "scenario 3" luci
     && ok "scenario 3: the marker still records luci" \
     || bad "scenario 3: the marker is '$(cat "$ENTRY_MARKER" 2>/dev/null)' (want luci)"
 
-# --------------------------------- 4. credential gate refuses (fail closed)
-# No usable root credential and no operator-chosen password: BOTH gates must
-# refuse the BOARD while LuCI stays reachable on its mapped pair. The refusal
-# is the #838 contract; this scenario pins that the fix neither un-refuses the
-# gate nor tears main while refusing.
+# ---------------- 4. empty root — the #913 fixed-default contract converges
+# No usable root credential and no operator-chosen password: the sequence now
+# CONVERGES instead of refusing. 99 installs the fixed default (post-#913: a
+# router nobody can log into is worse than a documented default the operator
+# must change; see the #911 reconciliation), 999's gate then sees a non-empty
+# hash, and the board is SERVED while LuCI stays on its mapped pair. The #838
+# fail-closed refusal survives as a 999-level invariant, pinned by 4b with 99
+# absent — the only state in which an empty hash still reaches the gate.
 echo
-echo "== scenario 4: no usable root credential — the board is refused, LuCI is not"
+echo "== scenario 4: empty root — the fixed-default credential converges the board"
 seed_stock
 printf 'root::0:0:99999:7:::\n' > "$SHADOW_FILE"   # empty hash: the fresh-flash state
-run_99; rc99=$?
+run_99
 run_999; rc999=$?
-[ "$rc999" = 0 ] || bad "scenario 4: 999 exited $rc999 (the refusal is a WARNING, not a failure)"
-assert_fence "scenario 4" refused board
-assert_mapping "scenario 4" board refused
+[ "$rc999" = 0 ] || bad "scenario 4: 999 exited $rc999"
+[ -s "$PASSWD_LOG" ] \
+    && ok "scenario 4: 99 installed a credential on the empty root (the #913 default path)" \
+    || bad "scenario 4: 99 never invoked passwd on an empty root"
+[ -n "$(awk -F: '$1=="root" && $2!="" && $2!="x" {print "set"}' "$SHADOW_FILE")" ] \
+    && ok "scenario 4: root's shadow hash is set after the sequence" \
+    || bad "scenario 4: root's shadow hash is still empty after the sequence"
+[ -f "$ADMIN_PROVISIONAL_MARKER" ] \
+    && ok "scenario 4: the provisional-credential marker is written (change forced at first login)" \
+    || bad "scenario 4: the provisional-credential marker is absent"
+assert_fence  "scenario 4"
+assert_mapping "scenario 4" board
+
+# ------ 4b. an emptied root hash on a converged box still refuses (the #838 gate)
+# Post-#913 an empty hash never reaches 999 through the fresh sequence (99
+# installs the default first), so the invariant is staged the way it presents
+# in the field: the box has ALREADY converged (scenario 4's state), root's
+# hash then goes empty (the deployed-router case the 92 script's own refusal
+# comment describes), and a re-run of 999 must drop the board's listeners
+# while LuCI keeps its pair and nothing else is torn.
+echo
+echo "== scenario 4b: converged box, root hash emptied — 999 re-refuses the board"
+printf 'root::0:0:99999:7:::\n' > "$SHADOW_FILE"
+run_999; rc999=$?
+[ "$rc999" = 0 ] || bad "scenario 4b: 999 exited $rc999 (the refusal is a WARNING, not a failure)"
+assert_fence "scenario 4b" refused board
+assert_mapping "scenario 4b" board refused
 
 echo
 printf 'tests: %d passed, %d failed\n' "$PASS" "$FAIL"
