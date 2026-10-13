@@ -1,9 +1,10 @@
 # TollGate v0.6.0 — Release Notes (DRAFT for the 0.6.0 tag)
 
-> **Draft status**: consolidates everything merged through `v0.6.0-rc2`
-> (fragments + `[Unreleased]`), rolled up with the rc1 notes into one final
-> document. Entries for the pre-tag blocker set (issue #909) join this
-> document when those PRs merge. Remove this banner at the cut.
+> **Draft status**: consolidates everything merged through `v0.6.0-rc4`
+> (fragments + `[Unreleased]` + the rc3/rc4 commits), rolled up with the
+> rc1 notes into one final document. Entries for the pre-tag blocker set
+> (issue #909) join this document when those PRs merge. Remove this banner
+> at the cut.
 
 TollGate v0.6.0 turns an OpenWrt router into a Cashu-powered payment
 gateway for internet access, with reseller (upstream TollGate) mode, a
@@ -35,16 +36,27 @@ work, on top of everything in the alphas.
   `docs/architecture/`
   ([#631](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/631)).
 
-## Installer and credential hardening (the #884 series)
+## Installer and credential hardening (the #884 series, resolved by #913)
 
-- **The package never sets or generates a credential the operator did
-  not choose**; root-password-less installs are refused up front by
-  preinst instead of silently generating secrets
-  ([#884](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/884),
-  [#896](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/896),
-  [#902](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/902)).
-- **Generated admin credentials are never printed to the console** and
-  are marked provisional; the operator's own credential file is honored
+- **The credential model, final shape (#913, rc4): a passwordless install
+  defaults root to a fixed TollGate credential instead of refusing.**
+  The admin board's login checks root's `/etc/shadow` hash, and rpcd's
+  session.login accepts ANY password while root's is empty — so an empty
+  root password is an open admin board. rc3 refused to install in that
+  state, but a failing pre-install is non-fatal under apk-tools 3 (the
+  package lands anyway) and the refusal burdened every operator. The
+  package now sets root to `TOLLGATE_DEFAULT_CREDENTIAL` when no
+  credential exists, sets the private (management) Wi-Fi key to the same
+  value, marks the admin credential **provisional**, and serves the
+  board; the admin/config UI forces a change at first login (shipping
+  separately, post-release). No install-time credential input is
+  accepted (`TOLLGATE_ADMIN_PASSWORD` / staged files stay ignored), an
+  operator's own credential is always preserved, and the write still
+  fails closed if it cannot take
+  ([#913](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/913),
+  [#884](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/884)).
+- **The package never prints generated credentials to the console** and
+  generated values are marked provisional
   ([#850](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/850),
   [#897](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/897)).
 - **`upstream connect` refreshes stored credentials and clears competing
@@ -53,8 +65,7 @@ work, on top of everything in the alphas.
   ([#817](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/817),
   [#848](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/848)).
 - **The installer's trust model is stated and enforced** — the CA bundle
-  is declared, manual-install trust is explicit, and staged secrets
-  carry install-time credentials through the apk path
+  is declared and manual-install trust is explicit
   ([#894](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/888)).
 
 ## Captive portal and network behavior
@@ -89,6 +100,12 @@ work, on top of everything in the alphas.
   [#717](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/717)).
 - **Both package formats ship the GPL license text**
   ([#787](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/787)).
+- **The package-build surface has a recorded decommission plan (#914)**:
+  `FreedomTechFeed/packages/net/tollgate-wrt/Makefile` is the single
+  canonical shipping package; this repo's `packaging/Makefile` becomes
+  test/reproducibility-only, with the mechanical removal (Package/Build
+  targets, build helpers, publish jobs) executing after v0.6.0-rc4
+  ([#914](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/914)).
 - **The VM acceptance campaign** pins the x86-64 battery lane on
   ai-legion (first campaign evidence recorded)
   ([#502](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/502)).
@@ -128,10 +145,14 @@ work, on top of everything in the alphas.
 
 ## Upgrade notes
 
-- Upgrading from v0.5.x: the first boot after upgrade refuses to
-  proceed if root has no password — set one before upgrading (the
-  installer states this up front). Admin credentials are never
-  generated silently anymore; the operator's choices are respected.
+- Upgrading from v0.5.x: **if root has no password at install time, the
+  package sets a fixed default (`TollGate`) for root and the private
+  Wi-Fi key, marked provisional — change it at first login** (#913). An
+  operator's own existing credential is never touched, and the installer
+  accepts no credential input. (rc3 briefly refused passwordless
+  installs instead; rc4 replaced the refusal with the default, because
+  apk-tools 3 makes pre-install failures non-fatal and the refusal
+  burdened every operator.)
 - Reseller nodes: reconnect with `upstream connect` after any
   credential rotation; stored credentials refresh automatically now.
 - Package versions now sort correctly against future 0.6.x releases
