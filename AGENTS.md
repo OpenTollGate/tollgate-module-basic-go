@@ -23,6 +23,44 @@ map and configuration reference.
   firewall, Wi-Fi, `ndsctl`). Unit tests passing does not mean a
   router-visible change works — say so honestly in PR descriptions.
 
+## Cross-Repository Engineering Ownership and Verification
+
+**This repository owns the Go runtime implementation, its unit tests,
+source-level contracts (config schema, packaging scripts' offline suites,
+the userspace happy-path and installer-contract lanes) and its own
+documentation.** It is *not* the authority for anything below that it does
+not own — check before you build:
+
+- **Shipping packages** (recipes, pins, feed publication, released
+  `.apk`/`.ipk`) are owned by [`FreedomTechFeed/packages`](https://github.com/FreedomTechFeed/packages).
+  This repo's `scripts/build-sdk-package.sh` is a reproducible
+  *development* build path, not a competing shipping authority.
+- **Router integration and deployed-artifact acceptance testing** is owned
+  by [`OpenTollGate/physical-router-test-automation`](https://github.com/OpenTollGate/physical-router-test-automation)
+  (PRTA). Router-visible verification evidence belongs there, bound to the
+  exact artifact sha256 and source SHA. The hardware-fleet tests under
+  [tests/](tests/) are retired pending that migration (see `tests/README.md`
+  and PRTA's consolidation decision).
+- The captive portal is [`OpenTollGate/tollgate-captive-portal-site`](https://github.com/OpenTollGate/tollgate-captive-portal-site),
+  consumed at the revision pinned in `packaging/build-inputs.json` — never
+  vendored divergently.
+- The wire protocol is [`OpenTollGate/tollgate`](https://github.com/OpenTollGate/tollgate);
+  the wallet layer is [`OpenTollGate/gonuts-tollgate`](https://github.com/OpenTollGate/gonuts-tollgate)
+  (fixes land there first, then bump the `replace` pin).
+
+The canonical policy — ownership map, the four-level verification hierarchy
+(source / virtual integration / physical / release acceptance), and the
+AI-agent operating principles — is
+[`physical-router-test-automation/docs/engineering-policy.md`](https://github.com/OpenTollGate/physical-router-test-automation/blob/main/docs/engineering-policy.md).
+Before implementing: identify the owner of the behavior, search open PRs
+for the same change, and use the existing canonical runner instead of
+creating a new one. A required check that was skipped or never run is
+reported as such, never as PASS. Do not duplicate declarations (versions,
+ports, package contracts) that another repository owns.
+
+All fund-safety, crash-consistency and environment-truth rules below remain
+in force.
+
 ## Fund safety, crash consistency, and distributed transaction invariants
 
 Any change touching payments, wallets, sessions, gates, mints, payouts,

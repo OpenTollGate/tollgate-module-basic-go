@@ -491,6 +491,16 @@ public AP format is pinned by `tests/contract/check-ssid-format.sh`.
 
 ## Testing
 
+> **Where router-visible verification lives:** this repository owns unit
+> tests and source-level contracts; deployed-artifact integration and
+> acceptance testing is owned by
+> [physical-router-test-automation](https://github.com/OpenTollGate/physical-router-test-automation)
+> (PRTA). The pytest hardware-fleet table below is the legacy in-repo
+> fleet, retired pending migration per PRTA's runner-consolidation
+> decision — new router tests belong in PRTA. The cross-repository
+> ownership and verification policy is
+> [PRTA's engineering policy](https://github.com/OpenTollGate/physical-router-test-automation/blob/main/docs/engineering-policy.md).
+
 Unit tests, from the [src/](src/) directory:
 
 ```sh
