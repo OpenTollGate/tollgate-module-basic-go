@@ -251,13 +251,16 @@ PYEOF
 # serial_reprovision — after firstboot, /etc is gone: restore the two things
 # ssh needs (an address on the qemu user-net, the lane's dropbear key) over
 # the serial console. Idempotent; safe to call on an already-provisioned box.
+# The waits are deliberately generous: a network restart keeps the shell busy
+# well past 4s, and a marker sent into that window used to be drained before
+# it was echoed — reading as a reprovision failure on a healthy device.
 serial_reprovision() {
     [ -n "$SERIAL" ] || return 1
     [ -n "$SSH_KEY" ] || return 1
     local pub
     pub="$(cat "${SSH_KEY}.pub")" || return 1
-    serial_cmd "$SERIAL" "uci set network.lan.proto='dhcp'; uci commit network; /etc/init.d/network restart; sleep 3" 8 >/dev/null 2>&1
-    serial_cmd "$SERIAL" "mkdir -p /etc/dropbear && echo '$pub' > /etc/dropbear/authorized_keys && chmod 600 /etc/dropbear/authorized_keys && echo REPROVISIONED" 4 2>/dev/null | grep -q REPROVISIONED
+    serial_cmd "$SERIAL" "uci set network.lan.proto='dhcp'; uci commit network; /etc/init.d/network restart" 15 >/dev/null 2>&1
+    serial_cmd "$SERIAL" "mkdir -p /etc/dropbear && echo '$pub' > /etc/dropbear/authorized_keys && chmod 600 /etc/dropbear/authorized_keys && echo REPROVISIONED" 10 2>/dev/null | grep -q REPROVISIONED
 }
 
 ARTIFACT_SHA="$(sha256sum "$ARTIFACT" | awk '{print $1}')"
