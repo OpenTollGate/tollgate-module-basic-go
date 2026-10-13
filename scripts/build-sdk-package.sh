@@ -119,7 +119,7 @@ verify_portal_products() {
     local acl="$REPO_ROOT/packaging/files/usr/share/rpcd/acl.d/tollgate.json"
     local admin_setup="$REPO_ROOT/packaging/files/etc/uci-defaults/999-tollgate-admin-setup"
     local stamp="$REPO_ROOT/packaging/portal-resolved.sha"
-    [ -f "$guest/index.html" ] && [ -d "$guest/assets" ] \
+    [ -f "$guest/splash.html" ] && [ -d "$guest/assets" ] \
         && [ -f "$admin/index.html" ] \
         && [ -x "$plugin" ] && [ -s "$acl" ] && [ -x "$admin_setup" ] \
         && [ -s "$stamp" ] && [ "$(cat "$stamp")" = "$PORTAL_COMMIT" ]
@@ -201,7 +201,7 @@ for _required in \
     "$STAGE_DIR/tollgate" \
     "$STAGE_DIR/files/etc/uci-defaults/99-tollgate-setup" \
     "$STAGE_DIR/files/etc/uci-defaults/999-tollgate-admin-setup" \
-    "$STAGE_DIR/files/tollgate-captive-portal-site/index.html"
+    "$STAGE_DIR/files/tollgate-captive-portal-site/splash.html"
 do
     if [ ! -s "$_required" ]; then
         printf 'ERROR: staging incomplete: %s missing or empty (disk full under %s?)\n' \
