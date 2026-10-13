@@ -148,6 +148,17 @@ echo "Restarting network..."
 wait_for_iface br-lan
 wait_for_iface br-private || echo "Note: br-private not found — this is expected on devices without a private network configured."
 
+# The uplink lease can arrive only AFTER the restart above, so the private subnet
+# chosen at uci-defaults time may now collide with the upstream — a router that
+# answers for the upstream gateway's own address breaks DNS. Re-check now that
+# the uplink is up, and reload the network only if the private subnet had to move.
+if [ -x /etc/uci-defaults/99-tollgate-setup ]; then
+    ( TOLLGATE_SETUP_LIB_ONLY=1 . /etc/uci-defaults/99-tollgate-setup 2>/dev/null
+      if command -v recheck_private_subnet >/dev/null 2>&1; then
+          recheck_private_subnet && /etc/init.d/network restart 2>/dev/null || true
+      fi )
+fi
+
 echo "Reloading remaining services..."
 wifi reload 2>/dev/null || true
 /etc/init.d/firewall reload 2>/dev/null || true
