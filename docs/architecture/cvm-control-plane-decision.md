@@ -105,7 +105,7 @@ curator and no directory to trust. This is the whole discovery mechanism.
 
 ### D5 — The dashboard is a static nsite; the browser holds no key
 
-A separate dashboard repo (currently `felixfelix-bot/tollgate-dashboard`, intended for a future transfer to the OpenTollGate organization) builds a static site deployed with
+A separate dashboard repo (`cvm-services/tollgate-dashboard`, positioned for a future move into the OpenTollGate organization) builds a static site deployed with
 `nsyte` (never localhost — standing rule):
 
 1. **Login** via a NIP-07 browser extension. No private key ever enters the page.

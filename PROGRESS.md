@@ -48,7 +48,7 @@ Urgency: SOON (operator-approved; write scope read+config+private+start/stop/res
 
 ## Remaining
 
-1. P4 dashboard: delegated → ~/worktrees/tollgate-dashboard (child building); repo now at felixfelix-bot/tollgate-dashboard (transferred from cvm-services; future home: OpenTollGate org) + nsite deployed
+1. P4 dashboard: delegated → ~/worktrees/tollgate-dashboard (child building); repo at cvm-services/tollgate-dashboard (operator-confirmed location; future home: OpenTollGate org) + nsite deployed
 2. P5 cold cross-family review PUBLISHED on PR #938 (child audit → ~/reports/contextvm-tollgate/AUDIT-cvm-control-plane.md)
 3. Upstream merge = OPERATOR (repo policy: never merge upstream main; ruleset needs c03rad0r approval, bot cannot self-approve)
 
