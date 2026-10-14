@@ -111,12 +111,18 @@ not be claimed away later.
 
 ## 4. Why it does not pay: the price is 1 sat per 6.12 hours
 
-The module's own constants (`src/tollgate_protocol/validator_test.go`,
-`src/config_manager/config_manager_config.go`, `README.md`):
-`step_size = 22020096 ms`, `price_per_step = 1 sat`.
+The module's own constants, read live from `tollgate-A04E`
+(`tollgate-wrt v0.6.0-rc4-gcf7cad3`): `metric = "bytes"`,
+`step_size = 22020096`, `price_per_step = 1 sat`.
 
-> **1 satoshi buys 6.12 hours of internet.** The module's own `MinBalance`
-> of 64 sats is **16.3 days**.
+> **1 satoshi buys 21 MiB of data.** (`22020096 = 21 × 2²⁰` exactly.)
+
+> **Correction, §10.1:** an earlier revision of this document read `step_size`
+> as *milliseconds* and reported "1 satoshi buys 6.12 hours of internet". The
+> shipped metric is **bytes**. The overhead percentages below are a sat-to-sat
+> ratio and are unaffected; the size of a realistic purchase — and therefore the
+> break-even — is **not**. See §10 for the corrected analysis, which is
+> materially more favourable to the channel at large purchase sizes.
 
 A channel's on-chain cost is **fixed per channel**; the purchase it settles is
 not. At 716 sats of setup+close (2 sat/vB):
@@ -295,3 +301,165 @@ the only route by which the thesis survives.
   parameter tuning closes; it does not predict fee variance.
 - **The module has no client implementation in-tree**, so what a real customer
   client could do with a channel instrument is not established from code.
+
+---
+
+# 10. Granularity, price, and the relaxation lattice
+
+*Added 2026-10-14, after review. Companion script:
+[`research/one-way-channel-spike/granularity.py`](../../research/one-way-channel-spike/granularity.py);
+captured output in `out/GRANULARITY.txt`.*
+
+## 10.1 An erratum that changes the size of the cost problem
+
+The original spike computed its economics by reading `step_size = 22020096` as
+**milliseconds** (22020096 ms = 6.117 h), producing the headline *"1 satoshi buys
+6.12 hours of internet"*.
+
+**That is not what the shipped configuration means.** Read live from
+`tollgate-A04E` (`tollgate-wrt v0.6.0-rc4-gcf7cad3`):
+
+```json
+{ "metric": "bytes", "step_size": 22020096, "price_per_step": 1 }
+```
+
+The metric is **bytes**. So the correct statement of the shipped default is:
+
+> **1 satoshi buys 21 MiB of data.** (`22020096 = 21 × 2²⁰` exactly — a clean
+> MiB quantity, which is itself evidence the bytes reading is intended.)
+
+Both readings are *supported* by the module — `tollgate config set metric
+milliseconds` exists — but the **shipped default is bytes**, and the ms reading
+was an artefact of the original simulator, not of the product.
+
+**What this does and does not change:**
+
+- The **overhead percentages** (§4) are a ratio of sats to sats, so they are
+  **metric-independent and remain correct**.
+- What changes is **what a purchase buys**, and therefore **how large a realistic
+  purchase is in sats** — which is the denominator the channel's fixed cost
+  amortises against. That number moves by orders of magnitude.
+- **The custody finding is unaffected at any price** (§3).
+
+## 10.2 The corrected break-even, and it is more favourable than published
+
+`granularity.py` recomputes everything from the live constants. A realistic
+monthly purchase, priced per byte:
+
+| Data bought | = sats | (≈ fiat @ $100k/BTC) |
+|---|---|---|
+| 50 GB (light month) | **2,271** | $2.27 |
+| 300 GB (heavy month) | **13,624** | $13.62 |
+| 3.6 TB (heavy year) | **163,487** | $163.49 |
+| 12 TB (very heavy year) | **544,957** | $544.96 |
+
+Against a fixed **716 sat** channel setup+close:
+
+| Purchase | = data | Overhead |
+|---|---|---|
+| 1,000 sat | 20.5 GiB | 71.60% |
+| 5,000 sat | 102.5 GiB | 14.32% |
+| 10,000 sat | 205.1 GiB | 7.16% |
+| 50,000 sat | 1.00 TiB | 1.43% |
+| 716,000 sat | 14.34 TiB | 0.10% |
+
+**Expressed as time — the operator's actual question:**
+
+| Usage rate | sats/month | months to 5% | to 1% | to 0.1% |
+|---|---|---|---|---|
+| light 50 GB/mo | 2,271 | 6.31 | 31.53 | 315.33 |
+| heavy 300 GB/mo | 13,624 | **1.05** | 5.26 | 52.55 |
+| very heavy 1 TB/mo | 45,413 | **0.32** | 1.58 | 15.77 |
+
+**Read that second column carefully, because it reverses part of §4's
+conclusion.** For a **heavy** user, an on-chain channel reaches 5% overhead within
+**about one month**; for a very heavy user, within **a third of a month**. The
+original "3–4 orders of magnitude too expensive" was an artefact of the ms
+reading; the corrected figure is **1–3 orders of magnitude at small purchases,
+and comparable at large ones**.
+
+So the honest restatement is:
+
+> The channel is **uneconomic for metered per-session micropayments**, and
+> **plausibly economic for a high-volume prepaid subscription** — which is a
+> different product, and the one §10.3 makes sense of.
+
+The **custody** conclusion is untouched: at *any* price, `V0`/`V2`/`V3` carry a
+custodian, and only `V1` does not — and `V1` requires the payer to co-sign per
+granule.
+
+## 10.3 The relaxation lattice
+
+The thesis fails on **two independent axes**, and confusion between them is what
+makes the question hard. Coarser granularity fixes **only the cost axis**; it
+cannot fix custody.
+
+| # | Relax | To | Buys | Costs |
+|---|---|---|---|---|
+| **C1** | payer fully offline | co-sign over the **local link** | non-custodial ✅, still no internet needed | payer present on the LAN per granule — nearly free, the link exists by definition |
+| **C2** | payer chain-blind | deferred-online | leftover value recoverable | one chain access, eventually |
+| **C3** | fine value granularity | months, not sessions | on-chain cost amortises (§10.2) | product becomes prepaid bulk |
+| **C4** | non-custodial | allow a mint | everything works today | the property you wanted is gone — this *is* Cashu |
+| **C5** | immediate gate-open | verify-and-defer | removes the 30 s `Receive` block | settlement lag + reconciliation |
+
+**Two things granularity does *not* buy:**
+
+- **It does not fix the ladder theft (`V2`).** Coarser granules make each theft
+  *larger*, not smaller: a 1-granule overstatement at month-granularity is a free
+  month. The only fix is **C1**.
+- **It does not fix fee-stranding** — that is addressed by the STC anchor
+  machinery (§11), not by granularity.
+
+**The cheap insight:** **C1 is nearly free.** Co-signing needs the payer on the
+local link, and the customer is attached to the router's Wi-Fi *by definition of
+the product*. So the constraint that costs the most to relax (C4) is the one we
+should never need, and the one that costs almost nothing (C1) is the one that
+preserves the property we want.
+
+## 10.4 The design this implies: a spectrum, not a setting
+
+The operator's framing — *"self-custody and transaction frequency on opposite ends
+of a spectrum"* — is the right shape, and the corrected numbers support it.
+
+**The two ends:**
+
+| | Low frequency / high value | High frequency / low value |
+|---|---|---|
+| Product | prepaid subscription (monthly, high-volume) | metered per-session micropayment |
+| Instrument | **self-custodial channel (V1 + C1 + C2)** | **Cashu (custodial mint)** |
+| Why | 716 sat amortises over a ≥10,000-sat purchase; customer holds the key | 0.1% melt is free at this size; a mint round-trip is cents-to-zero |
+| Trust | customer trusts nobody | customer trusts the mint for the float |
+| Cost driver | on-chain setup+close, amortised | melt fee, proportional |
+
+**Which means the two instruments are not competitors — they are the two ends of
+one dial.** A TollGate could offer both and let the customer pick:
+
+- a **metered** mode (existing Cashu path, `price_per_step: 1`, 21 MiB per sat) —
+  ideal for a passer-by buying an hour;
+- a **subscription** mode (a channel, priced so that a month's data dwarfs the
+  716 sat setup) — ideal for a household or a heavy user who wants to hold their
+  own key.
+
+The second mode is exactly the case the operator named: *"a large tollgate that
+handles a lot of internet traffic can afford to use channels and can afford the
+self-custodial route."* The numbers agree with that: the threshold is **not** a
+property of the protocol, it is a property of **purchase size**, and large
+operators serving heavy users cross it naturally.
+
+**What would have to be true for the channel mode to ship:** C1 (local co-sign,
+free), C2 (deferred-online, cheap), C3 (prepaid subscription granularity, a
+product decision), and a **realistic price** — i.e. the operator charges for a
+month of data, not a satoshi per 21 MiB. None of those is a protocol change.
+
+## 10.5 What I would verify next
+
+1. **Whether `metric: bytes` is the intended default or a device-local artefact.**
+   The live router says bytes and the value is `21 × 2²⁰`, which is strong
+   evidence — but `metric` is operator-settable, and a *time*-priced operator
+   would read `step_size` as milliseconds. **The two readings differ by 10⁵× in
+   what a purchase buys**, so this should be settled in the docs, not inferred.
+2. **Real operator pricing.** The repo's `1 sat` is a default; `docs/merchant.md`
+   uses `100`, and a reseller test config uses `2` with a different `step_size`.
+   The real distribution matters more than the default.
+3. **Whether a prepaid-subscription mode is a product anyone wants** — that is an
+   operator question, not a technical one, and it gates everything above.

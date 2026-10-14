@@ -232,6 +232,23 @@ materially.** If that is so, say so and re-run the sim with the true constant �
 it is one line in `sim_economics.py`. The **custody** argument (V0/V2/V3 always
 have a custodian) does not weaken at any price.
 
+> **RESOLVED 2026-10-14 — and the answer is partly yes.** Verified against the
+> live router `tollgate-A04E` (`tollgate-wrt v0.6.0-rc4-gcf7cad3`): the shipped
+> config is `metric = "bytes"`, `step_size = 22020096` (= 21 MiB exactly),
+> `price_per_step = 1 sat`. So this document's `step_size` was read as
+> **milliseconds** in error — the sim's "6.12 hours per sat" was an artefact.
+>
+> The overhead percentages above are a sat-to-sat ratio and stand. What changes
+> is the **size of a realistic purchase**: a heavy user (300 GB/month) pays
+> ~13,624 sat, so a fixed 716-sat channel reaches **5% overhead in about one
+> month** and 1% in ~5 months. The corrected gap is **1–3 orders of magnitude at
+> small purchases and comparable at large ones** — weaker than published.
+>
+> **The verdict on custody does not move:** V0/V2/V3 carry a custodian at every
+> price. See §10 of the design record,
+> [`granularity.py`](../../research/one-way-channel-spike/granularity.py), and
+> `out/GRANULARITY.txt`.
+
 **VERDICT: Cashu dominates.** It is a bearer instrument, needs no chain, lets the
 payer hand value over while fully offline, is free per purchase, caps the
 *customer's* exposure at the amount bought, and is already implemented. The
@@ -307,7 +324,7 @@ at a price this product cannot pay.
 Run of `rig/check-env.sh`, committed verbatim at `rig/out/ENV.txt`:
 
 ```
-host        : x280
+host        : <host>
 distro      : Ubuntu 24.04.3 LTS
 cpus        : 8
 mem         : 7683 MiB total, 4584 MiB available
@@ -335,7 +352,7 @@ sudo        : NOPASSWD available
 | Question | Answer |
 |---|---|
 | Is a `bitcoind` running on this host? | **NO.** `ss -ltnp \| grep 8332` → no match. |
-| Is a bitcoind available *on this fleet*? | **YES, on `dq05`.** `listening 127.0.0.1:8332`, `Bitcoin Core daemon version v31.1.0`, pid 2151, running 85,416 s (≈23.7 h) with `-datadir=/mnt -conf=/mnt/bitcoin.conf`. `du -sh ~/.bitcoin` = 12K; `/mnt` holds the data. **But its RPC credentials are absent from `dq05`'s user context** (`Could not locate RPC credentials… Configuration file: (/home/c03rad0r/.bitcoin/bitcoin.conf)`), and its 8332 port is bound to **localhost only** — so it is **not** usable as a remote rig backend without further work. Report it, do not depend on it. |
+| Is a bitcoind available *on this fleet*? | **YES, on `dq05`.** `listening 127.0.0.1:8332`, `Bitcoin Core daemon version v31.1.0`, pid 2151, running 85,416 s (≈23.7 h) with `-datadir=/mnt -conf=/mnt/bitcoin.conf`. `du -sh ~/.bitcoin` = 12K; `/mnt` holds the data. **But its RPC credentials are absent from `dq05`'s user context** (`Could not locate RPC credentials… Configuration file: (<dq05-user>/.bitcoin/bitcoin.conf)`), and its 8332 port is bound to **localhost only** — so it is **not** usable as a remote rig backend without further work. Report it, do not depend on it. |
 | Is an LN implementation (CLN/LND) installed? | **NO, anywhere found.** `lnd`, `lncli`, `lightningd`, `cln`, `lightning-cli` all absent on this host and on `dq05`/`t440`. No 9735/9736 listener. |
 | Container runtime? | **NO** `docker`, **NO** `podman`. |
 | Go toolchain? | **Three-way finding** (`rig/out/GO-TOOLCHAIN.txt`): Ubuntu's apt `golang-go` is **1.22.5**, but `src/go.mod` requires **`go 1.26.0`** → `go build` fails with *"go.mod requires go >= 1.26.0"*. A **fetched Go 1.27.2 does build `src/`** (rc=0) and runs `research/bearer-port-demo` green. So the Go research surface **is** reachable here, at the cost of one ~70 MB network fetch. |
