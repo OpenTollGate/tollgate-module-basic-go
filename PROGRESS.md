@@ -9,3 +9,7 @@ Format:
 ---
 
 [001] 2026-10-15T01:10Z | loop scaffolding created; worktree verified clean at 67e2be2 on pr/one-way-channel-spike; quota gate ALLOW (deliverable=true, not frozen) | start | PROGRESS.md, REPORT.md
+
+[002] 2026-10-15T01:25Z | P0 COMPLETE: landed ROUTER-FEASIBILITY.md + OPTIONS-PAPER.md + research/lnurlcash-tollgate/ (codec POC 141/141 verified in-tree); fixed 4 stale step_size-ms spots; errata bug-count already clean; gitignored __pycache__ | pushed aeeba1f | docs/analysis/*.md, research/lnurlcash-tollgate/, .gitignore
+
+[003] 2026-10-15T01:45Z | P1.3 IN PROGRESS: discovered dq05 is UNREACHABLE (dq05.fips will not resolve, 192.168.2.32 permission denied) - the regtest node I provisioned there is gone. FOUND BETTER: the rig's OWN local regtest node runs on this host (~/.local/toolchain/btc/bin/bitcoind, datadir ~/.local/toolchain/btc/regtest-data, rpcport 18443, wallet 'rig', height 136, Core v31.1.0). Wrote kernel_check.py. LEG 1 MEASURED against real Core: both leaves decodescript type='nonstandard' (110B/111B or 69B/70B variants). LEG 2 PARTIAL: derived real P2TR addresses for both leaves, FUNDED both (0.5 BTC each) and confirmed them as live witness_v1_taproot outputs via gettxout. NOT YET SUBMITTED: the script-path witness serialization + testmempoolaccept ruling is unfinished, so the BIP-342 claim remains REASONED, not MEASURED. | blocked-partial | research/lnurlcash-tollgate/kernel_check.py, out/KERNEL-CHECK.json
