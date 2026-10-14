@@ -2,13 +2,16 @@ package tollwallet
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
@@ -165,9 +168,38 @@ func (w *TollWallet) registerMint(mintURL string) {
 	canonical := normalizeMintURL(mintURL)
 
 	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	if w.registeredMints[canonical] {
+		w.mu.Unlock()
+		return
+	}
+	w.mu.Unlock()
+
+	// gonuts' AddMint does its OWN network I/O and carries no http.Client
+	// timeout, so a mint that accepts the connection and never answers can stall
+	// the WHOLE wallet construction — measured 113-347 s for 7 mints in the
+	// module's own notes (src/startup_gate.go), which outlasts the installer's
+	// health window and made a healthy install report "the merchant is degraded".
+	//
+	// Guard it: only hand AddMint a mint that answers OUR bounded keyset request
+	// first. The probe and AddMint are SEPARATE exchanges, so this makes an
+	// AddMint hang UNLIKELY rather than impossible — a mint can answer /v1/keysets
+	// promptly and then stall AddMint's own fetches. The bound NARROWS the hang
+	// window; it does not close it. The real closure is a goroutine-with-timeout
+	// around AddMint, or moving registration off the boot path entirely — a
+	// follow-up; the installer side additionally reports the resulting slow start
+	// as a non-fatal "pending" rather than a failure.
+	//
+	// Residual worst case: one registerMintKeysetTimeout PER reachable mint, run
+	// sequentially — with 7 mints and the 8 s default that is 56 s at boot, well
+	// under the 113-347 s it replaces, but still potentially longer than the
+	// installer's health window. A mint that does not answer is left UNREGISTERED
+	// rather than blocking boot — ensureMintRegistered retries it on first use,
+	// so the FIRST payment routed to that mint pays a bounded <=8 s probe inline
+	// (a latency change, not a correctness one), and the reachable-set callbacks
+	// admit it once it recovers. Registration is sequential, so exactly one
+	// AddMint is ever in flight and gonuts is never called concurrently.
+	if !mintServesKeysets(canonical, registerMintKeysetTimeout) {
+		log.Printf("TollWallet: mint %s did not answer a bounded keyset check in %s — deferring registration", canonical, registerMintKeysetTimeout)
 		return
 	}
 
@@ -180,8 +212,36 @@ func (w *TollWallet) registerMint(mintURL string) {
 		return
 	}
 
+	w.mu.Lock()
 	w.registeredMints[canonical] = true
+	w.mu.Unlock()
 	log.Printf("TollWallet: registered mint %s", canonical)
+}
+
+// registerMintKeysetTimeout bounds ONE mint's pre-registration keyset check.
+// Deliberately short: the reachable-only selection already ran a full probe, so
+// a mint that does not answer quickly here is one AddMint would hang on.
+var registerMintKeysetTimeout = 8 * time.Second
+
+// mintServesKeysets reports whether mintURL answers a bounded GET /v1/keysets
+// with a usable (non-empty) keyset list — the same usability signal the health
+// tracker's probe uses, but with OUR OWN client so gonuts is only ever handed a
+// mint that just answered.
+func mintServesKeysets(mintURL string, timeout time.Duration) bool {
+	client := &http.Client{Timeout: timeout}
+	url := strings.TrimRight(mintURL, "/") + "/v1/keysets"
+	resp, err := client.Get(url)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false
+	}
+	var body struct {
+		Keysets []json.RawMessage `json:"keysets"`
+	}
+	return json.NewDecoder(resp.Body).Decode(&body) == nil && len(body.Keysets) > 0
 }
 
 func (w *TollWallet) ensureMintRegistered(mintURL string) {
