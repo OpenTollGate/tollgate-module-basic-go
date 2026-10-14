@@ -10,12 +10,18 @@ Module revision read throughout: `OpenTollGate/tollgate-module-basic-go` @
 > internet gateway** and **no custodian** can buy internet time from a TollGate —
 > and does TollGate benefit?
 
-**Answer, in one sentence:** No — no construction among the four built and run is
-both non-custodial and payer-offline, and against this product's own advertised
-price (1 sat / 6.12 h) the on-chain settlement layer is 3–4 orders of magnitude
-too expensive. The one construction that does hold (`V1`) is not the question
-that was asked, needs interactivity on the *local* link, and is dominated by the
-Cashu path TollGate already ships.
+**Answer, in one sentence:** No — among the four constructions built and run,
+none is both non-custodial and payer-offline, and against this product's own
+advertised price (1 sat / 6.12 h) the on-chain settlement layer is 3–4 orders of
+magnitude too expensive. The one construction that does hold (`V1`) is not the
+question that was asked, needs interactivity on the *local* link, and is
+dominated by the Cashu path TollGate already ships.
+
+**Scope of the negative (read this before citing the result).** This is a
+*failure to find* over a small, specific search space — not a proof that no
+construction exists. D5 in `RISK-AND-IAC.md` §A5 is **NOT MET** and is the one
+condition that would overturn the conclusion. The cost argument in §4, by
+contrast, does **not** depend on the search being exhaustive.
 
 **Contents**
 
@@ -53,9 +59,12 @@ the rig itself:
 Artefacts, all committed: `ENV.txt`, `GO-TOOLCHAIN.txt`, `BITCOIND-VERSION.txt`,
 `SIM-OUTPUT.txt`, `RED.txt`, `GREEN.txt`, `sim_economics.json`.
 
-**The construction is validated against Bitcoin Core v31.1 consensus, not against
-our own signature code.** A transaction the rig signs is only accepted if the
-sighash and DER encoding are byte-correct. That cross-check is the reason to use
+**The channel construction is validated against Bitcoin Core v31.1 consensus,
+not against our own signature code.** A transaction the rig signs is only accepted
+if the sighash and DER encoding are byte-correct. That applies to the spends the
+rig builds (V0/V1/V2 legs); it does **not** apply to everything in this report —
+V4 was never built, reorgs were never measured, and no channel was wired into the
+module. See §8 for the full boundary. That cross-check is the reason to use
 Core rather than a simulator — and §9 is the proof it was load-bearing: four
 separate bugs in the rig's own cryptography were caught by Core rejecting, not by
 self-consistency. A simulator would have passed all four silently and the report
@@ -195,7 +204,7 @@ Settlement cost per purchase, Cashu vs channel (`SIM-OUTPUT.txt` T3):
 
 | Purchase | Cashu | channel @2 sat/vB | ratio |
 |---|---|---|---|
-| 64 sat | 0.06 | 718 | **11,218×** |
+| 64 sat | 0.064 | 718 | **11,218×** |
 | 1,000 sat | 1.00 | 746 | **746×** |
 | 10,000 sat | 10.00 | 1,020 | **102×** |
 | 100,000 sat | 100.00 | 3,757 | **37.6×** |
@@ -456,9 +465,11 @@ Ordered, smallest first:
 - **The economics are a deterministic simulator, not a fee-market model.** It does
   not predict fee variance; it shows the *scale* of the mismatch, which is 3–4
   orders of magnitude and cannot be closed by tuning.
-- **`sim_economics.py` assumes** a 716-sat setup+close at 2 sat/vB and a 0.1%
-  cashu melt; both are stated in `SIM-OUTPUT.txt` and are the only two
-  assumptions in the table.
+- **`sim_economics.py` assumes** three things, not two: a 716-sat setup+close at
+  2 sat/vB, a 0.1% cashu melt, **and a BTC/USD rate of 100,000** (declared in the
+  script as `btc_usd`). The first two drive the ratio columns; the third drives
+  only the `= fiat` column, so the fiat figures are date-sensitive and no
+  conclusion depends on them. **Caught by cross-family review.**
 - **The module has no client implementation** in-tree, so what a real customer
   client could do with a channel instrument is not established from code.
 - **Prior-art claims are cited to URLs**, with `[inferred]` and `[unverified]`

@@ -14,15 +14,27 @@ Full analysis in [`docs/analysis/`](../analysis/); the reproducible rig in
 > gateway** and **no custodian** can buy internet time from a TollGate — and does
 > TollGate benefit?
 
-**No, on both counts as asked.** No construction among the four built and run is
-both non-custodial and payer-offline; and against the module's own advertised
-price the on-chain settlement layer is **3–4 orders of magnitude** too expensive.
-The single construction that does hold needs interactivity on the *local* link
-(which exists by definition of the product) and is dominated by the Cashu path
-this module already ships.
+**No — with the scope of the negative stated honestly.** Among the **four**
+constructions actually built and run, none is both non-custodial and
+payer-offline; and against the module's own advertised price the on-chain
+settlement layer is **3–4 orders of magnitude** too expensive. The single
+construction that does hold needs interactivity on the *local* link (which exists
+by definition of the product) and is dominated by the Cashu path this module
+already ships.
 
-Disproof is the deliverable. The falsification conditions are made **executable**
-so a future contributor can overturn this without re-deriving it (see §6).
+**What this is and is not.** This is a *failure to find* a custodian-free,
+payer-offline construction over a specific and small search space — not a proof
+that none exists. `D5` in [`RISK-AND-IAC.md`](../analysis/RISK-AND-IAC.md) §A5 is
+labelled **NOT MET** for exactly that reason, and it is the one condition that
+would overturn the conclusion. Do not cite this document as a proof of
+impossibility; cite it as an exhaustive search of the constructions worth
+building, plus a cost argument that does not depend on the search being
+exhaustive.
+
+The two `[FAIL]` lines in `GREEN.txt` (§6) are **assertions, not a proof
+procedure**: they encode the claim in executable form so a contributor who
+believes otherwise has a target to attack, but making them pass requires editing
+the rig, which is a *manual* step. They are a signpost, not an oracle.
 
 ## 1. How to reproduce
 
@@ -39,10 +51,12 @@ bash research/one-way-channel-spike/rig/run-rig.sh    # writes rig/out/
 **Every channel assertion is executed against Bitcoin Core v31.1 consensus.**
 A transaction the rig signs is accepted only if the sighash and DER encoding are
 byte-correct. That cross-check is the reason to use Core rather than a simulator —
-and it was load-bearing: **six** bugs in the rig's own cryptography were caught by
-Core *rejecting*, not by self-consistency, and are recorded in
-[`ERRATA.md`](../../research/one-way-channel-spike/ERRATA.md). A simulator would
-have passed all six silently and this document would contain six false claims.
+and it was load-bearing: **four** bugs in the rig's own cryptography were caught
+by Core *rejecting*, not by self-consistency, and are recorded in
+[`ERRATA.md`](../../research/one-way-channel-spike/ERRATA.md) (E1–E4; the file's
+E5 and E6 are separately labelled *not* bugs — a wrong prose claim and a finding).
+A simulator would have passed all four silently and this document would contain
+four false claims.
 
 ## 2. The construction, and where custody actually lives
 
@@ -120,6 +134,15 @@ cheaper at **every** size this product sells — 11,218× at 64 sats, 746× at
 1,000 sats. The one-way *Bitcoin* channel is a solution to a problem this product
 does not have, at a price this product cannot pay.
 
+Three assumptions drive those tables, all declared in the sim: a 716-sat
+setup+close at 2 sat/vB, a 0.1% Cashu melt, and a BTC/USD rate of 100,000 (which
+affects only the fiat column, so no conclusion depends on it). The comparison is
+**asymmetric by construction and should be read as a lower bound on Cashu's
+advantage**: it charges the channel its full on-chain setup+close on every
+purchase, and charges Cashu only its melt fee — not the mint's own settlement
+cost, spread, or custody. The *direction* is robust; the magnitudes are an upper
+bound on the channel's cost, not a like-for-like comparison.
+
 ## 5. What is true, and the increment actually worth doing
 
 **V1 is a real product, and it is not the question that was asked:** non-custodial,
@@ -175,14 +198,16 @@ crash-recovery lane is red would multiply an existing defect.
 - *"the ladder makes the construction non-custodial AND payer-offline"*
 
 **If a contributor makes either pass, this document is disproved and must be
-revised.** That is the falsification condition, made runnable rather than
-rhetorical. The five typed disproof conditions (D1–D5) are enumerated in
-[`RISK-AND-IAC.md`](../analysis/RISK-AND-IAC.md) §A5.
+revised.** Be precise about what that means: these are **hardcoded assertions**
+that fail on purpose. No script can decide whether some *other* construction
+exists, so this is a **signposted falsification target a human must implement**,
+not an automatically checked property. It is honest to call it a target; it is
+not honest to call it a proof procedure.
 
-One condition remains **open** and is the only route by which the thesis
-survives: D5, "a construction exists that is both non-custodial and
-chain-blind". None was found among the four built; the rig asserts its
-non-existence as an executable check.
+The five typed disproof conditions (D1–D5) are enumerated in
+[`RISK-AND-IAC.md`](../analysis/RISK-AND-IAC.md) §A5. **D5** — "a construction
+exists that is both non-custodial and chain-blind" — is **NOT MET** and remains
+the only route by which the thesis survives.
 
 ## 7. Related work, and two asymmetries worth carrying forward
 

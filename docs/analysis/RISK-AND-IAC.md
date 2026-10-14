@@ -186,7 +186,7 @@ is three orders of magnitude too small.
 | Payer can hand over value while fully offline | ✅ **hand a token over** | ✅ (V2) / needs local link (V1) | tie |
 | Payer needs chain state | ❌ **none, ever** | ✅ to refund/verify | **Cashu** |
 | Cost per purchase | **~0** (0 bps mint swaps; 0.1% melt) | **746 sats at 1,000 sats** → 746× | **Cashu** |
-| Cost at 64 sats (the module's own minimum) | 0.06 sats | 718 sats → **11,218×** | **Cashu** |
+| Cost at 64 sats (the module's own minimum) | 0.064 sats | 718 sats → **11,218×** | **Cashu** |
 | Amortise chain cost to 0.1% | n/a | needs a **716,000-sat** channel = **500 years** of internet | **Cashu** |
 | Capital lockup before service | none | whole prefund | **Cashu** |
 | Customer's exposure per purchase | **exactly the amount bought** | amount + full settlement cost (2×–717×) | **Cashu** |
