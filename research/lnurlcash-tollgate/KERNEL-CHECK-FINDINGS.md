@@ -1,113 +1,124 @@
 # Kernel check — what Bitcoin Core actually confirmed, and what it did not
 
-**Date:** 2026-10-15 · **Core:** v31.1.0 (`/Satoshi:31.1.0/`) · **chain:** regtest
-**Node:** the rig's own local regtest, `~/.local/toolchain/btc/bitcoind`,
-datadir `~/.local/toolchain/btc/regtest-data`, RPC `127.0.0.1:18443`, wallet `rig`.
-**Script:** `kernel_check.py` (this directory). Raw output: `out/KERNEL-CHECK.json`.
+**Date:** 2026-10-15 · **Core v31.1.0** (`/Satoshi:31.1.0/`) · **chain:** regtest
+**Node:** the rig's own local regtest — `~/.local/toolchain/btc/bin/bitcoind`,
+datadir `~/.local/toolchain/btc/regtest-data`, RPC `127.0.0.1:18443`, wallet `rig`
+(balance ~1,800 BTC, height 136+). **Script:** `kernel_check.py`.
 
-This closes the gap named in `poc/README.md`:
+This was meant to close the gap named in `poc/README.md`:
 
 > "NOT proven here: that Bitcoin Core's interpreter agrees. No bitcoind and no
 > libbitcoinkernel on this host [...]. 'I read the BIP' is a weaker claim than
 > 'I ran the kernel', and the difference is recorded."
 
-## What was ESTABLISHED (measured, output quoted)
+**Status: the gap is NOT closed. The BIP-342 claim remains REASONED.**
 
-### 1. Core parses both leaf forms — LEG 1, MEASURED
+---
 
-Both tapscript leaves were handed to Core's `decodescript`:
+## CORRECTION — a claim in an earlier revision of this file was WRONG
 
-| Leaf | Bytes | Core `type` | Core `asm` |
-|---|---|---|---|
-| OP_CHECKMULTISIG form | 110 | `nonstandard` | parsed, asm returned |
-| OP_CHECKSIGADD form | 111 | `nonstandard` | parsed, asm returned |
+An earlier revision of this file asserted:
 
-`decodescript` returned a full `asm` string and a `raw(...)` descriptor for both,
-so **Core's script parser accepts our bytes in both forms**. This proves our
-byte-level construction is well-formed. It does **not** prove the opcodes are
-*acceptable* — see the boundary below.
+> "Core CONFIRMS our taproot commitment math — Core independently recognised our
+> derived output key as a valid taproot output and produced a valid bech32m
+> address for it."
 
-### 2. Core CONFIRMS our taproot commitment math — MEASURED
-
-This is the most valuable result, and it is a genuine cross-check of *our own*
-code rather than of the BIP. We built a P2TR `scriptPubKey` from our own
-`taproot_tweak_pubkey(NUMS, tapleaf_hash(leaf))` and asked Core to decode it:
+**That claim was not supported by its evidence, and is retracted.** The check
+behind it passed a descriptor containing `pk(<32-byte-x-only-key>)`. Bitcoin Core
+rejects that — `pk()` requires a 33-byte compressed key:
 
 ```
-leaf      : 20f9308a...bce036f9ac          (<xonly key> OP_CHECKSIG)
-tapleaf   : a5f4dd9bd9e8664ec5d1b97819e523b297ea9c7f8daa0b2e96e6460060333e5f
-our key   : 7736a30691f06e63bc2e869e660117117a9976fb17c697fa679f19c0901a49c4
-our ctrl  : c050929b...803ac0a5f4dd9b...60333e5f
-
-Core decodescript(spk) ->
-  "asm":  "1 7736a30691f06e63bc2e869e660117117a9976fb17c697fa679f19c0901a49c4"
-  "type": "witness_v1_taproot"
-  "address": "bcrt1pwum2xp537phx80pws60xvqghz9afjahmzlrf07n8nuvupyq6f8zq3pkhe7"
+$ bitcoin-cli getdescriptorinfo "pk(f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9)"
+error code: -5
+error message:
+pk(): Pubkey 'f9308a01...bce036f9' is invalid
 ```
 
-Core independently recognised our derived output key as a **valid taproot
-output** and produced a valid bech32m address for it. Our BIP-341 tree/tweak
-implementation agrees with Core.
+The script did not check the return code, so it silently proceeded on a descriptor
+Core had never expanded. The comparison was therefore **not** a Core ruling.
 
-### 3. Real taproot outputs were funded and confirmed — MEASURED
-
-Two P2TR outputs, one per leaf form, were created from our own commitment math,
-funded (0.5 BTC each), mined into regtest, and confirmed by `gettxout` as:
+Redone correctly — `pk(02‖x_only)`, the 33-byte form Core accepts — the result is
+in fact favourable:
 
 ```
-type: witness_v1_taproot
-value: 0.5
-address: bcrt1pntsx28p0eqx0rt6qaa69urvpczrsa8t6886lr6kqcz5pxmkxp5hqzp2xre  (MULTISIG leaf)
-address: bcrt1ptwa4sr0kaluehn8zpm lrv0umnuw2gr27mwqlmtwyghrn9xuq9ngqf74vdj  (CHECKSIGADD leaf)
+tr(NUMS, pk(02f9308a...bce036f9))  ->  bcrt1pvzvg44rfkmhm3adks79vn5c5kf27leyw7a8vhjgandtzup2s9ngq4y4q64
+decoded key                        ->  60988ad469b6efb8f5b6878ac9d314b255efe48ef74ecbc91d9b562e05502cd0
+our computed key                   ->  60988ad469b6efb8f5b6878ac9d314b255efe48ef74ecbc91d9b562e05502cd0   MATCH
 ```
 
-So both constructions are real, fundable, spendable-shaped taproot outputs.
+So our BIP-341 commitment math **does** agree with Core for this leaf. But note
+what kind of claim that is: it is a comparison of *derived keys*, obtained by
+running Core's `deriveaddresses` and decoding the address. It is stronger than
+reading the BIP, and weaker than having Core execute a spend. It is recorded as
+REASONED-against-Core, not as a consensus ruling.
 
-### 4. Core EXECUTES the script path — MEASURED
+## What IS established
 
-Submitting a hand-assembled script-path spend reached Core's script verifier and
-was evaluated (not rejected at decode):
+### 1. Core parses both leaf forms — MEASURED
+
+`decodescript` on both leaves returns full `asm` and a `raw(...)` descriptor:
+
+| Leaf | Bytes | Core `type` |
+|---|---|---|
+| OP_CHECKMULTISIG form (`2 <a> <b> 2 OP_CHECKMULTISIG`) | 110 B | `nonstandard` |
+| OP_CHECKSIGADD form (`<a> OP_CHECKSIG <b> OP_CHECKSIGADD 2 OP_EQUAL`) | 111 B | `nonstandard` |
+
+Proves our bytes are well-formed and parseable. Does **not** prove the opcodes are
+acceptable — BIP-342's disabled-opcode rule is semantic, enforced at execution.
+
+### 2. Real P2TR outputs funded and confirmed — MEASURED
+
+Outputs built from our own commitment math were funded (0.5 BTC), mined, and
+confirmed by `gettxout` / `getrawtransaction` as
+`type: witness_v1_taproot`, with the scriptPubKey's 32 bytes equal to our computed
+output key byte-for-byte.
+
+### 3. Core EXECUTES the script path — MEASURED
+
+Hand-assembled script-path spends reached Core's script verifier and were
+*decoded* successfully (`decoderawtransaction` shows our witness: 64-byte
+placeholder sig, the leaf script, and the 65-byte control block). Core then
+rejected at script verification:
 
 ```
-MULTISIG    -> allowed=false  mempool-script-verify-flag-failed (Witness program hash mismatch)
-CHECKSIGADD -> allowed=false  mempool-script-verify-flag-failed (Witness program hash mismatch)
+mempool-script-verify-flag-failed (Witness program hash mismatch)
 ```
 
-That Core reached *script verification* at all proves the segwit witness
-serialization was decoded and the taproot program was looked up.
+## What is NOT established, and the precise blocker
 
-## What was NOT established — the honest boundary
+**The BIP-342 headline claim has no consensus ruling.** Every script-path attempt
+was rejected with `Witness program hash mismatch` — including attempts whose
+commitment math we verified matches Core's own derivation. That is a
+contradiction, and it means **something about the spend is still wrong in a way
+not yet identified.**
 
-**The BIP-342 claim remains REASONED, not MEASURED.**
+Ruled out (each tested, not assumed):
+- leaf bytes — Core parses them and `raw()` descriptors round-trip;
+- tapleaf hash — matches an independent BIP-341 computation;
+- tweak — matches an independent BIP-340 tagged-hash computation;
+- output key — matches Core's `deriveaddresses` for `tr(NUMS, pk(02‖x))`;
+- control block length — 65 B, correct for a single-leaf tree;
+- witness item ORDER — three orderings all produce the identical error;
+- transaction wire format — Core decodes it without complaint.
 
-Both legs failed with `Witness program hash mismatch`, which is Core saying the
-control block presented does not commit to the output key it is spending. Since
-result 2 above shows our commitment math IS correct, the fault is in the
-**hand-assembled witness serialization** in this script — most likely the
-script-path witness does not place the `script` and `control_block` in the
-positions Core requires (a tapscript script-path witness is
-`[<stack items...>, <script>, <control block>]`, and the stack items must satisfy
-whichever branch the leaf selects).
+Not yet tested:
+- a *valid* signature over the real sighash (all attempts used a 64-byte
+  placeholder), and whether Core reports `Witness program hash mismatch`
+  preferentially over a signature error;
+- a control block built by Core itself for a descriptor it can sign, to diff
+  against ours.
 
-**Consequence, stated plainly:** this run did **not** demonstrate that Core
-rejects a tapscript leaf containing `OP_CHECKMULTISIG` while accepting the
-`OP_CHECKSIGADD` form. That specific claim still rests on the BIP-342 text
-(`bip-0342.mediawiki:38` "The inefficient OP_CHECKMULTISIG and
-OP_CHECKMULTISIGVERIFY opcodes are disabled"; `:72` disabled opcodes "failing and
-terminating the script immediately when executed") plus the POC's own interpreter
-— i.e. on reading the BIP, which is exactly the weaker claim this exercise set out
-to replace.
+**Next step, precisely:** import a `tr(<internal>, <leaf>)` descriptor into the
+wallet so Core holds the leaf key, spend via the script path with Core signing,
+and diff Core's witness against ours byte-by-byte. That resolves the contradiction
+directly instead of by inference. Everything else is in place — funded outputs,
+verified hashes, working Node access — so this is witness-construction work, not
+discovery.
 
-**The next step, precisely:** fix the script-path witness in `kernel_check.py` so
-the stack items satisfy the selected branch, then re-run. The infrastructure is
-now all in place — funded outputs, verified commitment math, working Node access —
-so the remaining work is witness construction, not discovery.
+## Why this is recorded as a partial
 
-## Why this is recorded as a partial rather than a pass
-
-The honesty contract for this programme forbids claiming a measured result that
-was not observed. Four claims ARE measured and are improvements on the prior
-state (Core parses our leaves; Core confirms our commit math; the outputs are real
-and funded; Core executes the script path). One claim is NOT, and it is the
-headline claim. Recording the split is more useful than blurring it: the next
-session starts from a known-good commitment and a precisely-located bug.
+The honesty contract forbids claiming a measured result that was not observed, and
+this programme's most valuable output has been its own errata. One earlier claim
+in this very file was wrong and is retracted above. Three claims ARE measured and
+are genuine improvements on the prior state; the headline claim is not, and the
+contradiction is stated rather than smoothed over.

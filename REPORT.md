@@ -16,7 +16,7 @@ exact action required. Everything else is progress; the raw log is PROGRESS.md.
 | P0.1 | Land the consultant deliverables into the repo | **DONE** (aeeba1f) |
 | P0.2a | Fix the errata bug-count inconsistency ("six" → FOUR) | **DONE** — already clean, verified |
 | P0.2b | Fix the `step_size` unit erratum (bytes, not ms) | **DONE** — 4 stale spots fixed |
-| P1.3 | LNURLcash POC: validate against REAL regtest consensus | **PARTIAL** — 4 claims MEASURED (Core parses both leaves; Core confirms our BIP-341 commit math; both P2TR outputs funded+confirmed; Core executes the script path). The BIP-342 headline claim is still REASONED — hand-assembled witness has a hash-mismatch bug. See KERNEL-CHECK-FINDINGS.md |
+| P1.3 | LNURLcash POC: validate against REAL regtest consensus | **PARTIAL / BLOCKED** — 3 claims MEASURED (Core parses both leaves; P2TR outputs funded+confirmed; Core executes the script path). BIP-342 claim REASONED. One earlier claim RETRACTED (used `pk()` with a 32-byte key Core rejects). Unresolved contradiction: spends rejected `Witness program hash mismatch` even where commit math matches Core. Next: import descriptor, let Core sign, diff witness. See KERNEL-CHECK-FINDINGS.md |
 | P1.4 | Hedgehog POC: headless harness + verify D5 verdict | pending |
 | P1.5 | Router-side taproot-note verifier (instrument-agnostic) | pending |
 | P2.6 | Does any construction give non-custodial AND offline? | pending |
@@ -56,6 +56,20 @@ Named as worth doing regardless of the verdict: **X5, kernel agreement**.
 deps — so an in-process verifier needs no new dependency and no new cgo;
 (b) the `WalletPort` seam is **dead code** — `merchant.go:509` calls
 `NewWalletPort` directly, bypassing the only function that could select a backend.
+
+## NEXT ACTION (resume here)
+
+**P1.3 witness fix** — highest value, precisely located. `kernel_check.py` builds
+a script-path witness as `[sig, sig, "", script, ctrl]` (MULTISIG) and
+`["", sig, sig, script, ctrl]` (CHECKSIGADD). Core rejects with
+`Witness program hash mismatch`, so the control block presented does not commit
+to the output being spent. Our commit math is PROVEN correct (Core decodes our
+key as `witness_v1_taproot`), so the fault is in witness assembly — most likely
+the witness item ORDER, or that a 1-leaf tree's control block must carry only
+`(parity|0xc0) || NUMS || tapleaf_hash` with the leaf NOT repeated in the witness
+stack for the branch actually taken. Fix: derive the spend Core itself would
+build (fund to a `tr()` descriptor Core can sign, let Core produce the witness,
+compare shapes), then re-submit.
 
 ## Notes carried into the loop
 
