@@ -48,6 +48,10 @@ func Serve(ctx context.Context, cfg *ServerConfig, bridge Bridge) error {
 		{Kinds: []int{nostr.KindGiftWrap}, Limit: 0},
 	})
 
+	// Duplicate-delivery guard (audit Q1). Bounded + TTL'd so a hostile relay
+	// cannot exhaust a router's memory.
+	seen := NewSeenSet(1024, 5*time.Minute)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -70,9 +74,27 @@ func Serve(ctx context.Context, cfg *ServerConfig, bridge Bridge) error {
 				continue
 			}
 
+			// Freshness before decryption: a stale event is a replay attempt
+			// and refusing it costs nothing (audit Q1).
+			if err := CheckFreshness(int64(evt.CreatedAt), time.Now()); err != nil {
+				continue
+			}
+
+			// Duplicate delivery of the same event id executes once.
+			if seen.Seen(evt.ID, time.Now()) {
+				continue
+			}
+
 			// Unwrap + dispatch; an unwrap failure is someone else's traffic.
 			req, caller, err := UnwrapRequest(*evt, sk)
 			if err != nil {
+				continue
+			}
+
+			// The seal's author must never be the server itself: that is the
+			// echo-loop class, and refusing it makes the class impossible even
+			// if the ValidateKeyPair guard is ever bypassed (audit Q2 residue).
+			if caller == serverPK {
 				continue
 			}
 			resp := dispatcher.Dispatch(caller, req)

@@ -117,7 +117,12 @@ func (d *Dispatcher) Dispatch(callerNpub string, req JSONRPCRequest) JSONRPCResp
 		if err != nil {
 			return errResp(req.ID, ErrInternal, err.Error())
 		}
-		return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: mustMarshal(cliResp)}
+		// Every response crosses this one boundary, so redaction happens here
+		// rather than per tool. The audit found `private_status` returning the
+		// private network's live WPA passphrase as a READ tool — a value that
+		// src/cli's schema-driven redaction structurally cannot see, because it
+		// comes from UCI rather than config.json.
+		return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: mustMarshal(RedactResponse(cliResp))}
 
 	default:
 		return errResp(req.ID, ErrMethodNF, fmt.Sprintf("unknown method %q", req.Method))
