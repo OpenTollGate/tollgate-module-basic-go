@@ -170,7 +170,9 @@ instrument, and `src/tollwallet/cdk_wallet.go:121` `Receive` only needs the
 (`RECEIVE` in `port.go:187-256`). The customer hands over a token; the router
 does the round-trip.
 
-**Sourced price:** `step_size = 22020096 ms` and `price_per_step = 1 sat`
+**Sourced price:** ~~`step_size = 22020096 ms`~~ and `price_per_step = 1 sat`
+(**the unit was read as milliseconds in error — see the RESOLVED note below and
+§10 of the design record: the shipped metric is `bytes`, so 1 sat buys 21 MiB**)
 (`src/tollgate_protocol/validator_test.go`, `src/config_manager/config_manager_config.go:305`,
 `README.md:351`). Therefore:
 

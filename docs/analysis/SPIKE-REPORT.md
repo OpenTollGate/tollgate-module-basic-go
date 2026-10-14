@@ -12,8 +12,10 @@ Module revision read throughout: `OpenTollGate/tollgate-module-basic-go` @
 
 **Answer, in one sentence:** No — among the four constructions built and run,
 none is both non-custodial and payer-offline, and against this product's own
-advertised price (1 sat / 6.12 h) the on-chain settlement layer is 3–4 orders of
-magnitude too expensive. The one construction that does hold (`V1`) is not the
+advertised price the on-chain settlement layer is orders of magnitude too
+expensive at small purchase sizes (see the §10 erratum: the shipped metric is
+**bytes**, and the corrected break-even is materially more favourable at large
+purchases). The one construction that does hold (`V1`) is not the
 question that was asked, needs interactivity on the *local* link, and is
 dominated by the Cashu path TollGate already ships.
 
