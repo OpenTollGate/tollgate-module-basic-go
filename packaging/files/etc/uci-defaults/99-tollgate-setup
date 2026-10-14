@@ -2197,6 +2197,63 @@ random_octet() {
     esac
 }
 
+# Is $1 a plain dotted-quad IPv4 address (four decimal octets, 0-255, no
+# leading zeros, no prefix)? POSIX sh / BusyBox ash only — the octet range is
+# checked with the shell's own integer comparison AFTER the leading-zero
+# refusal, because dash parses a leading-zero operand as octal ("08" errors
+# out of `[ -le ]` instead of comparing).
+valid_ipv4_octet() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+        0?*)         return 1 ;;  # multi-digit leading zero ("01".."009")
+    esac
+    [ "${#1}" -le 3 ] || return 1
+    [ "$1" -le 255 ] || return 1
+    return 0
+}
+
+valid_ipv4() {
+    local v="${1:-}" count=0 oct
+    while [ "$count" -lt 4 ]; do
+        case "$v" in
+            *.*) oct="${v%%.*}"; v="${v#*.}" ;;
+            *)   oct="$v"; v="" ;;
+        esac
+        valid_ipv4_octet "$oct" || return 1
+        count=$((count + 1))
+    done
+    # Nothing may follow the fourth octet ("1.2.3.4.5", "1.2.3.4/24" refuse).
+    [ -z "$v" ]
+}
+
+# The operator's own choice of management address (#906). The adjacent-/24
+# heuristic above cannot see the OPERATOR's other networks — the collision
+# check reads only the router's own addresses — so when the chosen /24
+# collides with a network the operator's laptop/phone is on, the operator
+# needs a way to PIN the management subnet. `tollgate network private
+# set-address <a.b.c.1/24>` records the address in the durable store
+# (/etc/config/tollgate, sysupgrade-kept via keep.d):
+#
+#   config private 'private'
+#       option ipaddr '10.9.8.1'
+#
+# and setup honours it here with the same preservation treatment as the WiFi
+# passphrase: a stored address is used verbatim on every full setup, so a
+# reinstall or upgrade no longer undoes the operator's fix. A value that is
+# not a usable dotted quad (hand-edited store) is refused — the setup logs a
+# WARNING and falls back to the derivation above rather than trusting a
+# string netifd cannot parse.
+operator_private_addr() {
+    local stored
+    stored=$(uci -q get tollgate.private.ipaddr 2>/dev/null)
+    [ -n "$stored" ] || return 1
+    if ! valid_ipv4 "$stored"; then
+        log "WARNING: tollgate.private.ipaddr holds '${stored}', not a usable IPv4 address — ignoring the operator-set private address and deriving one; run 'tollgate network private set-address <a.b.c.1/24>' to pin one"
+        return 1
+    fi
+    printf '%s\n' "$stored"
+}
+
 # Choose the /24 prefix ("a.b.c") for the management network.
 # $1 is the deterministic, LAN-adjacent candidate, kept whenever it is safe;
 # the remaining arguments are CIDRs it must not overlap.
@@ -2256,26 +2313,36 @@ setup_private_network() {
         log "ERROR: no network.lan.ipaddr; skipping private network"
         return
     fi
-    # Candidate: the /24 next to the LAN, kept when it is free -- operators
-    # expect it and the DNS/DHCP defaults assume it -- and replaced only when
-    # it would overlap the LAN's own mask or a network on the upstream side
-    # (see choose_private_subnet: a colliding management subnet routes the
-    # upstream's own address range back into the router).
-    lan_mask=$(uci -q get network.lan.netmask)
-    [ -n "$lan_mask" ] || lan_mask="255.255.255.0"
-    candidate_prefix=$(prefix24_of "$lan_ip")
-    candidate_octet3=$(octet_of "$candidate_prefix" 3)
-    if [ "$candidate_octet3" -eq 255 ]; then
-        candidate_octet3=$((candidate_octet3 - 1))
+    # The operator's pinned address (#906) wins outright: the adjacent-/24
+    # derivation below exists to dodge collisions the ROUTER can see, and the
+    # pin exists to dodge the ones it cannot (the operator's own networks).
+    # Same preservation treatment as the private WiFi passphrase just below.
+    private_ip=$(operator_private_addr)
+    if [ -n "$private_ip" ]; then
+        log "Private address ${private_ip} preserved from the operator's choice (tollgate.private.ipaddr) — not re-derived"
     else
-        candidate_octet3=$((candidate_octet3 + 1))
-    fi
-    candidate_prefix="$(octet_of "$candidate_prefix" 1).$(octet_of "$candidate_prefix" 2).${candidate_octet3}"
+        # Candidate: the /24 next to the LAN, kept when it is free --
+        # operators expect it and the DNS/DHCP defaults assume it -- and
+        # replaced only when it would overlap the LAN's own mask or a network
+        # on the upstream side (see choose_private_subnet: a colliding
+        # management subnet routes the upstream's own address range back into
+        # the router).
+        lan_mask=$(uci -q get network.lan.netmask)
+        [ -n "$lan_mask" ] || lan_mask="255.255.255.0"
+        candidate_prefix=$(prefix24_of "$lan_ip")
+        candidate_octet3=$(octet_of "$candidate_prefix" 3)
+        if [ "$candidate_octet3" -eq 255 ]; then
+            candidate_octet3=$((candidate_octet3 - 1))
+        else
+            candidate_octet3=$((candidate_octet3 + 1))
+        fi
+        candidate_prefix="$(octet_of "$candidate_prefix" 1).$(octet_of "$candidate_prefix" 2).${candidate_octet3}"
 
-    private_prefix=$(choose_private_subnet "$candidate_prefix" \
-        "${lan_ip}/$(netmask_to_prefixlen "$lan_mask")" \
-        $(upstream_networks))
-    private_ip="${private_prefix}.1"
+        private_prefix=$(choose_private_subnet "$candidate_prefix" \
+            "${lan_ip}/$(netmask_to_prefixlen "$lan_mask")" \
+            $(upstream_networks))
+        private_ip="${private_prefix}.1"
+    fi
 
     # Credentials are preserved across reruns: a version bump triggers a full
     # setup on upgraded routers, and regenerating the PSK there would silently
@@ -2538,7 +2605,9 @@ commit_all() {
 # The package postinst calls this after `/etc/init.d/network restart`; when the
 # private subnet had to move it returns 0 and the caller reloads the network.
 # It is a no-op (returns 1) when there is no private network, the network is not
-# a /24, the upstream is unknown, or nothing collides.
+# a /24, the upstream is unknown, nothing collides, or the address was pinned by
+# the operator (#906 — a pinned address is never silently moved; the refusal is
+# logged instead).
 recheck_private_subnet() {
     local cur_ip cur_mask lan_ip lan_mask new_prefix new_ip up
     cur_ip=$(uci -q get network.private.ipaddr)
@@ -2551,6 +2620,16 @@ recheck_private_subnet() {
     [ -n "$up" ] || return 1
     # shellcheck disable=SC2086 # upstream_networks prints one CIDR per word
     subnet_conflicts "$(prefix24_of "$cur_ip")" $up || return 1
+
+    # An operator-pinned address is never silently moved (#906): the pin IS
+    # the operator's answer to a subnet collision (their side can see networks
+    # this router cannot), and moving it would both undo their fix and strand
+    # any device they placed on the pinned subnet. Loudly refuse instead —
+    # the operator has the command, the log has the reason.
+    if [ -n "$(operator_private_addr)" ]; then
+        log "WARNING: private subnet ${cur_ip} collides with an upstream network, but the address was pinned by the operator (tollgate.private.ipaddr) — NOT moving it; choose another with 'tollgate network private set-address <a.b.c.1/24>'"
+        return 1
+    fi
 
     lan_ip=$(uci -q get network.lan.ipaddr)
     lan_mask=$(uci -q get network.lan.netmask)

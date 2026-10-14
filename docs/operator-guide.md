@@ -32,6 +32,7 @@ tollgate network private enable           Turn private Wi-Fi on (2.4 + 5 GHz)
 tollgate network private disable          Turn private Wi-Fi off
 tollgate network private rename <ssid>    Change the private SSID
 tollgate network private set-password [pw] Change the private password
+tollgate network private set-address <ip>[/24] Pin the management subnet
 
 tollgate upstream scan                    Scan all radios for networks
 tollgate upstream connect <SSID> [pass]   Connect to an upstream network
@@ -369,13 +370,38 @@ Supported modes:
 | `psk-mixed+ccmp` | Also accepts WPA1 clients. |
 
 WPA3-SAE is deliberately not offered: the `wpad` the router ships with has no
-SAE support, so selecting it would leave the private network unable to start —
+SAE support, so selecting it would leave the management network unable to start —
 a lockout, not a feature. An open (unencrypted) mode is refused for the same
 class of reason: the private network is how you reach the admin board, whose
 login is a root-capable login over plain HTTP on `:8080` (the entry pair the
 board owns under the default `entry_ui=board`; on `:8090` under `entry_ui=luci`,
 the pre-flip mapping — see the README's "Which UI answers the entry ports" for
 the switch and the marker that confirms which one is live).
+
+### Pin the management subnet
+
+```sh
+# give the router's own address; the /24 suffix is optional (and must be /24)
+tollgate network private set-address 10.9.8.1/24
+```
+
+The router picks the private subnet itself (normally the /24 next to the
+LAN's, e.g. `192.168.1.0/24` → `192.168.2.0/24`), and its collision checks
+can only see the networks the *router* is attached to. They cannot see the
+networks *your* other devices live on — so when your laptop is also on the
+chosen /24, both networks present the same gateway and your connectivity
+breaks. `set-address` is the fix: it moves the management network to a
+subnet you choose and **pins** it, so reinstalls and upgrades keep it
+instead of re-deriving the adjacent /24 again (a plain `uci set
+network.private.ipaddr=…` is reverted by the next full setup; the pin is
+not).
+
+The address is stored in `/etc/config/tollgate` (which sysupgrade keeps)
+and honoured verbatim by every later setup path, including the post-install
+re-check that otherwise moves the subnet off an upstream collision. Changing
+it disconnects every device on the old subnet — including the SSH session
+you run it from — so the command asks for confirmation; reconnect on the
+new subnet afterwards.
 
 The three private-network commands above (rename, set-password, set-encryption)
 also record the new value in `/etc/tollgate/config.json`, which is the file the
