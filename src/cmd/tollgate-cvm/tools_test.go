@@ -91,9 +91,15 @@ func TestAuthorizeUnclaimed(t *testing.T) {
 }
 
 // Client and server keys MUST differ — a shared key makes the server receive
-// its own gift-wrapped requests and the correlation loop eats itself.
+// its own gift-wrapped requests and the response correlation loop eats itself.
+// The check lives with the key configuration (cvm.go), and the transport test
+// exercises it against generated keys; this test pins the pure rule.
 func TestKeysMustDiffer(t *testing.T) {
-	if err := ValidateKeyPair(serverKeyHex, clientKeyHexPlaceholder); err != nil {
-		t.Skipf("keypair not configured in this environment: %v", err)
+	same := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if err := ValidateKeyPair(same, same); err == nil {
+		t.Fatal("ValidateKeyPair accepted identical server and client keys — echo loop")
+	}
+	if err := ValidateKeyPair("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", same); err != nil {
+		t.Fatalf("ValidateKeyPair refused distinct keys: %v", err)
 	}
 }
