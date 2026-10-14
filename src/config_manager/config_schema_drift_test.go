@@ -316,6 +316,13 @@ func getTestValueForType(field FieldSchema) string {
 		}
 		return field.Enum[0]
 	}
+	// maintainer_npub carries a semantic contract (bech32 npub1…), enforced in
+	// SetDotPath ahead of the schema walk, so the generic string stand-in
+	// would be refused. A real, well-formed npub — one of the fleet's own
+	// public identities — is the value the field actually holds in production.
+	if field.JSONKey == "maintainer_npub" {
+		return "npub1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqksqpew"
+	}
 	switch field.Type {
 	case "string":
 		return "test_value"
@@ -386,6 +393,10 @@ func assertFieldValue(t *testing.T, cfg *Config, jsonKey, value, typ string) {
 	case "entry_ui":
 		if cfg.EntryUI != value {
 			t.Errorf("entry_ui: got %q, want %q", cfg.EntryUI, value)
+		}
+	case "maintainer_npub":
+		if cfg.MaintainerNpub != value {
+			t.Errorf("maintainer_npub: got %q, want %q", cfg.MaintainerNpub, value)
 		}
 	}
 }

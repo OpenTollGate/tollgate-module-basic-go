@@ -180,6 +180,15 @@ func GetConfigSchema() []FieldSchema {
 			Default:     "board", Required: true, Editable: true,
 			Enum: []string{"board", "luci"},
 		},
+		{
+			Name: "MaintainerNpub", JSONKey: "maintainer_npub", Type: "string",
+			Description: "The maintainer's Nostr public key (bech32 npub1…). Authorizes CVM control-plane write tools and is the discovery key the maintainer dashboard subscribes to, so one npub finds every tollgate it owns. Empty = unclaimed: the router still serves customers but cannot be managed remotely and appears in no fleet view.",
+			Default:     "", Required: false, Editable: true,
+			// An npub1 key is 63 characters. The bound is a cheap shape gate
+			// ahead of the bech32 decode so a pasted blob is refused with a
+			// length message rather than a decode error.
+			MaxLength: 80,
+		},
 	}
 }
 
