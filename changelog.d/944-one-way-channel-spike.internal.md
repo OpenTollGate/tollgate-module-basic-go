@@ -12,4 +12,4 @@
   has no production caller and `bootstrap.go` performs no mint interaction, so
   the "cold start is partially answered" reading was wrong. Rig, six recorded
   errata and every table are in `research/one-way-channel-spike/`.
-  ([#PRNUM](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/PRNUM)).
+  ([#944](https://github.com/felixfelix-bot/tollgate-module-basic-go/pull/944)).
