@@ -123,7 +123,10 @@ func UnwrapRequest(gw nostr.Event, serverSK string) (JSONRPCRequest, string, err
 }
 
 // WrapResponse gift-wraps a JSON-RPC response from the server to a client.
-func WrapResponse(resp JSONRPCResponse, clientPK, serverSK string) (nostr.Event, error) {
+// extraTags (e.g. the e-tag correlation marker) go on the GIFT WRAP and must
+// be passed here — appending a tag after GiftWrap has signed invalidates the
+// signature and relays drop the event silently.
+func WrapResponse(resp JSONRPCResponse, clientPK, serverSK string, extraTags ...nostr.Tag) (nostr.Event, error) {
 	payload, err := json.Marshal(resp)
 	if err != nil {
 		return nostr.Event{}, fmt.Errorf("marshal response: %w", err)
@@ -134,7 +137,12 @@ func WrapResponse(resp JSONRPCResponse, clientPK, serverSK string) (nostr.Event,
 		CreatedAt: nostr.Now(),
 		Tags:      nostr.Tags{nostr.Tag{"p", clientPK}},
 	}
-	return nip59.GiftWrap(rumor, clientPK, encryptTo(serverSK, clientPK), signWith(serverSK), nil)
+	modify := func(gw *nostr.Event) {
+		if len(extraTags) > 0 {
+			gw.Tags = append(gw.Tags, extraTags...)
+		}
+	}
+	return nip59.GiftWrap(rumor, clientPK, encryptTo(serverSK, clientPK), signWith(serverSK), modify)
 }
 
 // UnwrapResponse opens a wrapped response with the client's key.

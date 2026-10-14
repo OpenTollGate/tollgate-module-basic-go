@@ -73,11 +73,13 @@ func Serve(ctx context.Context, cfg *ServerConfig, bridge Bridge) error {
 
 			// Respond gift-wrapped to the CALLER (seal author), not to the
 			// gift wrap's nonce key.
-			respGW, err := WrapResponse(resp, caller, sk)
+			// The e-tag rides on the gift wrap and must be added BEFORE
+			// signing (WrapResponse) — a tag appended after signing
+			// invalidates the signature and relays drop the event.
+			respGW, err := WrapResponse(resp, caller, sk, nostr.Tag{"e", evt.ID})
 			if err != nil {
 				continue
 			}
-			respGW.Tags = append(respGW.Tags, nostr.Tag{"e", evt.ID})
 
 			publishCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			for result := range pool.PublishMany(publishCtx, cfg.Relays, respGW) {
