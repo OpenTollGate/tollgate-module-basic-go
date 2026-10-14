@@ -133,11 +133,19 @@ func TestAnnouncementRebuildsOnMaintainerChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build B: %v", err)
 	}
-	if first.Tags.GetFirst([]string{"p"}).Value() != npubA {
-		t.Fatal("first announcement does not carry npubA")
+	hexA, err := maintainerHexFromNpub(npubA)
+	if err != nil {
+		t.Fatalf("decode npubA: %v", err)
 	}
-	if second.Tags.GetFirst([]string{"p"}).Value() != npubB {
-		t.Fatal("rebuilt announcement does not carry npubB — discovery would not follow the handover")
+	hexB, err := maintainerHexFromNpub(npubB)
+	if err != nil {
+		t.Fatalf("decode npubB: %v", err)
+	}
+	if first.Tags.GetFirst([]string{"p"}).Value() != hexA {
+		t.Fatalf("first announcement p tag = %q, want hex %q", first.Tags.GetFirst([]string{"p"}).Value(), hexA)
+	}
+	if second.Tags.GetFirst([]string{"p"}).Value() != hexB {
+		t.Fatal("rebuilt announcement does not carry the new maintainer — discovery would not follow the handover")
 	}
 	// Same d slug: it is a replaceable event, so the new one replaces the old
 	// rather than leaving a stale copy findable.

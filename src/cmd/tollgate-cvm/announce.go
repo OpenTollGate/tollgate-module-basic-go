@@ -26,11 +26,27 @@ const (
 // maintainerNpub may be empty (unclaimed): the event is still announced —
 // the service exists — but carries NO p tag, because an empty p tag could be
 // matched as a wildcard by some relay implementations.
+//
+// THE p TAG CARRIES HEX, NOT BECH32. This was a real defect, caught only by
+// publishing to a live relay and subscribing back: the tag was written as
+// `npub1…`, and NIP-01 indexes `p` values as 32-byte hex pubkeys, so a
+// `#p = <hex>` subscription NEVER matched — the whole discovery mechanism was
+// dead on arrival while every unit test passed. The config field stays bech32
+// (what an operator reads and types); the tag is hex (what a relay indexes).
+// The bech32 spelling stays in the content so a human reading the event sees it.
 func BuildAnnouncement(serverSK, maintainerNpub string, relays ...string) (nostr.Event, error) {
+	maintainerHex, err := maintainerHexFromNpub(maintainerNpub)
+	if err != nil {
+		return nostr.Event{}, err
+	}
+
 	content := map[string]interface{}{
 		"name":  "tollgate-control-plane",
 		"about": "Remote management of a TollGate router over ContextVM: status, wallet balance, config, private network, upstreams. Read tools open to any signed caller; write tools maintainer-only.",
 		"caps":  []string{"tools"},
+	}
+	if maintainerNpub != "" {
+		content["maintainer_npub"] = maintainerNpub
 	}
 	if len(relays) > 0 {
 		content["relays"] = relays
@@ -44,9 +60,9 @@ func BuildAnnouncement(serverSK, maintainerNpub string, relays ...string) (nostr
 		nostr.Tag{"d", annDSlug},
 		nostr.Tag{"t", annClassTag},
 	}
-	if maintainerNpub != "" {
-		// The discovery key. This single tag is what makes fleet view possible.
-		tags = append(tags, nostr.Tag{"p", maintainerNpub})
+	if maintainerHex != "" {
+		// The discovery key, in the form a relay can index (hex).
+		tags = append(tags, nostr.Tag{"p", maintainerHex})
 	}
 
 	evt := nostr.Event{
