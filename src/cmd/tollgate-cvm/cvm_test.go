@@ -134,7 +134,6 @@ func TestAuthorizeEndToEnd(t *testing.T) {
 	}
 
 	strangerSK := nostr.GeneratePrivateKey()
-	strangerPK, _ := nostr.GetPublicKey(strangerSK)
 
 	authz := NewAuthorizer(maintainer)
 
