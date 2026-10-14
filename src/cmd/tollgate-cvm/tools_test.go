@@ -27,11 +27,11 @@ func TestToolSurfaceExcludesMoneyCommands(t *testing.T) {
 func TestToolSurfaceWriteToolsAreMarked(t *testing.T) {
 	for _, tool := range ToolSurface() {
 		switch tool.Name {
-		case "status", "health", "version", "wallet_balance", "config_get", "config_schema", "private_status", "upstream_list", "upstream_known", "logs":
+		case "status", "health", "version", "wallet_balance", "wallet_info", "config_get", "config_schema", "private_status", "upstream_list", "upstream_known", "upstream_scan":
 			if tool.Write {
 				t.Errorf("%s is a read tool but marked Write", tool.Name)
 			}
-		case "config_set", "private_enable", "private_disable", "private_rename", "service_restart", "service_stop", "service_start":
+		case "config_set", "private_enable", "private_disable", "private_rename":
 			if !tool.Write {
 				t.Errorf("%s is a state-changing tool but not marked Write (the maintainer-only gate keys on this)", tool.Name)
 			}

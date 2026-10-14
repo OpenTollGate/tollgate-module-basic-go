@@ -34,13 +34,12 @@ func ToolSurface() []Tool {
 		{Name: "status", Description: "Service status: uptime, running state, config/wallet/network health", CLICommand: "status"},
 		{Name: "health", Description: "Liveness probe: returns healthy only when components are up", CLICommand: "health"},
 		{Name: "version", Description: "Version, commit and build info of the running service", CLICommand: "version"},
-		{Name: "logs", Description: "Recent service log lines", CLICommand: "logs"},
 		{Name: "wallet_balance", Description: "Wallet balance in sats (no secrets)", CLICommand: "wallet", CLIArgs: []string{"balance"}},
 		{Name: "wallet_info", Description: "Wallet info: balance and addresses (no key material)", CLICommand: "wallet", CLIArgs: []string{"info"}},
 		{Name: "config_get", Description: "Current configuration (secrets redacted by the service)", CLICommand: "config", CLIArgs: []string{"get"}},
 		{Name: "config_schema", Description: "Configuration schema: every field, its type and editability", CLICommand: "config", CLIArgs: []string{"schema"}},
 		{Name: "private_status", Description: "Private network state: SSID, enabled", CLICommand: "network", CLIArgs: []string{"private", "status"}},
-		{Name: "upstream_list", Description: "Configured upstream STA interfaces", CLICommand: "upstream", CLIArgs: []string{"list"}},
+		{Name: "upstream_list", Description: "Configured upstream STA interfaces", CLICommand: "upstream", CLIArgs: []string{"list-upstream"}},
 		{Name: "upstream_known", Description: "Known upstream networks from the last scan", CLICommand: "upstream", CLIArgs: []string{"known"}},
 		{Name: "upstream_scan", Description: "Scan for upstream WiFi networks now (read-only; does not connect)", CLICommand: "upstream", CLIArgs: []string{"scan"}},
 
@@ -49,9 +48,6 @@ func ToolSurface() []Tool {
 		{Name: "private_enable", Description: "Enable the private network", CLICommand: "network", CLIArgs: []string{"private", "enable"}, Write: true},
 		{Name: "private_disable", Description: "Disable the private network", CLICommand: "network", CLIArgs: []string{"private", "disable"}, Write: true},
 		{Name: "private_rename", Description: "Rename the private network (arg: new SSID)", CLICommand: "network", CLIArgs: []string{"private", "rename"}, Write: true},
-		{Name: "service_restart", Description: "Restart the TollGate service", CLICommand: "restart", Write: true},
-		{Name: "service_stop", Description: "Stop the TollGate service", CLICommand: "stop", Write: true},
-		{Name: "service_start", Description: "Start the TollGate service", CLICommand: "start", Write: true},
 	}
 }
 
