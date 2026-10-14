@@ -613,11 +613,11 @@ is still needed for the change to take full effect.
 
 These commands manage the HTTPS identity the module provisions for this
 router — the self-signed certificate both admin listeners arm their TLS
-port from (the board's `:443` under `entry_ui=board`, LuCI's `:8443`
-under `entry_ui=luci`). The captive portal itself keeps its HTTP
-interception and is not affected. The `ssl` commands run locally (they
-talk to uci and the filesystem), so unlike most of the CLI they do not
-need the TollGate service to be running.
+port from (the board's `:443` and LuCI's `:8443` under the default
+`entry_ui=board`; the pairs swap under `entry_ui=luci`). The captive
+portal itself keeps its HTTP interception and is not affected. The `ssl`
+commands run locally (they talk to uci and the filesystem), so unlike
+most of the CLI they do not need the TollGate service to be running.
 
 ### Check status
 
