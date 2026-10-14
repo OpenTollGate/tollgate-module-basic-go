@@ -203,14 +203,29 @@ non-existence as an executable check.
   to 2 sat/vB and is **stranded from 3 sat/vB**, and the payer (who has no
   internet) cannot CPFP it, while the payee can. **The asymmetries —
   fee-bumping, rebroadcast, and claim — all favour the router.**
-- **LNURLcash (LUD-25/26) is the container, not a competitor.** Every note is a
-  BIP-341 taproot output key spent by arbitrary tapscript, **timelocks and
-  multi-party leaves explicitly in scope** — so a one-way channel is one *leaf*
-  inside it, not a rival instrument. But `LUD-25` states its timelocks are
-  *"a custodial policy, not a consensus guarantee, and MUST NOT be presented as
-  trustless"*, and `BIP-342` **disables `OP_CHECKMULTISIG`**, so the leaf above
-  cannot be encoded as a tapscript leaf as written. See
-  [`LNURLCASH-REVIEW.md`](../analysis/LNURLCASH-REVIEW.md).
+- **LNURLcash (LUD-25/26) can *carry* the leaf but cannot *enforce* it.** Every
+  note is a BIP-341 taproot output key spent by arbitrary tapscript — so a
+  one-way channel is one *leaf* inside it, not a rival instrument. But three
+  things block the composition as an answer:
+  1. **`BIP-342` disables `OP_CHECKMULTISIG`,** so the leaf in §2 **cannot** be
+     encoded as a tapscript leaf as written; it needs the `OP_CHECKSIGADD` form
+     (corrected leaf: 114 B, refund `cw1` 374 chars — arithmetic verified against
+     the spec's own `25-vectors.json`, which confirms the bearer-note `cw1` is
+     exactly 192 chars).
+  2. **LUD-25's timelock is custodial by explicit design** — *"a custodial policy,
+     not a consensus guarantee, and MUST NOT be presented as trustless"* — so a
+     channel-as-LNURLcash-leaf is custodial in exactly the dimension this spike
+     is about.
+  3. **The spec's canonical spend transaction is never broadcast**, so it cannot
+     supply consensus enforcement.
+  **What *is* worth taking:** `cs1` is a genuine **offline issuance proof** (no
+  network, no chain, verified against `mintPubkey`) — a real answer to the
+  customer-path-verification half, valuable independently of any channel — plus
+  the two script-builder footguns the spec already states (reject `OP_SUCCESSx`
+  outside pushed data; never use a key that is neither empty nor 32 bytes in a
+  signature check). See
+  [`LNURLCASH-REVIEW.md`](../analysis/LNURLCASH-REVIEW.md) and
+  [`CUSTOMER-MINT-AND-INTEROP.md`](../analysis/CUSTOMER-MINT-AND-INTEROP.md) §2f-§2i.
 
 ## 8. Recommendations
 
@@ -230,6 +245,15 @@ non-existence as an executable check.
 7. **If a LAN mint is deployed, call it operator-custodial.** Mint URLs get no
    host or scheme validation, so a LAN mint is legal — but it answers "no
    internet" only by making the *operator* the custodian, not by removing one.
+8. **On the customer-held-mint topology (Track B): delete the mint, don't wrap
+   it.** The construction is coherent only as *"the customer runs no mint and
+   funds the channel directly"* — because a mint is itself a custodian, and a
+   channel exists to replace one. Deploying both keeps the custodian *and* pays
+   the deadline cost. Do not pursue "customer's mint + a channel".
+9. **If LNURLcash work is picked up, scope it to the encoding only.** The `cw1`
+   codec plus the `OP_CHECKSIGADD`-corrected leaf is a bounded, testable
+   experiment; **do not** claim consensus enforcement, and do not integrate.
+   Take `cs1` as the offline issuance proof on its own merits.
 
 ## 9. What this work did not establish
 

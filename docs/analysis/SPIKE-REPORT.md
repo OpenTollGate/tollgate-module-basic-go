@@ -256,21 +256,49 @@ lightning channels. Is this a problem?"*
 
 Full analysis: [`CUSTOMER-MINT-AND-INTEROP.md`](CUSTOMER-MINT-AND-INTEROP.md).
 
-Headline of the adversarial test:
+**Verdict: Track B survives the two obvious objections, and dies on a third.**
 
-- **Bootstrap recursion.** A mint backed by an LN node needs a chain backend + an
-  LN node with inbound liquidity *before* it can sell anything. Distinguish
-  "needs internet at mint-creation" from "needs internet at redemption" — the
-  distinction is what rescues or kills the idea, and it is analysed in full in the
-  companion memo.
-- **The operator's question, answered.** The mint's inability to see its LN
-  channel state is **both** a liveness problem (it cannot melt) **and** a safety
-  problem (it may accept ecash against a channel that was force-closed while it
-  was offline). The safety half is the one that costs money.
-- **The crux for this spike:** a one-way channel between *customer and router*
-  does **not** fix the *mint's* LN channels — that is a separate graph. So the
-  channel does not solve the operator's stated concern; it solves an adjacent one.
-  This is why Track B does not, on its own, justify channel work.
+- **Not killed by recursion.** The bootstrapping is **nested, not circular**: the
+  operator can pre-position liquidity over a *mobile* link days ahead, on a
+  device that is not the LAN being sold to. Needs internet *once, at
+  liquidity-acquisition*, not at purchase.
+- **Not killed by the mint's LN illiquidity.** A mint is a fractional-reserve
+  credit intermediary, not necessarily an LN routing node. **Signing a NUT-03
+  swap requires only the keyset private key** — not a live LN node. So credit
+  works offline; only debit (melt) fails.
+- **The operator's question, answered precisely.** The mint's inability to see
+  its LN channel state is **both** a liveness problem (it cannot melt) **and** a
+  safety problem (it may credit a note against a channel force-closed while it
+  was offline — and on a stale-commitment race, **the customer pays**). The
+  safety half is the one that costs money.
+
+**The decisive finding — a one-way channel solves a *different* problem:**
+
+> The construction spans **two disjoint graphs.** Graph 1 = customer's mint ⇄
+> TollGate's node (LN channels). Graph 2 = customer ⇄ router (the LAN purchase).
+> A Spilman/CSV channel is a **Graph 2** object. **Nothing in it writes, reads,
+> or constrains any LN channel in Graph 1.**
+
+So the channel cannot fix the mint's melt failure (an LN liquidity fact) or its
+force-close exposure (an LN commitment-race fact). And then the inversion:
+
+> Track B's mint **is a custodian**. A one-way channel's entire purpose is to
+> **be** the trustless substitute for a custodian. Deploying both at once keeps
+> the custodian **and** pays the channel's deadline cost. The coherent version of
+> Track B is not "customer runs a mint *and* the purchase is a channel" — it is
+> **"the customer runs no mint, and funds the channel directly."**
+
+**And the mechanism that makes the exchange unfavourable:** a channel does not
+*delete* the time obligation, it **relocates it and removes the reconciler** —
+from the authority's obligation to answer within 30 s, to the holder's obligation
+to act before expiry, with **no reconciliation step** after expiry (whereas #239
+routes its ambiguity to an operator).
+
+**Chain-blindness verdict: deferred-online, not blind.** The *payer* can be
+chain-blind; the *construction* cannot, whenever a CSV refund is the safety
+property — a relative lock is enforced by *confirmation*, so someone must
+broadcast at/after height H. The only bridge-less relay path makes **the router a
+liveness dependency for the customer's own refund**.
 
 ---
 
