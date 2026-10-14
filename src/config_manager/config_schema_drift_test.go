@@ -441,3 +441,66 @@ func assertPSFieldValue(t *testing.T, ps ProfitShareConfig, jsonKey, value, typ 
 		}
 	}
 }
+
+// TestMaintainerNpubRoundTrip pins the one field the CVM control plane adds:
+// the maintainer npub is the authorization boundary AND the discovery key, so a
+// silent failure to persist it would leave a router that announces itself with
+// no owner (dashboard finds nothing) or authorizes nobody (writes refused with
+// no explanation). Both are invisible failures, hence a dedicated test rather
+// than relying on the generic dot-path round-trip, whose switch has no default
+// branch and therefore asserts nothing for an unhandled key.
+func TestMaintainerNpubRoundTrip(t *testing.T) {
+	const npub = "npub1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqksqpew"
+
+	tmp := t.TempDir()
+	cm, err := NewConfigManager(
+		tmp+"/config.json",
+		tmp+"/install.json",
+		tmp+"/identities.json",
+	)
+	if err != nil {
+		t.Fatalf("NewConfigManager: %v", err)
+	}
+
+	if err := SetDotPath(cm, "maintainer_npub", npub); err != nil {
+		t.Fatalf("SetDotPath(maintainer_npub): %v", err)
+	}
+
+	loaded, err := LoadConfig(tmp + "/config.json")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if loaded.MaintainerNpub != npub {
+		t.Errorf("maintainer_npub: got %q, want %q", loaded.MaintainerNpub, npub)
+	}
+}
+
+// TestMaintainerNpubValidation: an empty value means "no maintainer configured"
+// (a router that has not been claimed), which is legal. Anything else that is
+// not a bech32 npub is a configuration error: silently accepting a hex pubkey or
+// a typo would produce a router whose announcement no dashboard can match.
+func TestMaintainerNpubValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{"empty is allowed", "", false},
+		{"valid npub", "npub1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqksqpew", false},
+		{"raw hex is not an npub", "9cd14d9a1b6d0e4b1a4b1f4a3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b", true},
+		{"truncated npub", "npub1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqks", true},
+		{"bech32 but not npub", "abcdef1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqksqpew", true},
+		{"garbage", "not-a-key", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateMaintainerNpub(tc.value)
+			if tc.wantErr && err == nil {
+				t.Fatalf("ValidateMaintainerNpub(%q) = nil, want error", tc.value)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("ValidateMaintainerNpub(%q) = %v, want nil", tc.value, err)
+			}
+		})
+	}
+}
