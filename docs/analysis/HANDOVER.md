@@ -77,8 +77,20 @@ fixed-fee commitment: a pre-signed refund relays at up to 2 sat/vB and is
 it**, while the payee can. **Every asymmetry (fee bumping, rebroadcast, claim)
 favours the router.**
 
-**3. It does not pay. 1 satoshi buys 6.12 hours of internet.** From the module's
-own constants (`step_size = 22020096 ms`, `price_per_step = 1 sat`):
+**3. It does not pay — for metered micropayments.** On-chain setup+close is a
+fixed **716 sats**, so a 1-sat purchase is **71,600%** overhead.
+
+> **Correction (§10 of the design record).** The live router
+> (`tollgate-A04E`, `tollgate-wrt v0.6.0-rc4-gcf7cad3`) reports
+> `metric = "bytes"`, `step_size = 22020096` (**21 MiB** exactly),
+> `price_per_step = 1 sat`. So **1 sat buys 21 MiB of data** — not "6.12 hours",
+> which was an artefact of reading `step_size` as milliseconds. The overhead
+> ratios below stand, but the break-even moves a lot: a **300 GB/month** user
+> pays ~13,624 sat, so a channel reaches **5% overhead in ~1 month** and 1% in
+> ~5 months. **A prepaid subscription is economically plausible; a per-session
+> micropayment is not.**
+
+From the module's own constants (`step_size = 22020096`, `price_per_step = 1 sat`):
 
 | Purchase | = internet | Overhead at 716 sats setup+close |
 |---|---|---|
@@ -314,7 +326,9 @@ That composition matters to us because our router may have to accept value
 online round-trip in the customer-facing path, or accepting a replayable
 instrument. A channel leaf is the first thing we have found that plausibly removes
 both — **though we should be honest that our own spike concluded the on-chain
-version is far too expensive for our price point (1 sat buys ~6.12 hours), so this
+version is uneconomic for a per-session micropayment at our price point (1 sat
+buys 21 MiB — see §10 of the design record for the corrected break-even, which
+makes a prepaid subscription plausible), so this
 is a direction, not a plan.**
 
 **One direct conflict to flag**, since it bit us: LUD-25's time-only BIP-68

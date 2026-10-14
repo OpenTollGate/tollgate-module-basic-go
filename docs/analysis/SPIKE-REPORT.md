@@ -176,12 +176,18 @@ instrument, and `src/tollwallet/cdk_wallet.go:121` `Receive` needs only the
 **router's** mint — the customer performs no mint interaction. The customer hands
 over a token; the router does the round-trip.
 
-**The unit the channel must amortise against — from the module's own pricing**
-(`src/tollgate_protocol/validator_test.go`, `src/config_manager/config_manager_config.go:305`,
-`README.md:351`): `step_size = 22020096 ms`, `price_per_step = 1 sat`.
+**The unit the channel must amortise against — read live from `tollgate-A04E`**
+(`tollgate-wrt v0.6.0-rc4-gcf7cad3`): `metric = "bytes"`,
+`step_size = 22020096`, `price_per_step = 1 sat` (all 7 configured mints).
 
-> **1 satoshi buys 6.12 hours of internet. 64 sats (the module's own `MinBalance`)
-> is 16.3 days.**
+> **1 satoshi buys 21 MiB of data.**
+
+> **Correction:** an earlier revision read `step_size` as *milliseconds* and
+> reported "1 satoshi buys 6.12 hours". The shipped metric is **bytes**. The
+> overhead ratios below are unaffected (they are sat-to-sat), but the break-even
+> in purchase size **is** — see §10 of the design record and
+> `research/one-way-channel-spike/granularity.py`. A heavy user (300 GB/month)
+> reaches 5% overhead in **about one month** of prepaid service.
 
 | Purchase | = internet | On-chain cost (716 sat @ 2 sat/vB) | Overhead |
 |---|---|---|---|
