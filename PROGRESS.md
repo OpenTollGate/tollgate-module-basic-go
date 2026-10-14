@@ -25,9 +25,13 @@ Urgency: SOON (operator-approved; write scope read+config+private+start/stop/res
 
 ## Gates
 
-- go test ./... in src/cmd/tollgate-cvm: GREEN
+- go test ./... in src/cmd/tollgate-cvm: GREEN (incl. contract_test.go guard + negative control)
 - config_manager + cli suites: GREEN; js-schema-lint PASS (70 entries)
-- go-battery (all modules): see /tmp battery run
+- go-battery: **src/merchant FAILS — PRE-EXISTING, NOT OURS.** Proven by control:
+  same failure on a pristine `7fec9e3` worktree (`~/worktrees/tollgate-cvm-control`),
+  and my branch PASSED merchant (515s) on re-run. The merchant suite is slow
+  (~9-10 min) and flaky — `TestValve...` gate-close/ndsctl tests plus a 600s
+  timeout. Report to upstream separately; do not attribute to this PR.
 - E2E: TOLLGATE_CVM_E2E=1 -tags e2e → PASS 1.66s over relay2.contextvm.org
 
 ## Remaining
