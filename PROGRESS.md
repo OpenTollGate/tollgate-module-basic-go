@@ -32,7 +32,19 @@ Urgency: SOON (operator-approved; write scope read+config+private+start/stop/res
   and my branch PASSED merchant (515s) on re-run. The merchant suite is slow
   (~9-10 min) and flaky — `TestValve...` gate-close/ndsctl tests plus a 600s
   timeout. Report to upstream separately; do not attribute to this PR.
-- E2E: TOLLGATE_CVM_E2E=1 -tags e2e → PASS 1.66s over relay2.contextvm.org
+- E2E request/response: PASS 1.66s over relay2.contextvm.org
+- E2E announcement discovery (#p on live relay): PASS 0.76s
+- NOT fixed from the audit: announcement not bound to a router the maintainer owns (needs TOFU-with-pin); e-tag not inside the rumor so correlation rests on a client-chosen JSON-RPC id; config_get exposes private_ssid/mint URLs to any signed caller (accepted risk).
+
+## Audit fixes (all committed)
+
+- 12cb4c2/40e2980 CRITICAL: private_status leaked the WPA passphrase to ANY signed caller -> RedactResponse at the single dispatch boundary; uninspectable payload withheld; <key>_set marker. Negative control run.
+- 40e2980 HIGH: no replay protection -> CheckFreshness (120s/60s) + bounded TTL SeenSet, applied before decryption. Residual: restart-window replay (needs persistence).
+- 1b0b756: 5 tools named socket-unserved commands (logs, service_*, upstream list) -> removed; contract_test.go parses the server dispatch source. Negative control run.
+- adb8c81 HIGH: announcement NEVER published (PublishAnnouncements had no caller) -> published at boot + every 30min + on maintainer change.
+- adb8c81 HIGH: authorization resolved once at boot -> Authorizer guarded + SetMaintainer; Serve polls config every 15s.
+- adb8c81 LOW: key file mode now enforced (600) or refuse.
+- 729a40c CRITICAL: the p tag carried bech32 -> NO relay could index it; discovery was dead on arrival while all unit tests passed. Now hex in the tag, bech32 in content. Proven by live-relay E2E (0.76s).
 
 ## Remaining
 
