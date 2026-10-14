@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -41,8 +42,23 @@ func TestAnnouncementShape(t *testing.T) {
 	if p == nil {
 		t.Fatal("no p tag — a dashboard can never find this tollgate")
 	}
-	if p.Value() != maintainer {
-		t.Fatalf("p tag %s, want maintainer npub %s", p.Value(), maintainer)
+	// The tag MUST be hex, not bech32. NIP-01 indexes `p` as a 32-byte hex
+	// pubkey; a bech32 value can never be matched by a `#p` subscription. This
+	// shipped as a bug: the live-relay discovery E2E found nothing while this
+	// unit test passed happily on the bech32 spelling.
+	if len(p.Value()) != 64 {
+		t.Fatalf("p tag %q is %d chars — NIP-01 p values are 64-char HEX pubkeys; a bech32 npub can never be matched by #p", p.Value(), len(p.Value()))
+	}
+	wantHex, err := maintainerHexFromNpub(maintainer)
+	if err != nil {
+		t.Fatalf("decode maintainer npub: %v", err)
+	}
+	if p.Value() != wantHex {
+		t.Fatalf("p tag %s, want hex %s (decoded from %s)", p.Value(), wantHex, maintainer)
+	}
+	// The human-readable spelling is still discoverable in the content.
+	if !strings.Contains(evt.Content, maintainer) {
+		t.Errorf("content should carry the bech32 spelling for a human reading the event")
 	}
 
 	// t tag: namespaced service class, filterable

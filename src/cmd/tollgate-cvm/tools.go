@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 // Tool is one CVM tool backed by one CLI socket command. The surface below IS
 // the security boundary the ADR fixes (cvm-control-plane-decision.md, D3):
@@ -62,6 +65,7 @@ func ToolSurface() []Tool {
 // configured there is nobody to authorize, and allowing writes would mean
 // allowing them to everyone.
 type Authorizer struct {
+	mu             sync.RWMutex
 	maintainerNpub string
 	byName         map[string]Tool
 }
@@ -74,6 +78,25 @@ func NewAuthorizer(maintainerNpub string) *Authorizer {
 	return &Authorizer{maintainerNpub: maintainerNpub, byName: byName}
 }
 
+// SetMaintainer re-points authorization. It exists because resolving the
+// maintainer ONCE at boot is a real defect (found by audit): a maintainer who
+// hands a router over with `config set maintainer_npub <new>` would leave the
+// OLD key holding full write authority — including further config_set — until
+// the process restarted, silently and indefinitely. The inverse is as bad:
+// unclaiming a router left a live write path, contradicting the claim gate.
+func (a *Authorizer) SetMaintainer(npub string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.maintainerNpub = npub
+}
+
+// Maintainer reports the identity currently authorized for writes.
+func (a *Authorizer) Maintainer() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.maintainerNpub
+}
+
 // Authorize returns nil when callerNpub may invoke toolName.
 // Every refusal is an error string — silence is the failure mode.
 func (a *Authorizer) Authorize(callerNpub, toolName string) error {
@@ -84,10 +107,13 @@ func (a *Authorizer) Authorize(callerNpub, toolName string) error {
 	if !tool.Write {
 		return nil
 	}
-	if a.maintainerNpub == "" {
+	a.mu.RLock()
+	maintainer := a.maintainerNpub
+	a.mu.RUnlock()
+	if maintainer == "" {
 		return fmt.Errorf("router is unclaimed (maintainer_npub empty): no write tools are authorized until a maintainer claims it")
 	}
-	if callerNpub != a.maintainerNpub {
+	if callerNpub != maintainer {
 		return fmt.Errorf("tool %q is maintainer-only", toolName)
 	}
 	return nil

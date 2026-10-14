@@ -41,6 +41,22 @@ start_service() {
     # Read and validate the key here rather than trusting the file: a
     # truncated key (63 chars) is the classic keygen failure and produces a
     # confusing nip19 error deep in the daemon.
+    #
+    # The MODE is enforced, not merely advised: this file is the whole control
+    # plane (it decrypts every request), so a world-readable copy is a total
+    # compromise. BusyBox `stat -c %a` is available on this image; if it is
+    # not, refuse rather than run with an unverified key file.
+    if command -v stat >/dev/null 2>&1; then
+        TG_CVM_MODE="$(stat -c %a "$KEY_FILE" 2>/dev/null)"
+        if [ "$TG_CVM_MODE" != "600" ]; then
+            echo "tollgate-cvm: $KEY_FILE is mode $TG_CVM_MODE, must be 600 (chmod 600 $KEY_FILE) — this key decrypts every request" >&2
+            return 1
+        fi
+    else
+        echo "tollgate-cvm: no 'stat' applet, cannot verify $KEY_FILE is mode 600 — refusing to run with an unverified key file" >&2
+        return 1
+    fi
+
     TG_CVM_KEY="$(head -n 1 "$KEY_FILE" | tr -d ' \t\r\n')"
     if [ "${#TG_CVM_KEY}" -ne 64 ]; then
         echo "tollgate-cvm: $KEY_FILE does not hold a 64-hex private key (got ${#TG_CVM_KEY} chars)" >&2

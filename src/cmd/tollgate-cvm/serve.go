@@ -2,10 +2,21 @@ package main
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 )
+
+// claimPollInterval is how often the daemon re-reads maintainer_npub. It is
+// short enough that a handover takes effect while an operator is watching,
+// and long enough that polling a local unix socket costs nothing.
+const claimPollInterval = 15 * time.Second
+
+// logf keeps the daemon's logging in one place (stdout/stderr are captured by
+// procd into /tmp/tollgate-cvm.log). It never logs request payloads or key
+// material — only lifecycle facts.
+func logf(format string, args ...interface{}) { log.Printf(format, args...) }
 
 // Serve is the daemon's whole loop: subscribe broadly to gift wraps, filter
 // the p-tag client-side, unwrap, dispatch, respond.
@@ -24,14 +35,18 @@ func Serve(ctx context.Context, cfg *ServerConfig, bridge Bridge) error {
 	// Maintainer resolution: config.json via the socket is the source of
 	// truth; the env var is an override for first-boot claiming.
 	maintainer := cfg.MaintainerNpub
-	if maintainer == "" && bridge != nil {
-		if resp, err := bridge.Call(CLIMessage{Command: "config", Args: []string{"get"}, Timestamp: time.Now()}); err == nil && resp.Success {
-			if cfgMap, ok := resp.Data.(map[string]interface{}); ok {
-				if v, ok := cfgMap["maintainer_npub"].(string); ok {
-					maintainer = v
-				}
-			}
+	readMaintainer := func() string {
+		if bridge == nil {
+			return ""
 		}
+		resp, err := bridge.Call(CLIMessage{Command: "config", Args: []string{"get"}, Timestamp: time.Now()})
+		if err != nil || !resp.Success {
+			return ""
+		}
+		return MaintainerFromConfigPayload(resp.Data)
+	}
+	if maintainer == "" {
+		maintainer = readMaintainer()
 	}
 
 	// Claim gate: no maintainer, no service. See RequireMaintainer for why
@@ -47,6 +62,59 @@ func Serve(ctx context.Context, cfg *ServerConfig, bridge Bridge) error {
 	events := pool.SubMany(ctx, cfg.Relays, nostr.Filters{
 		{Kinds: []int{nostr.KindGiftWrap}, Limit: 0},
 	})
+
+	// Publish the discovery announcement (audit 6.1). Before this, the
+	// announcement was never published at all: BuildAnnouncement's only caller
+	// was PublishAnnouncements, which nothing called — so no router could ever
+	// appear in a maintainer's dashboard. Announce once now and re-announce
+	// periodically, because relay retention of replaceable events is not
+	// guaranteed.
+	announce := func(maintainer string) {
+		if err := PublishAnnouncements(pool, cfg.Relays, sk, maintainer); err != nil {
+			logf("announce failed: %v", err)
+		} else {
+			logf("announced 11316/11317 as %s for maintainer %s", serverPK, maintainer)
+		}
+	}
+	announce(authz.Maintainer())
+	go func() {
+		t := time.NewTicker(30 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				announce(authz.Maintainer())
+			}
+		}
+	}()
+
+	// Re-read the claim periodically (audit 8.1). Authorization was resolved
+	// once at boot, so a handover left the OLD npub with full write authority
+	// until the process restarted — silently, and including further
+	// config_set. Watching the config makes the change take effect, and
+	// re-announcing re-points discovery at the new owner.
+	go func() {
+		t := time.NewTicker(claimPollInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				current := readMaintainer()
+				if current == authz.Maintainer() {
+					continue
+				}
+				authz.SetMaintainer(current)
+				logf("maintainer changed to %q — authorization and discovery updated", current)
+				if current != "" {
+					announce(current)
+				}
+			}
+		}
+	}()
 
 	// Duplicate-delivery guard (audit Q1). Bounded + TTL'd so a hostile relay
 	// cannot exhaust a router's memory.
