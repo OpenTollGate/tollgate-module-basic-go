@@ -94,6 +94,15 @@ jobs:
           # refused since — and require the refusal.
           bash tests/contract/fences-dispatch_test.sh
 
+      - name: Agent-docs partition fence (AGENTS.md <-> docs/agents/)
+        run: |
+          # AGENTS.md is a stable core; growing doctrine lives in
+          # docs/agents/<topic>.md behind a fenced index (#920). Every
+          # topic file must be indexed, every listing must resolve, every
+          # entry must carry its load directive — planted drift shapes are
+          # refused by name.
+          bash tests/contract/agents-partition_test.sh
+
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
