@@ -3,6 +3,7 @@ package valve
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"sync"
 	"testing"
@@ -140,25 +141,91 @@ func TestIsValidMAC(t *testing.T) {
 	}
 }
 
+// Timeout-test parameters. The child is given a lifetime two orders of
+// magnitude above the deadline, so "the call returned" can only mean "the
+// deadline killed the child", never "the child finished".
+const (
+	timeoutTestDeadline = 1 * time.Second
+	// timeoutTestChildSeconds is the child's own lifetime: how long it runs if
+	// nothing kills it.
+	timeoutTestChildSeconds = 60
+	// timeoutTestChildLifetime is that lifetime as a duration.
+	timeoutTestChildLifetime = timeoutTestChildSeconds * time.Second
+	// timeoutTestLooseBound is the unconditional wall-clock bound, and it is a
+	// BACKSTOP, not the contract: half of the child's own lifetime. Every
+	// latency measured for this kill on a host under deliberate CPU starvation
+	// (up to 15.5s, see the PR) passes it, while a call that was NOT cut short
+	// by the 1s deadline — i.e. one that returned when the 60s child exited on
+	// its own — cannot. The 3s bound this replaces sat below the delay an
+	// ordinarily loaded host produces.
+	timeoutTestLooseBound = timeoutTestChildLifetime / 2
+	// timeoutTestStrictBound is the promptness bound, asserted only when
+	// TOLLGATE_TEST_STRICT_TIMING=1 is set, for a host with no other load.
+	timeoutTestStrictBound = 3 * time.Second
+)
+
+// TestRunNdsctlTimeout pins the contract the ndsctl timeout relies on: a
+// command started under a deadline context is terminated when that deadline
+// fires, well before it would have exited on its own, and the context reports
+// DeadlineExceeded.
+//
+// It deliberately does NOT turn "how promptly did the host get around to
+// killing the child" into an assertion. That measurement is scheduling
+// latency, not this package: measured for a 1s deadline, the kill landed
+// 3.2-3.7s late on a loaded host (which is why the previous
+// `elapsed > 3*time.Second` bound failed on the release pin with no diff
+// involved, reddening unrelated branches) and up to ~15s late under
+// deliberate CPU starvation.
+//
+// The contract is therefore asserted directly — the context expired, the child
+// did not exit successfully, the child was killed by a signal — and none of
+// that depends on when the host got around to running the kill. The wall-clock
+// bound is the backstop below, and the prompt bound is opt-in via
+// TOLLGATE_TEST_STRICT_TIMING=1.
 func TestRunNdsctlTimeout(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping timeout test in short mode")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutTestDeadline)
 	defer cancel()
 
 	start := time.Now()
-	cmd := exec.CommandContext(ctx, "sleep", "30")
-	_ = cmd.Run()
+	cmd := exec.CommandContext(ctx, "sleep", fmt.Sprint(timeoutTestChildSeconds))
+	err := cmd.Run()
 	elapsed := time.Since(start)
-
-	if elapsed > 3*time.Second {
-		t.Errorf("command should have been killed after ~1s, took %v", elapsed)
-	}
 
 	if ctx.Err() != context.DeadlineExceeded {
 		t.Errorf("expected context.DeadlineExceeded, got %v", ctx.Err())
+	}
+	if err == nil {
+		t.Errorf("expected the deadline to kill the child, but it exited successfully after %v", elapsed)
+	}
+	if elapsed >= timeoutTestLooseBound {
+		t.Errorf("the call took %v, which is not well before the %v the child needs to exit on its own: the deadline did not kill it",
+			elapsed, timeoutTestChildLifetime)
+	}
+
+	if cmd.ProcessState == nil {
+		// The deadline expired before the child was started, so there was
+		// nothing to kill. That is possible on a heavily loaded host and says
+		// nothing about the valve, so it is reported without failing.
+		t.Logf("child was not started before the deadline expired (returned %v after %v): %v", elapsed, timeoutTestDeadline, err)
+	} else {
+		if cmd.ProcessState.Success() {
+			t.Errorf("child exited successfully after %v: the deadline did not kill it", elapsed)
+		}
+		if code := cmd.ProcessState.ExitCode(); code != -1 {
+			t.Errorf("expected the child to be terminated by a signal (exit code -1), got exit code %d after %v", code, elapsed)
+		}
+	}
+
+	if os.Getenv("TOLLGATE_TEST_STRICT_TIMING") == "" {
+		return
+	}
+	if elapsed > timeoutTestStrictBound {
+		t.Errorf("strict timing: the %v deadline should kill the child within %v on a quiet host, took %v",
+			timeoutTestDeadline, timeoutTestStrictBound, elapsed)
 	}
 }
 

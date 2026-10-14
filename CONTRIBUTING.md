@@ -71,8 +71,9 @@ For end-to-end runs against real routers, see
 ## Choosing a branch to target
 
 All development happens on **`main`**; every PR targets it. Releases
-are cut as tags from `main` (`v0.5.0-alpha1` … `v0.5.0`), so there are
-no long-lived release branches to choose between. If a fix needs to
+are cut as tags from `main` (`v0.6.0-alpha1` … `v0.6.0-rc1` at the time
+of writing), so there are no long-lived release branches to choose
+between. If a fix needs to
 land in a released version, say so in the PR and the maintainers will
 handle the tagging.
 
@@ -177,13 +178,14 @@ channel and breaks the apk version. The maintainer runbook for cutting
 and publishing a release lives in
 [docs/release-process.md](docs/release-process.md).
 
-If your change touches the config schema or the captive-portal
-contract, also run the contract checks from the repo root (these are
-CI gates):
+If your change touches the config schema, the captive-portal contract
+or a shipped default, also run the contract checks from the repo root
+(these are CI gates):
 
 ```bash
 node tests/contract/js-schema-lint.mjs
 bash tests/contract/build-purity.sh
+bash tests/contract/check-ssid-format.sh
 ```
 
 **Recommended for router-visible changes**: build a real package with
@@ -220,8 +222,11 @@ running it yourself saves a review round trip.
   Config changes update the schema in
   [config_manager](src/config_manager/) *with a migration* and the
   example in [README.md](README.md). Behavior visible to operators
-  updates [README.md](README.md) and the module doc it touches, plus a
-  [CHANGELOG.md](CHANGELOG.md) entry.
+  updates [README.md](README.md) and the module doc it touches, plus a changelog
+  entry — added as a fragment under [changelog.d/](changelog.d/), **never** as a
+  direct edit to [CHANGELOG.md](CHANGELOG.md). The maintainer folds fragments
+  into the changelog before a release; the naming rule and the reason are in
+  [changelog.d/README.md](changelog.d/README.md).
 
 ### Additional requirements for bug-fix PRs
 
@@ -231,6 +236,29 @@ running it yourself saves a review round trip.
   with a one-paragraph explanation.
 - **Commit message references the bug**: the symptom, the root cause
   in one sentence, and the fix shape.
+
+### Keeping a PR current: rebase in place, never hand-carry `main`
+
+Long-lived branches go stale, and the two common ways of refreshing them
+both damage the queue. Do not merge `main` forward into a PR branch — in
+this multi-module tree it breeds evil merges (a `go.sum` that equals
+neither parent) and, done as a squash, a single-parent "merge" commit that
+replays thousands of `main` lines into the PR diff. Do not open a fresh
+"rebase of #N" PR either — the original stays open as a zombie and nobody
+can tell which one is live. Instead, refresh the branch the PR already
+has:
+
+```bash
+git fetch origin
+git rebase origin/main   # or: git merge --squash <pr-head> onto a fresh main
+make go-battery          # plus the offline suites your diff touches
+git push --force-with-lease origin <pr-branch>
+```
+
+If a rebase-PR was already opened, close the superseded original in the
+same action. CHANGELOG entries carried by the rebased commits belong under
+`[Unreleased]` with their PR link — an entry landing inside an
+already-dated release section is the standard stale-rebase artifact.
 
 ### Merge mechanics
 
@@ -309,18 +337,25 @@ For implementation questions specific to your PR, ask in the PR
 itself. For design or roadmap questions that don't have a clear PR
 home yet, file a GitHub issue.
 
-## Branding, the operator nym, and net4sats
+## Branding, the operator nym, and the whitelabel brand
 
 Read this before filing a PR or an issue that mentions either of these —
 they are a recurring source of confusion.
 
 - **TollGate is the non-profit, reference implementation of the TollGate
-  protocol.** It does not adopt net4sats branding.
-- **`net4sats` is a commercial re-brand of TollGate.** It is shipped as a
-  separate whitelabel build (distinct `brand` value — hostname, DNS, AP SSIDs
-  and the admin webroot all derive from `brand`). Naming and branding decisions
-  for net4sats are made by the net4sats project, not by this repo. Do not treat
-  `net4sats` and `tollgate` as interchangeable; they are `$BRAND` variants.
+  protocol.** It does not adopt the whitelabel brand's naming.
+- **The whitelabel brand is a commercial re-brand of TollGate.** It is shipped
+  as a separate build (distinct `brand` value — hostname, DNS, AP SSIDs and the
+  admin webroot all derive from `brand`). Naming and branding decisions for that
+  build are made by that project, not by this repo, and **its name is not a
+  literal on any code, packaging, build or test surface in this tree**:
+  `tests/packaging/rebrand-literal-gutter_test.sh` fails if it reappears
+  there. Documented prose references (`docs/`, `CHANGELOG.md`, `README.md`)
+  are exempt — the discovery-signaling decision names the re-brand's SSID
+  prefix — while the `uhttpd.<re-brand>` section shape stays banned
+  tree-wide. Do not treat the re-brand's name and `tollgate` as
+  interchangeable; they are `$BRAND` variants, and the module reads the brand
+  from `/etc/tollgate/brand` generically (any single alphanumeric token).
 - **`c08r4d0r` is a shared pseudonym for "a TollGate operator", not a personal
   identifier.** Everyone who runs a TollGate may go by the nym `c08r4d0r`. It
   deliberately names no real person. The codebase uses it as the representative
@@ -331,8 +366,8 @@ they are a recurring source of confusion.
   private (operator-owned) AP. Do not report it or a guard test on it as an
   "identity leak".
 
-When you see `c08r4d0r`, `net4sats`, or `tollgate` in a diff and suspect a
-naming bug, confirm the intent against the `brand` value and this section
+When you see `c08r4d0r`, `tollgate`, or a whitelabel brand in a diff and suspect
+a naming bug, confirm the intent against the `brand` value and this section
 before asserting a leak or a rebranding error.
 
 ## Further reading

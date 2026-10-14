@@ -27,7 +27,7 @@ Exit 0 = happy path intact; non-zero = broken. Every check prints one line:
 
 ```
 HPCHECK <id> <PASS|FAIL|SKIP> <detail...>
-HPRESULT total=23 pass=20 fail=0 skip=2 known=1
+HPRESULT total=24 pass=23 fail=0 skip=1 known=0
 HPEXIT 0
 ```
 
@@ -44,8 +44,13 @@ from SKIP to FAIL — use it once a release is known to ship them) ·
   the **reused** `tests/cloud-lab/fake-ndsctl.sh` seam is on PATH and records
   calls (self-test), and an **offline stub mint** is up.
 * **API contract** — `GET /` is `kind:10021`, `/whoami`, `/balance`, `/usage`
-  shapes, the `/ln-invoice` no-quote **400 status-poll contract**, and
-  `/session-state` when the artifact has it.
+  shapes, the `/ln-invoice` no-quote **400 status-poll contract**,
+  `/session-state` when the artifact has it, and the **client-identity
+  contract**: every client-scoped route names the client it answered for
+  (`X-TollGate-Client-MAC`) and reports a `?mac=` claim it did not honour
+  (`X-TollGate-Mac-Claim-Ignored`) instead of dropping it silently. The probe
+  names a MAC it is not using, and the money route is probed with an empty body,
+  so nothing can be redeemed.
 * **Enforcement** — no gate moves on an unredeemable token; the gate DOES open
   on a recognised payment, proven by the log the fake `ndsctl` wrote.
 * **Portal in a real browser** — purchase UI renders, the mint list comes from
@@ -139,3 +144,18 @@ the client identity resolvable (the precondition above):
   The two checks that moved are that lane (FAIL → PASS) and `api:session-state`
   (SKIP → PASS, because the branch also ships upstream #541's endpoint that pre15
   predates).
+
+The same shape, for the **socket-identity contract** (`api:client-identity`, added
+2026-09-26). One extracted package root, only the module binary swapped:
+
+* **RED** — the package's own binary
+  (sha256 `bfdee306f2cef2ea79117e4c24b76fcff898e905d9841e5d4012a1b07f8250b5`):
+  `HPRESULT total=24 pass=20 fail=2 skip=2 known=0`, **exit 1**, with
+  `api:client-identity FAIL … GET /whoami reported the claim as '' (want 02:11:22:33:44:55 …)`
+  on `/whoami`, `/balance`, `/usage`, `/session-state` and `POST /`.
+* **GREEN** — this branch's `x86_64` build dropped into the same root:
+  `HPRESULT total=24 pass=22 fail=1 skip=1 known=0`, with the check reading
+  `api:client-identity PASS a ?mac= claim is reported as IGNORED … and the identity
+  named is the socket's (02:00:00:00:00:20)`. The single remaining FAIL is
+  `portal:expired-view`, identical in BOTH runs — pre-existing on this package root,
+  not this change.

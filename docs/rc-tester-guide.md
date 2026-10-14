@@ -1,4 +1,4 @@
-# TollGate `v0.6.0-alpha2` — tester guide
+# TollGate `v0.6.0-rc1` — tester guide
 
 **Channel:** `alpha` (a release candidate, not a stable release).
 **Audience:** you have an OpenWrt router, you can SSH into it, and you are
@@ -156,7 +156,7 @@ apk add tollgate-wrt
 ```
 (1/2) Installing jq (1.8.1-r2)
   Executing jq-1.8.1-r2.post-install
-(2/2) Installing tollgate-wrt (0.6.0_alpha2-r0)
+(2/2) Installing tollgate-wrt (0.6.0_rc1-r0)
 OK: 39.1 MiB in 138 packages
 ```
 
@@ -187,7 +187,7 @@ tollgate version
 **VERIFIED (rehearsal)** for the package listing and the files:
 
 ```
-tollgate-wrt-0.6.0_alpha2-r0 x86_64 {tollgate-wrt} (GPL-3.0-only) [installed]
+tollgate-wrt-0.6.0_rc1-r0 x86_64 {tollgate-wrt} (GPL-3.0-only) [installed]
 -rwxr-xr-x    1 nobody   nogroup       1380 /etc/init.d/tollgate-wrt
 -rwxr-xr-x    1 nobody   nogroup   10253038 /usr/bin/tollgate
 -rwxr-xr-x    1 nobody   nogroup   17732119 /usr/bin/tollgate-wrt
@@ -198,7 +198,7 @@ tollgate-wrt-0.6.0_alpha2-r0 x86_64 {tollgate-wrt} (GPL-3.0-only) [installed]
 ```
 # tollgate version
 TollGate Version
-version: v0.6.0_alpha2
+version: v0.6.0_rc1
 commit: dcf8c5d
 build_time: 2026-09-13T00:00:00Z
 go_version: go1.26.0
@@ -206,7 +206,7 @@ openwrt_version: OpenWrt 25.12.5 r33051-f5dae5ece4
 
 # tollgate status
 running: true
-version: TollGate v0.6.0_alpha2
+version: TollGate v0.6.0_rc1
 uptime: 17.799201311s
 config_ok: true
 wallet_ok: true
@@ -214,11 +214,11 @@ network_ok: true
 ```
 
 **Note — the version string the published build prints.** The repository-root
-`VERSION` file (`v0.6.0-alpha2`) is injected into both binaries verbatim: CI
+`VERSION` file (`v0.6.0-rc1`) is injected into both binaries verbatim: CI
 passes the tag down as `PACKAGE_VERSION` and every packaging path in this tree
 (`scripts/build-sdk-package.sh`, `packaging/local-build-ipk.sh`) forwards it to
 `-X .../src/cli.Version` unchanged. A build from the current tree therefore
-prints `version: v0.6.0-alpha2` (hyphen) and `version: TollGate v0.6.0-alpha2`.
+prints `version: v0.6.0-rc1` (hyphen) and `version: TollGate v0.6.0-rc1`.
 The rehearsal block above was produced by an earlier packaging path and shows
 the underscore form; the number is the same either way, and a difference of only
 `-` versus `_`, or a trailing `-r<N>`, is not a finding (see
@@ -231,12 +231,12 @@ expect that value on a published artifact.
 
 | where | value |
 |---|---|
-| release tag / announcement | `v0.6.0-alpha2` |
-| package version (`apk list --installed`) | `0.6.0_alpha2-r0` |
-| runtime version (`tollgate version`) | `v0.6.0-alpha2` |
+| release tag / announcement | `v0.6.0-rc1` |
+| package version (`apk list --installed`) | `0.6.0_rc1-r0` |
+| runtime version (`tollgate version`) | `v0.6.0-rc1` |
 
 apk carries no hyphen in a version, so its control value spells the tag as
-`0.6.0_alpha2`; the `-r0` release revision is what
+`0.6.0_rc1`; the `-r0` release revision is what
 [packaging/normalize-apk-version.sh](packaging/normalize-apk-version.sh)
 appends (the recipe sets no `PKG_RELEASE` of its own). The runtime string is
 the tag **verbatim** — hyphen kept, no `-r0`. The exact `-r` number and commit for the published
@@ -304,7 +304,7 @@ apk del tollgate-wrt
 **VERIFIED (rehearsal)**
 
 ```
-(1/2) Purging tollgate-wrt (0.6.0_alpha2-r0)
+(1/2) Purging tollgate-wrt (0.6.0_rc1-r0)
 (2/2) Purging jq (1.8.1-r2)
   Executing jq-1.8.1-r2.pre-deinstall
 OK: 11.4 MiB in 136 packages
@@ -342,12 +342,12 @@ apk add 'tollgate-wrt=<known-good-version>'
 **VERIFIED (rehearsal)**
 
 ```
-(1/1) Downgrading tollgate-wrt (0.6.0_alpha3-r0 -> 0.6.0_alpha2-r0)
+(1/1) Downgrading tollgate-wrt (0.6.0_alpha3-r0 -> 0.6.0_rc1-r0)
 ```
 
 Exit status 0, and `apk list --installed tollgate-wrt` shows the older
 version. Ordering matters and is real: apk knows `0.6.0_alpha3-r0` is newer
-than `0.6.0_alpha2-r0`, which is why the same command upgrades, downgrades, or
+than `0.6.0_rc1-r0`, which is why the same command upgrades, downgrades, or
 does nothing, depending on which version you name.
 
 **`--force-downgrade` does not exist on 25.12.** Older material (and some
@@ -364,7 +364,7 @@ have that flag, but there is no feed for 24.10 — §1).
 # grep tollgate /etc/apk/world     (before the pin)
 tollgate-wrt
 # ... after the rollback ...
-tollgate-wrt=0.6.0_alpha2-r0
+tollgate-wrt=0.6.0_rc1-r0
 ```
 
 ). While that pin is there, `apk upgrade tollgate-wrt` will **not** move you
@@ -373,7 +373,7 @@ ready to follow the channel again:
 
 ```sh
 apk add tollgate-wrt            # drops the pin; /etc/apk/world goes back to "tollgate-wrt"
-apk upgrade tollgate-wrt        # VERIFIED: Upgrading tollgate-wrt (0.6.0_alpha2-r0 -> 0.6.0_alpha3-r0)
+apk upgrade tollgate-wrt        # VERIFIED: Upgrading tollgate-wrt (0.6.0_rc1-r0 -> 0.6.0_alpha3-r0)
 ```
 
 **Do not use `apk upgrade --available` as a rollback.** VERIFIED: it is a
@@ -407,9 +407,119 @@ installed happily, which is exactly the hole the rule closes. If you have a
 feed problem, fix the key or the URL — do not reach for that flag, and do not
 paste it into a report as advice.
 
+### The two admin UIs, and what a certificate warning means
+
+Two admin UIs answer on this build, on two listener pairs — different webroots
+on different `uhttpd` instances, and **not** the same URL. The canonical
+contract is recorded in [docs/access-urls.md](access-urls.md).
+
+| UI | URL on this build | Answers from |
+| --- | --- | --- |
+| **The TollGate board** (the router's dashboard) | `http://<router>:8080/` → `https://<hostname>.lan/` (or `https://<LAN IP>/`) | `uhttpd.admin`, webroot `/www/<brand>` |
+| **LuCI** (OpenWrt's own administration UI) | `http://<router>:8090/` → `https://<router>:8443/` while a certificate file exists | `uhttpd.main`, webroot `/www` |
+
+The two `uhttpd` instances have a strict single-port-owner design: each plain-HTTP
+port speaks only HTTP, and each TLS port speaks only TLS. That means
+`https://<router>:8080` and `https://<router>:8090` cannot work — the TLS
+listeners are `:443` (board) and `:8443` (LuCI), respectively. Type the
+plain-HTTP URL and let `uhttpd` redirect you.
+
+On this build the **entry point `https://<hostname>.lan/` answers the TollGate
+board**, not LuCI. That is the operator decision recorded in
+`docs/architecture/default-ui-and-entry-port-decision.md`, and it has shipped:
+this release's portal pin carries both halves of the change, so `entry_ui=board`
+is applied, not just recorded. Both UIs answer from the management/private
+network and on-box only: the router's own firewall guards drop all four ports
+for ordinary `br-lan` clients (measured on the bench — tcp `8080`/`443` and
+`8090`/`8443` dropped for a LAN client), so "connection refused" from a
+wired-LAN or guest-SSID client is that guard, not the UI.
+
+**Which UI owns which pair is a setting, not a fixed fact of the build.**
+`/etc/tollgate/config.json` carries `entry_ui` (`board` | `luci`, default
+`board`; the board's Settings page renders it). `board` means the board answers
+the entry pair — `https://<hostname>.lan/` — and LuCI moves to `:8090`/`:8443`;
+`luci` is the inverse mapping (the one the table described before this release).
+The two listeners are written by two packages that install through different
+paths, and a torn pair — one half switched, the other not — is the one state the
+D4 marker exists to prevent: when the board-side writer has not announced its
+mapping the module repairs to the `luci` mapping with one WARNING instead of
+leaving an admin UI unbound (see `docs/architecture/default-ui-and-entry-port-decision.md`,
+D4). So a router still showing the old mapping (`:8080` = LuCI, `:8090` = board)
+is on a pre-flip build, not a defect — report the mapping you actually measured,
+and quote `tollgate config get entry_ui`.
+
+**Confirm the mapping before you test.** Three checks, each on the router's own
+shell, agree when the flip has landed:
+
+- the marker: `cat /etc/tollgate/entry-ui-mapping` prints `board` (its content is
+  the resolved value; its existence means the mode-aware board-side writer ran);
+- the listeners: `uci show uhttpd | grep -E 'listen_http|listen_https'` shows
+  `uhttpd.admin` on `:8080` + `:443` (the board) and `uhttpd.main` on `:8090` +
+  `:8443` (LuCI);
+- the knob: `jq -r '.entry_ui' /etc/tollgate/config.json` (or
+  `tollgate config get entry_ui`) selects the mapping and defaults to `board`.
+  A router whose `entry_ui` reads `board` but whose listeners show the old
+  mapping is the torn-pair state above, not a fresh defect — re-vendor the feed
+  so both halves ship together.
+
+**Admin cross-links must be HTTPS, and the board's link to LuCI is a router
+answer.** The board's header renders its "OpenWrt LuCI" cross-link only from
+what the router itself reports over ubus (`tollgate ui links --json`), never from
+a hardcoded port — so in `board` mode that link points at LuCI's `:8090`/`:8443`,
+the pair the live mapping put it on, and it is suppressed (with a one-line
+reason) when no usable HTTPS link exists. A cleartext (`http://`) cross-link to
+an admin login, or a link that names a port the mapping did not assign, is a
+defect worth reporting; a cross-link that is absent because the router reported
+no usable link is the fail-closed direction, not a defect.
+
+A fresh install now **provisions the router's own TLS identity** instead of
+inheriting the OpenWrt image's placeholder certificate (`subject CN=OpenWrt`,
+`SAN DNS:OpenWrt`, which covers no router's hostname or LAN address). The
+identity is self-signed and carries the router's hostname, its `<hostname>.lan`
+alias and its LAN address; the `:8080` → `https://` hop (the board's, in this
+mapping) is enabled **only** while the certificate uhttpd serves actually covers
+the address you used. So:
+
+- Log in at **`https://<LAN IP>/`** — this is the board's login in this mapping.
+  The LAN address is in the certificate's SANs
+  and needs no resolver, so it is the URL to start from. `https://<hostname>.lan/`
+  should work as well (setup writes the dnsmasq entry for the alias), but if that
+  name does not resolve on your network, use the address: an unresolved alias is
+  a DNS answer, not a certificate problem. Expect the
+  usual browser interstitial for a self-signed certificate — *"Your connection
+  is not private"* / *"Not secure"* — and proceed through it. That is the
+  expected warning, and it is not a defect worth reporting on its own.
+- A **name mismatch** — *"certificate is not valid for this address"* — is not
+  that warning, and it is not expected: it means the certificate does not cover
+  the name in the URL. Use the names this router actually answers to:
+
+  ```sh
+  uci get system.@system[0].hostname    # the <hostname>.lan alias
+  uci get network.lan.ipaddr            # the LAN address (a /24 suffix may be present)
+  tollgate ssl status                   # what uhttpd serves, and whether it covers this router
+  tollgate ssl covers                   # exit 0 = it covers; the reason prints either way
+  ```
+
+- If `:8080` answers plain HTTP instead of redirecting, that is the fail-closed
+  direction, not a bug: the install only turns the redirect on for a certificate
+  it could verify. `tollgate ssl status` and `/tmp/tollgate-setup.log` say which
+  case you are in.
+- If the identity was removed on purpose, the install will not put one back.
+  `tollgate ssl remove` records that decision in
+  `/etc/tollgate/ssl/tls-identity-removed`; `tollgate ssl apply` (no prompt with
+  `-y`) ends it.
+- **LuCI's `:8443` is a separate certificate question from the board's `:443`.**
+  Each listener has its own certificate: the board's `:443` is armed from the
+  module's provisioned identity (the same `/etc/tollgate/ssl/server.{crt,key}`
+  pair, before it falls back to the image's placeholder), and LuCI's `:8443` is
+  resolved by its own `setup_uhttpd_tls_identity` rule against the same pool of
+  candidates. A covering identity on the entry point (`:443`) says nothing about
+  the `:8443` listener: a **name mismatch** there is reportable on its own, and
+  it is not the same finding as a mismatch on `https://<hostname>.lan/`.
+
 ---
 
-## 8. What to expect from an alpha
+## 8. What to expect from a release candidate
 
 - **Not production software.** Do not put funds, users, or anything you need
   on this router. A router that matters should stay on the stable release.
@@ -459,7 +569,7 @@ version and an architecture is untriaged and we will ask once, then close it.
 
 **Where to send it:** this release defines exactly one intake channel, and
 [tester-intake.md](tester-intake.md) is its authoritative description —
-the pinned issue *“Tester reports — TollGate v0.6.0-alpha2 (alpha channel)”* in
+the pinned issue *“Tester reports — TollGate v0.6.0-rc1 (alpha channel)”* in
 the project's public issue tracker
 (<https://github.com/OpenTollGate/tollgate-module-basic-go/issues>), where your
 report is a **comment**. Do not open a new issue for a report, and do not send
@@ -506,7 +616,7 @@ this guide does not present it as verified:
    cache headers) — the serving side was still being built when this was
    written.
 2. The real, signed index and its key, downloaded over HTTPS from that host.
-3. The real `0.6.0_alpha2-r0` package bytes: filename, `sha256`, and that the
+3. The real `0.6.0_rc1-r0` package bytes: filename, `sha256`, and that the
    provided `sha256` matches the artifact published in the announcement.
 4. `/etc/init.d/tollgate-wrt` `enable`/`status`/`start` under `procd`, the
    service starting on boot, and the daemon staying up ≥ 5 minutes.

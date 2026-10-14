@@ -1,0 +1,120 @@
+### command
+go run ./cmd/demo
+### output
+
+== A bearer instrument is anything an authority can both recognise and remember
+The port is generic because it never parses an instrument's internals.
+It asks its authority exactly two questions, and those are NUT-07 and NUT-09.
+
+== 1. The declared capability matrix
+  AUTHORITY                          KIND     UNIT   STATE    RECOVERY
+  cashu:https://mint.example         cashuA   sat    query    issuance-log
+  fedi:fed1invitefedimintexample     fed1     sat    probe    authority-backup
+  pow:miner-pubkey-01                pow1     work   none     account-ledger
+
+  state=query -> the authority has a read-only liveness API.
+  state=probe -> it has NONE, so the state is learned by attempting the
+                 consumption. That is a mutation, and it has to be declared.
+  state=none  -> it cannot answer at all. The port reports UNKNOWN and says so.
+  recovery    -> WHERE the memory that makes NUT-09 possible actually lives.
+
+== 2. One derivation, three encodings
+  The nullifier is HMAC(seed, counter) under a per-authority label:
+    cashu mint   index 0 -> 63defe6b645b17fda3b0b0489f5fca8f
+    fedimint fed index 0 -> e05652ebe518911419ff124b861b8df9
+    miner pool   index 0 -> (none: the ledger keys on the account, not the nonce)
+
+  Same function, three instruments. It is scoped per authority on purpose:
+  a mint and a federation must not share a nullifier space, or accepting one
+  could make the port refuse the other. And spentness is NOT derived — it is
+  learned at redemption and remembered by the authority. That is half of NUT-07.
+
+== 3. Face value is a claim; the authority's number is the fact
+  as issued  face value = 100
+  edited     face value = 1000
+  credited              = 100   <- the mint's record wins; the claim is ignored
+
+== 4. NUT-07, query mode: UNSPENT / SPENT / UNKNOWN
+  the mint signed it and Y is not spent -> UNSPENT
+  a Y the mint never learned            -> UNKNOWN   <- never UNSPENT
+  mint unreachable                      -> UNKNOWN (instrument state unavailable: authority did not answer: cashu:https://mint.example unreachable)
+  after being consumed                  -> SPENT
+
+  The rule: SPENT and UNSPENT are things the authority SAID. Silence is UNKNOWN,
+  and UNKNOWN must fail closed. Mapping 'no answer' to 'unspent' is how a spent
+  note gets re-sold.
+
+== 5. The sharp edge: a NUT-07 answer is about CONSUMPTION, never EXISTENCE
+  plain mint asked about a Y it never saw -> UNSPENT
+  ...but is that output one it ever signed? -> authority does not recognise this instrument as its own
+
+  Both are true at once, and that is the point. A plain mint's /checkstate
+  reports membership in its SPENT set, so it says UNSPENT for values it has
+  never heard of. Existence is a different question, answered from the
+  issuance log — which is what Decode does. Conflating the two is exactly how
+  a forged note passes a naive 'is it spendable?' check.
+
+== 6. NUT-07, probe mode: no liveness API, so the check IS a spend
+  probe a live note  -> UNSPENT   balance 0 -> 120
+  probe it again     -> SPENT   balance stays 120
+
+  Asking the question consumed the note and credited the port. That is the
+  honest cost of a federation with no token-state endpoint, and it is why the
+  capability matrix is load-bearing rather than documentation.
+
+== 7. NUT-07, no mode at all
+  miner pool asked about spentness -> UNKNOWN (instrument state unavailable: authority did not answer)
+
+  The pool's ledger keys on the account, not the nonce, so it can restore the
+  balance and cannot answer spentness. UNKNOWN-with-a-reason is the correct
+  answer; inventing one would be a lie the port refuses to tell.
+
+== 8. NUT-09, issuance-log mode: recovery replays the derivation
+  three outputs acquired      -> balance 300
+  index 1 spent out of band   -> the mint remembers it as consumed
+  router flash lost           -> balance 0
+  recover(seed)               -> 200   (2 of 3: the spent output must NOT return)
+
+  NUT-09 is this replay. The mint's signing log is the memory and the seed is
+  the index into it. Lose both and the funds are gone, which is why the counter
+  is persisted BEFORE an output is exposed, never after.
+
+== 9. NUT-09 for the other instruments: different memory, same interface
+  before loss       -> cashu 100, fedi 200, pow 300
+  after recover     -> cashu 100, fedi 200, pow 300
+
+  Cashu replays a signing log, fedimint restores the federation's backup of the
+  note set, a miner's pool hands back the payout ledger. Three different memories,
+  one interface — and the port never learns which is which.
+
+== 10. Recovery is scoped to the holder
+  recover(a different seed) -> cashu 0
+
+  Recovery asked about commitments derived from OUR seed, and only outputs the
+  authority signed for those commitments answered. The seed itself never crossed
+  the wire, so a wrong seed is simply not in the log.
+
+== 11. One spend path, three backends
+  spend(200) on cashu:https://mint.example       -> cashuA|c1edd9e5b61e48c4b62b6751... (300 left)
+  spend(200) on fedi:fed1invitefedimintexample   -> fed1|4ddca1e279fc5edc9de7edb0eb... (300 left)
+  spend(200) on pow:miner-pubkey-01              -> pow1|c8bc293f748bf24c64fbf7d9ce... (300 left)
+  spend(10000)                          -> insufficient funds
+
+  Namespaced target keys keep a federation id and a mint URL from ever colliding,
+  and callers depend on Instrument/Authority only: no Cashu type crosses the seam.
+
+== Result: what it would take
+  The port is already generic enough for both fedi and cashu, for one reason:
+  it does not model either. It requires of every authority exactly two memories —
+  what it signed (NUT-09) and what it consumed (NUT-07) — plus a declaration of
+  how it can answer, because a backend that cannot answer must be allowed to say
+  so instead of being guessed at.
+
+  So the work is not a rewrite. It is:
+    1. the namespaced target key (cashu:<url> / fedi:<id> / pow:<miner>),
+    2. a backend-scoped Decode instead of a cashuA/cashuB parser,
+    3. one swap-based Acquire for every backend, since a bearer instrument is
+       destroyed by being spent and therefore has to be re-issued,
+    4. the declared capability matrix replacing the nut_07/nut_09 booleans,
+    5. and the two derivations above, each pinned by a test.
+### rc=0

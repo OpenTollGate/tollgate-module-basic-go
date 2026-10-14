@@ -290,30 +290,29 @@ func (ud *upstreamDetector) periodicGatewayCheck() {
 
 // checkInterfacesForGateways checks all interfaces for gateways and reports them
 func (ud *upstreamDetector) checkInterfacesForGateways() {
-	// Get current network interfaces
+	logger.Debug("Periodic check: scanning interfaces for upstream gateways")
+	ud.reportGatewaysForInterfaces()
+}
+
+// reportGatewaysForInterfaces reports the gateway of every interface that
+// can carry an upstream to the upstream session manager, which handles
+// deduplication via its known-gateway set.
+func (ud *upstreamDetector) reportGatewaysForInterfaces() {
 	interfaces, err := ud.networkMonitor.GetCurrentInterfaces()
 	if err != nil {
-		logger.WithError(err).Debug("Error getting current interfaces during periodic check")
+		logger.WithError(err).Debug("Error getting current interfaces")
 		return
 	}
 
-	// Check each interface that is up and has IP addresses
 	for _, iface := range interfaces {
-		if !iface.IsUp || len(iface.IPAddresses) == 0 {
+		if !iface.IsUpstreamGatewayCandidate() {
 			continue
 		}
 
-		// Get gateway for this interface
 		gatewayIP := ud.networkMonitor.GetGatewayForInterface(iface.Name)
 		if gatewayIP == "" {
 			continue
 		}
-
-		// Report gateway to upstream session manager (it will handle deduplication via knownGateways)
-		logger.WithFields(logrus.Fields{
-			"interface": iface.Name,
-			"gateway":   gatewayIP,
-		}).Debug("Periodic check: Found gateway - reporting to upstream session manager")
 
 		ud.reportGatewayToUSM(iface.Name, iface.MacAddress, gatewayIP)
 	}
@@ -325,35 +324,7 @@ func (ud *upstreamDetector) performInitialInterfaceScan() {
 	time.Sleep(2 * time.Second)
 
 	logger.Info("Performing initial interface scan to report existing gateways")
-
-	// Get current network interfaces
-	interfaces, err := ud.networkMonitor.GetCurrentInterfaces()
-	if err != nil {
-		logger.WithError(err).Error("Error getting current interfaces during startup scan")
-		return
-	}
-
-	// Check each interface that is up and has IP addresses
-	for _, iface := range interfaces {
-		if !iface.IsUp || len(iface.IPAddresses) == 0 {
-			continue
-		}
-
-		// Get gateway for this interface
-		gatewayIP := ud.networkMonitor.GetGatewayForInterface(iface.Name)
-		if gatewayIP == "" {
-			logger.WithField("interface", iface.Name).Debug("Startup scan: Interface is up but no gateway found")
-			continue
-		}
-
-		logger.WithFields(logrus.Fields{
-			"interface": iface.Name,
-			"gateway":   gatewayIP,
-		}).Info("Startup scan: Found interface with gateway - reporting to upstream session manager")
-
-		// Report gateway to upstream session manager
-		ud.reportGatewayToUSM(iface.Name, iface.MacAddress, gatewayIP)
-	}
+	ud.reportGatewaysForInterfaces()
 
 	logger.Info("Initial interface scan completed")
 }

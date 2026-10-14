@@ -2,6 +2,10 @@ package config_manager
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -17,6 +21,7 @@ func TestSchemaConfigFields(t *testing.T) {
 		"config_version", "log_level", "metric", "step_size",
 		"accepted_mints", "profit_share", "show_setup", "reseller_mode",
 		"upstream_detector", "upstream_session_manager",
+		"private_encryption", "admin_access",
 	}
 	for _, key := range requiredKeys {
 		if _, ok := schemaMap[key]; !ok {
@@ -57,6 +62,87 @@ func TestSchemaConfigFields(t *testing.T) {
 			t.Errorf("profit_share child schema missing: %s", f)
 		}
 	}
+}
+
+// TestSchemaOperatorNetworkFields pins the two operator-settable network
+// settings the admin surface depends on: they must be flat, editable, carry the
+// documented enum, and the private passphrase must be marked secret (the flag
+// every read path uses to redact it). A missing `secret` here is not a cosmetic
+// bug: it is the private network's WPA key in the board's response payload.
+func TestSchemaOperatorNetworkFields(t *testing.T) {
+	schema := GetConfigSchema()
+
+	schemaMap := make(map[string]*FieldSchema)
+	for i := range schema {
+		schemaMap[schema[i].JSONKey] = &schema[i]
+	}
+
+	for _, key := range []string{"private_ssid", "private_key", "private_encryption", "admin_access"} {
+		field, ok := schemaMap[key]
+		if !ok {
+			t.Fatalf("Config schema missing operator network field: %s", key)
+		}
+		if !field.Editable {
+			t.Errorf("%s must be editable: it is the point of the setting", key)
+		}
+		if field.Type != "string" {
+			t.Errorf("%s: got type %q, want string (a nested object gets no dotpath round-trip test)", key, field.Type)
+		}
+	}
+
+	if !schemaMap["private_key"].Secret {
+		t.Error("private_key must be marked secret, or `config get` hands the private network's passphrase to every reader")
+	}
+	for _, key := range []string{"private_ssid", "private_encryption", "admin_access"} {
+		if schemaMap[key].Secret {
+			t.Errorf("%s is not a secret; marking it one would hide a value the operator needs to read", key)
+		}
+	}
+
+	wantEncryption := []string{"psk2+ccmp", "psk2+tkip+ccmp", "psk-mixed+ccmp"}
+	if got := schemaMap["private_encryption"].Enum; !equalStringSlices(got, wantEncryption) {
+		t.Errorf("private_encryption enum: got %v, want %v", got, wantEncryption)
+	}
+
+	wantAdmin := []string{"br-private", "br-mgmt", "both", "loopback-only"}
+	if got := schemaMap["admin_access"].Enum; !equalStringSlices(got, wantAdmin) {
+		t.Errorf("admin_access enum: got %v, want %v", got, wantAdmin)
+	}
+}
+
+// TestValidateValueRejectsUnknownEnums covers the wholesale-save hole this
+// wrapper exists for: `config save` replaces the whole file and never ran the
+// per-key schema checks, so an unknown enum written that way used to be stored
+// as-is — and an unknown encryption mode is a private network that will not
+// come up.
+func TestValidateValueRejectsUnknownEnums(t *testing.T) {
+	if err := ValidateValue("admin_access", "both"); err != nil {
+		t.Errorf("admin_access=both should validate, got: %v", err)
+	}
+	if err := ValidateValue("admin_access", "br-lan"); err == nil {
+		t.Error("admin_access=br-lan must be refused: the captive bridge is never an administration path")
+	}
+	if err := ValidateValue("private_encryption", "psk2+ccmp"); err != nil {
+		t.Errorf("private_encryption=psk2+ccmp should validate, got: %v", err)
+	}
+	if err := ValidateValue("private_encryption", "sae"); err == nil {
+		t.Error("private_encryption=sae must be refused: the shipped wpad has no SAE support")
+	}
+	if err := ValidateValue("private_key", "anything goes here"); err != nil {
+		t.Errorf("private_key has no enum; a non-empty value should validate, got: %v", err)
+	}
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestSchemaIdentitiesFields(t *testing.T) {
@@ -372,5 +458,112 @@ func TestSetDotPathSchemaUpstreamWifiValidation(t *testing.T) {
 	err = SetDotPath(cm, "upstream_wifi.signal_floor", "-70")
 	if err != nil {
 		t.Errorf("Valid signal_floor -70 should be accepted, got: %v", err)
+	}
+}
+
+// TestSaveConfigIsAtomicAndCleansUpItsTempFile pins the #402 hardening: a
+// save interrupted at any point leaves either the whole previous file or the
+// whole new one (temp + rename in the same directory), and no temp litter.
+func TestSaveConfigIsAtomicAndCleansUpItsTempFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg := NewDefaultConfig()
+	cfg.AcceptedMints = []MintConfig{{URL: "https://operator-mint.example.com", PricePerStep: 1, PriceUnit: "sat", MinPurchaseSteps: 1}}
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "config.json" {
+		t.Fatalf("SaveConfig left temp litter: %v", entries)
+	}
+
+	var reloaded Config
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if err := json.Unmarshal(data, &reloaded); err != nil {
+		t.Fatalf("the saved config must always be whole valid JSON: %v", err)
+	}
+	if len(reloaded.AcceptedMints) != 1 || reloaded.AcceptedMints[0].URL != "https://operator-mint.example.com" {
+		t.Fatalf("the operator's mints did not survive the round trip: %+v", reloaded.AcceptedMints)
+	}
+}
+
+// TestSaveConfigFallsBackToInPlaceWhenRenameIsImpossible pins the bind-mount
+// reality the conformance lane runs in: a single-file mount pins the inode, so
+// rename(2) onto config.json answers EBUSY and the atomic path cannot serve.
+// The save must fall back to a durable in-place write (the pre-#402 guarantee)
+// instead of failing the daemon's config migration outright.
+func TestSaveConfigFallsBackToInPlaceWhenRenameIsImpossible(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	prev := renameConfigIntoPlace
+	renameConfigIntoPlace = func(_, _ string) error { return syscall.EBUSY }
+	t.Cleanup(func() { renameConfigIntoPlace = prev })
+
+	cfg := NewDefaultConfig()
+	cfg.AcceptedMints = []MintConfig{{URL: "https://bind-mount-mint.example.com", PricePerStep: 1, PriceUnit: "sat", MinPurchaseSteps: 1}}
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatalf("SaveConfig must fall back, not fail: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	var reloaded Config
+	if err := json.Unmarshal(data, &reloaded); err != nil {
+		t.Fatalf("fallback must leave whole valid JSON: %v", err)
+	}
+	if len(reloaded.AcceptedMints) != 1 || reloaded.AcceptedMints[0].URL != "https://bind-mount-mint.example.com" {
+		t.Fatalf("fallback did not persist the config: %+v", reloaded.AcceptedMints)
+	}
+
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".config-") {
+			t.Fatalf("fallback left temp litter: %s", e.Name())
+		}
+	}
+}
+
+// TestSetDotPathPrivateKeyBounds pins #636: an out-of-bounds private_key is
+// refused at `config set` write time, with the WPA2-PSK 8-63 bounds the
+// applier enforces — a persisted-but-never-enforced credential used to be a
+// quiet dead end (secret_set reported true while every convergence refused).
+// Empty stays valid: it is the documented keep-current sentinel, and the
+// wholesale `config save` path validates stock configs where it is empty.
+func TestSetDotPathPrivateKeyBounds(t *testing.T) {
+	tempDir := t.TempDir()
+	cm, err := NewConfigManager(
+		tempDir+"/config.json",
+		tempDir+"/install.json",
+		tempDir+"/identities.json",
+	)
+	if err != nil {
+		t.Fatalf("Failed to create ConfigManager: %v", err)
+	}
+
+	if err := SetDotPath(cm, "private_key", "short"); err == nil {
+		t.Error("Expected error for a below-bounds private_key, got nil")
+	}
+	if err := SetDotPath(cm, "private_key", strings.Repeat("a", 64)); err == nil {
+		t.Error("Expected error for an above-bounds private_key, got nil")
+	}
+	if err := SetDotPath(cm, "private_key", "12345678"); err != nil {
+		t.Errorf("Expected an 8-character private_key to be accepted, got: %v", err)
+	}
+	if err := SetDotPath(cm, "private_key", ""); err != nil {
+		t.Errorf("Expected an empty private_key (keep-current sentinel) to be accepted, got: %v", err)
 	}
 }

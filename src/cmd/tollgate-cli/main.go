@@ -75,6 +75,13 @@ var rootCmd = &cobra.Command{
 	Long: `TollGate CLI provides command-line access to your running TollGate service.
 You can check status, manage wallet, and control various aspects of the service.`,
 	Version: version,
+	// main() prints the returned error itself, once. cobra's own printer would
+	// print the same sentence again — two identical "Error: ..." lines on stderr
+	// for every failing command, so a caller grepping the log cannot tell one
+	// failure from two. `ssl covers` showed it most plainly: its refusal is a
+	// verdict printed on stdout with the exit status, and it was written a second
+	// and third time as an error.
+	SilenceErrors: true,
 }
 
 var walletCmd = &cobra.Command{
@@ -273,6 +280,24 @@ var privateSetPasswordCmd = &cobra.Command{
 	},
 }
 
+var privateSetEncryptionCmd = &cobra.Command{
+	Use:   "set-encryption [mode]",
+	Short: "Set private network encryption mode",
+	Long: `Set the encryption mode of the private WiFi network.
+
+Supported modes:
+  psk2+ccmp        WPA2-PSK with AES/CCMP (default)
+  psk2+tkip+ccmp   also offers the legacy TKIP cipher to old clients
+  psk-mixed+ccmp   also accepts WPA1 clients
+
+WPA3-SAE is deliberately not offered: the shipped wpad has no SAE support, so
+selecting it would leave the management network unable to start.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("network", []string{"private", "set-encryption", args[0]}, nil)
+	},
+}
+
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version information",
@@ -416,6 +441,25 @@ var configSchemaCmd = &cobra.Command{
 	},
 }
 
+var configApplyCmd = &cobra.Command{
+	Use:   "apply",
+	Short: "Converge the router onto the settings config.json declares",
+	Long: `Apply the operator-settable network settings to the running router.
+
+Most configuration keys are read by the service itself and take effect on the
+next restart. Two of them are not: the private network's SSID, passphrase and
+encryption live in UCI (/etc/config/wireless, which hostapd reads), and
+"which network may reach the administration surfaces" is an nftables property.
+This command writes both from config.json, and reports per setting whether the
+runtime was changed, already matched, or refused (with the reason).
+
+It runs automatically after every "config set"/"config save" and at service
+start, so this verb is for a config.json edited by hand.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("config", []string{"apply"}, nil)
+	},
+}
+
 var configSaveCmd = &cobra.Command{
 	Use:   "save [json]",
 	Short: "Save full configuration from JSON string",
@@ -508,10 +552,10 @@ func init() {
 
 	drainCmd.AddCommand(drainCashuCmd)
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
-	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd)
+	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd, privateSetEncryptionCmd)
 	networkCmd.AddCommand(privateCmd)
 	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd, upstreamKnownCmd)
-	configCmd.AddCommand(configGetCmd, configSetCmd, configSchemaCmd, configSaveCmd, configSaveIdentitiesCmd)
+	configCmd.AddCommand(configGetCmd, configSetCmd, configApplyCmd, configSchemaCmd, configSaveCmd, configSaveIdentitiesCmd)
 	rootCmd.AddCommand(walletCmd, networkCmd, upstreamCmd, statusCmd, versionCmd, startCmd, stopCmd, restartCmd, logsCmd, configCmd, healthCmd)
 	rootCmd.AddCommand(genManCmd)
 }

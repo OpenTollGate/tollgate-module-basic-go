@@ -42,9 +42,12 @@
 # (`tollgate status`, `tollgate wallet balance`, ...) or LuCI on :8080 instead.
 #
 # Deliberately NOT dropped here: :2050/:2051 (the captive portal the guest is
-# paying through), :2121 (handled by 30-backend-firewall.nft), and :8080 (LuCI,
-# kept reachable pre-auth on purpose — see
-# docs/architecture/uhttpd-redirect-https-ownership-decision.md).
+# paying through) and :2121 (handled by 30-backend-firewall.nft). :8080/:443 are
+# NOT exempt: that is LuCI's pair and 32-luci-not-guest-reachable.nft drops it on
+# br-lan for both families, exactly as this fragment drops the board's pair. No
+# admin port is guest-reachable, pre- or post-authentication, in either mapping —
+# see docs/architecture/uhttpd-redirect-https-ownership-decision.md and, for
+# which UI owns which pair, default-ui-and-entry-port-decision.md.
 
 chain admin_board_input_guard {
 	type filter hook input priority -1; policy accept

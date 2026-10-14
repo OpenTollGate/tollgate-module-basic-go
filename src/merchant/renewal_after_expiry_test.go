@@ -41,10 +41,20 @@ const renewalFreshAllotment = renewalSats * renewalStepMS
 
 type renewalToken struct{}
 
-func (renewalToken) Mint() string               { return renewalMintURL }
-func (renewalToken) Amount() uint64             { return renewalSats }
-func (renewalToken) Serialize() (string, error) { return "cashuBrenewal", nil }
-func (renewalToken) Close()                     {}
+func (renewalToken) Mint() string   { return renewalMintURL }
+func (renewalToken) Amount() uint64 { return renewalSats }
+
+// Each purchase serializes a distinct note (a renewal is a NEW economic
+// event, not a resubmission): a per-call counter keeps references unique so
+// the #502 journal never mistakes one purchase for another's duplicate.
+var renewalNoteSeq uint64
+
+func (renewalToken) Serialize() (string, error) {
+	n := atomic.AddUint64(&renewalNoteSeq, 1)
+	return fmt.Sprintf("cashuBrenewal-%d", n), nil
+}
+func (renewalToken) Secrets() []string { return nil }
+func (renewalToken) Close()            {}
 
 // renewalWallet stubs the wallet seam: DecodeToken and Receive always succeed
 // and Receive counts calls, so a test can tell "the token was processed" from
@@ -73,10 +83,13 @@ func (w *renewalWallet) received() int { return int(atomic.LoadInt32(&w.receives
 // It can also be told to FAIL deauth (failDeauth), which is how the gate
 // close-failure contract is exercised: a deauth that fails is not a close.
 type renewalNdsctl struct {
-	logPath   string
-	statePath string
-	usagePath string
-	failPath  string
+	logPath       string
+	statePath     string
+	usagePath     string
+	failPath      string
+	forgottenPath string
+	authFailPath  string
+	authStatePath string
 }
 
 func installRenewalNdsctl(t *testing.T) *renewalNdsctl {
@@ -84,10 +97,13 @@ func installRenewalNdsctl(t *testing.T) *renewalNdsctl {
 
 	dir := t.TempDir()
 	n := &renewalNdsctl{
-		logPath:   filepath.Join(dir, "ndsctl.log"),
-		statePath: filepath.Join(dir, "ndsctl.state"),
-		usagePath: filepath.Join(dir, "ndsctl.usage"),
-		failPath:  filepath.Join(dir, "ndsctl.deauthfail"),
+		logPath:       filepath.Join(dir, "ndsctl.log"),
+		statePath:     filepath.Join(dir, "ndsctl.state"),
+		usagePath:     filepath.Join(dir, "ndsctl.usage"),
+		failPath:      filepath.Join(dir, "ndsctl.deauthfail"),
+		forgottenPath: filepath.Join(dir, "ndsctl.deauthforgotten"),
+		authFailPath:  filepath.Join(dir, "ndsctl.authfail"),
+		authStatePath: filepath.Join(dir, "ndsctl.authstate"),
 	}
 
 	script := fmt.Sprintf(`#!/bin/sh
@@ -95,15 +111,30 @@ LOG=%q
 STATE=%q
 USAGE=%q
 FAIL=%q
+FORGOTTEN=%q
+AUTHFAIL=%q
+AUTHSTATE=%q
 mac="$2"
 case "$1" in
   auth)
     echo "AUTH $mac" >> "$LOG"
+    if [ -r "$AUTHFAIL" ]; then
+      # NoDogSplash refusing the authorisation, or its control socket not
+      # answering: the customer's gate stays shut.
+      echo "Failed to authenticate client"
+      exit 1
+    fi
     echo "Auth: $mac - Granted"
     exit 0
     ;;
   deauth)
     echo "DEAUTH $mac" >> "$LOG"
+    if [ -r "$FORGOTTEN" ]; then
+      # What the real ndsctl answers for a MAC NoDogSplash does not know at all
+      # (measured on the bench MT3000, pre17, 2026-09-26).
+      echo "Client $mac not found."
+      exit 1
+    fi
     if [ -r "$FAIL" ]; then
       echo "Failed to deauthenticate client"
       exit 1
@@ -119,7 +150,11 @@ case "$1" in
         down=$(awk '{print $1}' "$USAGE")
         up=$(awk '{print $2}' "$USAGE")
       fi
-      printf '{"id":1,"ip":"192.0.2.50","mac":"%%s","added":1,"active":1,"duration":60,"token":"t","state":"Authenticated","downloaded":%%s,"avg_down_speed":0,"uploaded":%%s,"avg_up_speed":0}\n' "$mac" "$down" "$up"
+      ndsstate="Authenticated"
+      if [ -r "$AUTHSTATE" ] && [ "$(cat "$AUTHSTATE")" = "preauth" ]; then
+        ndsstate="Preauth"
+      fi
+      printf '{"id":1,"ip":"192.0.2.50","mac":"%%s","added":1,"active":1,"duration":60,"token":"t","state":"%%s","downloaded":%%s,"avg_down_speed":0,"uploaded":%%s,"avg_up_speed":0}\n' "$mac" "$ndsstate" "$down" "$up"
     else
       echo '{}'
     fi
@@ -128,7 +163,7 @@ case "$1" in
 esac
 echo OK
 exit 0
-`, n.logPath, n.statePath, n.usagePath, n.failPath)
+`, n.logPath, n.statePath, n.usagePath, n.failPath, n.forgottenPath, n.authFailPath, n.authStatePath)
 
 	if err := os.WriteFile(filepath.Join(dir, "ndsctl"), []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake ndsctl: %v", err)
@@ -179,6 +214,57 @@ func (n *renewalNdsctl) failDeauth(t *testing.T, fail bool) {
 	}
 	if err := os.WriteFile(n.failPath, []byte("fail\n"), 0o644); err != nil {
 		t.Fatalf("write deauth failure marker: %v", err)
+	}
+}
+
+// forgetClient makes `ndsctl deauth` answer exactly what the bench measured for a
+// MAC NoDogSplash no longer knows at all: "Client <mac> not found." and exit
+// status 1.
+//
+// It is deliberately NOT the same as failDeauth: there the deauthorization was
+// refused while the client was still there, so the gate really is still open.
+// Here the enforcement layer holds nothing for the address, so there is nothing
+// left to close and no retry can ever converge.
+func (n *renewalNdsctl) forgetClient(t *testing.T) {
+	t.Helper()
+
+	if err := os.WriteFile(n.forgottenPath, []byte("forgotten\n"), 0o644); err != nil {
+		t.Fatalf("write deauth-forgotten marker: %v", err)
+	}
+}
+
+// setAuthenticated models whether `ndsctl json <mac>` reports the client as
+// Authenticated (default, matching every pre-existing use of this fake) or
+// as still pre-authenticating — a registered client whose authorisation the
+// valve cannot treat as already-open.
+func (n *renewalNdsctl) setAuthenticated(t *testing.T, authenticated bool) {
+	t.Helper()
+
+	state := "authenticated"
+	if !authenticated {
+		state = "preauth"
+	}
+	if err := os.WriteFile(n.authStatePath, []byte(state), 0o644); err != nil {
+		t.Fatalf("write ndsctl auth state: %v", err)
+	}
+}
+
+// failAuth makes `ndsctl auth` fail (exit 1, "Failed to authenticate client")
+// until it is called again with false. That is the enforcement layer refusing —
+// or being unable to answer — the authorisation of a client whose purchase has
+// already been paid for, which is the state in which a paid customer keeps a
+// shut gate.
+func (n *renewalNdsctl) failAuth(t *testing.T, fail bool) {
+	t.Helper()
+
+	if !fail {
+		if err := os.Remove(n.authFailPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("clear auth failure: %v", err)
+		}
+		return
+	}
+	if err := os.WriteFile(n.authFailPath, []byte("fail\n"), 0o644); err != nil {
+		t.Fatalf("write auth failure marker: %v", err)
 	}
 }
 

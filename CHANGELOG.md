@@ -9,8 +9,1041 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
+### Changed / Internal
+
+- **The duplicate-guard harness installs the ndsctl its grant assertion
+  exercises.** `newDuplicateGuardMerchant` ended by asserting a *granted*
+  session — the only grant-exercising assertion in its file — but installed no
+  fake `ndsctl`, unlike every other grant-exercising test. On a host without
+  `ndsctl` on PATH the third submission died as a grant-pending notice instead,
+  so the file's battery was deterministically red on every bare host/CI runner
+  regardless of any other fix. The harness now installs the same renewal fake
+  the other tests use, scoped to each test's lifetime
+  ([#822](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/822)).
+
+- **The bcm2709 artifact rows build again.** `build-sdk-package.sh`
+  defaulted bcm2709 to `EXPECTED_ARCH=arm_cortex-a7`, but the SDK stages
+  its packages under `arm_cortex-a7_neon-vfpv4` — the staged-packages
+  directory check failed and killed the copy step on an otherwise-clean
+  cross-compile (the rc1 artifact matrix's two missing rows)
+  ([#717](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/717)).
+
+- **The late-receive outcome test no longer races its own log.** The
+  #700 test sampled "the last non-deadline log line" while the code path
+  under test logs two lines in fixed order (the COMPLETED record, then
+  the unconditional owed-grant ERROR) — the pass depended on
+  snapshotting between them, and the #681 dependency sweep's goroutine
+  timing flipped it deterministically in some environments, leaving
+  `make go-battery` red on main. The selection now names the record it
+  wants
+  ([#718](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/718)).
+
+- **CHANGELOG duplicate entries are now a checked contract.** Resolving a
+  CHANGELOG conflict with a section-level "take ours" can resurrect an entry a
+  branch had already moved or reworded, leaving one change described twice (this
+  bit twice in one rebasing session). `tests/contract/check-changelog-duplicates.py`
+  — wired into `hooks/pre-commit` alongside the version-sync check, and into CI
+  beside the deps/import contract checks — fails when the same bold lead-in
+  appears in two sections and at least one of them is `[Unreleased]`; the same
+  lead-in inside already-released sections is history and is deliberately
+  tolerated
+  ([#581](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/581)).
+
+- **An authorisation NoDogSplash holds that this module never made is closed by
+  the usage sweep — the inverse of the zombie-session drift.** The startup
+  reconciliation (#595, #596) closes the window a module *restart* creates, but a
+  startup pass can only ever see the drift that exists at the instant it runs.
+  A client NoDogSplash reports as `Authenticated` that entered its list without
+  going through this module at all — an `ndsctl auth` run by hand or by a script,
+  a record restored from NoDogSplash's own state file when the *service* restarts
+  (`state_file_import`, nodogsplash 5.0.2), or a box whose merchant came up
+  degraded so the startup pass never ran — held an open, **unmetered** gate with
+  no session, no metering baseline, no allotment and no `/balance` record, for as
+  long as NoDogSplash's own session timeout (configured here at 86400 s, because
+  the Go backend is meant to be the sole authority on when a session ends). The
+  usage sweep now reads the client list (`valve.ListClients`, `ndsctl json` with
+  no argument) on the same ~30 s cadence as the stale-binding reconciliation and
+  closes the gate of every such client, FAIL CLOSED, naming each MAC and the fact
+  that the customer must buy again. A client this module knows — a session, or a
+  gate the valve still tracks, which includes one whose close is still
+  unconfirmed — is left alone, and the membership test folds MAC case on both
+  sides (the session map is lower-case while ndsctl's own lookup is
+  case-sensitive, so a differently-spelled MAC of the module's OWN customer would
+  otherwise be read as inherited and have a paying customer's gate closed). Every
+  state other than `Authenticated` is left alone deliberately: a
+  `Preauthenticated` record is a client on its way through the captive portal —
+  splash page, FAS, `/nodogsplash_auth/` — which cannot pass traffic and is a
+  legitimate record, so it is never deauthorised; `Trusted`/`Blocked` are the
+  operator's own `trustedmaclist`/`blockedmaclist`. A client list the module
+  cannot READ changes nothing and is reported once per outage, and the pass never
+  reports a refused close as done. `ClientRecord.Authorised()` remains the only
+  authorisation test, so `#545`/`#595`'s "a failed probe is never evidence" holds
+  unchanged.
+  ([#619](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/619))
+  ([#619](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/619))
+
+
+### Fixed
+
+- **The rebrand gutter allows documented prose references to the commercial
+  re-brand.** `tests/packaging/rebrand-literal-gutter_test.sh` was red on
+  `main` (5 passed / 1 failed): the merged discovery-signaling decision
+  (#621) and the README's whitelabel paragraph legitimately name the
+  re-brand, while the gutter banned the literal everywhere in the tree. The
+  literal ban is now scoped to code, packaging, build and test surfaces;
+  `docs/`, `CHANGELOG.md` and `README.md` are exempt by name, and the
+  `uhttpd.<re-brand>` section check stays tree-wide — the
+  second-`:8090`-writer risk this gutter exists for is a brand-gated code
+  path, not prose.  ([#692](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/692))
+
+- **Reseller-mode renewals no longer self-deadlock on the payment lock
+  (#678, follow-up to #629).** The cold-start bootstrap merged in #629
+  evaluates its candidate check inside the `paymentMu` critical section
+  that `HandleRenewal` holds, and the check re-enters that same mutex
+  (`hasEstablishedUpstreamSession` reads `TotalAllotment` under it) —
+  `sync.Mutex` is not reentrant, so on every reseller-mode node the
+  first renewal poll hung forever and each later tracker poll leaked one
+  more goroutine behind the stuck lock; renewals never happened, cold
+  start and funded resellers alike. The candidate check now runs before
+  the lock is taken (an armed cold start also stops logging the
+  per-poll "processing payment request" line). The same PR fixes the
+  bootstrap forward's one-shot contract: after `BootstrapComplete` a
+  second, different proof was forwarded whole to the upstream (no swap,
+  no split, no margin) and overwrote the recorded allotment instead of
+  accumulating — `ForwardFirstProof` now refuses it. Watchdog and
+  one-shot regression tests fail on the pre-fix tree and pass under
+  `-race`. ([#678](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/678))
+- **The wallet seam generalised to any bearer instrument, with NUT-07 and
+  NUT-09 derived rather than assumed.** A bearer instrument is anything an
+  authority can both recognise and remember, so the port requires exactly three
+  things of a backend: what it signed (which makes recovery possible), what it
+  consumed (where spentness lives), and how it can answer — `query` (a read-only
+  state API), `probe` (none exists, so the state is learned by attempting the
+  consumption, which is a mutation and therefore cannot be a pre-flight), or
+  `none` (the port answers UNKNOWN and says why). Two rules are load-bearing and
+  each is now a test: `SPENT`/`UNSPENT` are only ever things the authority
+  *said*, so anything else fails closed; and a NUT-07 answer is about
+  **consumption, never existence** — a plain mint answers `UNSPENT` for a
+  nullifier it has never seen, which is how a forged note passes a naive
+  "spendable?" check. Receiving is necessarily a swap (a bearer instrument is
+  destroyed by being spent), and recovery is the same deterministic derivation
+  replayed against the authority's signing log. Working code, 15 tests and a
+  narrated demo are in [`research/bearer-port-demo/`](research/bearer-port-demo/)
+  (transcript in `DEMO-OUTPUT.txt`); the derivation is written up in
+  [`docs/architecture/bearer-instrument-port.md`](docs/architecture/bearer-instrument-port.md).
+  ([#631](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/631))
+
+- **Fedimint (fedi) findings added to the wallet-backend candidate mapping.**
+  Fedimint is Rust with no Go client, so it can only ever be a sidecar, and it
+  cannot build for mipsel at all (`ring 0.17` has no mips backend), which pins it
+  to the large tier. Measured on this fleet: 14.9 MiB stripped / 5.4 MiB with
+  `upx --lzma` (aarch64, worst-case tree) and 62.5 MiB peak RSS on that fat build
+  — the thin-client RSS is the deciding, still-unmeasured number. Licence MIT;
+  the reusable Go wrapper and `fedimint-clientd` are dead (0 of 6 live
+  federations accept the 2024 client), so the daemon would be ours. Running it
+  alongside CDK is supported by the existing sidecar/manifest/policy design and
+  blocked on two deliberate contract extensions: a federation-shaped target key
+  and a backend-scoped token decoder. See
+  [`docs/architecture/wallet-backend-fedimint.md`](docs/architecture/wallet-backend-fedimint.md)
+  and the extended table in
+  [`docs/architecture/walletport-contract.md`](docs/architecture/walletport-contract.md#5-candidate-mapping-first-pass).
+  ([#631](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/631))
 
 ### Changed / Internal
+
+- **CONTRIBUTING now states the branch-refresh discipline: rebase in
+  place, never hand-carry `main`.** Merging `main` forward into a PR
+  branch (evil merges, a `go.sum` equal to neither parent, replayed
+  thousand-line diffs) and opening fresh "rebase of #N" PRs (zombie
+  originals nobody closes) are both named as anti-patterns, with the
+  in-place recipe: rebase onto current `main`, run the battery,
+  `--force-with-lease` the original PR branch, close what you supersede
+  in the same action, and keep carried CHANGELOG entries under
+  `[Unreleased]` with their PR link.
+  ([#693](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/693))
+
+## [v0.6.0-rc1] - 2026-10-05
+### Added
+- **`tollgate-clientd` laptop client.** New
+  `scripts/tollgate-clientd.py`: detects a TollGate on the default
+  gateway, registers with the captive portal (nodogsplash workaround),
+  shows the remaining bytes/seconds live, and auto-tops-up with ecash
+  from a local wallet — cdk-cli or nutshell, auto-detected — before the
+  allotment runs out. One-shot `--status`/`--json` output for status
+  bars, `--waybar` module JSON (text/tooltip/class/percentage) for
+  waybar-style bars, `--dry-run`, `--list-offers`, and a `--selftest`
+  that runs the full discovery/payment/renewal loop against a built-in
+  mock TollGate. The cdk-cli adapter supports both the modern
+  (`--v3 --amount`) and legacy (stdin) CLIs and expands short keyset IDs
+  for cdk-mintd compatibility. Money-path guards: payment tokens are
+  written to disk (0600, `--state-dir`, default
+  `~/.local/state/tollgate-clientd`) before the POST and reused on
+  retry instead of minting a fresh one; router notice `code` tags are
+  read and terminal codes (`payment-error-below-swap-fee`,
+  `-invalid-token`, `-token-spent`) stop the daemon with a non-zero
+  exit instead of feeding the backoff loop; the payment POST timeout is
+  configurable (`--payment-timeout`, default 30 s — routers may swap
+  synchronously); and `--max-blind-payments` (default 3) bounds the
+  runaway where payments are accepted but `/usage` never reflects them
+  (#422), stopping the daemon non-zero with the unacknowledged token's
+  location. Tested by a new unit suite
+  (`tests/clientd/`, 39 tests over in-process mock TollGates) and a
+  cloud-lab e2e lane (`tests/cloud-lab/test_clientd_autotopup.py`)
+  that pays the real backend and observes threshold renewal. ([#425](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/425))
+- **`tollgate-clientd` scenario battery.** New
+  `tests/cloud-lab/run-clientd-scenarios.sh` (compose profile
+  `clientd`): S2 bytes-metric lifecycle against a data-metered upstream
+  with live file-driven ndsctl counters (renewal before exhaustion, gate
+  close, re-payment), S3 a real nutshell wallet paying live (image
+  `Dockerfile.client-ns`, wallet persisted via `CASHU_DIR`), S4 mint
+  outage mid-session (logged backoff, recovery after restart), and S5
+  keyset rotation + swap fees (auto-skipped unless the rotation mints
+  are defined in the compose). Hard-won notes baked in: ms sessions in
+  the lab expire lazily (expiry recorded, not asserted); fee-charging
+  mints credit `floor((amount − fee)/price)` steps; fresh
+  `pip install cashu` needs `marshmallow<4` pinned (environs
+  incompatibility with marshmallow 4.x). ([#425](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/425))
+
+
+
+- **The gateway now serves time to its own clients, before authentication
+  (#627).** A client on the open portal joins with whatever clock it boots
+  with — the ws3915i fleet sat months off — and a wrong clock cannot pay
+  honestly: Cashu proofs carry timestamps, keysets expire, sessions are
+  time-boxed, and a downstream TollGate in reseller mode needs accurate time
+  before it can pay *us*. `setup_ntp_server` enables busybox sysntpd's
+  listener (`system.ntp.enable_server='1'`, idempotently, creating the
+  section when the image shipped none), the pre-auth allow list gains
+  `allow udp port 123` beside the portal and the payment API, and a RUNNING
+  router gets exactly one cheap restart of the stateless UDP responder —
+  never a fresh boot, where procd starts sysntpd after uci-defaults with the
+  config already committed. Bench-side verified on the fleet bring-up
+  (79b1 answers NTP on the portal face; clients sync from the gateway).
+  ([#648](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/648))
+
+### Fixed
+
+- **A Net4sats-branded TollGate is now recognizable as an upstream.** All
+  SSID-based recognition — reseller-mode upstream candidate selection, scan
+  classification, and the vendor-element score heuristic — now matches every
+  captive-SSID prefix the first-boot writer can emit (`TollGate-` and the
+  whitelabel `Net4sats-`) through one shared helper, case-insensitively
+  (lowercase `tollgate-<code>` SSIDs written by the pre-device-code installer
+  are still in the fleet). Previously a Net4sats router was invisible to a
+  reseller's wireless upstream discovery; the vendor IE remains the staged,
+  brand-independent channel behind `vendor_ie_discovery`.
+
+- **A payment whose gate cannot open is an owed entitlement, not a lost
+  one (#403).** A successful `Receive` puts the customer's value in the
+  operator's wallet irreversibly; when `ndsctl auth` then fails, the old
+  path rolled back the in-memory session and answered a bare
+  `session-error` — the operator kept the value and the customer had
+  neither service nor a recoverable claim. The paid purchase is now
+  recorded as an owed entitlement in a durable, atomically-written,
+  fsync'd store (`owed-grants.json`, alongside the Lightning quote store)
+  **before** the response completes, keyed by the receive reference the
+  customer can already quote; a per-record monitor retries the grant with
+  backoff and jitter until it succeeds or its window passes (milliseconds
+  grants expire when their paid time is gone, data grants after 24 h —
+  both converge to a loud terminal `expired` state with the record kept
+  for audit, never an infinite retry). A restart reloads the store and
+  relaunches the monitors, so an unresolved entitlement survives the
+  process; the grant itself is applied exactly once (in-memory
+  processing flag plus a persisted `granted` transition), and the
+  customer is told their access will start automatically and that they do
+  NOT need to pay again (`payment-received-grant-pending`). The
+  Lightning-side sibling of this contract (`ErrAccessGrantNotApplied`,
+  the quote monitor) is unchanged; both now converge through the same
+  store discipline. Known limit, honestly: refunding (returning the
+  value) remains out of scope — an expired entitlement is an operator
+  action, not an automatic refund.
+  ([#403](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/403),
+  [#502](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/502))
+
+- **An ambiguous Cashu outcome is never retried with the same derivation
+  outputs, and the customer is told so.** The wallet client re-sent an
+  identical money-moving POST body up to four more times on a network error —
+  so a mint that processed a swap and whose response was dropped (timeout,
+  connection reset, EOF) received the same blinded messages again: the
+  deterministic-derivation re-exposure that strict mints answer with error
+  10002 and that has repeatedly bricked wallets (#257/#266/#480), measured on
+  main by the #535 conformance lane as the `swap-timeout-retry` row (#640);
+  the lab mint's duplicate tolerance is why payments kept working while the
+  invariant was violated. Fixed in `gonuts-tollgate`
+  v0.13.0 ([fork PR #35](https://github.com/OpenTollGate/gonuts-tollgate/pull/35):
+  network errors return `*AmbiguousOutcomeError` immediately; the 429
+  same-body retry is kept, as a rate-limit answer precedes processing;
+  checkstate keeps its read-only transport retry as the reconciliation
+  primitive), repinned here. This repo
+  gains the release-gate pins: a full-wallet fault test whose fake mint
+  processes the swap, drops the response, and must sight every blinded output
+  exactly once (it fails on v0.12.1, passes on v0.13.0), a wallet-usable-after-recovery test,
+  and the customer-facing classification — an unanswered swap surfaces as
+  `payment-outcome-unknown` with the do-not-resend guidance and the
+  operator-quotable reference instead of a retry-flavoured error, and it no
+  longer condemns the mint in the health tracker (the mint may be healthy and
+  processing).
+  ([#640](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/640))
+
+- **Lightning top-ups work against deployed cdk mints again — NUT-20 mint
+  quotes are signed with the message format the deployed ecosystem verifies.**
+  The wallet fork signed the domain-separated `Cashu_MintQuoteSig_v1` framing;
+  no deployed cdk mint verifies that form (cashubtc/cdk's
+  `MintRequest::msg_to_sign` is the plain `quote_id || B_ hex` concatenation),
+  so every quote → paid → mint top-up failed with "Signature missing or
+  invalid". gonuts-tollgate now signs the concatenation, and the construction
+  is pinned to cdk's own cross-implementation test vector (their exact quote
+  id, five outputs, and valid signature pair) so a framing change on either
+  side breaks the test that matters. Lands via the fork tag `v0.13.0`
+  ([gonuts-tollgate#34](https://github.com/OpenTollGate/gonuts-tollgate/pull/34)).
+- **A swap whose response is dropped no longer re-sends the same derivation
+  outputs — ambiguous mint outcomes surface for reconciliation instead of
+  being blind-retried.** The wallet client re-POSTed the identical body on any
+  transport error, which re-exposed blinded messages the mint may already have
+  signed — the #257/#266/#480 brick class, measured live by the #535
+  conformance lane (#640). State-changing POSTs are now single-shot when no
+  answer arrives (returning an explicit `AmbiguousOutcomeError`), a 429 answer
+  keeps its backoff retry, and checkstate — the reconciliation primitive —
+  keeps its full retry. This module's `isAmbiguousMintOutcomeError` matches the
+  new error positively, so the outcome-unknown notice and the late-receive
+  recorder label the no-answer case exactly. Verified end-to-end on the tagged
+  fork: the lane's `swap-timeout-retry / no-output-reuse` flips **fail →
+  pass**; the scenario's remaining `service-or-refund` red is the tracked
+  #403/#258 refund-vs-late-grant window, deliberately not masked. Lands via
+  the fork tag `v0.13.0`
+  ([gonuts-tollgate#35](https://github.com/OpenTollGate/gonuts-tollgate/pull/35),
+  fixes [#640](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/640)).
+- **The module is no longer a second `:8090` writer, and the tree carries no
+  re-brand literal.** Two defects, one root: a brand-gated legacy configUI
+  writer in `99-tollgate-setup` created its OWN `uhttpd` section on `:8090`
+  (home = a branded webroot) whenever a brand file and a branded docroot were
+  present — a second claimant of the port the portal-staged board
+  (`uhttpd.admin`, written by the feed's `92-tollgate-admin-setup`, staged by
+  `packaging/portal-build.sh`) already owns, i.e. a bind fight in which one of
+  the two admin UIs disappears (`default-ui-and-entry-port-decision.md`, D4);
+  and the brand was a hard-coded literal in the module, in the docs and in the
+  tests, so upstream carried a commercial brand's name. The legacy writer and
+  the brand whitelist are GONE: `load_brand` accepts any single alphanumeric
+  token from `/etc/tollgate/brand` (default `tollgate`, display spelling
+  derived, no table), the machine-name recognisers (`code_from_name`,
+  `captive_ssid_for_code`) match the default prefix or THIS router's own brand
+  token instead of a hard-coded list, and `setup_hostname` compares against the
+  build's own `BRAND_HOSTNAME`. A router upgrading from a build that carried the
+  legacy writer CONVERGES: `purge_foreign_configui_sections` DELETES any
+  `uhttpd` section that is not one this module owns (`main`, `portal`,
+  `trusted`, `admin`) — not merely its `:8090` listeners, which the feed's `92`
+  already strips, leaving a listener-less branded instance behind — on BOTH
+  setup paths, so a same-version reinstall repairs it too. `sanitize_uhttpd_main_configui_port`
+  still strips a stray `:8090` from LuCI's instance. Net contract after an
+  install, an upgrade, a reinstall-over-marker or a legacy-left-behind box:
+  exactly ONE section owns `:8090` (`uhttpd.admin`, home `/www/tollgate`), LuCI
+  stays alone on `:8080` (home `/www`), and no build product is claimed or
+  renamed on the portal's side. Supersedes the module-side writer added in
+  [#451](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/451) for
+  the default build: the board is the portal bundle's, and a re-brand ships its
+  own webroot from its own organisation. Pinned RED-first by
+  `tests/packaging/configui-8090-single-owner_test.sh` (the four scenarios plus
+  detector controls) and `tests/packaging/rebrand-literal-gutter_test.sh` (a
+  gutter that fails if any re-brand literal reappears anywhere in the tracked
+  tree, with a planted-occurrence control). No history rewrite: the literal
+  survives in old commits, by design.
+  ([#649](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/649))
+- **The TLS review of #593, closed: the derived hop is committed before the
+  reload, the operator's own identity survives an install, and the postinst runs
+  the order the boot path uses.** Three defects in the change that made setup
+  provision a router's TLS identity. (1) `tollgate ssl apply` reloaded uhttpd and
+  only then derived `uhttpd.main.redirect_https`, so the running server was handed
+  the PREVIOUS value while the command printed `redirect_https=1 (... covers this
+  router)` — the same defect class as the setup path the rule exists for; the
+  removal paths already ordered it correctly and the apply paths now match. (2)
+  Provisioning was idempotent on this module's own output path
+  (`/etc/tollgate/ssl/server.crt`) instead of on the certificate `uhttpd.main`
+  actually presents, so a router whose administrator had installed a CA-signed
+  certificate — or run `tollgate ssl apply <cert> <key>` — had it replaced by a
+  fresh self-signed identity on the next install: a trusted certificate silently
+  downgraded, a covering identity re-keyed behind its owner's back. Provisioning
+  now skips when `tollgate ssl covers "$(uci -q get uhttpd.main.cert)"` is true,
+  and the identity selection prefers the first candidate that COVERS this router
+  (configured → provisioned → the image's pair), so the certificate the operator
+  chose is the one uhttpd keeps serving. (3) `ssl covers` printed its refusal
+  twice — cobra prints the returned error and `main()` printed it again — which
+  makes one refusal indistinguishable from two failures in a log;
+  `SilenceErrors` on the root command leaves the single line (measured on the
+  built binary: 2 → 1). Regressions pinned by
+  `TestSSLApplyDerivesTheRedirectBeforeItReloadsUhttpd` (the uhttpd init stub
+  records what the running service would have read at reload time),
+  `TestSSLCoversPrintsItsRefusalOnce`, and a new section E of
+  `tests/uci-defaults-admin-tls-identity_test.sh` — all of them RED on the parent
+  commit, and the suite can be pointed at another copy of the script with
+  `TOLLGATE_SETUP_SCRIPT` so that RED stays reproducible. Separately,
+  `packaging/Makefile`'s postinst now runs the uci-defaults in the numeric order
+  the boot path uses (`90, 92, 99`, not `90, 99, 92`): the LAST writer of
+  `uhttpd.main.redirect_https` is the same on the install pass as at boot, so an
+  install converges to the state the next reboot produces whatever either writer
+  decides, instead of to a state a reboot silently changes. Pinned by
+  `tests/packaging/uci-defaults-run-order_test.sh`, with the pre-change order as
+  its negative control. The feed repository's vendored `92-tollgate-admin-setup`
+  still decides that option from the readability of `/etc/uhttpd.crt`, and its
+  recipe still runs `92` last, so the operator-visible defect stands on a
+  feed-installed router until that repository carries the same premise — recorded
+  in `docs/architecture/uhttpd-redirect-https-ownership-decision.md`, not fixed
+  from here. `docs/rc-tester-guide.md` also now leads with `https://<LAN IP>/`,
+  the address that is in the certificate's SANs and needs no resolver, with the
+  `.lan` alias as the alternative.
+  ([#612](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/612))
+
+
+- **`MintConfig` unmarshalling accepts the legacy `min_purchase_steps`
+  spelling and floors `MinPurchaseSteps` at 1 (#104, ported from the
+  disposition train).** A purchase of fewer than one step is meaningless
+  and clients (cashud, wally) reject advertisements with `min_steps=0`;
+  early FreedomTechFeed configs carried the legacy key, which parsed as
+  absent and left the field 0. The parser now accepts both spellings
+  (primary wins), defaults absent/0 to 1, and is pinned by a 6-case table.
+  The shipped mint templates also carry literal 1s, and the edit path has
+  kept its schema floor (`Min: 1`). The wire-spec side of the default
+  (TIP-02's tentative `default 0`) is tracked upstream in the spec repo
+  (OpenTollGate/tollgate#20) with a proposal to de-tentative to 1 — this
+  implementation already matches the field evidence that proposal cites.
+  ([#634](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/634),
+  [fork #104](https://github.com/Amperstrand/tollgate-module-basic-go/pull/104))
+
+- **The atomic config write falls back to a durable in-place write when
+  the inode is pinned.** A single-file bind mount (the conformance lab,
+  containerized deploys) cannot have its config renamed over — the
+  #402-hardened `SaveConfig` answered EBUSY there and brought the lab
+  daemon down at config migration. Where rename cannot serve, the save
+  falls back to `O_TRUNC`+write+fsync on the mounted file: the pre-#402
+  guarantee, strictly better than refusing to save.
+
+- **A wedged `fw4` can no longer stall- **A wedged `fw4` can no longer stall the daemon's start path (#637).**
+  The operator-settings convergence (which runs after the API listener
+  binds but before `Serve`) called `fw4 reload` with no deadline, so a
+  wedged firewall reload on exactly the boots where drift exists (first
+  boot after an upgrade with hand-edited settings, a sysupgrade that
+  regenerated UCI) stalled the service — and procd respawned it into the
+  same stall, keeping the payment API down on an unattended router.
+  `fw4 reload` now runs under a 30-second `CommandContext`; a timeout is
+  treated exactly like any other reload failure (the fragment file is the
+  durable half and applies at the next firewall reload or reboot), pinned
+  by a test with a fw4 that never answers.
+  ([#637](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/637))
+
+- **`config.json` writes are atomic, and a missing config is announced
+  instead of silently becoming factory defaults (#402 hardening).** A
+  plain `os.WriteFile` killed mid-write (power loss, a procd respawn in
+  the write window) left a truncated file that the loader routed into
+  backup-and-defaults — the operator's accepted mints silently reverting
+  to the factory set, the config-loss class of the #402 incident.
+  `SaveConfig` now writes temp + rename in the same directory (a reader
+  always sees the whole old or the whole new file), and the
+  file-does-not-exist path — the one default-write path with zero
+  forensics — logs a loud WARNING naming the backup directory. The full
+  #402 incident did not reproduce on current main; this closes the class
+  it came from.
+  ([#402](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/402))
+
+- **A concurrent duplicate of one e-cash note is refused before the mint, not
+  raced past its spend-state.** The mint's own "already spent" refusal is the
+  payment path's only duplicate guard, and two concurrent POSTs of the same
+  note both pass it before either swap settles: measured by the #535
+  conformance lane (2026-10-05) as both POSTs answering a kind-1022 session
+  with a 2x allotment delta and four derivation digests each sighted twice —
+  one note, two sessions (#639). `PurchaseSession` now marks the note in
+  flight (keyed by the salted fingerprint already given to the customer as the
+  outcome-unknown reference) from the moment the money-moving call starts
+  until its result is consumed — on the outcome-unknown timeout path the late
+  recorder owns the mark, so a resubmission arriving after the deadline but
+  before the mint answers is refused exactly like a concurrent one, which is
+  what the "do not send this note again" notice already promises. The refusal
+  (`payment-duplicate-inflight`) moves no money and reaches no mint; a note
+  whose fingerprint cannot be computed is never refused.
+  ([#641](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/641))
+- **`generate_admin_password()` no longer depends on `od`, which is absent from
+  the stripped busybox shipped on OpenWrt 25.12.5 base images.** On those
+  images the old `od -An -N 20 -tu1 /dev/urandom` pipeline produced no output,
+  so the function returned an empty string, `set_admin_password()` became a
+  no-op, and the postinst correctly refused to serve the :8090/:8443 admin
+  board ("root has no usable password"). The generator now uses `hexdump`,
+  which is present on the same images and already used elsewhere in the setup
+  script (`mint_device_code`, `random_octet`). The alphabet, length, and
+  uniform byte-to-character mapping via modulo-32 are unchanged; the password
+  is still applied through stdin (`printf ... | passwd root`) and never
+  reaches argv. A hermetic test that shadows `od` with a failing shim is now
+  part of `tests/packaging/admin-board-requires-credential_test.sh`.
+  ([#624](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/624))
+
+- **The backend API (`:2121`) now answers the operator's private bridge
+  (`br-private`), not only the captive one — on the one network the admin board
+  is reachable from, every panel of that board was dead.** The board is kept off
+  the captive bridge (`31-admin-board-not-guest-reachable.nft`), so `br-private`
+  is where it is administered, and the board is a thin shell whose data layer
+  reads pricing, `whoami`, session balance and `ln-invoice` from
+  `http://<router>:2121/`. `30-backend-firewall.nft` exempted only `br-lan` and
+  `lo`, so the page rendered while every fetch failed
+  (`error fetching tollgate data: TypeError: NetworkError` / `lightning
+  capability probe failed`) and retried forever — measured on a freshly flashed
+  GL-MT3000 carrying `alpha4-pre21`. The exemption set now names both LAN
+  bridges; `br-lan` keeps its access because the portal SPA pays through the
+  same API. New offline test:
+  `tests/packaging/backend-api-owner-network_test.sh`.
+  ([#638](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/638))
+
+### Changed / Internal
+
+- **The vendor-IE encoder has an explicit overflow policy instead of a silent
+  failure.** When the encoded body would exceed the 255-byte element cap the
+  mint TLV (the bulkiest optional field) is dropped and the truncation is
+  reported by `EncodeTollGateVendorIE` and logged by `EmitTollGateVendorIE`
+  — the element is an unsigned hint, and the signed advertisement on `:2121`
+  remains authoritative and complete. Only a pubkey that cannot fit even
+  without the mint TLV is an error. Round-trip tests now use realistic
+  32-byte keys (was 3 bytes). Found by the #618 design review.
+- **The discovery-signaling decision is recorded: v0.6 ships SSID-prefix
+  recognition; the richer tiers are documented and deferred.**
+  `docs/architecture/discovery-signaling-decision.md` separates the candidate
+  *signal* from *verification*: the SSID prefix (`TollGate-`/`Net4sats-`,
+  case-insensitive — #618) only selects who to ask, and the signed kind-10021
+  advertisement on `:2121` decides — a cloned beacon spoofs nothing but a
+  wasted probe. 802.11u/ANQP (Passpoint) and vendor-IE beacon stuffing are
+  researched with their prior art and deferred past v0.6 with explicit reopen
+  conditions (pre-association price in the WiFi picker, rename-surviving
+  discovery, a registered OI), and BSSID signaling and beaconed npubs stay
+  rejected with the bench-measured evidence, so none of it gets re-derived.
+  ([#621](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/621))
+- **Linux host mode's admin surface is formally deferred to phase 2.** A new
+  decision record pins the outcome so it is not re-litigated: phase 1 ships
+  no admin SPA, no admin listener, and no admin port — the `tollgate` CLI is
+  the only operator interface — and any future admin API must satisfy a
+  minimal contract (four verbs mapped to existing seams, AF_UNIX
+  file-permission auth, loopback-only) before it is built. See
+  [docs/host-mode/admin-surface-decision.md](docs/host-mode/admin-surface-decision.md).
+- **The wired LAN ports move onto `br-private`: a cabled client is an
+  owner-class client with internet, the admin board and LuCI, and no payment
+  step.** The base image puts the physical LAN ports on the *captive* bridge
+  (`br-lan`), so a cable was a customer port — it paid at the portal, and the
+  two administration guards (`31-admin-board-not-guest-reachable.nft`,
+  `32-luci-not-guest-reachable.nft`, both `iifname "br-lan"`-literal) dropped
+  the admin board (`:8090`/`:8443`) and LuCI (`:8080`/`:443`) for it exactly
+  as they do for a stranger on the open guest SSID. A new
+  `setup_lan_ports_private` writer in `99-tollgate-setup` now **moves** the
+  port list the base image writes on the captive bridge onto `br-private` —
+  the operator's own trusted network, whose zone already forwards to the
+  `wan` and whose clients the admin guards do not drop. The trust change is
+  deliberate and not hidden: `br-private` is ungated, so a cable-connected
+  client gets internet and root-capable admin surfaces without paying. The
+  ports are **discovered, never named** (`eth1` on the MT3000, `lan1…lan5`
+  elsewhere — the writer moves what the bridge's device section lists), the
+  move is **idempotent and convergent** (re-asserted on the same-version
+  verify/repair path, so a factory reset or `sysupgrade -n` that puts the
+  ports back on the captive bridge is repaired; `/etc/config/network` is
+  already on the module's keep-list, so a settings-keeping upgrade carries
+  the placement), and a port never sits on two bridges (the captive section's
+  list is cleared after the private bridge's is written). Nothing else moves:
+  the public `TollGate-*` SSIDs stay on the captive bridge behind the portal,
+  `nodogsplash` stays pinned to `br-lan`, and all four guard fragments
+  (`20-nds-enforce.nft`, `30-backend-firewall.nft`, `31-*.nft`, `32-*.nft`)
+  are untouched and still `br-lan`-scoped — pinned byte-identical to `main`
+  by the new `tests/uci-defaults-lan-private-wired_test.sh`, which also pins
+  the move, the discovery, the idempotence and the upgrade repair. This is
+  the minimal release path; the role machinery (`tollgate.lan_ports.role`,
+  `br-mgmt`) stays in #607 for after the release.
+
+- **The wired-LAN bridge record no longer overstates the blocker: the
+  operator's requirement *is* satisfiable by re-keying the admin-port guards.**
+  The amendment to `docs/architecture/lan-port-management-bridge-decision.md`
+  records the operator-approved mechanism — key the two admin-port drops on the
+  guest VAP interfaces instead of the bridge name, so the wired port stops
+  matching (the administration surfaces answer from the cable) while the
+  wireless guests keep being dropped and the wired port stays on the gated
+  `br-lan`, still redirected, still paying — together with the measured
+  constraint that makes it a port-keyed `bridge`-family rule rather than a
+  string swap (in an `inet`-family hook `iifname` is the bridge, so the swap
+  would match nothing and turn both guards into silent no-ops), and the
+  fail-closed derivation the unstable VAP names need. The nodogsplash
+  single-gate analysis is unchanged and now explicitly scoped to a second
+  *gated* bridge; `br-mgmt` stays proposed on its own merit, its Status stays
+  `Proposed`, and the drifted `99-tollgate-setup` citation is corrected to
+  `:1228-1247`. Docs only: no code, no packaging, no firewall change.
+  ([#623](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/623))
+
+- **The merchant test log capture is concurrency-safe.** `captureMerchantLog`
+  handed tests a bare `bytes.Buffer` behind the swapped standard logger, so a
+  `MintHealthTracker` probe goroutine still winding down from an earlier test
+  raced a later test's read of the capture — the intermittent "race detected
+  during execution of test" that turned the battery red on
+  `TestStartDataUsageMonitoringStopsTheSweepItStarts` during the #619 review.
+  The capture now returns the package's existing synchronised `syncLogs` type
+  (plus a locked `Len()`), pinned by a test that reproduced the race under
+  `-race` before the fix
+  ([#622](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/622)).
+
+- **The physical/lab router suite now runs as a CI job.** A new `router-test`
+  workflow routes through the elected router-bench gateway: pull requests reach
+  the isolated QEMU lab only, and only post-merge `main` runs can touch the
+  physical bench, behind the `bench-hardware` environment. Third-party PRs run
+  without the gateway credentials and skip the job
+  ([#614](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/614)).
+
+### Fixed
+
+- **A wedged mint no longer stalls the payment lane for minutes.** The swap-fee
+  precheck now runs under a 3-second budget: against a mint that accepts
+  nothing (`docker pause` reproduces it), the wallet client's retry ladder
+  (30 s per attempt, up to five, chained endpoints) parked the precheck for
+  5+ minutes before any deadline applied — the customer's request hung and
+  each attempt stacked a stuck goroutine, while the token itself stayed
+  unspent. Past the budget the payment proceeds and Receive's own error
+  classification (or its receive timeout) governs — the fee check is an
+  optimization, not a gate. Fixes
+  [#525](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/525).
+  ([#533](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/533))
+- **“A client NoDogSplash does not know” now requires the answer to name the
+  MAC the module asked about.** The zombie-session fix (#595) correctly read
+  `ndsctl deauth`’s `Client <mac> not found.` / rc=1 as a *completed* close —
+  but its matcher also accepted any “not found” answer containing the word
+  `client`, and `ndsctl` is only ever asked about **one** MAC. An answer naming
+  a different MAC, or none at all, is not evidence about the client being
+  closed, so on that answer the gate was retired (the close reported COMPLETE)
+  while the client it actually asked about could still be `Authenticated` with
+  an open gate — the fail-open direction of the very defect the fix closed. The
+  MAC is now the whole of the match. Found by the third review round on #595 and
+  carried over as its own change; the measured terminal answer (which names the
+  MAC) and every failure that carries no client evidence behave exactly as
+  before — `Socket is not ready for communication : Bad file descriptor` and
+  `Could not connect to server` are still unconfirmed failures.
+
+- **The repair path's portal banner is now committed, and both setup paths write
+  one identical value.** The verify/repair path a same-version reinstall takes
+  converged `nodogsplash.gatewayname` on a second spelling — `"$GATEWAY_NAME"`,
+  without the ` Portal` suffix the full setup writes — so the splash page's name
+  flapped with whichever path ran last; and because that block runs BEFORE the
+  nodogsplash export-diff snapshot its commit is taken against, on a settled
+  router the write stayed an uncommitted `/tmp/.uci` session delta:
+  `/etc/config/nodogsplash` kept the **old** banner, the convergence was lost at
+  the next reboot, and any later `uci commit nodogsplash` (the stale
+  `gatewaydomainname` delete, or an allow-list repair) re-applied the stale delta
+  on top of the file. Both module paths now write `"<captive SSID> Portal"` — the
+  string every deployed router already shows, so this is not a user-visible
+  rename — and the repair path commits it in the block that writes it, and only
+  when the value differs. Found by the cold review of the one-device-code change
+  (#605, findings F1/F2); the same pass fixed three smaller items:
+  `/etc/config/tollgate` is now listed in
+  `packaging/files/lib/upgrade/keep.d/tollgate` so the code survives a
+  keep-settings sysupgrade by the repo's own preservation contract (F3), the
+  decision record states the two known cross-repo divergences instead of
+  claiming the case tables match (the installer's suffix-less banner, and its
+  `ssid_safe` nym charset being weaker than this side's `safe_nym`) (F5), and
+  the #605 entry below carries its missing PR link (F4). Guarded by a new suite,
+  `tests/uci-defaults-gatewayname-banner_test.sh`, which drives both paths
+  against a delta-aware `uci`: the existing suites' flat-file fake returns empty
+  for `export`, so their harness committed unconditionally and could not see the
+  delta at all — the review's mutation M8 left them at 71 passed / 0 failed,
+  while the new suite fails 7 assertions on pristine `main` and 4 on that
+  mutation.
+  ([#610](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/610))
+
+- **“The MAC I sent was ignored” is now said out loud on every
+  client-scoped endpoint.** `?mac=` never decided which session, quote, byte
+  meter or gate a request touched — the module has always answered for the
+  client at the other end of the **socket** — but it did so silently, and
+  that cost hours on the bench: a valid token posted *for*
+  `02:11:22:33:44:55` from a host whose own socket was `8c:16:45:0d:6f:c5`
+  opened the gate for the *sender* (`ndsctl json`: `8c:16:45:0d:6f:c5`
+  Authenticated, `02:11:22:33:44:55` Preauthenticated), while
+  `/balance?mac=<other>` and `/balance` returned byte-identical bodies — so
+  the probe read “the gate never opened”. Every client-scoped route now goes
+  through one resolver and every response names the client it answered for
+  (`X-TollGate-Client-MAC`) plus, when the caller asserted a different
+  address, the claim it did **not** honour (`X-TollGate-Mac-Claim-Ignored`);
+  both are exposed through CORS so the portal and any harness page can read
+  them. `/balance`’s body names its client like `/session-state` already did,
+  and `/balance`+`/usage` — which resolved the address themselves, raw, without
+  the unresolvable-client refusal — now share the money path’s resolver. The
+  parameter stays accepted for wire compatibility with the shipped portal; no
+  existing field or header changes shape, and the contract (with what it means
+  for a test rig) is in `docs/operator-guide.md`.
+  ([#598](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/598))
+- **A restart no longer leaves the clients NoDogSplash was still authorising with
+  an open, unmetered gate — the module reconciles them at startup.** The module's
+  gate, session and metering state is process-local, so a restarted module starts
+  from an empty session set while NoDogSplash (a separate service) keeps every
+  client it had authorised. Measured on the bench MT3000 (pre17): buy, gate open,
+  restart ONLY `tollgate-wrt`, and the client is still `state=Authenticated` in
+  `ndsctl json` with `probe=204`/`egress 200` while the freshly restarted module
+  holds no session at all — free, unmetered internet until NoDogSplash's own
+  timeout. The module now reads NoDogSplash's client list once, at startup
+  (`ndsctl json`, no argument — a new read, since every other one is per-MAC) and
+  closes the gate of every client NoDogSplash holds as authenticated that appears
+  in neither its session map nor its tracked gates; that check is sound because
+  the purchase path records the session BEFORE it opens the gate, so such a client
+  is never a purchase in flight. It runs synchronously during merchant
+  construction, before the merchant is installed behind the API, so it cannot race
+  a purchase being served. A client merely Preauthenticated (no access to leak),
+  or in a state this module does not recognise, is left alone; an unreadable
+  client list changes NOTHING (a failed read is not evidence about a client) and
+  reports the residue plus the check to run; a close that ndsctl does not confirm
+  is an ERROR that says the client may still hold open, unmetered access and names
+  the operator action, never "closed". The customer's remaining allotment does NOT
+  travel across a restart (it lived in the process that died) and the module says
+  so instead of pretending the session survived. Decision:
+  `docs/architecture/startup-nds-reconciliation-decision.md`, which closes the hole
+  recorded in `zombie-session-close-reconciliation-decision.md` §5.
+  ([#596](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/596))
+
+- **An `ndsctl` invocation the module ends is reported as such, not as an
+  `ndsctl` failure — and a service restart drains it instead of killing it.** Go
+  prints `signal: killed` for any child that died on a signal, so the module's
+  own deadline killing an invocation that never answered was indistinguishable
+  in the log from a restart, an OOM kill or a real refusal: the bench (pre17)
+  produced 97 lines of `Error deauthorizing MAC address error="signal: killed"`
+  on a box whose NoDogSplash control socket had stopped answering, and every
+  state machine reading them drew its own conclusion. Every production
+  invocation is now classified (`ErrNdsctlTimeout` / `ErrNdsctlStopped`): a
+  timed-out call escalates once per `ndsctlTimeoutReportInterval` with
+  `ndsctl_outcome=timeout` and the fact that the MODULE killed the child (a
+  wedged socket answers nothing and the sweep drives ndsctl every 2 s, so the
+  unthrottled line *was* the storm), repeats stay at DEBUG with the running
+  count, and recovery is reported when the socket answers again; a call
+  interrupted by a shutdown is INFO and is never re-escalated by the call sites.
+  `authorizeMAC` no longer retries an invocation that never answered. `Stop()` is
+  idempotent (it panicked on a second call) and DRAINS the invocations in flight
+  — bounded twice by `ndsctlStopDrain`, killing what is left deliberately and
+  attributing that kill to the shutdown — and refuses to start a new child once
+  the module is stopping. `main()` now installs the SIGTERM/SIGINT handler that
+  calls it, which nothing did before, so a `tollgate-wrt restart` no longer
+  kills the process and every in-flight child with it and leaves the log
+  claiming NoDogSplash failed.
+  ([#596](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/596))
+- **A session whose usage cannot be read is force-closed once, loudly, instead
+  of on every sweep for ever.** Past the metering grace window the module closed
+  the gate and repeated the escalation — plus the close failure under it — on
+  every 2-second sweep for as long as NoDogSplash refused the close (the bench
+  log's `has been unreadable for 39 sweeps`): two ERROR lines a second, which is
+  how a real escalation stops being readable. The escalation is now written
+  once, a CHANGE of state (the close being abandoned, or coming back) is
+  reported at once because a transition is not a repeat, and the same state
+  repeating is reported at most once per `unmeterableSessionReportInterval`, at
+  WARNING. Enforcement is unchanged: the session stays TRACKED while the close
+  is unconfirmed, the module keeps attempting it, and it is retired the moment
+  ndsctl confirms. Decision, including what "the session cannot be metered"
+  means and what happens after the close budget is spent, in
+  `docs/architecture/ndsctl-invocation-outcomes-decision.md`.
+  ([#596](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/596))
+
+- **A session whose client NoDogSplash has forgotten is closed and retired, not
+  retried for ever.** On the bench (pre17) `ndsctl deauth` answered
+  `Client <mac> not found.` with exit status 1, and the module read that exit
+  status as an *unconfirmed* close: it kept the gate tracked, retried it at the
+  sweep cadence for ever (`unconfirmed_closes` 113 → 193 → 195, monotonic), never
+  retired the session, and logged the false warning "this client may still hold
+  open, unmetered access" for a MAC NoDogSplash did not know at all. The storm
+  drove ndsctl until its socket died, and with a dead socket a **paid** purchase
+  could no longer be authorised (`state=PAID`, merchant wallet +1 sat,
+  `access_granted` never true). Three changes: (1) "client not found" is a
+  COMPLETED close — the gate is retired, no retry is armed, and the verified
+  state is logged at INFO; (2) the close retry is BOUNDED per gate
+  (`closeAttemptBudget`); at the budget the module stops driving ndsctl about
+  that gate, keeps it tracked, and escalates the abandonment exactly once, so
+  `unconfirmed_closes` can no longer grow without bound, while the reconciliation
+  re-attempts the close under fresh evidence about the client
+  (`valve.ReconcileGateClose`); (3) the wording now matches the verified state —
+  an unconfirmed close is reported as UNVERIFIED rather than as free internet.
+  A definitive "no client record" from `ndsctl json` also completes a close; a
+  probe that fails never does. The operator log lines that report an unconfirmed
+  close derive their retry claim from the error (`closeRetryStateClause`): an
+  abandoned close is no longer described as "retried" in the same breath as the
+  abandonment, which is the same class of false operator claim. Decision and
+  scope, including why there is no
+  startup reconciliation pass, in
+  `docs/architecture/zombie-session-close-reconciliation-decision.md` ([#595](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/595)).
+
+- **A paid purchase that cannot be granted is a loud, specific error, not a
+  silent no-op.** With the invoice settled and the tokens issued, a gate that
+  cannot be opened left the customer with `state=PAID` and `access_granted:false`
+  and told nobody why (`failed to fetch invoice status`), while the value sat in
+  the operator's wallet. The merchant now fails with a distinct
+  `ErrAccessGrantNotApplied` that names the client and the quote, logs one ERROR
+  line naming the client whose purchase is stuck, and the API answers 503 with
+  the `access-grant-failed` code and a message that tells the customer the payment
+  was received and not to pay again. The allotment is rolled back rather than
+  reported as granted, so nothing downstream can read the purchase as a success.
+
+### Changed / Internal
+
+- **The cloud-lab gained a run-scoped runner and a shared-host
+  runbook.** `tests/cloud-lab/lab.sh` gives every lab invocation its own
+  compose project, container names, allocated subnet and images (no host
+  ports), with managed TCP taps, deterministic teardown and a
+  crash-safe, label-based `reap` — concurrent sessions on one host can
+  no longer collide or leak. [RUNBOOK.md](tests/cloud-lab/RUNBOOK.md)
+  documents the patterns and the lessons that motivated them.
+  ([#557](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/557))
+
+- **Cudy WR3000 v1 documented as a covered target, with its 16 MB-flash limit
+  stated up front.** The package matrix already builds for
+  `mediatek/filogic` / `aarch64_cortex-a53`, which is what the WR3000 v1
+  (board name `cudy,wr3000-v1`) reports, so this is a documentation change
+  only — no matrix row was added or removed.
+  [README.md](README.md) gains a "Supported devices" subsection under
+  Installation that says how coverage is decided (the target/architecture rows
+  of the CI
+  [build matrix](.github/workflows/build-package.yml)) and records the
+  on-hardware result: on mainline OpenWrt 25.12.5 (`r33051-f5dae5ece4`) the
+  whole 37-package dependency closure installs and `nodogsplash` runs with the
+  keepalive contract live. It also states the 16 MB-flash limit and — measured
+  on the same device — the variant that works around it: the `upx-ultra-brute`
+  build this repo's CI already produces for `aarch64_cortex-a53` shrinks the
+  payload from ~20 MB uncompressed (`usr/bin/tollgate-wrt` 12,361,280 B plus
+  `usr/bin/tollgate` 7,373,632 B) / ~8.5 MB compressed to **5.34 MiB**, and a
+  real WR3000 v1 installed that `.apk`, rebooted, and came back with
+  `tollgate-wrt` running and no volatile helper, so a persistent install is
+  possible on a 16 MB device. The two practical notes from that run are
+  recorded too: the 1.78 MiB `tollgate` CLI can be dropped after provisioning
+  to leave room for the `nodogsplash` closure, and the closure must be installed
+  in one `apk add` transaction because `apk add --force-non-repository <file>`
+  world-syncs packages previously installed from files back out. A volatile
+  (tmpfs) install is documented as the fallback.
+  ([#613](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/613))
+- **COMFAST CF-WR632AX documented as a covered target, with the OpenWrt
+  ≥25.12.5 requirement and the absence of a hardware result stated up front.**
+  The CF-WR632AX (MediaTek MT7981-class SoC) reports the same
+  `mediatek/filogic` / `aarch64_cortex-a53` target and `DISTRIB_ARCH` as the
+  Cudy WR3000 v1 above, so the CI
+  [build matrix](.github/workflows/build-package.yml) already covers it and no
+  row was added or removed. OpenWrt has supported it since 25.12.0 (device page
+  [openwrt.org/toh/comfast/cf-wr632ax](https://openwrt.org/toh/comfast/cf-wr632ax)),
+  and its 128 MiB of SPI NAND means it has **no** flash-capacity caveat — the
+  default build fits, so the `upx-ultra-brute` variant the 16 MB WR3000 needs
+  is not required here. The "Supported devices" subsection in
+  [README.md](README.md) gains a paragraph recording that, the ≥25.12.5
+  requirement for the OpenWrt U-Boot layout (a memory-speed stability issue in
+  25.12.0–25.12.4, fixed by upstream PRs
+  [#22929](https://github.com/openwrt/openwrt/pull/22929) /
+  [#23416](https://github.com/openwrt/openwrt/pull/23416)), and that the device
+  has **not yet been exercised on real hardware** — no unit is in hand, so this
+  entry rests on upstream OpenWrt support and the shared target/architecture
+  row, not on a measured result.
+  ([#616](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/616))
+
+- **ngit stage 1 stamps a commit-derived `SOURCE_DATE_EPOCH`, never the runner
+  clock.** The `determine-versioning` job's epoch cascade ended in `date +%s`
+  and, because an ngit-ci `act` checkout has no git history and the
+  coordinator's push payload carries `head_commit` with no timestamp, that last
+  resort was taken on **every** run (observed at `ca5d07a2`: `source: job
+  clock`) — so the Go binaries embedded a wall-clock `BuildTime` and two builds
+  of one commit could not produce the same bytes, contradicting the
+  reproducibility pin from #383. The job now calls the same
+  `scripts/ngit-commit-epoch.sh` the `build-portal` job and the shards'
+  `resolve-inputs` already use (the commit's own timestamp, from local history
+  or a depth-1 fetch from the mirror the release is built from) and fails
+  loudly when neither source answers, instead of silently publishing artifacts
+  that cannot be rebuilt identically. See
+  [docs/reproducible-builds.md](docs/reproducible-builds.md)
+  ([#529](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/529)).
+- **The board is the default face — decided, with the switch, the cross-link
+  rules, and the reason it is not a one-repo change.**
+  `docs/architecture/default-ui-and-entry-port-decision.md` records the operator
+  decision of 2026-09-26: the hostname/entry point opens the **board**, LuCI stays
+  available but secondary, through a cross-link button in the board UI and a
+  config switch (`entry_ui ∈ {board, luci}`, default `board`) for what the
+  hostname/ports serve. The record fixes the mapping (`board`: entry pair
+  `:8080`/`:443` answered by `uhttpd.admin`, secondary `:8090`/`:8443` by LuCI;
+  `luci`: today's mapping), shows that **ports move and webroots do not** — so no
+  guard fragment, no pre-auth entry and no guest-path byte changes, and the whole
+  change reverts with one value — and gives the mechanism reason two instances
+  exist at all (uhttpd resolves one docroot per instance and resolves CGI against
+  it; `/www` on the board's port served LuCI's CGI in the 2026-09-20 incident,
+  `92-tollgate-admin-setup` header). Three defects it has to answer are read from
+  source: the release guide called LuCI's URL "the admin UI" (`:419` vs `:442`,
+  the inconsistency #593 left), the board SPA's own cross-link is
+  `http://<host>:8080/` (portal `admin/src/routes/login.tsx:336`) — cleartext,
+  hardcoded, and self-referential once `:8080` answers the board — and the
+  board's opt-in `:8443` still serves the image's placeholder identity because
+  portal `92` keys it off `/etc/uhttpd.crt` while the module's generator writes
+  `/etc/tollgate/ssl/server.{crt,key}` (`src/cmd/tollgate-cli/ssl.go:23-31`).
+  Two things the record decides *against* shipping blind: a half-converged pair
+  must degrade to today's mapping rather than have two sections claim one port
+  (the mode-aware `92` announces the protocol; `99` honours `board` only when it
+  does), so the `board` default is release-gated on the feed vendoring both halves
+  (D4), and a cross-link is rendered only from a router answer
+  (`tollgate ui links --json`, HTTPS-only, same host, no hardcoded port) or not at
+  all. This PR is docs-only: the record plus the guide correction.
+  ([#603](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/603))
+- **The payment pre-flight's test seam is per merchant, so the `-race` gate
+  stops racing.** `stubPreflightProbe` wrote the package-level probe
+  (`ndsClientCheck`) and retry delay (`preflightRetryDelay`) that the
+  stale-binding reconciliation reads through its fallback whenever the merchant
+  it belongs to has no probe of its own. The usage monitor runs on its own
+  goroutine and outlives its test, so a pre-flight test was writing a variable
+  another merchant's monitor goroutine was reading: `-race` failed the module
+  intermittently, and reported it against whichever test happened to be in
+  flight (usually `TestPurchaseSessionPreflightRefusesUnregisteredClient`, at
+  0.01 s). The two seams now live on the merchant — `clientProbe` and
+  `clientProbeDelay`, defaulting to `valve.CheckClientState` and
+  `preflightRetryDelayDefault` — the shape the reconciliation's own probe and
+  policy already use, and no test writes the pre-flight's package-level seams
+  any more, so the racing write cannot be written back. The pre-flight's
+  behaviour is unchanged: the #403 contracts keep their assertions, and the
+  module is green under `-race` over repeated runs.
+  ([#608](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/608))
+- **The captive-portal pin advances to portal main, and the module now gates the
+  admin board's redirect rule that its own tree cannot show it.** The pin moves
+  from `e6fe0e0e` (portal #60) to `4158030` (portal main: #62's admin SPA and
+  #64/#65's `92-tollgate-admin-setup`), so the admin board and the uci-defaults
+  script the package installs come from the revision the release intends.
+  Measured by re-staging BOTH pins with `bash packaging/portal-build.sh`: the
+  committed guest bundle is **byte-identical** — all 18 files under
+  `packaging/files/tollgate-captive-portal-site/`, including the nine tracked
+  ones and the gitignored entry chunk `assets/index-YkGiQMp2.js`
+  (`c86ad25bd7739292…`, 361923 bytes) — because #64/#65 changed only the
+  uci-defaults script and #62 only the admin SPA. What does change in the package
+  is the admin SPA (`index-DJpT8hFU.js` → `index-CKy1kEGj.js` with its
+  `index.html`) and, straight from the pin, the rpcd plugin, its ACL and
+  `92-tollgate-admin-setup`. `tests/packaging/assert-portal-bundle-contract.sh`
+  gains CHECK F: the module ships only 90 and 99, so 92 is not in this tree and
+  the check resolves it **from the pinned portal commit** (the script's existing
+  `pin_file` helper) and fails unless that file derives
+  `uhttpd.admin.redirect_https` through the module CLI's own coverage predicate
+  (`tollgate ssl covers`, `src/cmd/tollgate-cli/ssl.go`), writes an explicit
+  value in BOTH directions, and does not decide the hop from a fixed-path test on
+  the OpenWrt image's placeholder pair (`/etc/uhttpd.crt`, subject `CN=OpenWrt`,
+  `SAN DNS:OpenWrt`) — which satisfies every existence check while covering
+  neither the router's hostname nor its LAN IP, and pointed :8090 at a hard
+  certificate error. A pin that cannot be read fails CHECK F in every
+  environment rather than skipping.
+  ([#609](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/609))
+
+- **`src/cli`'s module file is tidy again, so the documented pre-PR gate stops
+  dying at that module.** `src/cli/go.mod` — added by #517 — never carried
+  `golang.org/x/time v0.6.0 // indirect`, although `src/merchant` requires that
+  module directly (`lightning.go` imports `golang.org/x/time/rate`) and
+  `src/cli/go.sum` already held its hashes. Under Go's default `-mod=readonly`
+  — every contributor's default, and CI's — the module's build list was
+  therefore incomplete: `cd src/cli && go vet ./...` answered
+  `go: updates to go.mod needed`, and `make go-battery` fail-fasted there
+  before checking the other 15 modules. Fixed with the one line `go mod tidy`
+  adds; `go.sum` and every other file unchanged.
+  ([#606](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/606))
+
+- **The wired LAN ports' own bridge is proposed — together with the half of that
+  request the shipped stack cannot deliver.**
+  `docs/architecture/lan-port-management-bridge-decision.md` answers the
+  operator's report ("neither luci on 8080 nor the luci alternative config ui on
+  port 8090 are reachable" from his Ethernet cable, which is a member of the
+  captive bridge `br-lan`). It proposes that the wired ports move to a new
+  management bridge `br-mgmt` whose clients reach `:8080`/`:443` and
+  `:8090`/`:8443` before paying, **and states that the bridge cannot also be a
+  paywalled network**: nodogsplash 5.0.2 manages one interface
+  (`src/conf.h:146`), uses fixed iptables chain names in one namespace
+  (`src/fw_iptables.h:35-44`) and deletes them **by name** on teardown
+  (`src/fw_iptables.c:689-747`), so two instances — which the OpenWrt init
+  script does start, one procd instance per uci section — tear each other's
+  enforcement down whenever either restarts, and this module's single `ndsctl`
+  call site (`src/valve/valve.go:96-102`, no `-s`) could never authorise the
+  second one. `br-mgmt` therefore gets its own fw4 zone with no path to `wan`,
+  an allow list of admin surfaces only, and **no** customer/payment surfaces
+  (`:2050`/`:2051`/`:2121`), because a network this module cannot gate must not
+  be able to buy. The record also establishes that the wired-port binding is
+  base-image owned (so the module must move the port list device-agnostically),
+  evaluates and rejects the MAC-allow shortcut (`99-tollgate-setup:969-972` has
+  already measured MACs as harvestable from 802.11 headers), and lists the
+  seventeen assertions that must hold before the bridge ships. Docs-only.
+  ([#599](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/599);
+  review findings folded in by
+  [#600](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/600))
+
+- **The packaging and release builds compile the whole `main` package, not one
+  file.** `packaging/local-build-ipk.sh`, `.github/workflows/build-package.yml`
+  and the ngit `build-package-binaries.yml` all built `tollgate-wrt` with
+  `go build … main.go`. A file-list build compiles only the files it is given,
+  which was equivalent to building the package only while `main.go` was the sole
+  non-test file in `src/` — and stopped being equivalent as soon as this PR added
+  `src/startup_gate.go` alongside it: the build then failed with `undefined:
+  apiStartup`, `undefined: startingMerchant`, … on the first run and on the
+  re-run alike, in the `Happy path (suite on a package built from this commit)`
+  lane. All three now build `.`, i.e. the package, which is what `go test .` and
+  the release lane already do. Build-path only — no symbol, flag or behaviour
+  change.
+  ([#589](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/589))
+
+- **The happy-path harness is runnable from the vantage a human tester actually
+  has.** `tests/router-happy-path/run.sh` takes `--vantage guest|mgmt|auto` now
+  (default `auto`, env `RHP_VANTAGE`). A guest-side run — a client on `br-lan`,
+  which is the only vantage a tester or the review club has — could not pass
+  before: `:8090` is blocked for `br-lan` clients by design (#566) and the harness
+  treated the correct `000` as a fatal failure. In guest mode the `:8090` check
+  becomes `surface:8090-admin-spa-not-guest-reachable`, which **PASSES on `000`**
+  and FAILS if the admin board answers a br-lan client at all; the admin
+  build-identity checks report a named SKIP (`identity:admin:*`) that names the
+  guard file and points at the mgmt/on-box lane, and an `RHPNOTE` says the admin
+  SPA itself is that lane's assertion. `surface:8090-admin-spa` is unchanged for
+  the mgmt vantage and is what a release gate should use — the admin-board
+  assertion was **not** weakened for the guest lane. The section-0 TCP liveness
+  burst is also **retried** (`RHP_TCP_TRIES` / `RHP_TCP_BACKOFF` /
+  `RHP_TCP_PACE`), and a port that fails every attempt is printed as
+  **PROVISIONAL** — a status that is explicitly not a verdict and is not counted —
+  which the verdict then resolves against the rest of the run: a port that some
+  later check demonstrably reached becomes a **WARNING** (`warn=N`, `RHPWARNED`)
+  with that PASS quoted, while a port that answers **nowhere** in the run keeps
+  the **FAIL**, printed by the verdict, and a port whose lane is not running (with
+  no `--ssh`, `:22`) is reported without being fatal. So no transcript holds a
+  FAIL for a port the run itself went on to use, and every check id has exactly
+  one terminal status. Measured on the bench MT3000 with the merged harness: the
+  burst reported `:22` dead during a run that held an SSH session to that very
+  port and `:443` dead before the same run's own `https://192.168.1.1/ -> 200` —
+  six to seven fatal-looking preflight FAILs per run, each refuted by the run
+  itself, which is exactly the confusion the harness exists to remove. The
+  self-test goes from 31 to 57 cases: the new ones cover guest `000` => PASS (and
+  a whole guest-vantage run being GREEN with `fail=0` and no FAIL line for the
+  port, plus the negative control that the guard going inert => FAIL), a retried
+  connect that answers on attempt 2 => not fatal, a port that answers nowhere =>
+  still fatal and named in `RHPFAILED`, a port refuted later in the same run =>
+  WARNING quoting that PASS, and a decoy proving the demotion credits only a port
+  a check actually reached (a dead `:443` stays fatal even when the `:8080`
+  redirect target answers `200` on a different, live https port). The rig now
+  reads the run's `RHPCHECK` verdict for an id, and asserts there is exactly one,
+  so it judges what the run reports rather than the pre-verdict note — which is
+  why that note is printed as `RHPPROVISIONAL <id> ...` and not as a second
+  `RHPCHECK` line for the same id.
+  ([#590](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/590))
+
+- **The uhttpd redirect/identity decision record now states the captive-side
+  product decision and the measured install order.**
+  `docs/architecture/uhttpd-redirect-https-ownership-decision.md` gains a
+  "Product decision: what answers the captive side" section: the captive side is
+  answered by the portal, never by LuCI or the `:8090` board (both management
+  surfaces, reached over the private network), and the `:8080` → `https://` hop
+  exists only for a client that actually reaches `uhttpd.main`, armed solely on a
+  certificate that covers the address that browser used. It also records the
+  order the two writers actually run in — `packaging/Makefile`'s postinst runs
+  `90, 99, 92`, so **`92` is the last writer of `uhttpd.main.redirect_https` on
+  the install/upgrade pass**, while numeric uci-defaults order at boot makes `99`
+  last — which is why "the other script also writes it" is a live hazard rather
+  than a style note: a writer with the superseded existence-only premise derives
+  `1` for an identity no browser can validate, after the coverage rule derived
+  `0`. The portal repo's copy of `92` was aligned to the same rule and carries a
+  cross-repo guard over the pair, and the module's own pin has since advanced
+  (`packaging/build-inputs.json .portal.commit` → `4158030`, #609), so this
+  module's package ships that coverage-checked `92`; the feed's
+  `vendor.lock.json` still has to advance for it to reach a feed-installed
+  router, which the document states explicitly.
+  ([#594](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/594))
+
+- **The valve's timeout test asserts the timeout contract, not the host's
+  scheduling latency.** `TestRunNdsctlTimeout` required a 1s deadline to kill a
+  `sleep 30` child inside 3s, which is a property of the host's scheduler, not
+  of this package: on a loaded host the kill was measured landing 3.2-3.7s
+  late, so the test reddened the release pin `2796d96c` and unrelated branches
+  with no diff involved. It now asserts the contract directly — the deadline
+  fired (`ctx.Err()`), the child did not exit successfully, and the child was
+  killed by a signal — the child is given 60s so the unconditional wall-clock
+  bound is half its lifetime (above every latency measured under deliberate CPU
+  starvation, up to 13.1s, and ~8x the field value), and the old 3s prompt
+  bound survives as an opt-in (`TOLLGATE_TEST_STRICT_TIMING=1 go test ./valve`).
+  Test-only: the valve's `ndsctlTimeout` and `runNdsctl` are untouched, so the
+  module's timeout behaviour is unchanged.
+  ([#592](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/592))
 
 - **The repro lane's SDK Go audit runs again.** Since #448 landed the
   audit, `repro-check` failed on every push: the audit sources
@@ -21,6 +1054,68 @@ and [Semantic Versioning](https://semver.org/).
   ([#519](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/519))
 
 ### Added
+
+- **One device code, minted once and stored, now names the router on every
+  network.** The hostname, the captive SSID and the private SSID are built from
+  a single four-character code kept in `/etc/config/tollgate`
+  (`config device 'device'` → `option code`), so the three names can no longer
+  disagree — and the code is REUSED, never re-minted, across a reinstall, an
+  upgrade and a sysupgrade that keeps settings. Measured on the bench MT3000
+  (2026-09-26): `hostname=tollgate-OQ3Q` while the open SSID had been re-minted
+  to `tollgate-0GLK` by a later deploy and the private SSID carried a suffix
+  from a third mint path, because nothing was ever stored — this script
+  re-randomised `RANDOM_SUFFIX` on every full setup, the installer minted its
+  own code on every deploy, and the installer skips `private_radio*` on purpose
+  so the admin LAN kept a code no other name used. The store is authoritative
+  and the adoption order (`store` → machine-shaped hostname → machine-shaped
+  captive SSID → mint) lets an already-deployed router converge on the code it
+  is ALREADY known by instead of collecting a third one; the verify/repair path
+  re-asserts the captive SSID from the stored code instead of reading the live
+  SSID back, which is how a re-minted one survived a reinstall. The hostname
+  becomes `tollgate-<code>` (one glance tells you which box it is; a custom
+  hostname is still never touched, #444) and the private SSID follows the
+  operator's nym (`c08r4d0r-<code>`) with `tollgate network private rename`
+  honoured as the escape hatch — only a machine-shaped SSID is re-derived, and
+  the PSK never is. Decision record:
+  [`docs/architecture/one-device-code.md`](docs/architecture/one-device-code.md);
+  the installer half (OpenTollGate/tollgate-installer, whose branding is the
+  writer that runs LAST on a deployed router) shares this store, this adoption
+  order and this test case table.
+  ([#605](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/605))
+- **The private network's credentials and the administration-path scope are
+  operator settings, in the config file and on the board.** Two things this
+  module compiled in are now declared in `/etc/tollgate/config.json`:
+  `private_ssid`/`private_key`/`private_encryption` (the private SSID's name,
+  passphrase and encryption mode — the encryption was a literal in
+  `99-tollgate-setup` that every full setup pass rewrote) and `admin_access`
+  (`both` | `br-private` | `br-mgmt` | `loopback-only` — which network may
+  reach the board on `:8090/:8443` and LuCI on `:8080/:443`, where the answer
+  used to be "whatever is not the captive bridge"). Neither can be honoured by
+  a file the service merely reads, so one applier
+  (`src/cli/operator_settings.go`) converges them: UCI `/etc/config/wireless`
+  for the credentials, and a generated, module-owned
+  `/etc/nftables.d/34-admin-access-scope.nft` for the scope. It is
+  **compare-and-converge** and runs after every `config set`/`config save`, on
+  the new `tollgate config apply`, and at service start, so a hand-edited
+  `config.json` converges without a second command and a router that already
+  matches reports `unchanged` without a `fw4 reload` or a wireless bounce.
+  Defaults are no-ops on the wire: `admin_access=both` writes no fragment (and
+  removes a stale one), and the SSID/passphrase ship empty, which means "keep
+  what the router has" — the values `99-tollgate-setup` minted. `br-mgmt` is
+  refused while that bridge does not exist, because it would drop the private
+  SSID and leave no network able to reach the board. **The passphrase is
+  write-only**: the schema marks it `secret`, `config get` blanks it and
+  reports `secret_set.private_key` instead, `config set` does not echo it, and
+  a wholesale `config save` of the (blanked) payload the board sends preserves
+  the stored value instead of clearing it. The guest network the customers pay
+  on is never an administration path, whatever `admin_access` says. New CLI:
+  `tollgate config apply` and
+  `tollgate network private set-encryption <mode>`; the three private-network
+  commands now write **both** radios through one helper, refuse a
+  non-existent section, and record the value in `config.json` so the two
+  writers cannot disagree.   Decision record:
+  `docs/architecture/lan-port-management-bridge-decision.md` D9-D12.
+  ([#604](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/604))
 
 - **`GET /session-state?mac=…` reports a machine-readable session state per
   client MAC — `none`, `active` or `expired`.** `/usage` answers `-1/-1` for a
@@ -62,7 +1157,191 @@ and [Semantic Versioning](https://semver.org/).
   seen failing is decoration), names in its header the ids it cannot break
   offline, and runs in CI.
 
+- **The happy-path harness now covers the SECOND purchase — the club's main
+  loop.** `tests/router-happy-path` could only ever buy once, so nothing in it
+  could see the failure the operator hit on real hardware (pre17 on an MT3000):
+  after the first allotment was spent, a second purchase restored the balance and
+  the gate stayed shut, with no OS captive-portal prompt either. `--second-purchase`
+  (or `RHP_SECOND_PURCHASE=1` + `RHP_CASHU_TOKEN_2`) buys a second time for the
+  SAME client and then asserts the GATE rather than the balance: `paid2:*` ends
+  with an HTTP request through the customer's own data path
+  (`RHP_EGRESS_PROBE_URL`, default the Android 204 probe) that must answer 200/204
+  with no redirect, naming the two failure shapes instead of collapsing them into
+  "no internet" — a `307` to the splash (still intercepted) and no answer at all
+  (neither redirected nor served). On the failing box `paid2:balance-restored` was
+  green while `paid2:gate-open` was red, which is the distinction a balance-only
+  suite cannot make. The lane refuses to run on a live session (a renewal is not a
+  re-purchase), keeps the same spend-ceiling and sentinel-MAC guards as the first
+  purchase, and the self-test drives both outcomes offline on a fixture token
+  (42 cases / 83 check ids, 53 driven red).
+
 ### Fixed
+
+- **The paid lane's token inspection was off by one, so the lane could never
+  spend anything.** `tests/router-happy-path/lib/cashtoken.py` read the NUT-00
+  version character at `token[6]` — the first character of the *payload* — and
+  sliced the payload at `token[7:]`, so a real `cashuB` token was reported as
+  `unknown Cashu token version character 'o'` and `paid:token-inspected` failed
+  before any purchase could be attempted. The lane had been dead since it merged,
+  and the default run's SKIP is why nothing caught it; it was found on the lane's
+  first hardware run (a 64-sat testnut token, pre17 on the bench MT3000). The
+  decode is now `token[5]` / `token[6:]`, and `selftest/cashtoken_selftest.py`
+  pins the v3 path, the v4 path, the malformed-version path (by the character at
+  index 5, so the offset itself is pinned) and the missing-prefix path; the
+  self-test also drives both purchase lanes offline on a non-redeemable fixture
+  token, which is the control whose absence let this through.
+- **The startup mint probe no longer walks every accepted mint to its own
+  timeout before the process can do anything else.** `merchant.New()` ran the
+  startup probe to completion before `main()` ever reached
+  `http.ListenAndServe` — one probe per accepted mint, each with the 30 s
+  `probeTimeout` — so on a boot where the uplink is not up yet every probe burns
+  its full timeout and `:2121` and `/var/run/tollgate.sock` do not exist for up
+  to `7 mints x 30 s = 210 s`, while procd's `status` reports `running` the whole
+  time because it reports the *process*, not the API. Measured on the bench
+  MT3000 (fresh install + reboot, pre17): `status` running, `:2121` absent from
+  `netstat -tln`, no
+  `/var/run/tollgate.sock`, `tollgate wallet balance` failing with ENOENT, and
+  the acceptance run refusing at stage 0 with `TCP 2121 not answering` — then
+  `PASS TCP 2121` minutes later with nothing changed. The probe is now bounded
+  by `defaultStartupProbeBudget` (30 s: the one full chance a mint already had)
+  and mints the budget never reaches are left **unlearned** rather than marked
+  failed — the convention `runProactiveCheck` already uses for a mint it skipped
+  inside its `Retry-After` window — so the aggressive 15 s loop, the proactive
+  loop and the degraded-to-full upgrade path are unchanged. Overridable per
+  router with `TOLLGATE_STARTUP_PROBE_BUDGET_SECONDS`. Regression tests:
+  `src/merchant/startup_probe_budget_test.go` (RED at 14.01 s with 7
+  non-answering mints and a 2 s client timeout; GREEN at 1.00 s; the fast path
+  and the knob arithmetic covered in the same file).
+  **This bounds one stage of the boot, not the boot:** the wallet construction
+  that follows it is the dominant term and is unbounded, so the API still does
+  not bind on a cold boot until it finishes — see the next entry, which binds
+  the API before any mint-dependent work at all.
+
+- **The payment API and the CLI socket are up before any mint-dependent
+  initialization, so a cold boot is no longer a blind money path.** The
+  listener and `/var/run/tollgate.sock` used to be created only after
+  `merchant.New()` returned — mint probes and then a wallet load that is
+  unbounded per mint — so on a cold boot a client got a refused connection for
+  minutes while `status` said `running`. The listener now binds and serves, and
+  the CLI socket starts, first; every mint-dependent route (`/`, `/ln-invoice`,
+  `/balance`, `/usage`, `/session-state`) answers an explicit
+  `503 {"status":0,"code":"starting"}` with `Retry-After: 5` until the merchant
+  has been constructed (`/whoami` keeps answering for real — it needs no
+  merchant), and `merchant.New()` then goes behind the provider every consumer
+  already holds. Measured with the real binary, 7 accepted mints whose fronts
+  accept and never answer, 1 s sampling, time from exec to `:2121` accepting a
+  TCP connection: the shipped pin `cfbfff5a` (binary sha256 `0032602395a8…`)
+  **never** accepted a connection inside a 120 s window and never created its
+  socket, while on this change `:2121` accepts at the first sample (t = 1.0 s,
+  the sampling interval) and all 119 HTTP probes in the window got that
+  explicit `starting` refusal while the wallet load was still running. The
+  probe-then-bind ordering alone (previous entry) measured 347.1 s in the same
+  shape, so this is 347 s -> the bind. Money-path semantics are untouched:
+  which mints are probed, what a probe result means, which mints are
+  advertised, the session/usage answers and the degraded-to-full upgrade path
+  are unchanged — only the order of "serve" and "construct" moved. Regression
+  test: `src/startup_gate_test.go` (drives the real boot sequence with a
+  construction that blocks: RED against the pre-fix ordering, GREEN with it).
+- **`/etc/init.d/tollgate-wrt status` now reports the money path instead of the
+  pid.** The initscript's own `status()` was dead code — `rc.common` sources the
+  initscript first and then defines `start`/`stop`/`status` inside its
+  `USE_PROCD` block — so `status` was procd's process check, and on a cold boot
+  it answered `running` for minutes while `:2121` was not listening and
+  `/var/run/tollgate.sock` did not exist yet (`tollgate wallet balance` failed
+  with ENOENT, so nothing could be bought). It now uses the hook `rc.common`
+  provides for exactly this (`status_service()`, `rc.common:178-184`), which
+  requires the API listener on `:2121` **and** the CLI control socket and
+  otherwise exits non-zero with a one-line reason. The probe is BusyBox-only:
+  `netstat` on the kernel's listener table, `uclient-fetch -T 3` as the fallback
+  on images built without it, and `test -S` for the socket
+  ([#591](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/591)).
+- **The guest path is the portal and nothing else: a captive client can no
+  longer reach LuCI, and `http://<router>/` answers a trusted or authenticated
+  client instead of falling through to the administration login.** Measured on
+  the bench MT3000 (2026-09-25, pre17) from a MAC the box had never seen:
+  `curl http://192.168.1.1:8080/` returned `307 https://192.168.1.1/` and
+  `https://tollgate.lan` served LuCI's login, while for a trusted (mark
+  `0x20000`) or authenticated (`0x30000`) client nodogsplash's nat chain returns
+  *before* its `:80 → :2050` DNAT and nothing listened on `:80` — so
+  `http://<router>/`, the URL a tester types and the one a paying customer types
+  to get back to the portal, was dead and fell through to that login. Two halves,
+  layered like the `:8090` board fix: `assert_nodogsplash_allow_entries` no longer
+  writes `:8080`/`:443` into the pre-auth allow list and `del_list`s both (the
+  list is written by two scripts and repaired on every install, so merely
+  omitting them would only fix a factory-fresh router), and the new
+  `etc/nftables.d/32-luci-not-guest-reachable.nft` drops both ports on `br-lan`
+  at fw4 input priority -1 for both address families — the half that does not
+  depend on the list being in the intended state, and the only half that also
+  covers an *authenticated* guest, whose traffic `20-nds-enforce.nft` accepts by
+  mark. The pre-auth list is now the customer journey only: `:2050`, `:2051`,
+  `:2121`. `:80` gets a listener that serves exactly one document — this
+  package's own `uhttpd.trusted` instance, whose docroot holds a redirect stub to
+  the portal SPA on `:2051` (`setup_uhttpd_trusted_entry`, re-asserted on both
+  setup paths) — instead of the portal bundle on a second origin. LuCI stays
+  reachable on the management path (`br-private`, loopback); an operator who
+  disables the private network administers the router through the module CLI.
+  This reverses `docs/architecture/luci-https-pre-auth-reachability-decision.md`,
+  whose `:443`-alongside-`:8080` rule was correct only while `:8080` itself was
+  reachable pre-auth; that document now records the reversal and why.
+  ([#588](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/588))
+- **The admin HTTPS listener is provisioned instead of inherited, and the
+  `:8080` → `https://` hop now requires a certificate that actually covers this
+  router.** `99-tollgate-setup` derived `uhttpd.main.redirect_https` from
+  "readable, non-empty cert/key pair", and the OpenWrt **image's own placeholder
+  certificate** (`subject CN=OpenWrt`, `SAN DNS:OpenWrt`, 561 bytes, dated with
+  the build) satisfies that while covering neither the router's hostname nor its
+  LAN IP. Measured read-only on the bench (GL-MT3000, 25.12.5, pre17,
+  2026-09-26): `uci get network.lan.ipaddr` → `192.168.1.1/24`, hostname
+  `tollgate-OQ3Q`, `uhttpd.main.redirect_https='1'` with
+  `cert='/etc/uhttpd.crt'`, the certificate served on `:443` was `CN=OpenWrt /
+  DNS:OpenWrt`, `curl http://192.168.1.1:8080/` → `307 https://192.168.1.1/`
+  (a hard certificate error in a browser, with LuCI — not the TollGate board —
+  answering behind it), and `tollgate ssl status` answered `SSL: not
+  configured`: the product's own TLS provisioning had never run. The login
+  itself was never broken (`POST /ubus session.login` returned a real session
+  over both `:8443` and `:8090`). Two things changed:
+
+  - the install path **provisions** the identity instead of accepting the
+    placeholder — `provision_tls_identity` calls the module's existing generator
+    as `tollgate ssl apply -y --no-restart` (one generator, shared with the CLI;
+    no second certificate generator in shell), on the full-setup path **and** on
+    the verify/repair path, because the router being reinstalled or upgraded is
+    the one carrying the placeholder. `--no-restart` exists for exactly this
+    caller: uci-defaults runs before procd starts the services, and
+    `converge_uhttpd_runtime` delivers a changed identity to a *running* uhttpd
+    afterwards, the same shape `converge_nodogsplash_runtime` already had.
+  - the derived value is now a **coverage** check, not a file check:
+    `setup_uhttpd_tls_identity` calls `tollgate ssl covers` (new
+    `src/cmd/tollgate-cli/ssl.go` predicate, `x509.VerifyHostname` against the
+    hostname, its `<hostname>.lan` alias and the LAN IP; CommonName alone is not
+    coverage, and an expired certificate is not either). It **fails closed** —
+    no CLI means "does not cover", which keeps the hop off. A router that cannot
+    provision keeps its `:443` listener with whatever certificate it has and
+    does not redirect, and the reason is in `/tmp/tollgate-setup.log` and in
+    `tollgate ssl status`, which now reports what uhttpd serves and whether it
+    covers this router. Provisioning also fixed a latent CLI defect the path
+    exposed: `network.lan.ipaddr` holds a CIDR (`192.168.1.1/24` on 25.12) and
+    `net.ParseIP` refused it, so a nil address reached the certificate template
+    and `x509.CreateCertificate` failed outright.
+
+  An operator who removed the identity keeps that decision: `tollgate ssl
+  remove` records it in `/etc/tollgate/ssl/tls-identity-removed`, the setup path
+  does not provision while that marker exists (the
+  `setup_hostname`-never-touches-a-custom-hostname rule, #444), and `tollgate
+  ssl apply` clears it. `ssl covers` follows the CLI's `--json` contract (one
+  object, `success` mirrors the exit status) so a caller that parses stdout
+  cannot read a "no" as green (#375). Offline coverage:
+  `tests/uci-defaults-admin-tls-identity_test.sh` (36 assertions — the guard
+  matrix, the provisioning contract, the install paths end to end, the removal
+  round trip, and a **negative control** that runs the pre-change rule over the
+  same fixture and must derive `redirect_https=1` from the placeholder) plus new
+  Go cases in `src/cmd/tollgate-cli`. The rule and its history are recorded in
+  [`docs/architecture/uhttpd-redirect-https-ownership-decision.md`](docs/architecture/uhttpd-redirect-https-ownership-decision.md).
+  The feed's vendored `92-tollgate-admin-setup` still carries the superseded
+  existence-only guard (it runs before `99`, so `99` lands the coverage-checked
+  value last and the shipped combination is safe) and must be updated to the
+  same rule in its own repository.
+  ([#593](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/593))
 
 - **A policy change now reaches the running nodogsplash: the setup script
   reloads the service when its `ndsRTR` ruleset no longer matches the configured
@@ -191,6 +1470,26 @@ and [Semantic Versioning](https://semver.org/).
   loudly; and the self-test's own coverage claim is now measured rather than
   asserted (31 cases, 49 of 74 live check ids driven red, the 25 that cannot be
   are listed in the header and the README).
+- **Token fingerprints no longer silently change after a restart on some
+  installs.** The fingerprint salt was persisted as raw random bytes but read
+  back with whitespace trimming — and random bytes legitimately begin or end
+  with whitespace-valued bytes (tab, space, CR/LF) about 5% of the time, so on
+  those installs every restart produced a new salt and the log/journal
+  correlation keyed on fingerprints silently broke, with no error anywhere.
+  The salt is now persisted hex-encoded (whitespace-trimmed on read so
+  hand-edited files keep working), with a raw-bytes fallback for salts written
+  by earlier builds. Found by the race-enabled go-battery going intermittent
+  on main; the regression test forces whitespace-valued edge bytes through
+  write→reload and pins the fingerprint
+  ([#571](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/571)).
+
+- **First-boot setup is silent when no brand file exists.** A fresh
+  install printed `can't open /etc/tollgate/brand: no such file` twice
+  during the uci-defaults run (BusyBox ash reports the failed redirect
+  before the command's own stderr redirection applies). Both brand
+  reads now probe with `[ -r ]` instead of opening, so the
+  default-brand path produces no shell noise.
+  ([#568](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/568))
 
 - **The captive portal's Lightning lane can sell time again: the module
   canonicalises the mint URL a client sends before using it as a lookup key.**
@@ -507,7 +1806,37 @@ and [Semantic Versioning](https://semver.org/).
   ([#574](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/574)).
 
 ### Changed / Internal
+- **The #497 crash-window harness runs at the TollGate layer.**
+  `tests/cloud-lab/run-crash-injection.sh` kills the tollgate
+  (SIGKILL) at the exact boundary — after the mint signed the swap,
+  before the wallet processed the response, with the wallet library's
+  retry ladder defeated by a release-gated killer proxy — and requires
+  the boot-time intent resume to recover the value and the wallet to
+  stay healthy. Needs a tollgate built with the gonuts swap-intent
+  machinery; against pre-intent binaries the recovery assertion fails
+  by design.
+  ([#562](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/562))
 
+- **The parent tests README is a map of the test estate again.** It
+  documented only the hardware data-measurement harness; it now points
+  at every environment (cloud-lab, hardware fleet, contract, packaging,
+  sim, happy-path) and names the cloud-lab as the default for
+  logic-level work.
+  ([#570](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/570))
+- **A MAC rotation no longer restarts the byte meter or extends paid time.**
+  Sessions are addressed by a server-signed, memory-only ticket carrying only a
+  session handle (no allotment, no metric, no MAC), issued and verified by the
+  module and moved to the client's new address by `POST /session/rebind`. The
+  session carries the bytes it consumed on the attachments it has already left
+  (`CustomerSession.Consumed`), so the meter is `consumed + the current
+  attachment's own baseline` rather than a fresh allotment per rotation, and
+  `StartTime` is copied verbatim because a rotation is not a renewal. A rebind
+  is refused (409 `attachment-active`) while the old address is still
+  authenticated, so one session is never delivered to two live clients. Proof of
+  possession (Tier 2) is decided in `docs/architecture/session-ticket-decision.md`
+  but not implemented, so a copy presented after the legitimate device has left
+  is still accepted — the ADR states that gap explicitly
+  ([#573](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/573)).
 - **The module can report the gates it believes it holds, so the ones nothing
   else examines are reachable.** `valve.TrackedGates()` returns a sorted,
   read-only view of the gate bookkeeping — a gate whose close is unconfirmed is
@@ -632,7 +1961,33 @@ and [Semantic Versioning](https://semver.org/).
   to be adopted as soon as the wallet runs on CDK and a wallet supporting the
   channel protocol exists (R4-R6)
   ([#572](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/572)).
+- **One payment suite against many mints (the signet zoo matrix).** `tests/cloud-lab/run-mint-matrix.sh` runs `test_mint_matrix.py` against any `MINT_MATRIX` list while the run-scoped `upstream-matrix` router accepts exactly those mints: fee expectations derive live from each target's `/v1/keysets`, and a float wallet is funded once per mint over real signet routing (the zoo's `pay-and-mint.sh`) so tests spend offline. `ZOO_VIA=public` targets the zoo's Cloudflare endpoints; `ZOO_VIA=local` attaches the zoo containers to the lab network (tunnel-dark fallback). ([#522](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/522))
 
+- **`packaging/local-build-ipk.sh` refuses to build without staged portal
+  bundles.** The guest SPA, admin SPA and rpcd plugin are build products
+  staged by `make portal-build`; a clean checkout holds none of them
+  (#335), and the script used to copy whatever was present — silently
+  producing a local `.ipk` whose captive portal renders nothing. It now
+  exits with a `make portal-build` instruction before any toolchain work
+  when the staged files are missing (pinned by
+  `tests/packaging/local-build-ipk-guard_test.sh`)
+  ([#556](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/556)).
+
+- **Rootfs-container tier for uci-defaults validation.** New
+  `tests/uci-defaults-rootfs_test.sh` runs the first-boot setup script
+  end-to-end inside real OpenWrt userspace (`openwrt/rootfs` images: BusyBox
+  ash and the real `uci` binary) against seven fixture wireless topologies —
+  normal, swapped-band, single-band, tri-band, legacy `hwmode`, misbound
+  upgrade, STA-preserved — on both the 24.10 (opkg) and 25.12-snapshot (apk)
+  images, including the same-version verify path. It asserts the wireless
+  AP bindings (a band whose radio exists but whose `tollgate_*_open`
+  section is missing fails the tier, not silently skips it) and the
+  customer-journey allow-list contract (journey ports present exactly once,
+  admin surfaces absent). 414 assertions on a docker host; skips cleanly
+  (exit 0) where no container runtime exists. Complements the offline
+  fake-uci tests, which stay the fast loop but cannot catch real-uci or
+  GNU-vs-BusyBox divergence (#521)
+  ([#530](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/530)).
 - **`getMacAddress`'s two lookup sources are package-level vars, so
   `/balance`'s session-bearing branch has unit coverage again.** The DHCP-lease
   and ARP paths were string literals, so off-router every `/balance` test landed
@@ -661,6 +2016,42 @@ and [Semantic Versioning](https://semver.org/).
   `mediatek-filogic`, `ramips-mt7621` and `ath79-generic`. A full run pulls
   three SDK images instead of six
   ([#539](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/539)).
+
+- **The merchant suite's notice, token-flow and log-hygiene tests are now
+  compiled by the lane CI actually runs.** `.github/workflows/test.yml` runs
+  each module with `./... -v -count=1 -race` and **no build tags**, so the six
+  test files in `src/merchant` that carried a `testenv` constraint — the
+  late-`Receive` notice tests, the token-flow characterisation, the log-hygiene
+  guard, the Lightning-state and quote wire-format tests, and the token
+  fixtures the flow tests are built on — were absent from that build: the lane
+  reported green while those tests never ran at all, and PRs had started adding
+  untagged copies to get the coverage back (#559 and #558 each did). The tag is
+  dropped, with `!cdk_wallet` kept exactly where it was load-bearing, and
+  `TestNoMerchantTestFileIsGatedOnTestenv` fails if any test file in the package
+  requires `testenv` again
+  ([#584](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/584)).
+
+- **The open-AP SSID format is now a checked contract.** `99-tollgate-setup`
+  names the access point `<brand>-<device code>` (`TollGate-A1B2` for the
+  default brand — the code is the four `[A-Z0-9]` characters minted once and
+  stored per the one-device-code decision) and puts that same name on both
+  radios, so `tests/contract/check-ssid-format.sh` — a CI gate, also wired
+  into `hooks/pre-commit` — now fails when that stops being true. It sources
+  the real `load_brand()` → `setup_device_identity()` → `setup_public_wifi()`
+  chain out of the script, runs it against a stub `uci` that renders
+  `uci show` section types bare like the real one, and asserts the SSIDs it
+  actually writes: both radios' APs matching `^TollGate-[A-Z0-9]{4}$` for
+  the default brand, one shared name, and a code that is minted per fresh
+  device and then reused from the store across runs. A second, structural
+  layer checks the assignment sites a checkout cannot execute — the
+  same-version reinstall path converges the SSID from the stored code, and
+  the whitelabel branch reads `/etc/tollgate/brand` — so neither branch can
+  quietly acquire a band suffix. That suffix is the drift the test exists
+  for: the Go side keys on the `TollGate-` prefix (`discovery_log.go`,
+  `vendor_element_manager.go`), and `TollGate-A1B2-2.4GHz` would be a second
+  network identity for the same router
+  ([#524](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/524)).
+
 
 ## [v0.6.0-alpha4] - 2026-09-22
 
@@ -941,6 +2332,7 @@ same-version short branch.
   occurrence (a literal sentinel in the case pattern) being rewritten by the
   global packaging substitution. Complements the substitution-proof gate from
   #463; comment mentions stay exempt.
+
 - **Recorded the captive-portal bundle-location decision.** The portal is
   consumed as a hash-pinned CI-built artifact rather than merged into this
   repo; the stale `portal.commit` pin and the guest-SPA-only
@@ -1018,7 +2410,7 @@ same-version short branch.
 
 - **Upgrades move the hostname with the brand, and keep custom ones.**
   The upgrade path now migrates the system hostname together with the
-  whitelabel brand (`tollgate.lan` / `net4sats.lan`) instead of leaving a
+  whitelabel brand (`tollgate.lan` / `<brand>.lan`) instead of leaving a
   stale name behind, while a hostname the operator chose themselves is
   preserved untouched
   ([#444](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/444)).
@@ -1367,10 +2759,10 @@ same-version short branch.
   `ERR_TOO_MANY_REDIRECTS` and never reach the payment page. The
   friendly `<hostname>.lan` name keeps resolving without the option —
   dnsmasq serves the system hostname in the `lan` zone. The
-  whitelabel hostname is now brand-selected (`tollgate`, the default, or
-  `net4sats`) from a single `/etc/tollgate/brand` file, driving the
-  system hostname (and thus `tollgate.lan` / `net4sats.lan` DNS), AP
-  SSIDs, and the NDS gateway name; the two brands differ only in
+  whitelabel hostname is now brand-selected (`tollgate` by default, or the
+  whitelabel `brand` value) from a single `/etc/tollgate/brand` file, driving the
+  system hostname (and thus `tollgate.lan` / `<brand>.lan` DNS), AP
+  SSIDs, and the NDS gateway name; the brands differ only in
   naming. `tollgate ssl` no longer sets the option either and cleans
   it up on revert. ([#432](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/432), fixes [#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428))
 
@@ -1403,10 +2795,10 @@ same-version short branch.
   `ERR_TOO_MANY_REDIRECTS` and never reach the payment page. The
   friendly `<hostname>.lan` name keeps resolving without the option —
   dnsmasq serves the system hostname in the `lan` zone. The
-  whitelabel hostname is now brand-selected (`tollgate`, the default, or
-  `net4sats`) from a single `/etc/tollgate/brand` file, driving the
-  system hostname (and thus `tollgate.lan` / `net4sats.lan` DNS), AP
-  SSIDs, and the NDS gateway name; the two brands differ only in
+  whitelabel hostname is now brand-selected (`tollgate` by default, or the
+  whitelabel `brand` value) from a single `/etc/tollgate/brand` file, driving the
+  system hostname (and thus `tollgate.lan` / `<brand>.lan` DNS), AP
+  SSIDs, and the NDS gateway name; the brands differ only in
   naming. `tollgate ssl` no longer sets the option either and cleans
   it up on revert. ([#432](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/432), fixes [#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428))
 
@@ -1555,10 +2947,10 @@ same-version short branch.
   the shipped `tollgate` binary contained no version at all. ([#383](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/383))
 
 - **Whitelabel config UI on :8090 no longer degrades into a LuCI
-  redirect.** The net4sats whitelabel admin UI (docroot
-  `/www/net4sats`, installed by the whitelabel installer) is served by
-  a dedicated `uhttpd` section on port 8090; first-boot/reinstall
-  setup now re-ensures that section whenever the branded docroot is
+  redirect.** The whitelabel admin UI (a branded docroot installed by
+  the whitelabel installer) was served by a dedicated `uhttpd`
+  section on port 8090; first-boot/reinstall
+  setup then re-ensured that section whenever the branded docroot was
   present, mirroring the known-good deployed layout. Repair attempts
   that instead added `:8090` to `uhttpd.main` land on LuCI's docroot
   (`/www`, whose `index.html` meta-refreshes to `cgi-bin/luci` — the
@@ -2352,14 +3744,10 @@ Router-to-router autopay
 ([#77](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/77)) and
 earlier work. Not documented in this changelog.
 
-[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha4...main
+[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-rc1...main
+[v0.6.0-rc1]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha4...v0.6.0-rc1
 [v0.6.0-alpha4]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha4
 [v0.6.0-alpha3]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha3
 [v0.6.0-alpha2]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.5.0...v0.6.0-alpha2
 [v0.5.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/releases/tag/v0.4.0
-
-## [Unreleased]
-
-### Added
-- \`tests/happy-path/\`: a happy-path regression suite that boots a published package and checks the customer-facing path (artifact identity, API contract, enforcement via the fake-ndsctl seam, and the portal in a real browser). Reports SKIP with a reason rather than a false pass, and tolerates a documented pre-existing defect via \`known-issues.txt\`.

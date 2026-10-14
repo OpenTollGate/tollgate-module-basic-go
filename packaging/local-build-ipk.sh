@@ -29,6 +29,32 @@ case "$ARCH" in
 esac
 GOARM="${GOARM:-}"; GOMIPS="${GOMIPS:-}"
 
+# The portal JS bundles, admin SPA and rpcd plugin are build products
+# staged by `make portal-build` (packaging/portal-build.sh); a clean
+# checkout keeps only the committed portal shell (splash.html et al.) and
+# none of the built bytes (#335). Packaging without them ships an .ipk
+# whose captive portal renders nothing — refuse early, before any
+# toolchain work. The guest SPA has no index.html on purpose (its pages
+# are splash.html/balance.html/404.html), so the staged-content check for
+# it is the JS bundle set itself.
+if ! ls packaging/files/tollgate-captive-portal-site/assets/*.js >/dev/null 2>&1; then
+    echo "ERROR: no JS bundles under packaging/files/tollgate-captive-portal-site/assets/ —" >&2
+    echo "       run 'make portal-build' first (only the committed shell is present; the" >&2
+    echo "       portal would render nothing)." >&2
+    exit 1
+fi
+for staged in \
+    "tollgate-admin/index.html" \
+    "usr/libexec/rpcd/tollgate"
+do
+    if [ ! -e "packaging/files/$staged" ]; then
+        echo "ERROR: packaging/files/$staged is missing — run 'make portal-build' first." >&2
+        echo "       A clean checkout has no built portal/admin bundles (#335); without" >&2
+        echo "       this step the .ipk would ship a captive portal that renders nothing." >&2
+        exit 1
+    fi
+done
+
 GO_BIN="${GO_BIN:-go}"
 ACTIVE_GO="$("$GO_BIN" version | awk '{print $3}')"
 if [ "$ACTIVE_GO" != "go$GO_VERSION" ]; then
@@ -56,11 +82,18 @@ mkdir -p "bin/$COMPILE_KEY"
 
 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
   "$GO_BIN" build -C src -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-wrt" \
-  -trimpath -buildvcs=false -ldflags="$LDFLAGS" main.go
+  -trimpath -buildvcs=false -ldflags="$LDFLAGS" .
 
 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
   "$GO_BIN" build -C src/cmd/tollgate-cli -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate" \
   -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
+
+# The CVM control-plane daemon is likewise its own module. No version
+# ldflags: its build identity travels in the CEP-6 announcement's pubkey, and
+# no caller authenticates on a version string.
+CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
+  "$GO_BIN" build -C src/cmd/tollgate-cvm -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-cvm" \
+  -trimpath -buildvcs=false
 
 ls -lh "bin/$COMPILE_KEY/"
 
@@ -103,6 +136,7 @@ install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart      
 install -D -m 0644 packaging/files/etc/nftables.d/20-nds-enforce.nft                 "$PAYLOAD/etc/nftables.d/20-nds-enforce.nft"
 install -D -m 0644 packaging/files/etc/nftables.d/30-backend-firewall.nft            "$PAYLOAD/etc/nftables.d/30-backend-firewall.nft"
 install -D -m 0644 packaging/files/etc/nftables.d/31-admin-board-not-guest-reachable.nft "$PAYLOAD/etc/nftables.d/31-admin-board-not-guest-reachable.nft"
+install -D -m 0644 packaging/files/etc/nftables.d/32-luci-not-guest-reachable.nft   "$PAYLOAD/etc/nftables.d/32-luci-not-guest-reachable.nft"
 
 # Man pages
 mkdir -p "$PAYLOAD/usr/share/man/man8"
@@ -154,14 +188,26 @@ normalize_mtime "$PAYLOAD"
 #
 # So: declare the daemon, never also claim to replace it. Same contract as the
 # shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq`).
+# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
+# with FreedomTechFeed/packages#57, which this module's change mirrors).
+#
+# ca-bundle is the same class of defect: this module does money over TLS with
+# Go's system root pool and no insecure escape hatch, so an image with no CA
+# store cannot verify a single mint or Lightning connection. Declaring it here
+# fixes an install on a box that can still reach the feed (opkg pulls the
+# closure). It does NOT bootstrap a box that has no trust anchors at all --
+# there, the first HTTPS fetch already fails verification and no dependency can
+# repair it; README's "Installing on a box that cannot verify TLS" states the
+# offline path (scp the files, install locally). Kept in step with the SDK
+# recipe (packaging/Makefile) and asserted from the built control metadata by
+# tests/packaging/apk-install-resolution_test.sh.
 env \
   PKG_NAME="$PKG_NAME" \
   PKG_VERSION="$PKG_VERSION" \
   ARCH="$ARCH" \
   MAINTAINER="TollGate <tollgate@tollgate.me>" \
   LICENSE="GPL-3.0-only" \
-  DEPENDS="libc, nodogsplash, jq" \
+  DEPENDS="libc, nodogsplash, jq, ca-bundle" \
   PROVIDES="nodogsplash-files" \
   REPLACES="base-files" \
   DESCRIPTION="TollGate Basic Module for OpenWrt" \

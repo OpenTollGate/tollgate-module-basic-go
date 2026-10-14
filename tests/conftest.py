@@ -24,10 +24,28 @@ _load_env()
 LOCAL_MINT_URL = "https://nofees.testnut.cashu.space"
 TOLLGATE_NETWORK_PREFIXES = ["TollGate-"]
 INTERFACE = "wlp59s0"
-BLOSSOM_URL = "https://blossom.swissdash.site/21d180236f012e5ece0e7881b3602779f14d6b1d8deaaf63914aa0f5b67d4bc3.ipk"
-ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD", "c08r4d0r123")
-WIFI_SSID = os.environ.get("WIFI_SSID", "c08r4d0r")
-WIFI_PASSWORD = os.environ.get("WIFI_PASSWORD", "c08r4d0r123")
+BLOSSOM_URL = os.environ.get("BLOSSOM_URL")
+ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD")
+WIFI_SSID = os.environ.get("WIFI_SSID")
+WIFI_PASSWORD = os.environ.get("WIFI_PASSWORD")
+
+# The fleet's credentials are machine-local configuration, never public
+# defaults (#509): refuse to collect with any of them missing, and say
+# exactly where to put them. _load_env() above has already absorbed
+# tests/.env by this point, so the gitignored file is the easy path.
+_missing = [name for name, value in {
+    "ROUTER_PASSWORD": ROUTER_PASSWORD,
+    "WIFI_SSID": WIFI_SSID,
+    "WIFI_PASSWORD": WIFI_PASSWORD,
+    "BLOSSOM_URL": BLOSSOM_URL,
+}.items() if not value]
+if _missing:
+    raise RuntimeError(
+        "hardware-fleet tests need credentials that are no longer shipped as "
+        f"defaults: {', '.join(_missing)}. Copy tests/.env.example to "
+        "tests/.env (gitignored, loaded automatically) and fill in your "
+        "values — see issue #509; rotate anything previously committed."
+    )
 
 # Global variable to store router information
 router_info = {

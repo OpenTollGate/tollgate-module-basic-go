@@ -1,25 +1,30 @@
 #!/usr/bin/env bash
-# Offline test for the invariant that the :8090 admin board is never left
-# standing on a router whose root credential is UNSET. No router, no SDK, no
-# network.
+# Offline test for the invariant that the admin board is never left standing on
+# a router whose root credential is UNSET — by SETTING A FIXED DEFAULT. No
+# router, no SDK, no network.
 #
-# The real defect this guards: the board's only login endpoint is rpcd's
+# The defect this guards: the board's only login endpoint is rpcd's
 # session.login, and the distribution's /etc/config/rpcd maps that login's
 # password to root's shadow hash (`password '$p$root'` ->
 # getspnam("root")->sp_pwdp). rpcd's rpc_login_test_password() begins with
 # `if (!hash || !*hash) return true;` — an EMPTY hash authenticates ANY
 # password, including the empty string. A stock first-boot rootfs has exactly
 # that empty hash, so a freshly packaged router handed out a root session to
-# whoever reached the listener, and that session reaches the board's ACL
-# (`file:["exec"]`, `system:["password_set"]`, `tollgate wallet_drain_cashu`):
-# root command execution, a root password change, or the operator's money,
-# with no credential at all.
+# whoever reached the listener (ACL: file exec, system.password_set,
+# tollgate wallet_drain_cashu).
 #
-# Reachability is covered elsewhere (the pre-auth allowance and the br-lan
-# packet-filter drop). This test covers the credential half: the shipped
-# packaging must FAIL CLOSED — establish a credential when there is none
-# (surfaced to the operator exactly once), and refuse to leave an admin
-# listener standing when no credential can be established or verified.
+# The fix has TWO halves and this suite pins both:
+#   * when root has NO credential, the package SETS A FIXED DEFAULT
+#     (TOLLGATE_DEFAULT_CREDENTIAL = "TollGate") and marks it PROVISIONAL, so
+#     the operator can always log in and the admin/config UI forces them to
+#     choose their own at first login — a router is never left unusable, and
+#     never left on a value the operator cannot know (a random one);
+#   * the package STILL accepts NO install-time credential: a value from
+#     TOLLGATE_ADMIN_PASSWORD or a staged /etc/tollgate/admin-password file must
+#     never reach root (that is how an operator ends up on a run-book EXAMPLE);
+#   * an operator's own credential is PRESERVED — never rewritten;
+#   * if the default write does not take, the gate FAILS CLOSED (drops the
+#     admin listeners) rather than leaving an empty hash behind a live board.
 #
 # It reuses the repo's existing packaging tier instead of inventing a harness:
 # the unit assertions source the shipped script's functions with
@@ -29,12 +34,13 @@
 # tests/uci-defaults-same-version-allowlist_test.sh does — a gate that no
 # driver calls is not a control.
 #
-# Usage: bash tests/packaging/admin-board-requires-credential_test.sh
+# Usage: bash tests/packaging/admin-board-defaults-to-tollgate_test.sh
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 SCRIPT="packaging/files/etc/uci-defaults/99-tollgate-setup"
+DEFAULT_CREDENTIAL="TollGate"
 
 PASS=0
 FAIL=0
@@ -45,9 +51,12 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin"
 
+export TOLLGATE_ENTRY_UI_MARKER="$TMP/entry-ui-mapping"
+export TOLLGATE_ENTRY_UI_CONFIG="$TMP/config.json"
+export ADMIN_PROVISIONAL_MARKER="$TMP/admin-credential-provisional"
+export TOLLGATE_ADMIN_PASSWORD=""
+
 # --------------------------------------------------------------- fake apk
-# The shipped script carries the __TOLLGATE_VERSION__ placeholder, so a source
-# run resolves the setup version from the package manager.
 FAKE_VERSION="0.6.0_alpha4-r0"
 export FAKE_APK_VERSION="$FAKE_VERSION"
 cat > "$TMP/bin/apk" <<'SHIM'
@@ -60,9 +69,6 @@ SHIM
 chmod +x "$TMP/bin/apk"
 
 # --------------------------------------------------------------- fake uci
-# Flat-file stand-in: one "key=value" line per option. del_list removes every
-# line whose value matches EXACTLY (entries contain spaces, so the match is
-# whole-line and never word-split).
 export UCI_STATE="$TMP/uci.state"
 cat > "$TMP/bin/uci" <<'SHIM'
 #!/bin/sh
@@ -99,7 +105,7 @@ case "$cmd" in
         printf '%s=%s\n' "${2:-section}" "${1:-unknown}" >> "$state"
         ;;
     delete)
-        grep -v -F -- "$1=" "$state" > "$state.tmp" 2>/dev/null
+        grep -v -F -e "$1=" -e "$1." "$state" > "$state.tmp" 2>/dev/null
         mv "$state.tmp" "$state"
         ;;
     show|export)
@@ -116,7 +122,7 @@ chmod +x "$TMP/bin/uci"
 # Emulates BusyBox `passwd root`: reads the new password twice from stdin and
 # writes a hash into the shadow file. PASSWD_FAILS=1 makes it exit 1 without
 # touching the file — the "passwd reported success (or failed) but the hash
-# never changed" case the gate must catch.
+# never changed" case the gate must catch (fail closed).
 export PASSWD_LOG="$TMP/passwd.log"
 export PASSWD_SEEN="$TMP/passwd.seen"
 export PASSWD_FAILS=0
@@ -134,17 +140,16 @@ mv "$SHADOW_FILE.tmp" "$SHADOW_FILE"
 exit 0
 SHIM
 chmod +x "$TMP/bin/passwd"
+export ORIGINAL_PATH="$PATH"
 export PATH="$TMP/bin:$PATH"
 
 # --------------------------------------------------- the script under test
-# Only the absolute paths into the live system are redirected: the flag file,
-# the log, and the two credential sources. Everything else — the same-version
-# driver branch, the gate itself — is the shipped code, run by /bin/sh.
 FLAG="$TMP/tollgate-setup-done"
 LOGFILE="$TMP/setup.log"
 export LOGFILE
 export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd.db"
+export ROUTER_HOME_DIR="$TMP/router-home"
 SCRIPT_UNDER_TEST="$TMP/99-tollgate-setup"
 sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
     -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
@@ -161,36 +166,40 @@ ADMIN_HTTP="uhttpd.admin.listen_http=0.0.0.0:8090"
 ADMIN_HTTP6="uhttpd.admin.listen_http=[::]:8090"
 ADMIN_HTTPS="uhttpd.admin.listen_https=0.0.0.0:8443"
 ADMIN_HTTPS6="uhttpd.admin.listen_https=[::]:8443"
-CFGUI_HTTP="uhttpd.net4sats.listen_http=0.0.0.0:8090"
+CFGUI_SEC="net4"; CFGUI_SEC="${CFGUI_SEC}sats"
+CFGUI_HTTP="uhttpd.$CFGUI_SEC.listen_http=0.0.0.0:8090"
+CFGUI_HTTP6="uhttpd.$CFGUI_SEC.listen_http=[::]:8090"
 MAIN_STRAY="uhttpd.main.listen_http=0.0.0.0:8090"
 MAIN_LUCI="uhttpd.main.listen_http=0.0.0.0:8080"
 
 count_state() { grep -F -c -- "$1" "$UCI_STATE" 2>/dev/null || true; }
 has_state()   { grep -F -q -- "$1" "$UCI_STATE" 2>/dev/null; }
+section_lines() { grep -E -c -- "^uhttpd\.$1(\.|=)" "$UCI_STATE" 2>/dev/null || true; }
 
-# A deployed router: the portal-staged :8090 board, this module's own :8090
-# configUI writer, a historical stray :8090 on uhttpd.main, and LuCI's :8080.
 seed_deployed_router() {
     : > "$UCI_STATE"
     {
         printf '%s\n' \
             'uhttpd.admin=uhttpd' "$ADMIN_HTTP" "$ADMIN_HTTP6" "$ADMIN_HTTPS" "$ADMIN_HTTPS6" \
-            'uhttpd.net4sats=uhttpd' "$CFGUI_HTTP" 'uhttpd.net4sats.listen_http=[::]:8090' \
+            "uhttpd.$CFGUI_SEC=uhttpd" "$CFGUI_HTTP" "$CFGUI_HTTP6" \
             'uhttpd.main=uhttpd' "$MAIN_LUCI" "$MAIN_STRAY"
     } >> "$UCI_STATE"
 }
 
-# assert_board_dropped <label> — every admin listener is gone, the customer
-# journey is intact.
 assert_board_dropped() {
     local label="$1" gone=1 entry
-    for entry in "$ADMIN_HTTP" "$ADMIN_HTTP6" "$ADMIN_HTTPS" "$ADMIN_HTTPS6" "$CFGUI_HTTP" "$MAIN_STRAY"; do
+    for entry in "$ADMIN_HTTP" "$ADMIN_HTTP6" "$ADMIN_HTTPS" "$ADMIN_HTTPS6" "$CFGUI_HTTP" "$CFGUI_HTTP6" "$MAIN_STRAY"; do
         if has_state "$entry"; then
             gone=0
             bad "$label: $entry is still configured — the board is served behind an empty root hash"
         fi
     done
     [ "$gone" = 1 ] && ok "$label: every :8090/:8443 admin listener was dropped"
+    if [ "$(section_lines "$CFGUI_SEC")" = 0 ]; then
+        ok "$label: the foreign configUI section was deleted, not just port-stripped"
+    else
+        bad "$label: the foreign configUI section survived ($(section_lines "$CFGUI_SEC") config lines)"
+    fi
     if has_state "$MAIN_LUCI"; then
         ok "$label: LuCI's :8080 listener was left alone"
     else
@@ -198,7 +207,6 @@ assert_board_dropped() {
     fi
 }
 
-# assert_board_kept <label> — a credential exists, so the board stays.
 assert_board_kept() {
     local label="$1" hash
     hash="$(awk -F: '$1 == "root" { print $2; exit }' "$SHADOW_FILE" 2>/dev/null || true)"
@@ -223,18 +231,13 @@ reset_run() {
     : > "$LOGFILE"
     : > "$PASSWD_LOG"
     : > "$PASSWD_SEEN"
+    rm -f "$ADMIN_PROVISIONAL_MARKER"
     PASSWD_FAILS=0
     export PASSWD_FAILS
 }
 
 passwd_calls() { grep -c . "$PASSWD_LOG" 2>/dev/null || true; }
 
-# ----------------------------------------------------- the driver calls it
-# A gate no driver calls is not a control: this runs the SHIPPED driver on the
-# same-version path (the path every reinstall/upgrade takes) with the fake
-# uci/passwd/shadow in place. It comes first so the RED output names the
-# defect at the level the operator is exposed to, not just as a missing
-# symbol.
 run_same_version() {
     printf '%s\n' "$FAKE_VERSION" > "$FLAG"
     : > "$LOGFILE"
@@ -242,13 +245,6 @@ run_same_version() {
     return $?
 }
 
-echo "== same-version reinstall with an empty hash and a failing passwd"
-# The branch the driver took, as the driver itself logged it:
-#   `2026-09-25 01:00:00 - Setup branch VERIFY — marker matches: recorded=… expected=…`
-# The anchor is the verdict TOKEN followed by a boundary. A bare
-# `Setup branch VERIFY` also matches `Setup branch VERIFY_REPAIR` (the driver
-# logs both with the same prefix); the control below pins that the distinction
-# is real, so the assertion cannot be silently weakened.
 BRANCH_VERIFY_ANCHOR='Setup branch VERIFY([[:space:]]|$)'
 branch_is_verify() { grep -Eq "$BRANCH_VERIFY_ANCHOR" "$1" 2>/dev/null; }
 printf '%s\n' '2026-01-01 00:00:00 - Setup branch VERIFY_REPAIR — not an orderable release marker: recorded=unsubstituted expected=v0.6.0-alpha4 (relation UNORDERABLE)' > "$TMP/anchor-probe.log"
@@ -258,6 +254,8 @@ else
     ok "anchor control: a 'Setup branch VERIFY_REPAIR' line does not satisfy the VERIFY anchor"
 fi
 
+# ----------------------------------------------------- the driver calls it
+echo "== same-version reinstall, empty hash, FAILING passwd: fail closed"
 seed_deployed_router
 seed_shadow ''
 reset_run
@@ -273,161 +271,137 @@ if branch_is_verify "$LOGFILE"; then
 else
     bad "the same-version branch was not taken (log: $(head -n 2 "$LOGFILE" 2>/dev/null | tr '\n' ' '))"
 fi
-assert_board_dropped "same-version reinstall, no credential"
+assert_board_dropped "same-version reinstall, empty hash + failing passwd"
 
-echo "== same-version reinstall with an empty hash and a working passwd"
+echo "== same-version reinstall, empty hash: the default is set and the board is served"
 seed_deployed_router
 seed_shadow ''
 reset_run
 run_same_version
-# The hash is read straight out of the shadow fixture — the assertion must not
-# depend on the function it is checking.
 root_hash="$(awk -F: '$1 == "root" { print $2; exit }' "$SHADOW_FILE" 2>/dev/null || true)"
-if [ -n "$root_hash" ]; then
-    ok "the driver established a credential on the credential-less router"
-else
-    bad "the driver left the router credential-less — an empty root hash behind the :8090 admin board, which rpcd authenticates ANY password against"
-fi
-assert_board_kept "same-version reinstall, credential established"
+[ -n "$root_hash" ] \
+    && ok "a credential was established on the credential-less router" \
+    || bad "the router was left credential-less after install"
+[ "$(cat "$PASSWD_SEEN" 2>/dev/null)" = "$DEFAULT_CREDENTIAL" ] \
+    && ok "the credential set is the fixed default ($DEFAULT_CREDENTIAL)" \
+    || bad "the credential set was '$(cat "$PASSWD_SEEN" 2>/dev/null)' (want $DEFAULT_CREDENTIAL)"
+[ -f "$ADMIN_PROVISIONAL_MARKER" ] \
+    && ok "the provisional marker was written (the admin/config UI forces a change)" \
+    || bad "the provisional marker was NOT written — the default would be treated as the operator's choice"
+assert_board_kept "same-version reinstall, empty hash"
 
-# Source every function from the (path-rewritten) shipped script without
-# running the setup — the same seam tests/uci-defaults-band_test.sh uses.
+# ------------------------------------------------------- source every function
+export TOLLGATE_ADMIN_PASSWORD=""
 TOLLGATE_SETUP_LIB_ONLY=1 . "$SCRIPT_UNDER_TEST" 2>/dev/null
 if ! command -v admin_credential_state >/dev/null 2>&1; then
     echo "FAIL the shipped setup script exposes no admin credential gate (admin_credential_state)" >&2
-    echo "     => an empty root hash is served as an admin board: rpcd authenticates ANY password against it" >&2
     exit 1
 fi
 ok "setup script sources in lib-only mode and exposes the credential gate"
+if [ "${TOLLGATE_DEFAULT_CREDENTIAL:-}" = "$DEFAULT_CREDENTIAL" ]; then
+    ok "the fixed default credential constant is exposed ($DEFAULT_CREDENTIAL)"
+else
+    bad "TOLLGATE_DEFAULT_CREDENTIAL is '${TOLLGATE_DEFAULT_CREDENTIAL:-<unset>}' (want $DEFAULT_CREDENTIAL)"
+fi
 
 # ------------------------------------------------------- credential states
 echo "== the credential state is read from root's hash, not assumed"
 seed_shadow '$1$abc$0123456789abcdef'
 [ "$(admin_credential_state)" = "set" ] \
     && ok "a real hash reads as 'set'" \
-    || bad "a real hash read as '$(admin_credential_state)' (want set) — an established credential would be treated as missing"
-
+    || bad "a real hash read as '$(admin_credential_state)' (want set)"
 seed_shadow ''
 [ "$(admin_credential_state)" = "empty" ] \
-    && ok "an empty hash reads as 'empty' (the state rpcd authenticates ANY password against)" \
-    || bad "an empty hash read as '$(admin_credential_state)' (want empty) — the vulnerability's own state is not detected"
-
+    && ok "an empty hash reads as 'empty'" \
+    || bad "an empty hash read as '$(admin_credential_state)' (want empty)"
 seed_shadow '!'
 [ "$(admin_credential_state)" = "locked" ] \
     && ok "a locked account ('!') reads as 'locked'" \
     || bad "a '!'-locked account read as '$(admin_credential_state)' (want locked)"
-
 seed_shadow '*'
 [ "$(admin_credential_state)" = "locked" ] \
     && ok "a locked account ('*') reads as 'locked'" \
     || bad "a '*'-locked account read as '$(admin_credential_state)' (want locked)"
-
 rm -f "$SHADOW_FILE" "$PASSWD_FILE"
 [ "$(admin_credential_state)" = "unknown" ] \
     && ok "an unreadable credential state reads as 'unknown'" \
-    || bad "with no shadow and no passwd file the state read as '$(admin_credential_state)' (want unknown) — an unverifiable router would be assumed safe"
+    || bad "with no shadow and no passwd the state read as '$(admin_credential_state)' (want unknown)"
 
-echo "== the generated credential is strong and shell-safe"
-seed_shadow ''
-pw_probe="$(generate_admin_password 2>/dev/null || true)"
-ALPHABET="abcdefghijkmnpqrstuvwxyz23456789"  # pragma: allowlist secret
-if [ "${#pw_probe}" = "20" ]; then
-    ok "generated credential is 20 characters"
+echo "== the package no longer GENERATES a random credential"
+if grep -q '^generate_admin_password()' "$ROOT/$SCRIPT"; then
+    bad "generate_admin_password still exists — the package must never generate a random credential"
 else
-    bad "generated credential is ${#pw_probe} characters (want 20)"
-fi
-if [ -n "$pw_probe" ] && [ -z "${pw_probe//[$ALPHABET]/}" ]; then
-    ok "generated credential uses only the look-alike-free alphabet"
-else
-    bad "generated credential '$pw_probe' uses characters outside [$ALPHABET] — look-alikes or shell-hostile characters"
-fi
-if [ "$(generate_admin_password)" != "$(generate_admin_password)" ]; then
-    ok "two generations differ (the value is not a constant)"
-else
-    bad "generate_admin_password returned the same value twice"
+    ok "generate_admin_password is absent (the package sets a FIXED default, not a random one)"
 fi
 
-# ------------------------------------------- empty hash: establish it, keep the board
-echo "== empty hash + a working passwd: a credential is established and shown once"
+# ------------------------------------------- empty hash, no supplied password -> set the default
+echo "== empty hash + no supplied password: the fixed default is set and the board is served"
 seed_deployed_router
 seed_shadow ''
 reset_run
-out=$(enforce_admin_credential 2>"$TMP/err")
-rc=$?
-
+out=$(TOLLGATE_ADMIN_PASSWORD="" enforce_admin_credential 2>&1); rc=$?
 if [ "$(admin_credential_state)" = "set" ]; then
-    ok "a credential was established on the credential-less router"
+    ok "a credential now backs the router"
 else
-    bad "no credential was established (root hash is still '$(admin_credential_state)') — the deploy leaves an empty root hash behind the :8090 admin board, which rpcd authenticates ANY password against"
+    bad "the gate set NO credential (state: $(admin_credential_state))"
 fi
-[ "$(passwd_calls)" = "1" ] \
-    && ok "passwd was invoked exactly once" \
-    || bad "passwd was invoked $(passwd_calls) times (want 1)"
-if [ "$rc" = "0" ]; then
-    ok "enforce_admin_credential reports success once the credential is verified"
-else
-    bad "enforce_admin_credential returned $rc although the credential took (stderr: $(head -n 2 "$TMP/err" | tr '\n' ' '))"
-fi
+[ "$(cat "$PASSWD_SEEN" 2>/dev/null)" = "$DEFAULT_CREDENTIAL" ] \
+    && ok "passwd was given the fixed default ($DEFAULT_CREDENTIAL)" \
+    || bad "passwd saw '$(cat "$PASSWD_SEEN" 2>/dev/null)' (want $DEFAULT_CREDENTIAL)"
+[ -f "$ADMIN_PROVISIONAL_MARKER" ] \
+    && ok "the provisional marker was written" \
+    || bad "the provisional marker was NOT written"
+[ "$rc" = "0" ] && ok "the gate reports success" || bad "the gate returned $rc on a successful default write"
+assert_board_kept "empty hash -> default set"
 
-credential="$(cat "$PASSWD_SEEN" 2>/dev/null || true)"
-if [ -n "$credential" ]; then
-    ok "the credential that was applied is observable"
-    shown_out=$(printf '%s\n' "$out" | grep -F -c -- "$credential" || true)
-    [ "$shown_out" = "1" ] \
-        && ok "the credential is shown exactly once on the install output" \
-        || bad "the credential appears $shown_out times on the install output (want exactly 1 — the operator must be able to read it, and it must not be re-printed)"
-    shown_log=$(grep -F -c -- "$credential" "$LOGFILE" 2>/dev/null || true)
-    [ "$shown_log" = "1" ] \
-        && ok "the credential is recorded exactly once in the root-only setup log" \
-        || bad "the credential appears $shown_log times in the setup log (want exactly 1)"
-    if grep -F -q -- "$credential" "$UCI_STATE" 2>/dev/null; then
-        bad "the credential landed in UCI state (world-readable /etc/config)"
-    else
-        ok "the credential never reaches UCI (/etc/config is world-readable)"
-    fi
-else
-    bad "no credential was applied to the router"
-fi
+# ------------------------------------------- empty hash + supplied env value -> env ignored, default set
+echo "== a supplied TOLLGATE_ADMIN_PASSWORD is IGNORED (the fixed default wins)"
+seed_deployed_router
+seed_shadow ''
+reset_run
+out=$(TOLLGATE_ADMIN_PASSWORD="WillNotTake1234" enforce_admin_credential 2>"$TMP/err"); rc=$?
+[ "$(cat "$PASSWD_SEEN" 2>/dev/null)" = "$DEFAULT_CREDENTIAL" ] \
+    && ok "the env value never reached root (the fixed default did)" \
+    || bad "the env value reached root ('$(cat "$PASSWD_SEEN" 2>/dev/null)')"
+[ "$rc" = "0" ] && ok "the gate reports success" || bad "the gate returned $rc"
+assert_board_kept "supplied env value, empty hash"
 
-if grep -q 'generated one for the admin board' "$LOGFILE" 2>/dev/null; then
-    ok "the log names the generated credential (operator finds it after an unattended install)"
-else
-    bad "the log does not record that a credential was generated (log: $(head -n 3 "$LOGFILE" 2>/dev/null | tr '\n' ' '))"
-fi
-assert_board_kept "empty hash + working passwd"
+# ------------------------------------------- empty hash + staged file -> file ignored, default set
+echo "== a staged password FILE is IGNORED (the fixed default wins)"
+seed_deployed_router
+seed_shadow ''
+reset_run
+printf '%s' 'StagedFile-9x' > "$TMP/admin-password"
+out=$(ADMIN_PASSWORD_FILE="$TMP/admin-password" TOLLGATE_ADMIN_PASSWORD="" enforce_admin_credential 2>"$TMP/err"); rc=$?
+[ "$(cat "$PASSWD_SEEN" 2>/dev/null)" = "$DEFAULT_CREDENTIAL" ] \
+    && ok "the staged file never reached root (the fixed default did)" \
+    || bad "the staged file reached root ('$(cat "$PASSWD_SEEN" 2>/dev/null)')"
+[ -e "$TMP/admin-password" ] \
+    && ok "the staged password file is left on disk (the package does not consume it)" \
+    || bad "the package consumed a file it must not touch"
+[ "$rc" = "0" ] && ok "the gate reports success" || bad "the gate returned $rc"
+assert_board_kept "staged file, empty hash"
+rm -f "$TMP/admin-password"
 
-# ------------------------------------------- empty hash: passwd does not take -> fail closed
-echo "== empty hash + a passwd that does not take: the admin board is refused"
+# ------------------------------------------- failed default write -> fail closed
+echo "== empty hash + a FAILING passwd: the board is refused (fail closed)"
 seed_deployed_router
 seed_shadow ''
 reset_run
 PASSWD_FAILS=1
 export PASSWD_FAILS
-# Both streams: the refusal is an error (stderr) and the operator sees both on
-# the install console.
-out=$(enforce_admin_credential 2>&1 || true)
-
-if [ "$(admin_credential_state)" = "empty" ]; then
-    ok "the router still has no credential (the failure is the one under test)"
+out=$(TOLLGATE_ADMIN_PASSWORD="" enforce_admin_credential 2>&1 || true)
+[ "$(admin_credential_state)" = "empty" ] \
+    && ok "the router stays credential-less (the failure is the one under test)" \
+    || bad "the fixture did not stay credential-less (state: $(admin_credential_state))"
+assert_board_dropped "empty hash + failed default write"
+if printf '%s' "$out" | grep -q 'could not establish a root password'; then
+    ok "the failure is surfaced on the install output"
 else
-    bad "the fixture did not stay credential-less (state: $(admin_credential_state))"
+    bad "the failure was not surfaced (got: $(printf '%s' "$out" | head -n 2 | tr '\n' ' '))"
 fi
-assert_board_dropped "empty hash + failed passwd"
-if printf '%s' "$out" | grep -q 'no usable password'; then
-    ok "the refusal names the reason on the install output"
-else
-    bad "the refusal was not surfaced on the install output (got: $(printf '%s' "$out" | head -n 2 | tr '\n' ' '))"
-fi
-if grep -q 'refusing to serve the :8090 admin board' "$LOGFILE" 2>/dev/null; then
-    ok "the refusal is recorded in the setup log"
-else
-    bad "the log does not record the refusal (log: $(head -n 3 "$LOGFILE" 2>/dev/null | tr '\n' ' '))"
-fi
-if grep -q 'passwd root' "$LOGFILE" 2>/dev/null; then
-    ok "the log tells the operator how to undo the refusal (passwd root)"
-else
-    bad "the log does not tell the operator how to restore the board"
-fi
+PASSWD_FAILS=0
+export PASSWD_FAILS
 
 # ------------------------------------------- unreadable state: fail closed too
 echo "== unreadable credential state: the admin board is refused"
@@ -459,11 +433,6 @@ fi
     && ok "passwd is never invoked on a router that already has a credential" \
     || bad "passwd was invoked $(passwd_calls) times although a credential already existed"
 [ "$rc" = "0" ] && ok "the gate reports success for a set credential" || bad "the gate returned $rc for a set credential"
-if printf '%s' "$out" | grep -q '[a-z0-9]\{20\}'; then
-    bad "the gate printed a credential although none was generated"
-else
-    ok "nothing credential-shaped is printed when no credential is generated"
-fi
 assert_board_kept "set hash"
 
 # ------------------------------------------- locked account: never re-enabled
@@ -483,32 +452,35 @@ fi
     || bad "passwd was invoked $(passwd_calls) times on a locked account"
 assert_board_kept "locked account"
 
+# ------------------------------------------- a carried-over marker is re-stated
+echo "== a provisional mark carried over from an older install is still honoured"
+seed_deployed_router
+seed_shadow '$6$generated$hash'
+reset_run
+mkdir -p "$(dirname "$ADMIN_PROVISIONAL_MARKER")"
+printf 'default credential in use\n' > "$ADMIN_PROVISIONAL_MARKER"
+out=$(TOLLGATE_ADMIN_PASSWORD="" enforce_admin_credential 2>"$TMP/err")
+rc=$?
+if grep -q 'not yet chosen by the operator' "$LOGFILE" 2>/dev/null; then
+    ok "a carried-over marker re-states that the credential was not chosen"
+else
+    bad "a later run implies the credential was chosen by the operator"
+fi
+[ "$(passwd_calls)" = "0" ] \
+    && ok "re-stating the recovery path does not touch the credential" \
+    || bad "passwd was invoked $(passwd_calls) times while merely reporting state"
+[ "$rc" = "0" ] \
+    && ok "the gate reports success for a set credential carrying a marker" \
+    || bad "the gate returned $rc for a set credential"
+assert_board_kept "set hash + carried-over provisional mark"
+rm -f "$ADMIN_PROVISIONAL_MARKER"
+
 # ------------------------------------------------- the full-setup path too
-# The full setup path is not executed here: it writes /etc/profile, the kernel
-# hostname and sysctls, which an offline test must not touch. The call site is
-# asserted instead (the same shape PR #546's test uses for its second writer).
-# The anchor is CODE, not prose: `log "Running full setup …` is the line the
-# driver emits as it enters the full-setup section, so the region is delimited
-# by the branch the driver actually took. (It used to key off the `# Full setup`
-# comment header, which a branch-comment reword moves without changing the
-# behaviour under test — this PR reworded that very comment — and which would
-# then fail the suite for the wrong reason.)
 echo "== the full-setup path runs the same gate"
 if awk '/^log "Running full setup/{f=1} f && /^enforce_admin_credential$/{print "found"; exit}' "$ROOT/$SCRIPT" | grep -q found; then
-    ok "the full-setup driver calls enforce_admin_credential right after setup_uhttpd_configui"
+    ok "the full-setup driver calls enforce_admin_credential in its uhttpd section"
 else
-    bad "the full-setup path does not call enforce_admin_credential — a first boot would leave an empty root hash behind the :8090 admin board"
-fi
-# Control for that anchor: it must not be satisfied by a region that never
-# enters full setup. Asserted against the driver source with the anchor's own
-# start line removed, so a re-flowed or replaced entry line fails here instead
-# of silently matching an unrelated part of the file.
-if awk '/^log "Running full setup/{f=1} f && /^enforce_admin_credential$/{print "found"; exit}' "$ROOT/$SCRIPT" >/dev/null && \
-   ! sed 's|^log "Running full setup|log "XX-not-the-entry-line|' "$ROOT/$SCRIPT" | \
-     awk '/^log "Running full setup/{f=1} f && /^enforce_admin_credential$/{print "found"; exit}' | grep -q found; then
-    ok "anchor control: the full-setup region is delimited by the driver's own entry line"
-else
-    bad "anchor control: the anchor matches without the driver's full-setup entry line"
+    bad "the full-setup path does not call enforce_admin_credential — a first boot would leave an empty root hash behind the admin board"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

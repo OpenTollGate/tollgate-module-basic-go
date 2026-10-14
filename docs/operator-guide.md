@@ -37,12 +37,18 @@ tollgate upstream scan                    Scan all radios for networks
 tollgate upstream connect <SSID> [pass]   Connect to an upstream network
 tollgate upstream list                    Show configured upstream STAs
 tollgate upstream remove <SSID>           Remove a disabled upstream STA
+tollgate upstream known                   Show discovered TollGate APs
 
 tollgate config get                       Print current config + identities
 tollgate config set <key> <value>         Set one value by dot-path
 tollgate config schema                    Print the full config schema
 tollgate config save <json>               Replace config.json wholesale
 tollgate config save-identities <json>    Replace identities.json wholesale
+
+tollgate ssl status                       Admin HTTPS identity and coverage
+tollgate ssl apply [<cert> [key]]         Install a real cert, or self-signed
+tollgate ssl remove                       Revert an apply (records an opt-out)
+tollgate ssl covers [<cert-file>]         Does the certificate cover this router?
 ```
 
 Every command accepts the global `--json` (`-j`) flag for
@@ -86,6 +92,15 @@ service does **not** kick off connected customers immediately —
 NoDogSplash keeps existing authorisations until their MAC entries
 expire — but no new sessions can be purchased while the service is
 down.
+
+What happens to those authorisations is not left to NoDogSplash's timer
+once the module comes back: at startup the module reads NoDogSplash's
+client list and closes the gate of every client NoDogSplash still
+authorises that it holds no session for (a restart loses every session —
+they live in the process that died). The client must buy again, and the
+log says so per MAC (`startup reconciliation`), because an inherited
+authorisation with nothing metering it is free internet. See
+`docs/architecture/startup-nds-reconciliation-decision.md`.
 
 ### Health
 
@@ -339,6 +354,34 @@ Private network password changed successfully
   new_password: Alpha-Bravo-Charlie-42
 ```
 
+### Change the encryption mode
+
+```sh
+tollgate network private set-encryption psk2+tkip+ccmp
+```
+
+Supported modes:
+
+| Mode | Meaning |
+|---|---|
+| `psk2+ccmp` | WPA2-PSK with AES/CCMP. The default and what the router is set up with. |
+| `psk2+tkip+ccmp` | Also offers the legacy TKIP cipher, for old clients that cannot do AES. |
+| `psk-mixed+ccmp` | Also accepts WPA1 clients. |
+
+WPA3-SAE is deliberately not offered: the `wpad` the router ships with has no
+SAE support, so selecting it would leave the private network unable to start —
+a lockout, not a feature. An open (unencrypted) mode is refused for the same
+class of reason: the private network is how you reach the admin board, whose
+login is a root-capable login over plain HTTP on `:8080` (the entry pair the
+board owns under the default `entry_ui=board`; on `:8090` under `entry_ui=luci`,
+the pre-flip mapping — see the README's "Which UI answers the entry ports" for
+the switch and the marker that confirms which one is live).
+
+The three private-network commands above (rename, set-password, set-encryption)
+also record the new value in `/etc/tollgate/config.json`, which is the file the
+service reconciles the router onto at every start. Both radios are written
+together, so the 2.4 GHz and 5 GHz SSIDs cannot drift apart.
+
 ## Upstream WiFi management
 
 Upstream Wi-Fi is how the router reaches the internet — either from
@@ -430,6 +473,28 @@ upstreams cannot be removed — disable or switch away first. This is
 housekeeping: removing an entry does not affect connectivity, it just
 stops the daemon from ever considering that SSID again.
 
+### Known TollGates
+
+```sh
+tollgate upstream known
+```
+
+A summary of the TollGate access points discovered across the scans
+the background [wireless gateway
+manager](wireless_gateway_manager.md) has logged — the same history a
+reseller-mode router uses to recognise upstream TollGates. Prints a
+headline (`3 TollGates discovered across 27 scans`) and one entry per
+access point: SSID and BSSID, first and last seen, best and worst
+signal, sample count, the advertised pricing (`price_per_step`,
+`step_size`) when the AP publishes it, and gateway RTT and probe
+statistics when probes ran.
+
+The history lives in `/etc/tollgate/discovery_log.jsonl` and is
+reloaded at startup, so the summary also covers scans from before the
+last reboot. The plain-text rendering prints the raw fields in no
+stable order; `tollgate --json upstream known` returns the same data
+with stable field names for scripting.
+
 ## Configuration management
 
 TollGate stores its configuration in `/etc/tollgate/config.json` and
@@ -472,6 +537,50 @@ Most `config set` changes take effect only after
 `tollgate restart` (or `/etc/init.d/tollgate-wrt restart`), because
 the running service reads the file at startup.
 
+Two settings are the exception, and they are the reason `config set` also
+reports what it applied:
+
+```sh
+tollgate config set private_ssid c08r4d0r-7F3A
+tollgate config set admin_access br-private
+```
+
+```
+Set private_ssid = c08r4d0r-7F3A; runtime: 1 applied, 1 not applicable here
+```
+
+The private network's SSID, passphrase and encryption live in UCI
+(`/etc/config/wireless`), which hostapd reads, and `admin_access` is an
+nftables property. Neither can be honoured by a file the service merely reads,
+so `config set`/`config save` write them to the router as well, and say for
+each setting whether the runtime was changed (`applied`), already matched
+(`unchanged`), could not be applied on this host (`skipped`), or was refused
+with the reason (`refused` — e.g. `admin_access=br-mgmt` on a router that has
+no `br-mgmt` bridge yet). See the README's
+[Network settings](../README.md#network-settings-v009) for the values.
+
+Setting `private_key` from the CLI never echoes the passphrase back.
+
+### Make the router match the file
+
+```sh
+tollgate config apply
+```
+
+Re-applies every declared operator setting — the private-network credentials
+and the admin-access scope — and reports per setting what happened. The same
+work runs automatically after `config set`/`config save` and at service start,
+so this verb is for a `config.json` you edited by hand:
+
+```
+Operator settings converged (runtime: unchanged, not applicable here)
+```
+
+It is a converging writer: a router whose runtime already matches the file
+reports `unchanged` and nothing on the wire moves. That is what makes it safe
+on a service restart — it never drops your private-network clients for a change
+that was already in effect.
+
 ### Inspect the schema
 
 ```sh
@@ -499,6 +608,93 @@ a router from a known-good template.
 
 Both commands reload the in-memory config after writing, but a restart
 is still needed for the change to take full effect.
+
+## SSL / HTTPS management
+
+These commands manage the HTTPS identity the module provisions for this
+router — the self-signed certificate both admin listeners arm their TLS
+port from (the board's `:443` under `entry_ui=board`, LuCI's `:8443`
+under `entry_ui=luci`). The captive portal itself keeps its HTTP
+interception and is not affected. The `ssl` commands run locally (they
+talk to uci and the filesystem), so unlike most of the CLI they do not
+need the TollGate service to be running.
+
+### Check status
+
+```sh
+tollgate ssl status
+```
+
+When an identity is configured, prints where it came from
+(self-signed or real), the domain, the certificate's subject, issuer,
+validity window and SANs, and — the part that decides whether the
+`:8080` → `https://` hop is safe — whether the certificate **covers
+this router**. When it is not configured, the command distinguishes
+the two very different causes: nobody ever provisioned an identity,
+or an operator ran `ssl remove` and the install path is holding that
+decision. It also names the certificate uhttpd is actually serving
+and why it does not cover the router — a stock OpenWrt image ships a
+placeholder (`CN=OpenWrt`) that covers no router's own name or
+address, which is what a browser shows a hard certificate error for.
+
+### Apply a certificate
+
+```sh
+tollgate ssl apply                     # generate a self-signed certificate
+tollgate ssl apply combined.pem        # one file holding cert + key
+tollgate ssl apply cert.pem key.pem    # separate certificate and key
+```
+
+Without arguments, generates a self-signed certificate for the
+router's own hostname (RSA 2048, valid ten years, SANs for the
+hostname, its `<hostname>.lan` alias, and the LAN IP). A browser will
+still show a warning for it — self-signed is for encryption, not for
+trust. With file arguments, installs a real certificate; a combined
+PEM is split automatically, and an expired certificate is warned
+about but installed if you confirm.
+
+`apply` prints the plan first (install to `/etc/tollgate/ssl/`,
+point uhttpd at the new cert/key, allow TCP 443 through the
+pre-authentication firewall for the admin listener) and asks for
+confirmation; `-y` skips the prompt. The previous state is backed up
+to `/etc/tollgate/ssl/backup/` so `ssl remove` can restore it — if a
+backup already exists, `apply` warns and asks before overwriting.
+Afterwards uhttpd and nodogsplash are reloaded (dnsmasq too, for a
+real certificate), and `redirect_https` is derived from the
+[coverage check](#check-whether-a-certificate-covers-this-router) —
+the same rule the unattended setup path applies. `--no-restart`
+leaves the service reload to the caller; the setup path uses it
+because uci-defaults runs before the services start.
+
+### Remove the identity
+
+```sh
+tollgate ssl remove
+```
+
+Restores the state from before the last `apply` (uhttpd's previous
+certificate, the firewall entry). Removal is also **recorded** in
+`/etc/tollgate/ssl/tls-identity-removed`: a reinstall or upgrade will
+not silently re-key a router whose operator asked for no HTTPS
+identity. Running `ssl apply` ends the opt-out — asking for an
+identity is the way back in.
+
+### Check whether a certificate covers this router
+
+```sh
+tollgate ssl covers                    # the certificate uhttpd is configured to serve
+tollgate ssl covers /path/to/cert.pem  # a candidate before installing it
+```
+
+A certificate covers the router when its SANs validate the configured
+hostname, the `<hostname>.lan` alias, or the LAN IP — the CommonName
+alone is not enough, because browsers ignore it once the certificate
+carries no SAN extension, and an expired certificate is not coverage
+either. The exit status is `0` when it covers and `1` when it does
+not, with the reason printed either way, so a shell can branch on it;
+the setup path derives `redirect_https` from exactly this verdict.
+Under `--json` the verdict is one object whose `success` mirrors the
+exit status, so a caller parsing stdout cannot read a "no" as green.
 
 ## JSON output
 
@@ -540,6 +736,47 @@ accepted and ignored; the module resolves the address from the request's
 source IP through the DHCP lease file and the kernel ARP table, and
 refuses the request (`device-unresolved`) rather than guessing when it
 cannot.
+
+### The API contract: every client-scoped endpoint is socket-scoped
+
+This is one rule, and it holds on **every** endpoint of the payment API on
+`:2121`, not just the money path:
+
+| Endpoint | What it acts on | `mac` you send |
+| --- | --- | --- |
+| `GET /whoami` | the calling client | ignored |
+| `POST /` (a token) | the calling client's session | ignored |
+| `POST /ln-invoice` | the calling client's quote | ignored (query **and** JSON body) |
+| `GET /ln-invoice?quote=…` | the quote of the calling client | ignored |
+| `GET /session-state` | the calling client's session state | ignored |
+| `GET /balance` | the calling client's session | ignored |
+| `GET /usage` | the calling client's byte/time usage | ignored |
+
+The parameter is accepted because the shipped portal's Lightning lane sends
+back the address it read from `/whoami`; it never decides which device a
+read or a grant applies to. Nothing about this is silent, because silence is
+how a test rig ends up believing the wrong thing:
+
+* every client-scoped response carries
+  `X-TollGate-Client-MAC: <address>` — **the client the module actually
+  answered for**, in canonical (lowercase) form;
+* when you assert a *different* address, the response also carries
+  `X-TollGate-Mac-Claim-Ignored: <address>` — the claim that was **not**
+  honoured. A matching claim (what the portal sends) is not reported.
+
+Both headers are exposed through CORS, so a page or harness running on the
+portal origin can read them. The session event of a purchase (`kind: 1022`)
+names the same thing independently, in its `device-identifier` tag.
+
+**What this means for a test rig or a script.** To pay for the session of a
+device, send the request *from that device's own socket* — bind to its
+interface/IP, or run the probe on the device. Posting a token to
+`http://<router>:2121/?mac=<some-other-device>` does not buy that device
+anything: the grant goes to the socket that sent it, and the MAC you named
+is reported back as ignored. A harness that posts "for" a MAC it is not
+itself using and then looks for a session on that MAC is measuring the wrong
+device — read `X-TollGate-Client-MAC` (or the `device-identifier` tag of the
+`1022`) and compare it with your own socket address instead.
 
 ### What a MAC address is not
 

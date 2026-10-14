@@ -106,14 +106,15 @@ These are not notes; they are pass/fail acceptance tests.
 
 ## 5. Candidate mapping (first pass)
 
-| Contract area | gonuts (current, forked) | CDK (`cdk-go` / sidecar) | nucula |
-|---|---|---|---|
-| Surface | complete (the reference) | adapter exists but unverified | partial — missing NUT-07/09 |
-| musl aarch64 | ✅ (current build) | sidecar ✅ (19.7 MiB static) | not applicable as-is |
-| musl mipsel | ✅ | **✗ blocked** (no `AtomicU64`) | not applicable |
-| Ownership | **C (we own the fork)** | A/B (upstream CDK) | licence unresolved |
-| Licence | GPL-3.0 (fork) | MIT/Apache-2.0-compatible | **none** (issue #8) |
-| Security parity | holds the two fixes | must be proven | must be proven |
+| Contract area | gonuts (current, forked) | CDK (`cdk-go` / sidecar) | nucula | fedimint (fedi) |
+|---|---|---|---|---|
+| Surface | complete (the reference) | adapter exists but unverified | partial — missing NUT-07/09 | **partial — Cashu-shaped calls land on approximations**; NUT-07/09 satisfiable by rule+test, no mint URL exists ([findings](wallet-backend-fedimint.md)) |
+| musl aarch64 | ✅ (current build) | sidecar ✅ (19.7 MiB static) | not applicable as-is | sidecar ✅ (14.9 MiB stripped / 5.4 MiB UPX measured) |
+| musl mipsel | ✅ | **✗ blocked** (no `AtomicU64`) | not applicable | **✗ impossible** (`ring 0.17` has no mips backend at all) |
+| Ownership | **C (we own the fork)** | A/B (upstream CDK) | licence unresolved | **A engine (upstream, active) + C adapter (our daemon)** |
+| Licence | GPL-3.0 (fork) | MIT/Apache-2.0-compatible | **none** (issue #8) | MIT ✅ |
+| Security parity | holds the two fixes | must be proven | must be proven | n/a unless it *replaces* gonuts |
+| RSS | in-process | ~6 MiB (sidecar) | — | **62.5 MiB measured on the fat build; thin build unmeasured — the deciding number** |
 
 **Conclusion:** the contract is small and stable, the seam already exists, and
 the decisive axes are **mipsel buildability**, **security parity**, and

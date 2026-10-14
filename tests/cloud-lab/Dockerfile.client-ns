@@ -1,0 +1,12 @@
+# Dockerfile.client-ns — client image + nutshell (cashu CLI) for the
+# tollgate-clientd scenario battery (S3).
+#
+# The base image is built by the `client` service, so build in order:
+#   docker compose build client && docker compose build client-ns
+# (FROM resolves the project-built cloud-lab-client image.)
+#
+# marshmallow is pinned <4: current environs (a cashu dependency) reads
+# marshmallow.__version_info__, removed in marshmallow 4.x — a fresh
+# `pip install cashu` crashes without the pin.
+FROM cloud-lab-client:latest
+RUN pip install --no-cache-dir cashu "marshmallow<4"

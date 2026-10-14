@@ -1,0 +1,37 @@
+### command
+go test -v -count=1 ./...
+### output
+=== RUN   TestDerivationIsPureAndSpentnessLivesAtTheAuthority
+--- PASS: TestDerivationIsPureAndSpentnessLivesAtTheAuthority (0.00s)
+=== RUN   TestDecodeSniffsBackendForEveryKind
+--- PASS: TestDecodeSniffsBackendForEveryKind (0.00s)
+=== RUN   TestAcquireCreditsAuthorityValueNotClaimedFaceValue
+--- PASS: TestAcquireCreditsAuthorityValueNotClaimedFaceValue (0.00s)
+=== RUN   TestAcquireIsAtomicAndDetectsDoubleRedemption
+--- PASS: TestAcquireIsAtomicAndDetectsDoubleRedemption (0.00s)
+=== RUN   TestUnknownIsNeverReportedAsUnspent
+--- PASS: TestUnknownIsNeverReportedAsUnspent (0.00s)
+=== RUN   TestProbeModeDerivesNut07WhereNoQueryApiExists
+--- PASS: TestProbeModeDerivesNut07WhereNoQueryApiExists (0.00s)
+=== RUN   TestNoStateApiIsUnknownNotAGuess
+--- PASS: TestNoStateApiIsUnknownNotAGuess (0.00s)
+=== RUN   TestNut07AnswersConsumptionNotExistence
+--- PASS: TestNut07AnswersConsumptionNotExistence (0.00s)
+=== RUN   TestRecoverReplaysAgainstAuthorityIssuanceMemory
+--- PASS: TestRecoverReplaysAgainstAuthorityIssuanceMemory (0.00s)
+=== RUN   TestRecoverAcrossAllAuthorities
+--- PASS: TestRecoverAcrossAllAuthorities (0.00s)
+=== RUN   TestSeedNeverLeavesPortAndCounterPersistsBeforeExposure
+--- PASS: TestSeedNeverLeavesPortAndCounterPersistsBeforeExposure (0.00s)
+=== RUN   TestSpendIsUniformAcrossBackends
+--- PASS: TestSpendIsUniformAcrossBackends (0.00s)
+=== RUN   TestCapabilityMatrixIsExplicit
+--- PASS: TestCapabilityMatrixIsExplicit (0.00s)
+=== RUN   TestForeignIssuedInstrumentIsRefused
+--- PASS: TestForeignIssuedInstrumentIsRefused (0.00s)
+=== RUN   TestRecoveryWithWrongSeedYieldsNothing
+--- PASS: TestRecoveryWithWrongSeedYieldsNothing (0.00s)
+PASS
+ok  	bearerport	0.016s
+?   	bearerport/cmd/demo	[no test files]
+### rc=0

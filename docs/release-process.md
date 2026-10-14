@@ -102,12 +102,13 @@ go build ./...
 go test -race -count=1 -tags testenv ./...
 ```
 
-From the repo root, when the change touches the config schema or the
-captive-portal contract (these are CI gates):
+From the repo root, when the change touches the config schema, the
+captive-portal contract or a shipped default (these are CI gates):
 
 ```bash
 node tests/contract/js-schema-lint.mjs
 bash tests/contract/build-purity.sh
+bash tests/contract/check-ssid-format.sh
 ```
 
 From the repo root, always:
@@ -122,7 +123,18 @@ If `go test` fails with `creating work dir: stat .../.gotmp-*`, a stale
 
 ### 2. Prepare the release commit
 
-On a branch based on the **upstream** `main` tip:
+On a branch based on the **upstream** `main` tip. First fold the changelog
+fragments that accumulated during the cycle (see
+[changelog.d/README.md](../changelog.d/README.md)) and commit that on its own —
+it only moves text into the release section, so reviewing the release commit is
+not also reviewing the changelog:
+
+```bash
+python3 scripts/changelog-assemble.py fold --dry-run   # read the wave first
+python3 scripts/changelog-assemble.py fold             # write it, delete the fragments
+```
+
+Then:
 
 1. `VERSION` holds the target version (e.g. `v0.6.0-alpha2`).
 2. `CHANGELOG.md`: the accumulated `[Unreleased]` section becomes

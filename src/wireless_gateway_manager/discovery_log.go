@@ -279,10 +279,6 @@ func (dl *DiscoveryLogger) LoadExistingLog() error {
 	return nil
 }
 
-func hasTollGateSSID(ssid string) bool {
-	return len(ssid) >= 9 && ssid[:9] == "TollGate-"
-}
-
 func splitLines(data []byte) [][]byte {
 	var lines [][]byte
 	start := 0

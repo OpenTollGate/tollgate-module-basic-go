@@ -83,7 +83,7 @@ Rules:
 | Arch | `aarch64` **and** `mipsel` | `uname -m` | mipsel softfloat means **no FPU assumptions**; any candidate that needs hardware FP or emits FP instructions for crypto/amount maths must be re-checked |
 | CPU count | record, do not assume | `grep -c ^processor /proc/cpuinfo` | the shared-mutex contention metrics (C2/C3) only mean something alongside the core count. ASSUMPTION: at least one supported target is single-core-equivalent for the wallet's critical path; must be confirmed per device |
 | Flash | typically 16–32 MB NOR/NAND with JFFS2/UBIFS overlay; erase-block-limited writes (ASSUMPTION: ~10⁵ erase cycles/block, ~64–128 KiB blocks — **verify against the actual device's flash datasheet before quoting a wear budget**) | `cat /proc/mtd`, `flash_erase --help` availability, `df -h /overlay` | makes S2 (bytes written per payment) a first-class metric, not a footnote |
-| Upgrade | `sysupgrade` with `packaging/files/lib/upgrade/keep.d/tollgate` preserving `/etc/config/network`, `/etc/config/wireless`, `/etc/tollgate` | read that file | the wallet's data must live somewhere that keep.d covers, or migration/rollback is broken by design |
+| Upgrade | `sysupgrade` with `packaging/files/lib/upgrade/keep.d/tollgate` preserving `/etc/config/network`, `/etc/config/wireless`, `/etc/config/tollgate`, `/etc/tollgate` | read that file | the wallet's data must live somewhere that keep.d covers, or migration/rollback is broken by design |
 | Service model | `procd` init (`/etc/init.d/tollgate-wrt`), hotplug `95-tollgate-restart` | read the init script | restart-under-load and hotplug-during-payment are real scenarios; a sidecar needs its own procd supervision |
 | Startup ordering | router boots before NTP and before WAN is up | `logread`, and `tollwallet.go`'s own TODO about the wallet DB not unlocking without a network connection | clock-skew injection (INJ-4) and unreachable-mint injection (INJ-1) are *normal* boot conditions, not exotic ones |
 
@@ -349,7 +349,7 @@ Each card: **procedure** (the exact thing to run), **blocker threshold**
 - **Third-party reproduction:** both binary hashes, the downgrade procedure, and the before/after store checksums.
 
 #### M3 — `sysupgrade`/`apk upgrade` interruption and data survival
-- **Procedure:** on a QEMU instance first, then on hardware: interrupt a `sysupgrade` and an `apk upgrade` mid-write (power off / `kill -9` of the package manager), then boot and verify the wallet store is either intact or cleanly recoverable. Confirm the data path is inside the `keep.d/tollgate` preserved set (`/etc/config/network`, `/etc/config/wireless`, `/etc/tollgate`) and that a wallet store living *outside* that set is documented as wipe-on-upgrade.
+- **Procedure:** on a QEMU instance first, then on hardware: interrupt a `sysupgrade` and an `apk upgrade` mid-write (power off / `kill -9` of the package manager), then boot and verify the wallet store is either intact or cleanly recoverable. Confirm the data path is inside the `keep.d/tollgate` preserved set (`/etc/config/network`, `/etc/config/wireless`, `/etc/config/tollgate`, `/etc/tollgate`) and that a wallet store living *outside* that set is documented as wipe-on-upgrade.
 - **Blocker threshold:** a normal upgrade path that wipes the wallet store, or a half-upgrade that leaves the store unreadable with no recovery.
 - **Third-party reproduction:** the interruption script + boot logs + store checksums.
 

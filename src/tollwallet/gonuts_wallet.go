@@ -45,6 +45,14 @@ type gonutsToken struct {
 
 func (t *gonutsToken) Mint() string   { return t.inner.Mint() }
 func (t *gonutsToken) Amount() uint64 { return t.inner.Amount() }
+func (t *gonutsToken) Secrets() []string {
+	proofs := t.inner.Proofs()
+	secrets := make([]string, 0, len(proofs))
+	for _, p := range proofs {
+		secrets = append(secrets, p.Secret)
+	}
+	return secrets
+}
 func (t *gonutsToken) Serialize() (string, error) {
 	return t.inner.Serialize()
 }
@@ -66,6 +74,14 @@ func DecodeToken(tokenStr string) (Token, error) {
 }
 
 // DecodeToken on GonutsWallet delegates to the package-level function.
+func (w *GonutsWallet) CheckTokenSpent(token Token) (bool, error) {
+	gt, ok := token.(*gonutsToken)
+	if !ok {
+		return false, fmt.Errorf("CheckTokenSpent: not a gonuts token")
+	}
+	return w.inner.CheckTokenSpent(gt.inner)
+}
+
 func (w *GonutsWallet) DecodeToken(tokenStr string) (Token, error) {
 	return DecodeToken(tokenStr)
 }

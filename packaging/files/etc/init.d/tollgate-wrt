@@ -6,6 +6,10 @@ USE_PROCD=1
 EXTRA_COMMANDS="status"
 EXTRA_HELP="        status          Check service status"
 
+# The money path a customer or an operator actually needs (see status_service).
+API_PORT=2121
+API_SOCKET=/var/run/tollgate.sock
+
 start_service() {
     # Start cron daemon
     /etc/init.d/cron start
@@ -42,14 +46,77 @@ stop() {
     echo "TollGate basic stopped and nodogsplash disabled" >> /tmp/basic.log
 }
 
-status() {
-    if pgrep -f "tollgate-wrt" >/dev/null; then
-        echo "TollGate basic is running"
-        nds_status=$(/etc/init.d/nodogsplash status)
-        echo "NoDogSplash: $nds_status"
-        return 0
-    else
-        echo "TollGate basic is not running"
+# ---------------------------------------------------------------------------
+# status_service(): report the money path, not the pid.
+#
+# rc.common sources this file first and only THEN defines start/stop/status
+# inside its USE_PROCD block, so a status() defined here is dead code — it is
+# overwritten before it can ever run. The supported hook is this function
+# (OpenWrt 25.12 /etc/rc.common, sha256 dd8ae95c78d1...):
+#
+#     status() {
+#         if eval "type status_service" 2>/dev/null >/dev/null; then
+#             status_service "$@"
+#         else
+#             _procd_status ...      # <- answers "is the PROCESS up?"
+#         fi
+#     }
+#
+# _procd_status answers the wrong question on a cold boot: tollgate-wrt is
+# alive for minutes while the wallet still loads, so `status` printed the
+# single word `running` while :2121 was not listening and $API_SOCKET did not
+# exist yet. `tollgate wallet balance` then failed with ENOENT and nothing
+# could be bought. What is reachable is the API listener plus the CLI control
+# socket, so both are reported here.
+#
+# BusyBox applets only — this image has no curl, ss or stat. netstat reads the
+# kernel's listener table (it cannot block on a peer that accepts and then
+# stays silent, unlike nc, and needs no HTTP request); uclient-fetch is the
+# fallback for an image built without netstat; `test -S` needs no applet.
+# ---------------------------------------------------------------------------
+
+_api_probe() {
+    # 0 = something is listening on the API port, 1 = nothing is,
+    # 2 = this image has no usable probe.
+    if command -v netstat >/dev/null 2>&1; then
+        _tg_listeners="$(netstat -tln 2>/dev/null)" || return 2
+        case "$_tg_listeners" in
+            *":$API_PORT "*) return 0 ;;
+            *)               return 1 ;;
+        esac
+    fi
+    if command -v uclient-fetch >/dev/null 2>&1; then
+        # Bounded by -T and it exercises the real HTTP path. Measured with
+        # 25.12.4's uclient-fetch: 0 = 2xx, 8 = server answered non-2xx,
+        # 4 = nothing answered (refused or timeout).
+        uclient-fetch -q -O /dev/null -T 3 "http://127.0.0.1:$API_PORT/" 2>/dev/null
+        case "$?" in
+            0|8) return 0 ;;
+            *)   return 1 ;;
+        esac
+    fi
+    return 2
+}
+
+status_service() {
+    _api_probe
+    _tg_api="$?"
+    if [ "$_tg_api" = 2 ]; then
+        echo "unknown: cannot probe :$API_PORT (no usable netstat or uclient-fetch on this image)"
         return 1
     fi
+    if [ "$_tg_api" != 0 ]; then
+        if [ -S "$API_SOCKET" ]; then
+            echo "not running: nothing listening on :$API_PORT (control socket is up, API still starting)"
+        else
+            echo "not running: nothing listening on :$API_PORT and $API_SOCKET is absent"
+        fi
+        return 1
+    fi
+    if [ ! -S "$API_SOCKET" ]; then
+        echo "not running: API :$API_PORT is listening but $API_SOCKET is absent (CLI commands will fail)"
+        return 1
+    fi
+    echo "running: API :$API_PORT listening and $API_SOCKET present"
+    return 0
 }

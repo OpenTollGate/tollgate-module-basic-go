@@ -186,6 +186,49 @@ func (c *UpstreamSessionManager) GetActiveSessions() map[string]*UpstreamSession
 	return result
 }
 
+// ForwardFirstProof forwards a customer's entire first proof to the given
+// upstream gateway (reseller cold start, #239). It returns the granted
+// allotment once the upstream session is established.
+func (c *UpstreamSessionManager) ForwardFirstProof(gatewayIP, token string) (uint64, error) {
+	c.mu.RLock()
+	gateway, exists := c.gateways[gatewayIP]
+	c.mu.RUnlock()
+
+	if !exists || gateway == nil {
+		return 0, fmt.Errorf("no such upstream gateway: %s", gatewayIP)
+	}
+
+	gateway.mu.RLock()
+	session := gateway.Session
+	gateway.mu.RUnlock()
+
+	if session == nil {
+		return 0, fmt.Errorf("upstream gateway %s has no session yet", gatewayIP)
+	}
+
+	return session.ForwardFirstProof(token)
+}
+
+// GetBootstrapStatus returns the bootstrap state of every tracked gateway's
+// session, keyed by gateway IP. Phase 2b/3 of #239 surface this as
+// `bootstrap_phase`.
+func (c *UpstreamSessionManager) GetBootstrapStatus() BootstrapStatusSnapshot {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make(BootstrapStatusSnapshot, len(c.gateways))
+	for gatewayIP, gateway := range c.gateways {
+		gateway.mu.RLock()
+		session := gateway.Session
+		gateway.mu.RUnlock()
+		if session == nil {
+			continue
+		}
+		result[gatewayIP] = session.BootstrapStatus()
+	}
+	return result
+}
+
 // getUpstreamAdvertisement fetches and validates the TollGate advertisement from a gateway
 func (c *UpstreamSessionManager) getUpstreamAdvertisement(gatewayIP, interfaceName string) (*nostr.Event, error) {
 	ctx := context.Background()

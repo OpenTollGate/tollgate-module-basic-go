@@ -16,7 +16,9 @@ type panicToken struct{}
 func (panicToken) Mint() string               { return "https://panic-mint.example.com" }
 func (panicToken) Amount() uint64             { return 1 }
 func (panicToken) Serialize() (string, error) { return "cashuAstub", nil }
-func (panicToken) Close()                     {}
+func (panicToken) Secrets() []string          { return nil }
+
+func (panicToken) Close() {}
 
 // panicReceiveWallet stubs DecodeToken and Receive; every other WalletPort
 // method panics via the embedded nil interface, so untested wallet

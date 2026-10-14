@@ -92,6 +92,23 @@ type UpstreamSessionManagerInterface interface {
 	Stop() error
 }
 
+// ProofForwarderTarget is the upstream-session-facing surface the merchant
+// (reseller) needs for the cold-start bootstrap of #239: forwarding the first
+// customer proof whole and reading the bootstrap phase.
+type ProofForwarderTarget interface {
+	// ForwardFirstProof hands the ENTIRE first customer proof to the upstream
+	// TollGate (no swap, no split) and returns the granted allotment.
+	ForwardFirstProof(token string) (uint64, error)
+	// BootstrapStatus reports the cold-start bootstrap phase
+	// (idle|forwarding|establishing|complete|error).
+	BootstrapStatus() BootstrapStatus
+}
+
+// BootstrapStatusSnapshot is the manager-level view of every session's
+// bootstrap state, keyed by gateway IP. Phase 2b/3 of #239 surface this as
+// `bootstrap_phase` on the balance endpoint.
+type BootstrapStatusSnapshot map[string]BootstrapStatus
+
 // UsageTrackerInterface defines the interface for usage tracking
 type UsageTrackerInterface interface {
 	// Start monitoring usage for the given session

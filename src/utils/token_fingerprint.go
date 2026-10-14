@@ -63,7 +63,7 @@ func tokenFingerprintSaltBytes() []byte {
 
 func loadTokenFingerprintSalt() {
 	if data, err := os.ReadFile(TokenFingerprintSaltPath); err == nil {
-		if salt := bytes.TrimSpace(data); len(salt) >= 16 {
+		if salt := decodeSaltFile(data); len(salt) >= 16 {
 			tokenFingerprintSalt = append([]byte(nil), salt...)
 			return
 		}
@@ -108,8 +108,25 @@ func writeTokenFingerprintSalt(salt []byte) error {
 	}
 	defer f.Close()
 
-	_, err = f.Write(salt)
+	// The salt is persisted hex-encoded: raw random bytes can begin or end
+	// with whitespace-valued bytes, and a reader that trims whitespace (this
+	// file may also be hand-edited) would silently corrupt such a salt —
+	// every fingerprint after the next restart would change, breaking the
+	// journal correlation without any error anywhere.
+	_, err = f.Write([]byte(hex.EncodeToString(salt)))
 	return err
+}
+
+// decodeSaltFile accepts the current hex-encoded format (whitespace-trimmed:
+// hand-edited files keep working) and falls back to raw bytes without any
+// trimming, for salts persisted by earlier builds.
+func decodeSaltFile(data []byte) []byte {
+	if trimmed := bytes.TrimSpace(data); len(trimmed) > 0 {
+		if decoded, err := hex.DecodeString(string(trimmed)); err == nil && len(decoded) >= 16 {
+			return decoded
+		}
+	}
+	return data
 }
 
 // resetTokenFingerprintSaltForTest drops the cached salt so a test can point

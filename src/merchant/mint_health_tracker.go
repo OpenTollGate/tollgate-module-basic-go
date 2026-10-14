@@ -74,6 +74,23 @@ const (
 	aggressiveProbeInterval = 15 * time.Second
 	aggressiveProbeTimeout  = 10 * time.Second
 	aggressiveDuration      = 5 * time.Minute
+
+	// defaultStartupProbeBudget bounds the whole initial probe, i.e. how long
+	// the process may spend before it binds its API. Probing every mint to its
+	// own probeTimeout is what made a cold boot blind: when the uplink is not up
+	// yet, every probe burns the full client timeout, so N mints cost N x
+	// probeTimeout before net/http ever reaches ListenAndServe (measured with
+	// this binary on a host, 7 mints and 7 non-answering fronts: 210 s during
+	// which :2121 and /var/run/tollgate.sock do not exist while procd's status
+	// already reports "running" — the process is alive, the money path is not).
+	//
+	// One probeTimeout is the default because that is exactly the chance a mint
+	// gets today; mints the budget never reaches are LEFT UNLEARNED rather than
+	// marked failed (see RunInitialProbe), so the aggressive 15 s loop and the
+	// proactive loop learn their real state and the degraded -> full upgrade
+	// path is unchanged. Overridable per router with
+	// TOLLGATE_STARTUP_PROBE_BUDGET_SECONDS.
+	defaultStartupProbeBudget = 30 * time.Second
 )
 
 type mintConfigProvider interface {
@@ -98,6 +115,11 @@ type MintHealthTracker struct {
 	aggressiveInterval    time.Duration
 	aggressiveTimeout     time.Duration
 	aggressiveWindow      time.Duration
+
+	// startupProbeBudget caps the total wall time RunInitialProbe may spend.
+	// A field rather than a constant read at the call site so a router can tune
+	// it and a test can shorten it without sleeping for probeTimeout.
+	startupProbeBudget time.Duration
 
 	// The throttle side of the same question. A 429 is reachable evidence, so it
 	// never counts as a failure; these fields record what it *does* mean — that
@@ -167,6 +189,8 @@ func NewMintHealthTracker(configProvider mintConfigProvider) *MintHealthTracker 
 		aggressiveInterval: aggressiveProbeInterval,
 		aggressiveTimeout:  aggressiveProbeTimeout,
 		aggressiveWindow:   aggressiveDuration,
+
+		startupProbeBudget: time.Duration(envIntOr("TOLLGATE_STARTUP_PROBE_BUDGET_SECONDS", int(defaultStartupProbeBudget/time.Second))) * time.Second,
 	}
 }
 
@@ -424,11 +448,43 @@ func (t *MintHealthTracker) RunInitialProbe() {
 	}
 
 	now := t.now()
-	log.Printf("RunInitialProbe: probing %d mint(s)", len(config.AcceptedMints))
+	// The initial probe is BOUNDED, and that bound is what makes the API bind.
+	// New() runs this before main() reaches ListenAndServe, so an unbounded loop
+	// here is a blind money path for as long as the slowest mints take: with the
+	// uplink still coming up, every probe burns its full client timeout.
+	budget := t.startupProbeBudget
+	if budget <= 0 {
+		budget = defaultStartupProbeBudget
+	}
+	deadline := time.Now().Add(budget)
+
+	log.Printf("RunInitialProbe: probing %d mint(s), startup budget %s", len(config.AcceptedMints), budget)
 	results := make(map[string]probeOutcome, len(config.AcceptedMints))
 	waits := make(map[string]time.Duration, len(config.AcceptedMints))
+	var unprobed []string
 	for _, mint := range config.AcceptedMints {
-		results[mint.URL], waits[mint.URL] = t.probeMintOutcome(mint.URL, nil)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			unprobed = append(unprobed, mint.URL)
+			continue
+		}
+		// Give the probe no more than the budget has left, so the last mint we
+		// start cannot overshoot the bound by a whole probeTimeout.
+		client := t.httpClient
+		if remaining < probeTimeout {
+			client = &http.Client{Timeout: remaining, Transport: t.httpClient.Transport}
+		}
+		results[mint.URL], waits[mint.URL] = t.probeMintOutcome(mint.URL, client)
+	}
+	if len(unprobed) > 0 {
+		// A probe that never happened learns nothing, so these mints keep their
+		// zero state — they are NOT marked failed. That is the same convention
+		// runProactiveCheck uses for a mint it skipped inside its Retry-After
+		// window, and it is what keeps the degraded -> full upgrade honest: the
+		// aggressive 15 s loop and the proactive loop are what learn the truth
+		// about them.
+		log.Printf("RunInitialProbe: startup budget %s exhausted — %d mint(s) not probed and left unlearned (%s)",
+			budget, len(unprobed), strings.Join(unprobed, " "))
 	}
 
 	t.mu.Lock()

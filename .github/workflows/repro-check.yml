@@ -81,3 +81,51 @@ jobs:
           else
             bash scripts/repro-test.sh "${{ github.event.inputs.target }}" "${{ github.event.inputs.arch }}"
           fi
+
+  # ---------------------------------------------------------------------------
+  # Path parity: the SDK path and the shortcut (cloud-lab Docker) path must
+  # produce the SAME binary for the same commit. Toolchain + flags come from
+  # the manifest (single source of truth; static drift gated by
+  # tests/contract/check-toolchain-parity.py). This job proves it with bytes.
+  # ---------------------------------------------------------------------------
+  path-parity:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve toolchain + version from the manifest
+        run: |
+          set -euo pipefail
+          echo "GO_VERSION=$(jq -r '.go.version' packaging/build-inputs.json)" >> "$GITHUB_ENV"
+          echo "PACKAGE_VERSION=$(tr -d '[:space:]' < VERSION)-r0" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Clean-root build (the SDK path's host prebuild, canonical flags)
+        run: |
+          set -euo pipefail
+          cd src
+          CGO_ENABLED=0 go build -o /tmp/cleanroot-tollgate -trimpath -buildvcs=false             -ldflags="-s -w -X main.version=$PACKAGE_VERSION" .
+          sha256sum /tmp/cleanroot-tollgate
+
+      - name: Shortcut-path build (cloud-lab Docker image, same manifest args)
+        run: |
+          set -euo pipefail
+          docker build -f tests/cloud-lab/Dockerfile.tollgate --target builder             --build-arg GO_VERSION="$GO_VERSION"             --build-arg PACKAGE_VERSION="$PACKAGE_VERSION"             --build-arg LDFLAGS="-s -w -X main.version=$PACKAGE_VERSION"             -o /tmp/docker-out .
+          # -o (output) writes the stage's filesystem tree; pull the binary out
+          find /tmp/docker-out -name tollgate -type f -exec cp {} /tmp/docker-tollgate \;
+          sha256sum /tmp/docker-tollgate
+
+      - name: The two paths must agree byte-for-byte
+        run: |
+          set -euo pipefail
+          A=$(sha256sum /tmp/cleanroot-tollgate | cut -d' ' -f1)
+          B=$(sha256sum /tmp/docker-tollgate | cut -d' ' -f1)
+          echo "clean-root: $A"
+          echo "docker:     $B"
+          [ "$A" = "$B" ] || { echo "❌ PATH DRIFT: the shortcut build diverges from the canonical one"; exit 1; }
+          echo "✅ both build paths produce identical binaries"

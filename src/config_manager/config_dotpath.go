@@ -12,6 +12,17 @@ func SetDotPath(cm *ConfigManager, key, value string) error {
 	if err := validateAgainstSchema(key, value); err != nil {
 		return fmt.Errorf("validation failed for %q: %w", key, err)
 	}
+	// Field-specific rules that the generic schema walk cannot express. The
+	// schema can bound a string's length but not its meaning, so a key with a
+	// semantic contract is checked here, before anything is written. This is
+	// the only cheap moment to refuse a bad value: once maintainer_npub is
+	// stored, the router publishes it in its announcement and a dashboard
+	// filters on it, so a typo becomes an unfindable fleet.
+	if key == "maintainer_npub" {
+		if err := ValidateMaintainerNpub(value); err != nil {
+			return fmt.Errorf("validation failed for %q: %w", key, err)
+		}
+	}
 
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -44,6 +55,15 @@ func SetDotPath(cm *ConfigManager, key, value string) error {
 		}
 		return SaveConfig(cm.ConfigFilePath, cfg)
 	}
+}
+
+// ValidateValue runs the schema validation for one dotpath/value pair without
+// writing anything. It exists for the wholesale `config save` path, which
+// replaces the whole file and therefore never went through the per-key checks
+// SetDotPath applies: an enum field written that way used to be stored
+// unvalidated, and a bad value in one of them is a router that stops answering.
+func ValidateValue(key, value string) error {
+	return validateAgainstSchema(key, value)
 }
 
 func validateAgainstSchema(key, value string) error {
@@ -103,6 +123,19 @@ func validateAgainstSchema(key, value string) error {
 	}
 
 	switch field.Type {
+	case "string":
+		if value == "" {
+			// Empty is the keep-current sentinel for the fields that carry
+			// length bounds (private_key); refusing it would break every
+			// wholesale `config save` of a stock config.
+			return nil
+		}
+		if field.MinLength > 0 && len(value) < field.MinLength {
+			return fmt.Errorf("value must be at least %d characters (got %d)", field.MinLength, len(value))
+		}
+		if field.MaxLength > 0 && len(value) > field.MaxLength {
+			return fmt.Errorf("value must be at most %d characters (got %d)", field.MaxLength, len(value))
+		}
 	case "uint64":
 		n, err := strconv.ParseUint(value, 10, 64)
 		if err != nil {

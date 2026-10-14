@@ -61,6 +61,17 @@ type identityMerchant struct {
 	statusMAC       string
 	sessionStateM   string
 	sessionStateHit bool
+	usageCalls      int
+	usageMAC        string
+}
+
+// GetUsage records which client the read-only routes asked about. It answers the
+// documented no-session pair so /balance takes its short branch — the goal here
+// is the identity, not the arithmetic.
+func (m *identityMerchant) GetUsage(macAddress string) (string, error) {
+	m.usageCalls++
+	m.usageMAC = macAddress
+	return "-1/-1", nil
 }
 
 func (m *identityMerchant) PurchaseSession(cashuToken, macAddress string) (*nostr.Event, error) {
@@ -133,8 +144,12 @@ func resolvedClient(t *testing.T, ip, mac string) {
 	useResolverPaths(t, leases, filepath.Join(dir, "arp-absent"))
 }
 
-// identityRoute is one of the five request shapes that used to substitute the
-// sentinel when the client could not be resolved.
+// identityRoute is one of the request shapes that used to substitute the
+// sentinel when the client could not be resolved. All of them are
+// client-scoped, so all of them are in the socket-identity contract covering
+// /balance and /usage too — those two resolved the address themselves (raw,
+// un-canonicalised, sentinel not refused) and were therefore the pair the
+// contract could drift on without any test noticing.
 type identityRoute struct {
 	name string
 	// needsIdentity marks a request that cannot be served without knowing which
@@ -269,6 +284,57 @@ func identityRoutes() []identityRoute {
 				}
 				if m.statusCalls != 1 || m.statusMAC != socketMAC {
 					t.Fatalf("GET /ln-invoice authorised against %q, want the socket-resolved %q", m.statusMAC, socketMAC)
+				}
+			},
+		},
+		{
+			// The read-only pair the card behind this work measured: both
+			// answered from the socket already, but they resolved the address
+			// themselves — so neither the canonical form nor the sentinel rule
+			// was enforced there, and `?mac=<other>` produced a body that looked
+			// exactly like the requester's own balance.
+			name:          "GET /balance",
+			needsIdentity: false,
+			request: func(assertedMAC string) *http.Request {
+				target := "/balance"
+				if assertedMAC != "" {
+					target += "?mac=" + url.QueryEscape(assertedMAC)
+				}
+				req := httptest.NewRequest(http.MethodGet, target, nil)
+				req.RemoteAddr = testClientIP + ":4321"
+				return req
+			},
+			call: HandleBalance,
+			assertServed: func(t *testing.T, w *httptest.ResponseRecorder, m *identityMerchant, socketMAC string) {
+				t.Helper()
+				if w.Code != http.StatusOK {
+					t.Fatalf("GET /balance returned %d, want 200 (body: %s)", w.Code, w.Body.String())
+				}
+				if m.usageCalls != 1 || m.usageMAC != socketMAC {
+					t.Fatalf("GET /balance asked the merchant about %q, want the socket-resolved %q", m.usageMAC, socketMAC)
+				}
+			},
+		},
+		{
+			name:          "GET /usage",
+			needsIdentity: false,
+			request: func(assertedMAC string) *http.Request {
+				target := "/usage"
+				if assertedMAC != "" {
+					target += "?mac=" + url.QueryEscape(assertedMAC)
+				}
+				req := httptest.NewRequest(http.MethodGet, target, nil)
+				req.RemoteAddr = testClientIP + ":4321"
+				return req
+			},
+			call: HandleUsage,
+			assertServed: func(t *testing.T, w *httptest.ResponseRecorder, m *identityMerchant, socketMAC string) {
+				t.Helper()
+				if w.Code != http.StatusOK {
+					t.Fatalf("GET /usage returned %d, want 200 (body: %s)", w.Code, w.Body.String())
+				}
+				if m.usageCalls != 1 || m.usageMAC != socketMAC {
+					t.Fatalf("GET /usage asked the merchant about %q, want the socket-resolved %q", m.usageMAC, socketMAC)
 				}
 			},
 		},

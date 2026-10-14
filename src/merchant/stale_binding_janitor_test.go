@@ -1,6 +1,7 @@
 package merchant
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -23,10 +24,11 @@ import (
 //
 // The tests drive the real usage-monitor entry point (`checkDataUsage`) against
 // the fake ndsctl on PATH, and stub the read-only NDS identity probe
-// (`ndsClientCheck`) whenever they need to model "NoDogSplash no longer lists
-// this client" independently of what the byte counters answer. That separation
-// is the point: the reconciliation must be decided by the device's presence, not
-// by whether its counters happen to be readable.
+// (`valve.CheckClientState`, per merchant) whenever they need to model
+// "NoDogSplash no longer lists this client" independently of what the byte
+// counters answer. That separation is the point: the reconciliation must be
+// decided by the device's presence, not by whether its counters happen to be
+// readable.
 //
 // The addresses below belong to these tests only. The valve's gate state is
 // package-global (shared by the whole test binary), so a test that borrowed
@@ -49,10 +51,10 @@ const (
 )
 
 // stubClientProbe replaces the reconciliation's NDS identity probe for ONE
-// merchant. The override is per merchant rather than the package-level
-// `ndsClientCheck` seam on purpose: the usage monitor runs on its own goroutine,
-// and several tests in this package leave a real monitor running, so writing a
-// package-global here would race with a sweep this test does not control.
+// merchant. The override is per merchant rather than a package-level seam on
+// purpose: the usage monitor runs on its own goroutine, and several tests in
+// this package leave a real monitor running, so writing a package-global here
+// would race with a sweep this test does not control.
 func stubClientProbe(t *testing.T, m *Merchant, probe func(string) (valve.ClientState, error)) {
 	t.Helper()
 
@@ -107,11 +109,21 @@ func deauthsFor(t *testing.T, ndsctl *renewalNdsctl, macAddress string) int {
 
 // closeGateCleanup returns the addressed gate to a closed state when the test
 // ends, so a gate this file opens cannot become the next test's stale binding.
+// It must also clear the valve's close-streak state for that gate: an abandoned
+// close streak blocks every later CloseGate of the MAC behind
+// ErrGateCloseAbandoned — plain CloseGate cannot clear it, only the
+// reconciliation path can — and the streak otherwise outlives the test that
+// spent it, failing whichever later run (a -count iteration, or a suite
+// ordering) asserts a fresh abandonment for the same MAC.
 func closeGateCleanup(t *testing.T, macAddress string) {
 	t.Helper()
 
 	t.Cleanup(func() {
-		if err := valve.CloseGate(macAddress); err != nil {
+		err := valve.CloseGate(macAddress)
+		if errors.Is(err, valve.ErrGateCloseAbandoned) {
+			err = valve.ReconcileGateClose(macAddress)
+		}
+		if err != nil {
 			t.Logf("cleanup: could not close the gate of %s: %v", macAddress, err)
 		}
 	})

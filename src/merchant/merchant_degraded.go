@@ -223,6 +223,17 @@ func (m *MerchantDegraded) GetUsage(macAddress string) (string, error) {
 	return "-1/-1", nil
 }
 
+// IssueSessionTicket is unavailable in degraded mode for the same reason
+// AddAllotment is: there is no wallet, so there is no session to name and
+// nothing a ticket could hand over.
+func (m *MerchantDegraded) IssueSessionTicket(macAddress string) (string, int64, error) {
+	return "", 0, fmt.Errorf("wallet not initialized: no reachable mints")
+}
+
+func (m *MerchantDegraded) RebindSession(ticket, macAddress string) (*CustomerSession, error) {
+	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+}
+
 func (m *MerchantDegraded) Fund(cashuToken string) (uint64, error) {
 	return 0, fmt.Errorf("wallet not initialized: no reachable mints")
 }

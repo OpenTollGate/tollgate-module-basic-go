@@ -32,6 +32,19 @@ var ErrTooManyQuotes = errors.New("too many active lightning quotes")
 // is what keeps our traffic from being the reason the mint answers 429.
 var ErrMintBusyLocal = errors.New("local mint quote budget exhausted")
 
+// ErrAccessGrantNotApplied reports a purchase that was PAID and whose access
+// could NOT be applied: the invoice settled (the value is in the operator's
+// wallet), and the gate could not be opened for the client, so the customer has
+// no allotment. The allotment is rolled back, the grant is retried, and the
+// error is what the caller must surface: a paid purchase that cannot be granted
+// is never a silent no-op for the caller and never a success for the module.
+//
+// It is returned instead of the underlying error so a caller can tell it apart
+// from "the invoice is unpaid" and from a lookup failure, and it names the
+// client and the quote in its message so the operator log line and the client
+// response both say whose purchase is stuck.
+var ErrAccessGrantNotApplied = errors.New("payment received but access could not be granted")
+
 const (
 	lightningQuoteStateCacheTTL     = 2 * time.Second
 	lightningQuoteMonitorInterval   = 5 * time.Second
@@ -660,7 +673,13 @@ func (m *Merchant) ensureLightningAccessGranted(quoteID string, state tollwallet
 				record.Processing = false
 			}
 			m.lightningQuoteMu.Unlock()
-			return err
+			// The customer paid and the tokens could not be issued. That is a
+			// paid purchase with nothing to show for it, so it is logged at
+			// ERROR naming the client (the operator's only surface) rather
+			// than left to a caller that might swallow it.
+			log.Printf("ERROR: a PAID purchase could not be completed: client %s (quote %s, mint %s) paid %d sat and the mint could not issue the tokens: %v — no access was granted and no allotment was applied; the purchase is NOT complete and the grant is retried",
+				recordCopy.MacAddress, quoteID, recordCopy.MintURL, amountToGrant, err)
+			return fmt.Errorf("%w: client %s, quote %s: the mint could not issue the tokens: %v", ErrAccessGrantNotApplied, recordCopy.MacAddress, quoteID, err)
 		}
 		amountToGrant = mintedAmount
 	}
@@ -672,7 +691,14 @@ func (m *Merchant) ensureLightningAccessGranted(quoteID string, state tollwallet
 			record.Processing = false
 		}
 		m.lightningQuoteMu.Unlock()
-		return err
+		// The money is in the operator's wallet and the customer has nothing:
+		// the exact failure measured on the bench MT3000 (2026-09-26) as
+		// "state=PAID, merchant wallet +1 sat, access_granted never true". It
+		// must never be a silent no-op — the operator gets one ERROR line that
+		// names the client, and the caller gets an error it can surface.
+		log.Printf("ERROR: a PAID purchase could not be granted: client %s (quote %s, mint %s, %d sat) paid and the grant could not be applied: %v — no allotment was applied (it was rolled back), the purchase is NOT complete, and access is retried; this must not be reported as a success",
+			recordCopy.MacAddress, quoteID, recordCopy.MintURL, amountToGrant, err)
+		return fmt.Errorf("%w: client %s, quote %s: %v", ErrAccessGrantNotApplied, recordCopy.MacAddress, quoteID, err)
 	}
 
 	m.lightningQuoteMu.Lock()

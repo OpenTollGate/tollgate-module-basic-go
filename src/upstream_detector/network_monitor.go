@@ -295,6 +295,20 @@ func (nm *networkMonitor) shouldMonitorInterface(name string) bool {
 	return true
 }
 
+// isLANFabricLink reports whether a link is fabric this router owns rather
+// than a path to an upstream: a bridge device (br-lan, br-private, docker0,
+// …) or a loopback interface. Upstream detection must not invent a gateway
+// for these — see InterfaceInfo.IsUpstreamGatewayCandidate.
+func isLANFabricLink(link netlink.Link) bool {
+	if link == nil || link.Attrs() == nil {
+		return true
+	}
+	if link.Attrs().Flags&net.FlagLoopback != 0 {
+		return true
+	}
+	return link.Type() == "bridge"
+}
+
 // getGatewayForInterface gets the gateway IP for an interface
 func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 	link, err := netlink.LinkByName(interfaceName)
@@ -303,6 +317,14 @@ func (nm *networkMonitor) getGatewayForInterface(interfaceName string) string {
 			"interface": interfaceName,
 			"error":     err,
 		}).Debug("Error getting link for interface")
+		return ""
+	}
+
+	// A bridge is our own LAN fabric, never an upstream link. Reporting a
+	// gateway for it is what produced the phantom 10.60.32.254 probe on
+	// br-private: no default route, so inference fabricated the .254 host.
+	if isLANFabricLink(link) {
+		logger.WithField("interface", interfaceName).Debug("Skipping LAN fabric interface (bridge/loopback) for upstream gateway detection")
 		return ""
 	}
 
@@ -492,6 +514,7 @@ func (nm *networkMonitor) GetCurrentInterfaces() ([]*InterfaceInfo, error) {
 			IsUp:           attrs.Flags&net.FlagUp != 0,
 			IsLoopback:     attrs.Flags&net.FlagLoopback != 0,
 			IsPointToPoint: attrs.Flags&net.FlagPointToPoint != 0,
+			IsBridge:       link.Type() == "bridge",
 		}
 
 		// Get IP addresses for the interface

@@ -25,12 +25,52 @@ time and assert the matching check id flips to FAIL:
   usage_bad           /usage answers something that is not used/allotment
   session_state       /session-state answers a real session-state shape
   luci_307_no_target  :LUCI_PORT 307s to a dead https URL
+  luci_307_to_alt     :LUCI_PORT 307s to a LIVE https port that is NOT :TLS_PORT
+                      (:ALT_PORT, a port the harness never sweeps). This is the
+                      decoy for the credit rule: the "LuCI target answered 200"
+                      check really does PASS, but against a different port, so a
+                      credit rule that asks "did some check PASS for this id"
+                      demotes a dead :TLS_PORT to a WARNING while the rule that
+                      credits the port the request LANDED on keeps it FAIL.
   ln_200              /ln-invoice answers 200 instead of the 400 poll
   ln_wrong_error      /ln-invoice 400s with a different error string
   empty_token_ok      POST / with an empty body returns 200 kind:1022 (bypass)
+  post_reject_token   POST / with a NON-empty body is refused (400 kind:21023):
+                      the box will not take a payment that carries a proof
   no_cors_preflight   OPTIONS loses Access-Control-Allow-Methods
+  identity_silent     the API stops reporting the ?mac= claim it ignored (the
+                      module goes back to ignoring the parameter SILENTLY, which
+                      is how a rig reads 'the gate never opened')
   portal_no_root_el   splash.html loses id="root"
   portal_no_hash      the entry chunk name loses its content hash
+  renew               the SECOND-purchase lane's session model:
+                        "ok"     -> the re-purchase opens the gate: the probe path
+                                    answers 204 (online) once a purchase is made
+                        "stuck"  -> the reported hardware defect: the balance is
+                                    restored (session_active true, allotment set)
+                                    while the probe path keeps 307-ing to the
+                                    splash, i.e. the gate stayed shut
+                      plus active_first: the box already reports an ACTIVE session
+                      before the lane buys (drives paid2:first-allotment-spent red)
+
+Liveness/timing scenarios (the section-0 TCP burst):
+  unbound_ports       a list of surfaces whose LISTENER IS NEVER BOUND, i.e. the
+                      port is genuinely dead for the whole run ("admin", "tls",
+                      "ssh", "portal", "stub", "api", "luci", "captive").
+                      Real case: :8090 as a br-lan client sees it (the #566 guard
+                      blocks it) -- a dead port, not a slow one.
+  ssh_late_bind_s     bind the :SSH_PORT listener this many seconds after start.
+                      Real case: the first connect burst races the box's own
+                      convergence, so the first attempt is refused and a LATER
+                      attempt answers. Deterministic: the harness's first attempt
+                      happens ~0.2 s after stub-ready, so 1.0 s with a 3 s backoff
+                      means attempt 1 is refused and attempt 2 answers.
+  admin_bind_on_first_http
+                      bind the :ADMIN_PORT listener on the first HTTP request the
+                      stub handles. Deterministic version of "dead at preflight
+                      (TCP-only), alive for every check after it": the burst runs
+                      before any HTTP, so :ADMIN is refused there and answers for
+                      every later phase.
 
 stdlib only.
 """
@@ -42,15 +82,86 @@ import re
 import socket
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SCENARIO = {}
 PORTS = {}
 RATE_STATE = {}
+# Live state of the stub's own session model, so a case can drive a SEQUENCE
+# (buy -> spend -> buy again) instead of a fixed answer. Only the renew lane
+# reads it; every other scenario leaves it at zero and is unaffected.
+SESSION = {"purchases": 0}
+LATE_BIND_LOCK = threading.Lock()
 
 
 def mut(name, default=False):
     return SCENARIO.get(name, default)
+
+
+def renew_mode():
+    """-> "" (off) | "ok" | "stuck"  -- the second-purchase model."""
+    value = mut("renew")
+    return value if value in ("ok", "stuck") else ""
+
+
+def renew_session_active():
+    """What /balance and /session-state answer in the renew model.
+
+    active_first models the precondition the lane must refuse: a session that is
+    still live, so a "second purchase" would be a renewal of an open gate.
+    Otherwise the session becomes active exactly when the lane's POST lands --
+    which is the reported symptom (the balance IS restored)."""
+    if not renew_mode():
+        return False
+    if mut("active_first"):
+        return True
+    return SESSION["purchases"] >= 1
+
+
+def gate_open():
+    """Whether the customer's traffic is past the gate in the stub's model.
+
+    "ok"    -> the re-purchase really opened it (probe path answers 204)
+    "stuck" -> the hardware defect: the gate never re-opened (probe path keeps
+               307-ing to the splash), while renew_session_active() says the
+               balance came back. The two must be able to disagree -- that
+               disagreement IS the bug this lane catches."""
+    return renew_mode() == "ok" and SESSION["purchases"] >= 1
+
+
+# The paths an OS uses to decide "am I behind a captive portal?".
+PROBE_PATHS = ("generate_204", "hotspot-detect.html", "connecttest.txt",
+               "success.txt", "ncsi.txt")
+
+
+def is_probe_path(path):
+    return any(fragment in path for fragment in PROBE_PATHS)
+
+
+def unbound(name):
+    """True when this surface's listener must never be bound (a genuinely dead
+    port for the whole run -- e.g. :8090 as a br-lan client sees it)."""
+    return name in (SCENARIO.get("unbound_ports") or [])
+
+
+def late_bind_admin():
+    """--scenario {"admin_bind_on_first_http": true}: bind the admin listener the
+    first time any HTTP request is handled.
+
+    The harness's section-0 liveness burst is TCP-only and runs before any HTTP,
+    so this is a DETERMINISTIC stand-in for the real bench behaviour that matters:
+    the port is refused during the burst and answers for every phase after it.
+    The bind happens synchronously, before the triggering request is answered, so
+    no later check can race the listener into existence.
+    """
+    if not SCENARIO.get("admin_bind_on_first_http") or unbound("admin"):
+        return
+    with LATE_BIND_LOCK:
+        if PORTS.get("admin_bound"):
+            return
+        PORTS["admin_bound"] = True
+    serve(AdminHandler, PORTS["admin"])
 
 
 class Base(BaseHTTPRequestHandler):
@@ -59,6 +170,10 @@ class Base(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):  # noqa: A002 - matches BaseHTTPRequestHandler
         pass
+
+    def parse_request(self):  # every method, every handler: see late_bind_admin()
+        late_bind_admin()
+        return super().parse_request()
 
     def _send(self, code, body, ctype="text/html; charset=utf-8", extra=None):
         if isinstance(body, str):
@@ -150,10 +265,33 @@ class AdminHandler(Base):
 class ApiHandler(Base):
     """:API_PORT -- the module API."""
 
-    def _json(self, code, obj, ctype="application/json"):
-        return self._send(code, json.dumps(obj), ctype)
+    def _json(self, code, obj, ctype="application/json", extra=None):
+        return self._send(code, json.dumps(obj), ctype, extra)
 
-    def _root_doc(self):
+    # --- the socket-identity contract (see docs/operator-guide.md) --------
+    # Every client-scoped route answers for the client at the other end of the
+    # SOCKET, and says which client that was: X-TollGate-Client-MAC. A `?mac=`
+    # the caller sent is a claim the module accepts for wire compatibility with
+    # the shipped portal and never honours, so when it differs from the socket
+    # address the answer also names the claim it did NOT honour
+    # (X-TollGate-Mac-Claim-Ignored). `identity_silent` removes that second
+    # header: the harness must then go red, because a silently-ignored claim is
+    # exactly what misled the bench rig on 2026-09-26.
+    def _claimed_mac(self):
+        """The `?mac=` the caller asserted, canonicalised, or ""."""
+        m = re.search(r"[?&]mac=([0-9A-Fa-f:]{17})", self.path)
+        return m.group(1).lower() if m else ""
+
+    def _identity_headers(self):
+        """What the module reports about the client it answered for."""
+        resolved = "00:00:00:00:00:00" if mut("whoami_sentinel") else "aa:bb:cc:dd:ee:ff"
+        hdrs = {"X-TollGate-Client-MAC": resolved}
+        claimed = self._claimed_mac()
+        if claimed and claimed != resolved and not mut("identity_silent"):
+            hdrs["X-TollGate-Mac-Claim-Ignored"] = claimed
+        return hdrs
+
+    def _root_doc(self, extra=None):
         """GET / -- also what /session-state falls through to on a build that
         does not ship the endpoint (byte-identical is the whole point)."""
         kind = mut("root_kind") or 10021
@@ -161,7 +299,8 @@ class ApiHandler(Base):
         if not mut("root_degraded"):
             tags.append(["price_per_step", "cashu", "1", "sat", "https://mint.stub.invalid", "0"])
         return self._json(200, {"kind": kind, "id": "stub-id", "pubkey": "stub-pubkey",
-                                "created_at": 0, "tags": tags})
+                                "created_at": 0, "tags": tags},
+                          extra=self._identity_headers())
 
     def do_OPTIONS(self):
         extra = {}
@@ -198,21 +337,44 @@ class ApiHandler(Base):
             return self._root_doc()
         if path == "/whoami":
             mac = "00:00:00:00:00:00" if mut("whoami_sentinel") else "aa:bb:cc:dd:ee:ff"
-            return self._send(200, "mac=%s\n" % mac, "text/plain; charset=utf-8")
+            return self._send(200, "mac=%s\n" % mac, "text/plain; charset=utf-8",
+                              self._identity_headers())
         if path == "/balance":
             if mut("balance_malformed"):
-                return self._json(200, {"status": 1})
+                return self._json(200, {"status": 1}, extra=self._identity_headers())
+            if renew_mode():
+                active = renew_session_active()
+                # `renew_no_allotment`: the module reports an active session but no
+                # allotment at all -- the state a balance-only check would still
+                # call "restored".
+                allotment = 0 if mut("renew_no_allotment") else (22020096 if active else 0)
+                return self._json(200, {"status": 1, "session_active": active, "metric": "bytes",
+                                        "usage": 0, "allotment": allotment,
+                                        "remaining": allotment, "start_time": 0},
+                                  extra=self._identity_headers())
             return self._json(200, {"status": 1, "session_active": bool(mut("balance_active")),
-                                    "usage": 0, "allotment": 0, "remaining": 0})
+                                    "usage": 0, "allotment": 0, "remaining": 0},
+                              extra=self._identity_headers())
         if path == "/usage":
             return self._send(200, "nonsense" if mut("usage_bad") else "-1/-1",
-                              "text/plain; charset=utf-8")
+                              "text/plain; charset=utf-8", self._identity_headers())
         if path == "/session-state":
+            if renew_mode():
+                # In the renew model the endpoint that exists to tell a
+                # first-time visitor from an exhausted customer answers the
+                # stateful value, so the lane reads its precondition here.
+                active = renew_session_active()
+                allotment = 0 if mut("renew_no_allotment") else (22020096 if active else 0)
+                return self._json(200, {"status": 1, "session_active": active,
+                                        "state": "active" if active else "expired",
+                                        "remaining": allotment, "allotment": allotment},
+                                  extra=self._identity_headers())
             if mut("session_state"):
-                return self._json(200, {"session_active": False, "remaining": 0, "allotment": 0})
+                return self._json(200, {"session_active": False, "remaining": 0, "allotment": 0},
+                                  extra=self._identity_headers())
             # pre-#541 behaviour: the mux falls through to the root handler
             # -> BYTE-IDENTICAL to GET /, which is what the harness detects
-            return self._root_doc()
+            return self._root_doc(extra=self._identity_headers())
         if path == "/identity":
             return self._json(200, {"npub": "npub1stubstubstub", "ipv4": "100.64.0.1",
                                     "macs": {"br-lan": "aa:bb:cc:dd:ee:ff"}})
@@ -230,19 +392,44 @@ class ApiHandler(Base):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
         if mut("empty_token_ok"):
-            return self._json(200, {"kind": 1022, "id": "stub-session", "content": "session granted"})
+            return self._json(200, {"kind": 1022, "id": "stub-session", "content": "session granted"},
+                              extra=self._identity_headers())
         if not body:
             return self._json(400, {"kind": 21023, "id": "stub-notice",
-                                    "content": "No payment tag found in event"})
+                                    "content": "No payment tag found in event"},
+                              extra=self._identity_headers())
+        if mut("post_reject_token"):
+            return self._json(400, {"kind": 21023, "id": "stub-notice",
+                                    "content": "token could not be redeemed"},
+                              extra=self._identity_headers())
         # a real token would be redeemed by the module; the stub only reports what
-        # the paid lane expects from a successful redemption.
-        return self._json(200, {"kind": 1022, "id": "stub-session", "content": "session granted"})
+        # the paid lane expects from a successful redemption -- including the
+        # signed device-identifier tag naming the client the grant went to. The
+        # purchase counter backs the renew model (buy -> spend -> buy again).
+        SESSION["purchases"] += 1
+        granted = mut("grant_mac") or "aa:bb:cc:dd:ee:ff"
+        return self._json(200, {"kind": 1022, "id": "stub-session", "content": "session granted",
+                                "tags": [["device-identifier", "mac", granted]]},
+                          extra=self._identity_headers())
 
 
 class CaptiveHandler(Base):
     """:CAPTIVE_PORT -- nodogsplash pre-auth interception."""
 
     def do_GET(self):
+        # The OS captive-portal probes, arrived at through the customer's data
+        # path. On hardware this URL is a real public endpoint and NoDogSplash
+        # either intercepts it (307 to the splash) or lets it through; the stub
+        # plays both roles on this one port, which is what lets the self-test hold
+        # the two client-visible outcomes apart. Only the renew model's "ok"
+        # branch opens the gate, and only after a purchase.
+        #
+        # `gate_open_before` is the ONE state that must not read as a pass: the
+        # gate answers the probe BEFORE the re-purchase, i.e. it was never shut,
+        # so the shut/open pair is not a transition and `paid2:gate-open` must not
+        # be satisfiable.
+        if is_probe_path(self.path) and (gate_open() or mut("gate_open_before")):
+            return self._send(204, "")
         if mut("captive_200"):
             return self._send(200, "<html><body>no enforcement here</body></html>")
         # NOTE: build these with concatenation, never %-formatting: the encoded
@@ -262,7 +449,11 @@ class LuciHandler(Base):
     """:LUCI_PORT -- LuCI http, 307 to https."""
 
     def do_GET(self):
-        port = 1 if mut("luci_307_no_target") else PORTS["tls"]
+        if mut("luci_307_to_alt"):
+            # A live https target that is NOT the port the sweep calls :TLS_PORT.
+            port = PORTS["alt"]
+        else:
+            port = 1 if mut("luci_307_no_target") else PORTS["tls"]
         loc = "https://%s:%d/" % (PORTS["host"], port)
         return self._send(307, "", "text/plain", {"Location": loc})
 
@@ -294,23 +485,39 @@ def serve(handler, port, tls=False):
     return httpd
 
 
-def ssh_banner(port):
-    """A bare TCP listener: proves net:tcp-<port> without pretending to be SSH."""
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("0.0.0.0", port))
-    srv.listen(16)
+def ssh_banner(port, delay=0.0):
+    """A bare TCP listener: proves net:tcp-<port> without pretending to be SSH.
 
-    def loop():
-        while True:
-            try:
-                conn, _addr = srv.accept()
-                conn.sendall(b"SSH-2.0-rhp-stub\r\n")
-                conn.close()
-            except OSError:
-                return
+    delay > 0 (--scenario {"ssh_late_bind_s": N}) does not even BIND until then,
+    so the harness's first connect is refused and a later attempt answers -- the
+    bench's real "the first burst raced the box" case, made deterministic. The
+    bind stays synchronous for the default delay=0, so the listener is up before
+    "stub-ready" and no case depends on a startup race.
+    """
+    def bind_and_listen():
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("0.0.0.0", port))
+        srv.listen(16)
 
-    threading.Thread(target=loop, daemon=True).start()
+        def loop():
+            while True:
+                try:
+                    conn, _addr = srv.accept()
+                    conn.sendall(b"SSH-2.0-rhp-stub\r\n")
+                    conn.close()
+                except OSError:
+                    return
+
+        threading.Thread(target=loop, daemon=True).start()
+
+    if delay > 0:
+        def delayed():
+            time.sleep(delay)
+            bind_and_listen()
+        threading.Thread(target=delayed, daemon=True).start()
+    else:
+        bind_and_listen()
 
 
 def main():
@@ -326,6 +533,9 @@ def main():
     ap.add_argument("--luci-port", type=int, required=True)
     ap.add_argument("--captive-port", type=int, required=True)
     ap.add_argument("--tls-port", type=int, required=True)
+    ap.add_argument("--alt-port", type=int, default=0,
+                    help="a second, LIVE https listener the harness does not know about; "
+                         "bound only under the luci_307_to_alt scenario")
     ap.add_argument("--ssh-port", type=int, required=True)
     ap.add_argument("--cert", default="")
     ap.add_argument("--key", default="")
@@ -337,18 +547,36 @@ def main():
 
     PORTS.update({"host": args.host, "portal": args.portal_port, "stub": args.stub_port,
                   "api": args.api_port, "admin": args.admin_port, "luci": args.luci_port,
-                  "captive": args.captive_port, "tls": args.tls_port,
+                  "captive": args.captive_port, "tls": args.tls_port, "alt": args.alt_port,
                   "portal_docroot": args.portal_docroot, "admin_docroot": args.admin_docroot,
                   "cert": args.cert, "key": args.key})
 
-    serve(PortalHandler, args.portal_port)
-    serve(StubHandler, args.stub_port)
-    serve(ApiHandler, args.api_port)
-    serve(AdminHandler, args.admin_port)
-    serve(CaptiveHandler, args.captive_port)
-    serve(LuciHandler, args.luci_port)
-    serve(TlsHandler, args.tls_port, tls=bool(args.cert))
-    ssh_banner(args.ssh_port)
+    # A surface listed in "unbound_ports" is never bound at all -- the honest
+    # stand-in for a port that is genuinely dead for the whole run (as :8090 is
+    # for a br-lan client). The admin one may still be bound later, on demand:
+    # see late_bind_admin().
+    if not unbound("portal"):
+        serve(PortalHandler, args.portal_port)
+    if not unbound("stub"):
+        serve(StubHandler, args.stub_port)
+    if not unbound("api"):
+        serve(ApiHandler, args.api_port)
+    if not unbound("admin") and not SCENARIO.get("admin_bind_on_first_http"):
+        serve(AdminHandler, args.admin_port)
+    if not unbound("captive"):
+        serve(CaptiveHandler, args.captive_port)
+    if not unbound("luci"):
+        serve(LuciHandler, args.luci_port)
+    if not unbound("tls"):
+        serve(TlsHandler, args.tls_port, tls=bool(args.cert))
+    # The decoy listener: live https, on a port the harness never probes, so the
+    # only thing that can reach it is the :LUCI 307 Location. It exists so the
+    # rig can tell "a check reached the port in question" apart from "a check
+    # that mentions the port PASSed".
+    if args.alt_port and SCENARIO.get("luci_307_to_alt"):
+        serve(TlsHandler, args.alt_port, tls=bool(args.cert))
+    if not unbound("ssh"):
+        ssh_banner(args.ssh_port, delay=float(SCENARIO.get("ssh_late_bind_s", 0)))
 
     print("stub-ready", flush=True)
     try:
