@@ -43,12 +43,12 @@ type RPCError struct {
 
 // Standard-ish JSON-RPC error codes used by MCP servers.
 const (
-	ErrParse     = -32700
-	ErrInvalid   = -32600
-	ErrMethodNF  = -32601
-	ErrParams    = -32602
-	ErrInternal  = -32603
-	ErrAuthz     = -32000 // authorization refusals (ours)
+	ErrParse    = -32700
+	ErrInvalid  = -32600
+	ErrMethodNF = -32601
+	ErrParams   = -32602
+	ErrInternal = -32603
+	ErrAuthz    = -32000 // authorization refusals (ours)
 )
 
 func encryptTo(sk, recipientPub string) func(string) (string, error) {
