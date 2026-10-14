@@ -125,6 +125,12 @@ is lock-only on this provider and does not restart it.
   guest's dropbear has no sftp-server.
 - VM host keys churn with snapshot reprovisioning: the lane already passes
   `UserKnownHostsFile=/dev/null`.
+- **One user-net NIC only.** A VM given two `-netdev user` NICs (the vm-campaign
+  shape) ends up with the wan side *and* `br-lan` both holding `10.0.2.15`
+  after the dhcp reprovision — the duplicate address breaks `hostfwd` (ssh
+  banner timeout) in ways that look like a provisioning failure. This lane's
+  bring-up assumes the single-NIC vlab shape; the wan-routing need the second
+  NIC served is moot once `lan.proto=dhcp`.
 - The x86 VM has **no radios and no br-private**: SSID derivation, private
   networking and band steering need the physical lane (PRTA journey on the
   x1860 seats).
