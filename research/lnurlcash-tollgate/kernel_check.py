@@ -101,8 +101,22 @@ def leaf_checksigadd(expiry, a, b):
 
 
 def commit(leaf):
+    """Return (output_key_32, control_block).
+
+    NUMS internal key = no key path, exactly the device LUD-25 and Hedgehog use.
+
+    CAREFUL -- root cause of the earlier 'Witness program hash mismatch':
+    S.taproot_tweak_pubkey(internal_x, tweak) expects the FINAL tweak SCALAR
+    (the TapTweak hash), NOT the tapleaf hash. Passing the tapleaf hash skips
+    the tagged_hash("TapTweak", P || h) step and yields a WRONG output key,
+    which Core reports as "Witness program hash mismatch". Verified both ways:
+    computing tagged_hash("TapTweak", NUMS || tlh) first reproduces Core's own
+    address for tr(NUMS, pk(PK_A)) byte-for-byte (60988ad4...); passing tlh
+    instead yields 7736a306..., which Core rejects.
+    """
     tlh = S.tapleaf_hash(leaf)
-    out_key, parity = S.taproot_tweak_pubkey(NUMS, tlh)
+    tweak = S.tagged_hash("TapTweak", NUMS + tlh)
+    out_key, parity = S.taproot_tweak_pubkey(NUMS, tweak)
     ctrl = bytes([0xc0 | parity]) + NUMS + tlh
     return out_key, ctrl
 
