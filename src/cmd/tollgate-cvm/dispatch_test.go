@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -76,6 +77,10 @@ func TestDispatchCall(t *testing.T) {
 
 // TestDispatchAuthzRefusal: a stranger's write-tool call is refused with an
 // authz error code AND the tool never reaches the bridge.
+//
+// The tool must be a REAL write tool: using one that is absent from the
+// surface would still produce an error (unknown tool), so the test would pass
+// while proving nothing about the maintainer gate.
 func TestDispatchAuthzRefusal(t *testing.T) {
 	bridgeCalled := false
 	bridge := &FakeBridge{fn: func(msg CLIMessage) (CLIResponse, error) {
@@ -85,16 +90,29 @@ func TestDispatchAuthzRefusal(t *testing.T) {
 	const maintainer = "npub1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqksqpew"
 	d := NewDispatcher(NewAuthorizer(maintainer), bridge, "npub1test")
 
-	params, _ := json.Marshal(map[string]interface{}{"name": "service_stop"})
+	// Assert the premise: this tool must actually be on the surface and be a
+	// write tool, or the refusal below is not evidence of the maintainer gate.
+	var target *Tool
+	for i := range ToolSurface() {
+		if ToolSurface()[i].Name == "private_disable" {
+			target = &ToolSurface()[i]
+			break
+		}
+	}
+	if target == nil || !target.Write {
+		t.Fatal("private_disable must be a real write tool for this test to mean anything")
+	}
+
+	params, _ := json.Marshal(map[string]interface{}{"name": "private_disable"})
 	resp := d.Dispatch("npub1stranger", JSONRPCRequest{JSONRPC: "2.0", ID: float64(3), Method: "tools/call", Params: params})
 	if resp.Error == nil {
-		t.Fatal("stranger's service_stop succeeded")
+		t.Fatal("stranger's private_disable succeeded")
 	}
 	if resp.Error.Code != ErrAuthz {
 		t.Fatalf("error code %d, want ErrAuthz %d", resp.Error.Code, ErrAuthz)
 	}
-	if resp.Error.Message == "" {
-		t.Fatal("authz refusal must carry a message — silence is the failure mode")
+	if !strings.Contains(resp.Error.Message, "maintainer-only") {
+		t.Fatalf("refusal %q must be the maintainer gate, not an unknown-tool error", resp.Error.Message)
 	}
 	if bridgeCalled {
 		t.Fatal("refused call reached the bridge — the gate must short-circuit BEFORE dispatch")
