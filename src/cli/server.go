@@ -92,8 +92,25 @@ func (s *CLIServer) manualPauseDuration() time.Duration {
 	return 120 * time.Second
 }
 
+// claimSocketLock holds an exclusive flock on the sidecar lock file next
+// to the CLI socket, serializing Start's probe → remove → bind across
+// processes. Closing the returned file (or process death) drops the lock.
+func claimSocketLock(socketPath string) (*os.File, error) {
+	f, err := os.OpenFile(socketPath+".lock", os.O_CREATE|os.O_RDWR, SocketPermissions)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open the CLI socket claim lock %s: %v", socketPath+".lock", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("cannot lock the CLI socket claim lock %s: %v", socketPath+".lock", err)
+	}
+	return f, nil
+}
+
 // Start begins listening on the Unix socket
 func (s *CLIServer) Start() error {
+	socketPath := getSocketPath()
+
 	// A socket file can be leftover debris (crashed daemon) or the live
 	// surface of a RUNNING daemon. Removing it unconditionally — the old
 	// behavior — let a second daemon steal the CLI surface from a healthy
@@ -102,24 +119,32 @@ func (s *CLIServer) Start() error {
 	// degraded) process while the first keeps the wallet (#504). Distinguish
 	// the two cases by dialing: a daemon that answers owns the socket, and
 	// this start must refuse; a connect refusal means nothing is listening
-	// and the file is safe to reclaim.
-	if conn, err := net.DialTimeout("unix", getSocketPath(), 2*time.Second); err == nil {
+	// and the file is safe to reclaim. The claim lock serializes
+	// concurrent starters: the winner binds and releases; every loser then
+	// dials a live socket and refuses instead of removing it.
+	claim, err := claimSocketLock(socketPath)
+	if err != nil {
+		return err
+	}
+	defer claim.Close()
+
+	if conn, derr := net.DialTimeout("unix", socketPath, 2*time.Second); derr == nil {
 		conn.Close()
 		return fmt.Errorf("another tollgate daemon is already serving on %s — "+
-			"refusing to replace its CLI socket (stop it first)", getSocketPath())
-	} else if !isStaleSocket(err) {
-		return fmt.Errorf("cannot determine ownership of existing socket %s: %v", getSocketPath(), err)
+			"refusing to replace its CLI socket (stop it first)", socketPath)
+	} else if !isStaleSocket(derr) {
+		return fmt.Errorf("cannot determine ownership of existing socket %s: %v", socketPath, derr)
 	}
 
 	// Remove existing socket file if it exists
-	if err := os.Remove(getSocketPath()); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove existing socket: %v", err)
+	if rerr := os.Remove(socketPath); rerr != nil && !os.IsNotExist(rerr) {
+		return fmt.Errorf("failed to remove existing socket: %v", rerr)
 	}
 
 	// Create Unix socket listener
-	listener, err := net.Listen("unix", getSocketPath())
-	if err != nil {
-		return fmt.Errorf("failed to create Unix socket: %v", err)
+	listener, lerr := net.Listen("unix", socketPath)
+	if lerr != nil {
+		return fmt.Errorf("failed to create Unix socket: %v", lerr)
 	}
 
 	// Set socket permissions so CLI can access it
