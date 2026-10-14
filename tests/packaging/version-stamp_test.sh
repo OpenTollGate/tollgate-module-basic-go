@@ -105,4 +105,19 @@ grep -q 'BUILD_VERSION="${GITHUB_REF_NAME}"' "$WF" \
 grep -q 'tg_assert_version_consistency' "$WF" \
     || fail "build-package.yml does not run the post-build consistency fence"
 
+# --- 4. harness lanes resolve (and pin) the same string ---------------------
+
+# The reproducibility lanes were the remaining direct VERSION readers
+# (#941 follow-up): each must resolve through tg_version and pin the
+# resolved string into the build it drives — reprotest's hostile env
+# variations and the remote VM must not re-derive the version.
+for script in scripts/repro-test.sh scripts/repro-variance.sh scripts/shc-build-package.sh; do
+    grep -q 'tg_version' "$REPO_ROOT/$script" \
+        || fail "$script does not resolve its version through tg_version"
+done
+grep -q 'TG_VERSION=$PKG_VERSION' "$REPO_ROOT/scripts/repro-variance.sh" \
+    || fail "repro-variance.sh does not pin the resolved version into the varied builds"
+grep -q 'export PKG_VERSION=$PKG_VERSION' "$REPO_ROOT/scripts/shc-build-package.sh" \
+    || fail "shc-build-package.sh does not pin the resolved version into the remote build"
+
 echo "passed=1 failed=0 (override wins over VERSION; fence warns/fails; three lanes wired)"

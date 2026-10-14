@@ -212,6 +212,21 @@ else
     fail "build-package.yml must run tg_assert_version_consistency with TG_REQUIRE_VERSION_CONSISTENCY=1 (#941)"
 fi
 
+# --- 8c. tg_version is the only VERSION reader among build scripts ----------
+# Discovery by glob, never enumeration: any script under scripts/ or
+# packaging/ that still reads the VERSION file directly re-declares the
+# resolver — the per-script re-derivation is exactly what let rc5's stamp
+# lag the tag (#941). The resolver itself (packaging/build-env.sh) and this
+# fence are the only sanctioned readers.
+DIRECT_VERSION_READERS="$(grep -rln 'REPO_ROOT/VERSION' scripts/*.sh packaging/*.sh 2>/dev/null \
+    | grep -v 'scripts/check-version-sync.sh' || true)"
+if [ -z "$DIRECT_VERSION_READERS" ]; then
+    pass "no build script reads VERSION directly; build-env.sh tg_version is the only resolver"
+else
+    printf '%s\n' "$DIRECT_VERSION_READERS" >&2
+    fail "a build script reads the VERSION file directly; resolve through build-env.sh tg_version instead (#941)"
+fi
+
 # --- 9. the release documents carry the version being released --------------
 # A stale RELEASE-NOTES.md shipped once already (the v0.5.0 document was still
 # in the tree two minors later); make the docs line up with VERSION or fail.
