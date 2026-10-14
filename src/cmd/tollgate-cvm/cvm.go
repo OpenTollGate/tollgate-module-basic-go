@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip44"
@@ -159,6 +160,20 @@ func UnwrapResponse(gw nostr.Event, clientSK string) (JSONRPCResponse, error) {
 		return resp, fmt.Errorf("response json: %w", err)
 	}
 	return resp, nil
+}
+
+// RequireMaintainer is the claim gate on the control plane as a whole.
+//
+// An unclaimed router (empty maintainer_npub) must NOT serve: with no
+// maintainer tag nobody can discover it legitimately, and while the
+// Authorizer would still refuse writes, READS would answer any signed caller
+// — leaking status, wallet balance and configuration to the world. Refusing
+// to serve is the safe default; the refusal names the exact fix.
+func RequireMaintainer(npub string) error {
+	if strings.TrimSpace(npub) == "" {
+		return fmt.Errorf("router is unclaimed: set maintainer_npub first (tollgate config set maintainer_npub <npub1…>), or it will not expose reads to unauthenticated callers")
+	}
+	return nil
 }
 
 // SKFromNpub is deliberately NOT implemented to return a key: an npub is a

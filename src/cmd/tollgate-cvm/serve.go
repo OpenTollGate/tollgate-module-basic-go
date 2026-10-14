@@ -34,6 +34,12 @@ func Serve(ctx context.Context, cfg *ServerConfig, bridge Bridge) error {
 		}
 	}
 
+	// Claim gate: no maintainer, no service. See RequireMaintainer for why
+	// reads must not be served to the world on an unclaimed router.
+	if err := RequireMaintainer(maintainer); err != nil {
+		return err
+	}
+
 	authz := NewAuthorizer(maintainer)
 	dispatcher := NewDispatcher(authz, bridge, serverPK)
 
