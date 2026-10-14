@@ -1,0 +1,146 @@
+sim_economics.py -- DETERMINISTIC SIMULATOR (not a chain)
+==============================================================================
+  advertised price      : 1 sat per 22020096 ms
+  => 1 sat buys         : 6.12 hours (0.25 days) of internet
+  => min wallet balance : 64 sats = 391 hours = 16.3 days
+  => min purchase       : 1 step = 1 sat = 6.12 h
+
+  THE HEADLINE NUMBER: at the module's own advertised price, a
+  single satoshi buys 6.12 hours of internet. That is the
+  unit the channel's on-chain cost has to be amortised against.
+
+T1  On-chain setup+close cost (716 sats @ 2 sat/vB) vs purchase size
+--------------------------------------------------------------------
+        purchase |     = internet |         = days |     chain cost |       overhead
+  ---------------+----------------+----------------+----------------+---------------
+           1 sat |          6.1 h |          0.3 d |        716 sat |      71,600.0%
+          10 sat |         61.2 h |          2.5 d |        716 sat |       7,160.0%
+          64 sat |        391.5 h |         16.3 d |        716 sat |       1,118.8%
+       1,000 sat |      6,116.7 h |        254.9 d |        716 sat |          71.6%
+      10,000 sat |     61,166.9 h |      2,548.6 d |        716 sat |           7.2%
+     100,000 sat |    611,669.3 h |     25,486.2 d |        716 sat |           0.7%
+   1,000,000 sat |  6,116,693.3 h |    254,862.2 d |        716 sat |           0.1%
+  Note: the channel's on-chain cost is FIXED per channel; the purchase it
+  settles is not. Below roughly 10^5 sats the overhead exceeds 1%.
+
+T2  Channel value needed to amortise 716 sats of on-chain cost
+--------------------------------------------------------------
+          target |        channel |     = internet |        = years |         = fiat
+  ---------------+----------------+----------------+----------------+---------------
+           10.0% |      7,160 sat |       43,796 h |        5.00 yr |             $7
+            1.0% |     71,600 sat |      437,955 h |       49.99 yr |            $72
+            0.1% |    716,000 sat |    4,379,552 h |      499.95 yr |           $716
+           0.01% |  7,160,000 sat |   43,795,524 h |    4,999.49 yr |         $7,160
+  To get the on-chain cost under the 0.1% a mint/Lightning fee costs, the
+  customer must prepay for CENTURIES of internet. The instrument is three
+  to four orders of magnitude too small for its own settlement layer.
+
+T3  Cost to settle one purchase (sats), Cashu vs one-way channel
+----------------------------------------------------------------
+        purchase |          cashu |      channel@2 |        chan@50 |  channel/cashu
+  ---------------+----------------+----------------+----------------+---------------
+              64 |           0.06 |            718 |         17,902 |      11,217.9x
+           1,000 |           1.00 |            746 |         17,930 |         746.4x
+          10,000 |          10.00 |          1,020 |         18,204 |         102.0x
+         100,000 |         100.00 |          3,757 |         20,941 |          37.6x
+       1,000,000 |       1,000.00 |         31,127 |         48,311 |          31.1x
+  Channel column = on-chain fund+claim + capital lockup + abandon/dark-risk.
+  Cashu column = 0.1% melt-to-Lightning. Cashu is cheaper at EVERY size
+  the product actually sells.
+
+T4  Customer's maximum value at risk per transaction (sats)
+-----------------------------------------------------------
+        purchase |          cashu |        channel |     chan/cashu
+  ---------------+----------------+----------------+---------------
+               1 |              1 |            717 |           717x
+              64 |             64 |            780 |            12x
+           1,000 |          1,000 |          1,716 |             2x
+          10,000 |         10,000 |         10,716 |             1x
+         100,000 |        100,000 |        100,716 |             1x
+  Cashu exposes the customer to EXACTLY the amount being bought -- a bearer
+  token is handed over like cash, so there is nothing else to lose. A
+  one-way channel locks the entire prefund BEFORE any service is
+  rendered. The channel INCREASES customer exposure by the whole
+  settlement cost, and on top of that the escape hatch is only usable by
+  a payer who can observe height and publish in time (demo_channel.py T5).
+
+T5  What the channel replaces, and its own new costs
+----------------------------------------------------
+       mechanism |           unit |           cost |       who pays
+  ---------------+----------------+----------------+---------------
+  mint NUT-07 checkstate |         ~1 RTT |         ~0 sat | router (not the customer)
+  Cashu swap NUT-03 |          0 bps |          0 sat | router, at all 5 configured mints
+  Lightning melt payout |           0.1% |   10 / 10k sat | router; already exists today
+  CHANNEL funding tx |         155 vB |        310 sat | NEW -- customer must bear
+  CHANNEL claim tx |         203 vB |        406 sat | NEW -- once per channel
+  The thing being removed costs ~0 sat and one round-trip. The thing
+  replacing it costs hundreds of sats. This is a strictly worse trade
+  at the product's own unit size.
+
+T6  Fee-spike sensitivity: on-chain cost in internet-time
+---------------------------------------------------------
+          sat/vB |      chan cost |    days of net | purchases forgone
+  ---------------+----------------+----------------+---------------
+               1 |            358 |           91.2 |            358
+               2 |            716 |          182.5 |            716
+               5 |          1,790 |          456.2 |          1,790
+              20 |          7,160 |        1,824.8 |          7,160
+              50 |         17,900 |        4,562.0 |         17,900
+             100 |         35,800 |        9,124.1 |         35,800
+             200 |         71,600 |       18,248.1 |         71,600
+  At 50 sat/vB the setup alone buys 4,562 days of internet. A customer
+  choosing between settling a channel and buying bandwidth will always
+  choose bandwidth -- which is the correct outcome for the product and a
+  fatal one for the channel as a payment rail.
+
+T7  FALSIFIABILITY: does the verdict survive a different price_per_step?
+------------------------------------------------------------------------
+        sat/step |      h per sat |    1000h costs |       overhead
+  ---------------+----------------+----------------+---------------
+               1 |          6.117 |            163 |        439.26%
+              10 |          0.612 |          1,634 |         43.82%
+             100 |          0.061 |         16,348 |          4.38%
+            1000 |          0.006 |        163,487 |          0.44%
+  The module DEFAULT is price_per_step=1 (config_manager_config.go:305).
+  This table re-runs the overhead at 10x, 100x and 1000x that price. Even
+  pricing internet 1000x higher (1000 sat per 6.1 h, i.e. ~USD 0.16/h at
+  the assumed BTC price), a customer buying 1000 hours still pays only
+  ~0.1-1% overhead -- and that is the ONLY regime where the channel starts
+  to be defensible. If TollGate's real price were ~1000 sat/step the cost
+  argument weakens; the CUSTODY argument (demo T3/T5/T7) does not.
+
+==============================================================================
+A4 DOMINANCE VERDICT (computed, not asserted)
+==============================================================================
+  At a 1,000-sat purchase (the largest plausible single TollGate sale):
+    Cashu cost           : 1.00 sats
+    Channel cost         : 746 sats (71.6% overhead)
+    To reach the 0.1% a mint/LN fee costs, a channel must be worth
+    716,000 sats = 499.9 years of internet.
+
+  VERDICT: Cashu DOMINATES the one-way channel for every purchase size
+  this product sells. Cashu is a bearer instrument, needs no chain, lets
+  the payer hand value over while fully offline, is free per purchase, and
+  caps the CUSTOMER's exposure at the amount being bought. The channel adds
+  on-chain cost, capital lockup, timelock and fee-timeliness risk, and a
+  larger customer exposure -- and buys back only the removal of a mint
+  round-trip that the customer was never performing anyway.
+
+------------------------------------------------------------------------------
+LIMITS OF THIS SIMULATOR (mandatory)
+------------------------------------------------------------------------------
+  IT CANNOT SUPPORT, and no claim is made about:
+   - whether any construction is consensus-valid (-> demo_channel.py)
+   - whether a construction is non-custodial (-> demo_channel.py T3/T5)
+   - exploitability, breach races, reorg behaviour (-> not tested at all:
+     regtest does not reorg on demand here, so A3's reorg risk is
+     UNQUANTIFIED and argued from construction, not measured)
+   - real market fee rates, mint fee schedules, or BTC price
+   - real user behaviour (abandon rate, session length are guesses)
+  IT IS a deterministic arithmetic model over SOURCED module constants
+  and explicitly-listed ASSUMED parameters. Change the assumptions in
+  ASSUMPTIONS and the tables move; the conclusion's DIRECTION does not,
+  because the sign is set by the ratio in T1/T2 (three to four orders of
+  magnitude), not by any single parameter.
+
+  wrote <rig>/out/sim_economics.json
