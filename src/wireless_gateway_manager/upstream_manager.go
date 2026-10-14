@@ -198,6 +198,14 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 			"signal": candidate.Signal,
 		}).Info("Startup check: candidate found, switching")
 
+		// Same pause discipline as the main loop's switch: a manual
+		// upstream operation may have started while this startup scan
+		// was in flight — decline rather than race it (#880).
+		if um.isPaused() {
+			logger.Info("Startup check: declining switch, connectivity checks paused (manual upstream operation in flight)")
+			break
+		}
+
 		if err := um.connector.SwitchUpstream(activeSTA.Name, candidate.IfaceName, candidate.SSID, candidate.BSSID); err != nil {
 			logger.WithError(err).Warn("Startup check: switch failed")
 			um.recordSwitchFailure()
@@ -345,6 +353,21 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 		}
 
 		if shouldScan {
+			// #880: a manual `tollgate upstream connect` parks inside
+			// SwitchUpstream for its DHCP wait with this manager paused.
+			// The pause used to gate only the lost-connectivity
+			// escalation, so a tick that read the mid-join radio as
+			// not-associated (or with no active section) still scanned
+			// and counter-switched to the disabled section the manual
+			// flow's competitor sweep (#848) had just created — the join
+			// never completed. While paused, the manager may observe but
+			// must not scan, clean up, or switch: the connect flow and
+			// the manager must not both drive the radio.
+			if um.isPaused() {
+				logger.WithField("reason", reason).Debug("Skipping scan cycle: connectivity checks paused (manual upstream operation in flight)")
+				continue
+			}
+
 			activeIface := ""
 			activeSSID := ""
 			activeBSSID := ""
@@ -529,6 +552,17 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID str
 	}
 
 	if shouldSwitch {
+		// Re-check after the scan: a manual upstream operation may have
+		// taken the pause while this cycle was scanning (scans take
+		// seconds). A cycle that started before the pause must still
+		// decline to switch once one is in force — #880.
+		if um.isPaused() {
+			logger.WithFields(logrus.Fields{
+				"ssid":   candidate.SSID,
+				"reason": reason,
+			}).Info("Declining switch: connectivity checks paused mid-cycle (manual upstream operation in flight)")
+			return
+		}
 		if err := um.connector.SwitchUpstream(activeIface, candidate.IfaceName, candidate.SSID, candidate.BSSID); err != nil {
 			logger.WithError(err).Warn("Failed to switch upstream")
 			um.recordSwitchFailure()
