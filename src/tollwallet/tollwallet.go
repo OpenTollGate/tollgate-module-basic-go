@@ -181,11 +181,23 @@ func (w *TollWallet) registerMint(mintURL string) {
 	// health window and made a healthy install report "the merchant is degraded".
 	//
 	// Guard it: only hand AddMint a mint that answers OUR bounded keyset request
-	// first, so the (now fast) AddMint cannot hang. A mint that does not answer
-	// is left UNREGISTERED rather than blocking boot — ensureMintRegistered
-	// retries it on first use, and the reachable-set callbacks admit it when it
-	// recovers. The registration is sequential, so exactly one AddMint is ever
-	// in flight and gonuts is never called concurrently.
+	// first. The probe and AddMint are SEPARATE exchanges, so this makes an
+	// AddMint hang UNLIKELY rather than impossible — a mint can answer /v1/keysets
+	// promptly and then stall AddMint's own fetches. The bound NARROWS the hang
+	// window; it does not close it. The real closure is a goroutine-with-timeout
+	// around AddMint, or moving registration off the boot path entirely — a
+	// follow-up; the installer side additionally reports the resulting slow start
+	// as a non-fatal "pending" rather than a failure.
+	//
+	// Residual worst case: one registerMintKeysetTimeout PER reachable mint, run
+	// sequentially — with 7 mints and the 8 s default that is 56 s at boot, well
+	// under the 113-347 s it replaces, but still potentially longer than the
+	// installer's health window. A mint that does not answer is left UNREGISTERED
+	// rather than blocking boot — ensureMintRegistered retries it on first use,
+	// so the FIRST payment routed to that mint pays a bounded <=8 s probe inline
+	// (a latency change, not a correctness one), and the reachable-set callbacks
+	// admit it once it recovers. Registration is sequential, so exactly one
+	// AddMint is ever in flight and gonuts is never called concurrently.
 	if !mintServesKeysets(canonical, registerMintKeysetTimeout) {
 		log.Printf("TollWallet: mint %s did not answer a bounded keyset check in %s — deferring registration", canonical, registerMintKeysetTimeout)
 		return
