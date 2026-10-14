@@ -143,4 +143,4 @@ LIMITS OF THIS SIMULATOR (mandatory)
   because the sign is set by the ratio in T1/T2 (three to four orders of
   magnitude), not by any single parameter.
 
-  wrote <rig>/out/sim_economics.json
+  wrote /home/c08r4d0r/worktrees/owc-spike/research/one-way-channel-spike/out/sim_economics.json

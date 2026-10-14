@@ -1,5 +1,5 @@
 Bitcoin Core daemon version v31.1.0 bitcoind
-regtest chain height 276, relay fee 1e-06 BTC/kvB
+regtest chain height 118, relay fee 1e-06 BTC/kvB
 variant            : spilman
 witness script     : 112 bytes  (6356b27521034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0...)
 scriptPubKey       : 0020fe8a7d7b8cb09c0208ed82c7ab3fb8b58aef5097c50d48dbe0fe476f1c9e7e09
@@ -15,7 +15,7 @@ T1  What the script encodes
 ============================================================================
 T2  A payment state settles on-chain
 ============================================================================
-    channel funded: 22e20e3f15020976ff8dcd5e083ed0e43173c00b814876a928e8013ade78828f:1 = 10000000 sats (1 confirmation)
+    channel funded: b34b5239541bd5bad6e6d1f4901a7ab0582c49db6feffabb1a1ca1ed1192806e:1 = 10000000 sats (1 confirmation)
     state(owed=100000) broadcast: ACCEPTED
   [PASS] latest payment state is valid consensus
     vsize 203 vB, fee 400 sats (2.0 sat/vB, 0.40% of the 100000 sat granule)
@@ -45,8 +45,8 @@ T4  Stale state: why one-way channels need no revocation machinery
 ============================================================================
 T5  The payer's refund: pre-signed, but gated on a BLOCK HEIGHT
 ============================================================================
-    refund broadcast at height 283: REJECTED non-BIP68-final
-    mined 6 blocks -> height 289; refund again: ACCEPTED
+    refund broadcast at height 125: REJECTED non-BIP68-final
+    mined 6 blocks -> height 131; refund again: ACCEPTED
   [PASS] refund rejected while the CScriptNum/CSV delay is immature
           non-BIP68-final
   [PASS] refund accepted once the delay ages
@@ -111,7 +111,7 @@ T8  Oracle and tooling: can a third party verify a state with stock Core?
       another integration cost the Cashu path does not have.
   [PASS] our ECDSA is deterministic (RFC6979)
   [PASS] Core's decoder agrees with our txid, size and vsize
-          txid da585a360686f6cfc359.., size 400, vsize 203
+          txid 9886b5a68e69a53d23df.., size 398, vsize 203
     The strongest oracle is T2/T3/T4 themselves -- Core only accepts a
     spend whose signature and sighash are byte-correct, and it REJECTED
     the tampered one. 'Accepted' + 'tampered rejected' is a two-sided
