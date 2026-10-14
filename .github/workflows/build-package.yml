@@ -7,6 +7,11 @@ on:
         description: "Build all UPX compression variants (overrides the branch gate)"
         type: boolean
         default: false
+      version:
+        description: "TG_VERSION: override the version stamped into the binaries, the packages and the announce (empty = tag on tag builds, else VERSION)"
+        type: string
+        required: false
+        default: ""
   push:
     branches: [main]
     tags: ["v*"]
@@ -28,6 +33,12 @@ env:
   # resolves it from packaging/build-inputs.json (.go.version) so the
   # workflow and the manifest cannot drift apart (#448).
   DEBUG: "true"
+  # #941: the rc5 feed package carried a binary stamped from a lagged
+  # VERSION file (rc4) while the tag and the package said rc5. The
+  # post-build version-consistency fence in packaging/build-env.sh must
+  # FAIL here, not warn — a release whose stamp diverged from its
+  # package is unshippable, and a fence that cannot fail is decoration.
+  TG_REQUIRE_VERSION_CONSISTENCY: "1"
   BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom1.orangesync.tech https://blossom2.orangesync.tech https://drive.cashu.email"
   # Tag publishes must land on enough mirrors that the redundancy the channel
   # promises is real; branch/dev builds stay lenient (1) so flaky mirrors
@@ -166,7 +177,12 @@ jobs:
         shell: bash
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
+          # #941: the workflow_dispatch `version` input is TG_VERSION — one
+          # knob that re-points stamp AND package version together, so the
+          # two can never diverge on a manual build.
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            echo "package_version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          elif [[ $GITHUB_REF == refs/tags/* ]]; then
             echo "package_version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
           else
             SANITIZED_BRANCH_NAME=$(echo "${GITHUB_REF_NAME}" | sed 's/\//-/g')
@@ -237,6 +253,7 @@ jobs:
         env:
           CGO_ENABLED: "0"
           PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
+          TG_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
           # ONE flag recipe for every lane. packaging/build-env.sh owns the
@@ -248,16 +265,26 @@ jobs:
           # (repro-test built with main) and stamped the branch-derived
           # package_version where the harness stamps VERSION.
           #
-          # The binaries embed the version in VERSION at the repository root,
-          # the single source of truth (scripts/check-version-sync.sh enforces
-          # it, and the tag check above pins refs/tags/* to it), so a release
-          # build and a harness build of one commit embed the same string.
-          # PACKAGE_VERSION — the tag, or <branch>.<height>.<sha> for branch
-          # builds — still versions the packages, their control metadata and
-          # the Nostr announcement; only the ldflags take VERSION.
-          BUILD_VERSION="$(tr -d '[:space:]' < VERSION)"
+          # #941: the stamp derives from the SAME string the release is cut
+          # under, in one place. TG_VERSION (the workflow_dispatch `version`
+          # input) wins; a tag build derives it from the git tag itself — what
+          # the package is versioned with — so a lagged VERSION file can no
+          # longer mis-stamp the binary (the rc5 package self-reported rc4);
+          # the tag-vs-VERSION guard above still refuses tag/VERSION
+          # disagreement. The VERSION file stays the fallback for branch
+          # builds, keeping release and harness builds of one commit
+          # byte-identical. PACKAGE_VERSION — the tag, or
+          # <branch>.<height>.<sha> for branch builds — still versions the
+          # packages, their control metadata and the Nostr announcement.
+          if [[ -n "${TG_VERSION:-}" ]]; then
+            BUILD_VERSION="$TG_VERSION"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            BUILD_VERSION="${GITHUB_REF_NAME}"
+          else
+            BUILD_VERSION="$(tr -d '[:space:]' < VERSION)"
+          fi
           if [ -z "$BUILD_VERSION" ]; then
-            echo "ERROR: VERSION at the repository root is empty." >&2
+            echo "ERROR: could not derive the release version (TG_VERSION/tag/VERSION)." >&2
             exit 1
           fi
           # TG_ROOT matters: build-env.sh cannot infer the repository from $0
@@ -303,6 +330,16 @@ jobs:
 
             ls -lh "bin/$key/"
           done < <(printf '%s' "$TARGETS" | jq -c '.[]')
+
+          # #941 fence: every cross-compiled binary must embed BUILD_VERSION
+          # — the same string the packages are versioned with on tag builds.
+          # TG_REQUIRE_VERSION_CONSISTENCY=1 (workflow env) makes a mismatch
+          # fail the build instead of warning. The binaries target routers,
+          # so the fence reads the embedded string instead of executing them.
+          for key in arm64 armv7 mipsle-softfloat mips-softfloat amd64; do
+            tg_assert_version_consistency "$GITHUB_WORKSPACE/bin/$key/tollgate-wrt" "$BUILD_VERSION"
+            tg_assert_version_consistency "$GITHUB_WORKSPACE/bin/$key/tollgate" "$BUILD_VERSION"
+          done
 
       - name: Install nak
         run: |

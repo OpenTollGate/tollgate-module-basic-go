@@ -23,7 +23,14 @@ before treating a tree as buildable.
 
 The release version is written down in exactly one place: the
 [VERSION](../VERSION) file at the repository root. Everything else
-derives from it.
+derives from it — or overrides it in exactly one way: **`TG_VERSION`**
+is the single documented override knob, resolved once by `tg_version`
+in `packaging/build-env.sh` (`TG_VERSION` wins, the VERSION file is the
+fallback) and consumed by `packaging/local-build-ipk.sh`,
+`scripts/build-sdk-package.sh`, and the release workflow's
+`workflow_dispatch` version input (#941: the rc5 package carried a
+binary stamped from a lagged VERSION file; tag builds now stamp from
+the git tag itself).
 
 - **CI** ([.github/workflows/build-package.yml](../.github/workflows/build-package.yml))
   takes the version from the pushed tag (`GITHUB_REF_NAME`, so the tag
@@ -33,7 +40,7 @@ derives from it.
   not byte-identical to `VERSION`, which is what stops a release from
   being published under a version nobody wrote down.
 - **`scripts/build-sdk-package.sh`** takes `PACKAGE_VERSION` from its
-  caller (CI passes the tag) and otherwise reads `VERSION` itself.
+  caller (CI passes the tag) and otherwise resolves it with `tg_version`.
 - **`packaging/files/etc/uci-defaults/99-tollgate-setup`** ships the
   placeholder `SETUP_VERSION="__TOLLGATE_VERSION__"`. The CI `.ipk`
   staging, the SDK `packaging/Makefile` (`.apk`) and
@@ -44,6 +51,11 @@ derives from it.
   `Version = "dev"`. A version literal there is a bug, not a
   convenience: it silently disagrees with the tag, and it is how a
   `v0.0.0` binary shipped in an earlier build.
+- **Every build lane asserts, post-build, that the binary's embedded
+  version equals the version it packaged** (`tg_assert_version_consistency`
+  in `packaging/build-env.sh`): a loud warning by default, a hard
+  failure under `TG_REQUIRE_VERSION_CONSISTENCY=1`, which the release
+  workflow sets.
 
 Bump `VERSION` in the release commit, then verify from the repo root:
 

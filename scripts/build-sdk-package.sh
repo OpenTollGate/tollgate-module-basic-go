@@ -82,18 +82,7 @@ HOST_ARTIFACT_PATH="$ARTIFACT_DIR/$ARTIFACT_SUBDIR"
 HOST_LOG_PATH="$HOST_ARTIFACT_PATH/build.log"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# VERSION at the repository root is the single source of truth for the release
-# version (see AGENTS.md, "Version single source of truth"). CI passes the tag
-# down as PACKAGE_VERSION; a local run with no override gets exactly the string
-# the release tag must equal. The 0.0.0-r0 stub is only for a tree with no
-# VERSION file (this script copied out of the repository).
-if [ -z "$PACKAGE_VERSION" ]; then
-    if [ -f "$REPO_ROOT/VERSION" ]; then
-        PACKAGE_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")"
-    else
-        PACKAGE_VERSION="0.0.0-r0"
-    fi
-fi
+
 STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 
@@ -103,6 +92,14 @@ trap 'rm -rf "$STAGE_DIR"' EXIT
 TG_ROOT="$REPO_ROOT"
 export TG_ROOT
 . "$REPO_ROOT/packaging/build-env.sh"
+
+# One version knob (#941): TG_VERSION overrides the ldflags stamp, the
+# package version and the __TOLLGATE_VERSION__ marker together; the
+# repository-root VERSION file is the fallback (build-env.sh tg_version).
+# PACKAGE_VERSION stays as the package-only legacy override — CI passes
+# the tag down through it — and feeds the ldflags too, so stamp and
+# package cannot diverge here; the post-build fence below asserts it.
+PACKAGE_VERSION="${PACKAGE_VERSION:-$(tg_version)}"
 
 GO_BIN="${GO_BIN:-go}"
 ACTIVE_GO="$("$GO_BIN" version | awk '{print $3}')"
@@ -165,6 +162,12 @@ if [ -d "$REPO_ROOT/src/cmd/tollgate-cvm" ]; then
             "$GO_BIN" build -o "$STAGE_DIR/tollgate-cvm" -trimpath -buildvcs=false .
     )
 fi
+
+# #941: the rc5 package shipped a binary stamped from a lagged VERSION
+# file. Assert the stamp landed — the binaries are cross-compiled, so
+# the fence reads the embedded string rather than executing them.
+tg_assert_version_consistency "$STAGE_DIR/tollgate-wrt" "$PACKAGE_VERSION"
+tg_assert_version_consistency "$STAGE_DIR/tollgate" "$PACKAGE_VERSION"
 
 cp -r "$REPO_ROOT/packaging/." "$STAGE_DIR/"
 cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/LICENSE"
