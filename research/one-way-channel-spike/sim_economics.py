@@ -22,7 +22,12 @@ import os
 # --------------------------------------------------------------------------
 # SOURCED constants (module @ cf7cad3)
 # --------------------------------------------------------------------------
-# (*) price_per_step = 1 sat / step_size = 22020096 ms
+# (*) price_per_step = 1 sat / step_size = 22020096
+#     ERRATUM: this file's model assumed step_size is MILLISECONDS. The shipped
+#     config (live tollgate-A04E) is metric="bytes", so step_size = 21 MiB and
+#     1 sat buys 21 MiB of DATA. The overhead RATIOS below are sat-to-sat and are
+#     unaffected; the purchase SIZE (and so the break-even) is not. Corrected
+#     analysis: granularity.py + out/GRANULARITY.txt.
 #     src/tollgate_protocol/validator_test.go: {"step_size", "22020096"},
 #     {"price_per_step","cashu","1","sat",...}; README.md:351 "price_per_step": 1
 PRICE_PER_STEP_SATS = 1

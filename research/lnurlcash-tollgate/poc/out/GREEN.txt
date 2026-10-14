@@ -1,0 +1,238 @@
+GREEN -- the passing run.
+Run: 2026-10-15T00:54:08+02:00   host: x280
+No defects injected. Every assertion below is a real vector field or a
+rule quoted from LUD-25/LUD-26/BIP-341/BIP-342/BIP-68.
+
+############ G1  tests/test_vectors.py  (LUD-25 + LUD-26 official vectors) ############
+
+LUD-25 test vectors: /home/c08r4d0r/reports/lnurlcash-tollgate/poc/vectors/25-vectors.json
+description: LUD-25 test vectors. Hex values are big-endian byte strings unless noted. Every spend was accepted by Bitcoin Core's interpreter (libbitcoinkernel) against the canonical spend transaction.
+
+==========================================================================
+V1  key_path_spend  --  LUD-25 'Output keys and spends' / 'Key-path notes'
+==========================================================================
+  [PASS] cp1<Q> encodes to the vector cp1 (LUD-25 Encoding, 32-byte Q)
+  [PASS] cp1 decodes back to Q and Q is a curve-point x (LUD-25 MUST-reject)
+  [PASS] prevout_txid = tagged_hash('LNURLcash/mint', domain) (canonical spend table)
+  [PASS] the vector's spend_tx carries that prevout in this byte order
+  [PASS] spent output scriptPubKey is OP_1 <Q> (canonical spend table)
+  [PASS] full SigMsg == vector sigmsg (BIP-341 SigMsg, ext_flag=0, SIGHASH_DEFAULT)
+  [PASS] SigMsg total length is 174 bytes for SIGHASH_DEFAULT / no annex
+  [PASS] SigMsg.hash_type
+  [PASS] SigMsg.nVersion (vector prints big-endian bytes)
+  [PASS] SigMsg.nLockTime
+  [PASS] SigMsg.sha_prevouts
+  [PASS] SigMsg.sha_amounts
+  [PASS] SigMsg.sha_scriptpubkeys
+  [PASS] SigMsg.sha_sequences
+  [PASS] SigMsg.sha_outputs
+  [PASS] SigMsg.spend_type (ext_flag*2 + annex_present)
+  [PASS] SigMsg.input_index
+  [PASS] hash_TapSighash == vector sighash
+  [PASS] BIP-340 sign(sk, sighash, aux=0) == vector sig (all-zero aux_rand, LUD-25)
+  [PASS] verify_key_path_spend accepts the vector signature
+  [PASS] the same ck1 FAILS at any other domain (LUD-25 'so a signature can never be replayed')
+  [PASS] ck1 = bech32m(Q || sig)
+  [PASS] ck1 payload is exactly 96 bytes = Q || sig (LUD-25 Encoding)
+  [PASS] canonical spend tx (nVersion 2, empty scriptSig, vout[0] value 0, witness [sig])
+
+==========================================================================
+V2  certificates (cs1)  --  LUD-25 'Offline verification'
+==========================================================================
+  [PASS] amount=1000: message = 'LNURLcash:' || amount || ':' || hex(Q)
+  [PASS] amount=1000: digest = sha256(sha256('Lightning Signed Message:' || message))
+  [PASS] amount=1000: RFC6979 recoverable sig with the recovery id moved to the end
+  [PASS] amount=1000: cs1 encoding (bech32m, HRP cs+amount, payload r||s||recid)
+  [PASS] amount=1000: cs1_verify rebuilds the message and recovers mintPubkey
+  [PASS] amount=1000: cs1 HRP decodes back to amount_msat (BOLT-11 HRP rules)
+  [PASS] amount=1000: rebuilt message is 'LNURLcash:1000:690ac33892c64aa53874b0066ab1332f0ef45cb7c0e017eae0828916f52aa99f'
+  [PASS] amount=1000: rebuilt digest == vector digest
+  [PASS] amount=21000000: message = 'LNURLcash:' || amount || ':' || hex(Q)
+  [PASS] amount=21000000: digest = sha256(sha256('Lightning Signed Message:' || message))
+  [PASS] amount=21000000: RFC6979 recoverable sig with the recovery id moved to the end
+  [PASS] amount=21000000: cs1 encoding (bech32m, HRP cs+amount, payload r||s||recid)
+  [PASS] amount=21000000: cs1_verify rebuilds the message and recovers mintPubkey
+  [PASS] amount=21000000: cs1 HRP decodes back to amount_msat (BOLT-11 HRP rules)
+  [PASS] amount=21000000: rebuilt message is 'LNURLcash:21000000:690ac33892c64aa53874b0066ab1332f0ef45cb7c0e017eae0828916f52aa99f'
+  [PASS] amount=21000000: rebuilt digest == vector digest
+  [PASS] cs1_hrp(1000) is BOLT-11 minimal form
+  [PASS] cs1_hrp(21000000) is BOLT-11 minimal form
+
+==========================================================================
+V3  bearer_note  --  LUD-25 'Bearer notes' / 'Short forms'
+==========================================================================
+  [PASS] h = sha256(preimage)
+  [PASS] leaf = OP_SHA256 <h> OP_EQUAL  (a8 20 <h> 87)
+  [PASS] tapleaf_hash (leaf version 0xc0)
+  [PASS] H is the BIP-341 NUMS point
+  [PASS] tweak = tagged_hash('TapTweak', H || tapleaf_hash(leaf))
+  [PASS] Q = x(lift_x(H) + tweak*G)
+  [PASS] control = (0xc0 | parity(Q)) || H
+  [PASS] cp1<Q>
+  [PASS] cw1 (script path, locktime 0, sequence 0xffffffff, witness [preimage])
+  [PASS] cw1 is exactly 192 characters (LUD-25 Encoding table)
+  [PASS] cw1 is exactly 192 characters, recomputed
+  [PASS] decode_cw1: u32 locktime big-endian
+  [PASS] decode_cw1: u32 sequence big-endian
+  [PASS] decode_cw1: script
+  [PASS] decode_cw1: control block
+  [PASS] decode_cw1: witness items bottom-of-stack-first = [preimage]
+  [PASS] k1 SHORT FORM: sha256-only wallet rebuilds the same cw1 from hex preimage
+  [PASS] cp1 SHORT FORM: hex h rebuilds the same Q
+  [PASS] a short form is 64 hex chars and collides with no cp1/ck1/cw1
+  [PASS] cw1 script-path spend verifies against the canonical spend tx
+  [PASS] Q recomputed from the control block == the vector Q
+  [PASS] a bearer cw1 opens Q at ANY domain (LUD-25: 'a leaf that checks no signature is bound to no domain')
+  [PASS] a wrong preimage FAILS to spend Q (hashlock is load-bearing)
+  [PASS] bearer certificate message = 'LNURLcash:1000:' || hex(Q)
+  [PASS] bearer certificate digest
+  [PASS] bearer cs1 from the certificates SERVICE key
+  [PASS] bearer cs1_verify recovers mintPubkey (offline verification step 3)
+  [PASS] note_url shape: lnurlw://<domain>/w?k1=<spend>&c=<cs1>
+
+==========================================================================
+V4  MUST-reject rules  --  LUD-25 Encoding table (not in the vector file)
+==========================================================================
+  [PASS] cp1 with a non-curve-point Q is rejected
+  [PASS] ck1 with a payload of any length but 96 bytes is rejected
+  [PASS] cw1 with a length prefix that does not consume the payload is rejected
+  [PASS] cw1 missing the witness is accepted (witness-free leaf is legal)
+  [PASS] a bad bech32m checksum is rejected (BIP-350)
+  [PASS] a leaf with OP_SUCCESSx outside pushed data is REJECTED by SERVICE (LUD-25)
+  [PASS] nLockTime as a BLOCK HEIGHT is refused
+  [PASS] nSequence as a BLOCK COUNT is refused (BIP-68 time-type flag required)
+  [PASS] nLockTime in the future is refused
+  [PASS] an enabled relative TIME lock that has not elapsed is refused
+  [PASS] the same relative TIME lock is accepted once elapsed
+
+==========================================================================
+V5  LUD-26 derivation + LUD-05 hashing  --  independent cross-check of LUD-25's sk/Q
+==========================================================================
+  [PASS] LUD-05 test vector: pathSuffix = first 16 bytes of hmacSha256, 4 big-endian uint32
+  [PASS] 0001020304050607 cashHashingKey = derive(m, m/139'/0)
+  [PASS]   (d1..d4) = first 16 bytes of hmacSha256(cashHashingKey, domain)
+  [PASS]   p = derive(m, m/139'/d1/d2/d3/d4)  [d UNHARDENED, see ERRATA E1]
+  [PASS]   chaincode
+  [PASS]   P is on the curve
+  [PASS]   P (33-byte compressed) and its y parity
+  [PASS]   cx1 = bech32m(P_x || chaincode)
+  [PASS]   cx1 is 112 characters (LUD-26 watch-only export)
+  [PASS]   purpose=0 i=0: t = tagged_hash('LNURLcash/derive', P||chaincode||purpose||i)
+  [PASS]   purpose=0 i=0: Q_i = lift_x(P) + t*G
+  [PASS]   purpose=0 i=0: sk_i (parity-dependent formula)
+  [PASS]   purpose=0 i=0: cp1<x(Q_i)>
+  [PASS]   purpose=0 i=1: t = tagged_hash('LNURLcash/derive', P||chaincode||purpose||i)
+  [PASS]   purpose=0 i=1: Q_i = lift_x(P) + t*G
+  [PASS]   purpose=0 i=1: sk_i (parity-dependent formula)
+  [PASS]   purpose=0 i=1: cp1<x(Q_i)>
+  [PASS]   purpose=0 i=2: t = tagged_hash('LNURLcash/derive', P||chaincode||purpose||i)
+  [PASS]   purpose=0 i=2: Q_i = lift_x(P) + t*G
+  [PASS]   purpose=0 i=2: sk_i (parity-dependent formula)
+  [PASS]   purpose=0 i=2: cp1<x(Q_i)>
+  [PASS]   purpose=0 i=5: t = tagged_hash('LNURLcash/derive', P||chaincode||purpose||i)
+  [PASS]   purpose=0 i=5: Q_i = lift_x(P) + t*G
+  [PASS]   purpose=0 i=5: sk_i (parity-dependent formula)
+  [PASS]   purpose=0 i=5: cp1<x(Q_i)>
+  [PASS]   purpose=1 i=0: t = tagged_hash('LNURLcash/derive', P||chaincode||purpose||i)
+  [PASS]   purpose=1 i=0: Q_i = lift_x(P) + t*G
+  [PASS]   purpose=1 i=0: sk_i (parity-dependent formula)
+  [PASS]   purpose=1 i=0: cp1<x(Q_i)>
+  [PASS]   purpose=2 i=0: t = tagged_hash('LNURLcash/derive', P||chaincode||purpose||i)
+  [PASS]   purpose=2 i=0: Q_i = lift_x(P) + t*G
+  [PASS]   purpose=2 i=0: sk_i (parity-dependent formula)
+  [PASS]   purpose=2 i=0: cp1<x(Q_i)>
+  [PASS] fffcf9f6f3f0edea cashHashingKey = derive(m, m/139'/0)
+  [PASS]   (d1..d4) = first 16 bytes of hmacSha256(cashHashingKey, domain)
+  [PASS]   p = derive(m, m/139'/d1/d2/d3/d4)  [d UNHARDENED, see ERRATA E1]
+  [PASS]   chaincode
+  [PASS]   P is on the curve
+  [PASS]   P (33-byte compressed) and its y parity
+  [PASS]   cx1 = bech32m(P_x || chaincode)
+  [PASS]   cx1 is 112 characters (LUD-26 watch-only export)
+  [PASS]   purpose=0 i=0: t = tagged_hash('LNURLcash/derive', P||chaincode||purpose||i)
+  [PASS]   purpose=0 i=0: Q_i = lift_x(P) + t*G
+  [PASS]   purpose=0 i=0: sk_i (parity-dependent formula)
+  [PASS]   purpose=0 i=0: cp1<x(Q_i)>
+  [PASS]   purpose=0 i=1: t = tagged_hash('LNURLcash/derive', P||chaincode||purpose||i)
+  [PASS]   purpose=0 i=1: Q_i = lift_x(P) + t*G
+  [PASS]   purpose=0 i=1: sk_i (parity-dependent formula)
+  [PASS]   purpose=0 i=1: cp1<x(Q_i)>
+  [PASS]   purpose=0 i=2: t = tagged_hash('LNURLcash/derive', P||chaincode||purpose||i)
+  [PASS]   purpose=0 i=2: Q_i = lift_x(P) + t*G
+  [PASS]   purpose=0 i=2: sk_i (parity-dependent formula)
+  [PASS]   purpose=0 i=2: cp1<x(Q_i)>
+  [PASS] LUD-25's key-path sk IS LUD-26 derivation[0] purpose 0 index 0 sk
+  [PASS] LUD-25's key-path Q IS LUD-26 derivation[0] purpose 0 index 0 Q (redacted to the 02||x form in 26-vectors)
+  [PASS] LUD-25's key-path Q is the x-only part of that Q (LUD-25 key-path notes)
+  [PASS] registration.register digest = sha256('LNURLcash:register:' || domain || ':' || username)
+  [PASS] registration.register BIP-340 sig verifies against pk_0 of that cx1 (LUD-26)
+  [PASS] registration.unregister digest = sha256('LNURLcash:unregister:' || domain || ':' || username)
+  [PASS] registration.unregister BIP-340 sig verifies against pk_0 of that cx1 (LUD-26)
+
+==========================================================================
+SUMMARY  141 assertions   141 PASS   0 FAIL
+==========================================================================
+
+############ G0  stdlib-only proof: python3 -S  (site-packages DISABLED) ############
+# -S removes sys.path entries for site-packages entirely. If anything here
+#   needed PyPI, this run could not pass.
+
+  [PASS] registration.unregister BIP-340 sig verifies against pk_0 of that cx1 (LUD-26)
+
+==========================================================================
+SUMMARY  141 assertions   141 PASS   0 FAIL
+==========================================================================
+
+############ G2  tests/test_bip342.py  (the BIP-342 finding) ############
+
+
+==========================================================================
+D1  the canonical Spilman leaf, as specified (BEFORE BIP-342 correction)
+==========================================================================
+    asm: OP_IF 6 OP_CHECKSEQUENCEVERIFY OP_DROP 4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa OP_CHECKSIG OP_ELSE 2 4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa 466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27 2 OP_CHECKMULTISIG OP_ENDIF
+    len: 109 bytes
+  [PASS] F1 the specified leaf contains OP_CHECKMULTISIG (0xae) and is 109 bytes
+
+==========================================================================
+D2  BIP-342-corrected leaf: OP_CHECKSIGADD replaces OP_CHECKMULTISIG
+==========================================================================
+    asm: OP_IF 6 OP_CHECKSEQUENCEVERIFY OP_DROP 4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa OP_CHECKSIG OP_ELSE 4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa OP_CHECKSIG 466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27 OP_CHECKSIGADD 2 OP_NUMEQUAL OP_ENDIF
+    len: 110 bytes
+  [PASS] F3 the corrected leaf's OPCODE STREAM is the BIP-342 translation of m<pk...>n CHECKMULTISIG (CHECKSIGADD present, CHECKMULTISIG absent)
+  [PASS] F1b the CHECKMULTISIG opcode DOES appear in the OPCODE STREAM of the specified leaf
+    size delta: 109 -> 110 bytes (+1)
+
+==========================================================================
+D3  EXECUTE both leaves (the finding)
+==========================================================================
+  [PASS] F2 the CHECKMULTISIG leaf is REJECTED as tapscript
+  [PASS] the same leaf executes cleanly under PRE-BIP-342 semantics (allow_disabled_opcodes=True), with witness [dummy, payerSig, payeeSig]
+  [PASS]    and it still correctly FAILS with only one signature
+  [PASS] F4 the CHECKSIGADD leaf SUCCEEDS with 2 of 2 signatures
+         2-of-2: ok
+  [PASS] F5 the CHECKSIGADD leaf FAILS with 1 of 2 signatures (threshold is real)
+         1-of-2: final stack element is false
+  [PASS] F4b full cw1 script-path verification accepts the 2-of-2 spend
+  [PASS] F6a the block-count CSV claim is REFUSED by LUD-25's timelock policy (LUD-25: block counts MUST be refused)
+  [PASS] F6 the CSV (expiry) branch reaches the payer without the payee, once the relative TIME lock is satisfied
+         CSV branch: ok
+  [PASS] F6b the same TIME-type relative lock passes LUD-25's timelock policy
+  [PASS] F6c a plain-6 CSV operand against a TIME-flagged nSequence is REJECTED by BIP-112 (flag must match)
+    leaf lengths: OP_CHECKMULTISIG form 109 bytes, OP_CHECKSIGADD form 110 bytes
+
+==========================================================================
+D4  what is proven, and what is not
+==========================================================================
+  13/13 checks pass
+
+  Proven here: the byte-level scripts, and BIP-342's step-2a/disabled-opcode
+  rules as re-implemented in lnurlcash/tapscript.py.
+  NOT proven here: that Bitcoin Core's interpreter agrees. No bitcoind and no
+  libbitcoinkernel on this host (verified in out/ENV.txt). The BIP text is
+  unambiguous on both points -- bip-0342.mediawiki:38 "The inefficient
+  OP_CHECKMULTISIG and OP_CHECKMULTISIGVERIFY opcodes are disabled", and :72
+  "The disabled opcodes behave in the same way as OP_RETURN, by failing and
+  terminating the script immediately when executed" -- but "I read the BIP" is
+  a weaker claim than "I ran the kernel", and the difference is recorded.
+
+exit codes: test_vectors.py=0  test_bip342.py=0

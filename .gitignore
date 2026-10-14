@@ -1,96 +1,86 @@
-# Editor / OS
-*.DS_Store
-.idea
-.roo/
 
-# Merge / patch artifacts
-*.orig
-
-# Go build outputs (binaries that land at repo or src/ root).
-# Anchored so the bare names cannot shadow source directories such as
-# src/cmd/tollgate-cli/ — unanchored, they silently ignore new files there.
-# A binary is named after the last element of the module path, so the CLI
-# module (src/cmd/tollgate-cli, module `tollgate-cli`) writes its executable
-# next to its sources — not at src/tollgate-cli.
-bin/
-artifacts/
-vendor/
-/tollgate
-/tollgate-wrt
-/tollgate-module-basic-go
-/tollgate-cli
-src/tollgate
-src/tollgate-wrt
-src/tollgate-module-basic-go
-src/cmd/tollgate-cli/tollgate-cli
-*.exe
-
-# Test artifacts
-**/tollwallet_db/*
-tests/*.bin
-tests/__pycache__/
-__pycache__/
-tests/.env
-# Per-checkout cloud-lab compose project isolation (.env.example is the template)
-tests/cloud-lab/.env
-
-# Host-specific cloud-lab port overrides (auto-loaded by docker compose;
-# see "Gotchas" in tests/cloud-lab/README.md)
-tests/cloud-lab/docker-compose.override.yml
-tests/cloud-lab/zoo-mint-config.json
-tests/cloud-lab/matrix-wallets/
-
-# Router credentials (copy from routers.env.example)
-routers.env
-
-# Router mutex (shared lock file at /root/routers.lock)
-routers.lock
-
-# AI tooling — shared skills are symlinked, local memory is per-repo
 # (AGENTS.md is committed and shared; CLAUDE.md is a local symlink to it)
-.claude/
-CLAUDE.md
-agents/
-skills
-memory-global
-memory-project/
-reference/
-.opencode/
-.omo/
-
-# Planning docs — internal, not for release
-docs/tmp/
-.omo/
-.playwright-mcp/
-*-plan.md
-PLAN-*.md
-TODO-*.md
-MOCK-*.md
-notepad*.md
-handover*.md
-ulw-*.md
+# A binary is named after the last element of the module path, so the CLI
+# AI tooling — shared skills are symlinked, local memory is per-repo
+# Anchored so the bare names cannot shadow source directories such as
 # Captive portal build output (built from source via packaging/portal-build.sh)
-packaging/files/tollgate-captive-portal-site/assets/
+# Conformance lane runtime state (tokens stashed between phases, generated
+# Editor / OS
+# Go build outputs (binaries that land at repo or src/ root).
+# Host-specific cloud-lab port overrides (auto-loaded by docker compose;
+# Merge / patch artifacts
+# Per-checkout cloud-lab compose project isolation (.env.example is the template)
+# Planning docs — internal, not for release
+# Portal build records written by packaging/portal-build.sh.
+# Router credentials (copy from routers.env.example)
+# Router mutex (shared lock file at /root/routers.lock)
+# Test artifacts
 # The rest of the bundle staged from the same pinned portal commit: the admin
 # board SPA, the rpcd plugin + ACL and the 999-tollgate-admin-setup
+# config, verdict parts, evidence logs) — see tests/cloud-lab/conformance/.
+# module (src/cmd/tollgate-cli, module `tollgate-cli`) writes its executable
+# next to its sources — not at src/tollgate-cli.
+# pytest bytecode from local (possibly root-owned) cloud-lab runs
+# see "Gotchas" in tests/cloud-lab/README.md)
+# src/cmd/tollgate-cli/ — unanchored, they silently ignore new files there.
 # uci-default. Build products — never commit built JS (upstream issue #335).
-packaging/files/tollgate-admin/
-packaging/files/usr/libexec/rpcd/tollgate
-packaging/files/usr/share/rpcd/acl.d/tollgate.json
-packaging/files/etc/uci-defaults/999-tollgate-admin-setup
-# Portal build records written by packaging/portal-build.sh.
-packaging/portal-resolved.sha
-packaging/portal-build-inputs.json
+**/tollwallet_db/*
+*-plan.md
+*.DS_Store
+*.cov
+*.exe
+*.orig
+.claude/
+.idea
+.omo/
+.opencode/
+.playwright-mcp/
+.roo/
+/tollgate
+/tollgate-cli
+/tollgate-module-basic-go
+/tollgate-wrt
+CLAUDE.md
+MOCK-*.md
+PLAN-*.md
+TODO-*.md
+__pycache__/
+agents/
+artifacts/
+bin/
+docs/tmp/
+handover*.md
+memory-global
+memory-project/
+notepad*.md
 nuts/
 packaging/*.ipk
-scripts/token-recovery/token-recovery
-*.cov
-
-# pytest bytecode from local (possibly root-owned) cloud-lab runs
-tests/cloud-lab/__pycache__/
+packaging/files/etc/uci-defaults/999-tollgate-admin-setup
+packaging/files/tollgate-admin/
+packaging/files/tollgate-captive-portal-site/assets/
+packaging/files/usr/libexec/rpcd/tollgate
+packaging/files/usr/share/rpcd/acl.d/tollgate.json
+packaging/portal-build-inputs.json
+packaging/portal-resolved.sha
+reference/
+routers.env
+routers.lock
 scripts/__pycache__/
-tests/cloud-lab/conformance/__pycache__/
-
-# Conformance lane runtime state (tokens stashed between phases, generated
-# config, verdict parts, evidence logs) — see tests/cloud-lab/conformance/.
+scripts/token-recovery/token-recovery
+skills
+src/cmd/tollgate-cli/tollgate-cli
+src/tollgate
+src/tollgate-module-basic-go
+src/tollgate-wrt
+tests/*.bin
+tests/.env
+tests/__pycache__/
 tests/cloud-lab/.conformance/
+tests/cloud-lab/.env
+tests/cloud-lab/__pycache__/
+tests/cloud-lab/conformance/__pycache__/
+tests/cloud-lab/docker-compose.override.yml
+tests/cloud-lab/matrix-wallets/
+tests/cloud-lab/zoo-mint-config.json
+ulw-*.md
+vendor/

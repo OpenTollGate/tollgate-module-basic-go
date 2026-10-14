@@ -109,7 +109,7 @@ third-party mint" and that the receiver "must claim before expiry or the sender
 refunds the whole channel". That is a deliberate trade — but the custodian should
 not be claimed away later.
 
-## 4. Why it does not pay: the price is 1 sat per 6.12 hours
+## 4. Why it does not pay: the fixed on-chain cost vs a 1-sat purchase
 
 The module's own constants, read live from `tollgate-A04E`
 (`tollgate-wrt v0.6.0-rc4-gcf7cad3`): `metric = "bytes"`,
