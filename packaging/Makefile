@@ -26,6 +26,10 @@ PKG_FLAGS:=overwrite
 # as tollgate-wrt (service) and tollgate (CLI). The SDK only packages them.
 PREBUILT_BIN:=$(PKG_MAKEFILE_DIR)tollgate-wrt
 PREBUILT_CLI:=$(PKG_MAKEFILE_DIR)tollgate
+# The CVM control-plane daemon (src/cmd/tollgate-cvm): exposes the CLI over
+# ContextVM on Nostr. Installed but inert until an operator claims the router
+# with a maintainer_npub — it refuses to serve unclaimed (claim gate).
+PREBUILT_CVM:=$(PKG_MAKEFILE_DIR)tollgate-cvm
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
@@ -182,8 +186,10 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	[ -f "$(PREBUILT_BIN)" ] || { echo "ERROR: prebuilt binary not found at $(PREBUILT_BIN). CI should stage it before invoking the SDK." >&2; exit 1; }
 	[ -f "$(PREBUILT_CLI)" ] || { echo "ERROR: prebuilt CLI not found at $(PREBUILT_CLI)." >&2; exit 1; }
+	[ -f "$(PREBUILT_CVM)" ] || { echo "ERROR: prebuilt CVM daemon not found at $(PREBUILT_CVM)." >&2; exit 1; }
 	$(CP) $(PREBUILT_BIN) $(PKG_BUILD_DIR)/tollgate-wrt
 	$(CP) $(PREBUILT_CLI) $(PKG_BUILD_DIR)/tollgate
+	$(CP) $(PREBUILT_CVM) $(PKG_BUILD_DIR)/tollgate-cvm
 	# Required, not best-effort (#751): the license text ships with the
 	# binary (see Package/install), so a build that cannot find it fails
 	# loudly instead of silently shipping a GPL binary without its license.
@@ -212,9 +218,11 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/tollgate-wrt $(1)/usr/bin/tollgate-wrt
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/tollgate $(1)/usr/bin/tollgate
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/tollgate-cvm $(1)/usr/bin/tollgate-cvm
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/init.d/tollgate-wrt $(1)/etc/init.d/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/init.d/tollgate-cvm $(1)/etc/init.d/
 
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
