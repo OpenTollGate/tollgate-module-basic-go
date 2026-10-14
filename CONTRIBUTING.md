@@ -147,7 +147,16 @@ touched package will fail the build.
 
 The release version is written down in exactly one place: the
 [VERSION](VERSION) file at the repository root. Everything else derives
-from it:
+from it — or overrides it in exactly one way: **`TG_VERSION`** is the
+single documented override knob, resolved in one place
+(`tg_version` in [packaging/build-env.sh](packaging/build-env.sh):
+`TG_VERSION` wins, the VERSION file is the fallback). It re-points the
+binary stamp, the package version and the `__TOLLGATE_VERSION__` marker
+together in every packaging path (`packaging/local-build-ipk.sh`,
+`scripts/build-sdk-package.sh`, and the release workflow's
+`workflow_dispatch` version input; tag-triggered builds derive the
+stamp from the git tag itself, never from a lagged VERSION file — #941,
+the rc5 package self-reported rc4).
 
 - **CI** ([.github/workflows/build-package.yml](.github/workflows/build-package.yml))
   takes the version from the pushed tag and passes it to the Go binaries
@@ -161,6 +170,11 @@ from it:
   version marker.
 - **`src/cli/version.go`** must keep the non-release `dev` sentinel: a
   plain `go build` then cannot pass itself off as a release.
+- **Every build lane asserts, post-build, that the binary's embedded
+  version equals the version it packaged** (`tg_assert_version_consistency`
+  in [packaging/build-env.sh](packaging/build-env.sh)): a loud warning
+  by default, a hard failure when `TG_REQUIRE_VERSION_CONSISTENCY=1`
+  (the release workflow sets that).
 
 Changes that touch the release version also run, from the repo root:
 
