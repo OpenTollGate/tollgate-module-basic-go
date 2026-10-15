@@ -26,6 +26,19 @@ exact action required. Everything else is progress; the raw log is PROGRESS.md.
 
 ---
 
+## EXIT CONDITION — MET (2026-10-15)
+
+All five parts satisfied. Programme result at `docs/analysis/PROGRAMME-RESULT.md`,
+also posted to PR #944 (issuecomment-6181747093).
+
+| Part | Status |
+|---|---|
+| (a) all deliverables committed, contradictions reconciled, tree clean, push verified | **MET** — `d9bf85b` |
+| (b) each POC green against real consensus w/ RED+GREEN, or HANDOFF w/ named prerequisite | **MET** — LNURLcash codec 141/141 + BIP-342 ruled by Core; Hedgehog 13 checks + D5 verdict; router verifier 47 assertions Core-validated |
+| (c) each P2 question has a written verdict citing its run | **MET** — `docs/analysis/P2-VERDICTS.md` |
+| (d) remaining items are ONLY HANDOFF or operator decisions | **MET** — see HANDOFF table below |
+| (e) PR #944 carries one consolidated summary | **MET** — `PROGRAMME-RESULT.md` + PR comment |
+
 ## HANDOFF — needs the operator (do NOT retry)
 
 | Item | Exact operator action |
