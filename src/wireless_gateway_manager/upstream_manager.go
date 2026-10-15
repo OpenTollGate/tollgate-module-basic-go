@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -25,21 +26,24 @@ type ResellerModeChecker interface {
 }
 
 type UpstreamManager struct {
-	connector            ConnectorInterface
-	scanner              ScannerInterface
-	reseller             ResellerModeChecker
-	config               UpstreamManagerConfig
-	stopChan             chan struct{}
-	pauseMu              sync.Mutex
-	pauseUntil           time.Time
-	blacklist            map[string]time.Time
-	blacklistMu          sync.Mutex
-	failMu               sync.Mutex
-	consecutiveFails     int
-	cooldownUntil        time.Time
-	connectivityCheckFn  func() bool
-	connectivityProbeFn  func() ConnectivityResult
-	isTollGateConnection bool
+	connector           ConnectorInterface
+	scanner             ScannerInterface
+	reseller            ResellerModeChecker
+	config              UpstreamManagerConfig
+	stopChan            chan struct{}
+	pauseMu             sync.Mutex
+	pauseUntil          time.Time
+	blacklist           map[string]time.Time
+	blacklistMu         sync.Mutex
+	failMu              sync.Mutex
+	consecutiveFails    int
+	cooldownUntil       time.Time
+	connectivityCheckFn func() bool
+	connectivityProbeFn func() ConnectivityResult
+	// #880: written by concurrent verifyPostSwitchConnectivity
+	// goroutines (overlapping scan cycles spawn one per switch), read by
+	// the Start loop — no shared lock, hence atomic.
+	isTollGateConnection atomic.Bool
 	DiscoveryLog         *DiscoveryLogger
 }
 
@@ -337,7 +341,7 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 					}
 					lostCount++
 					lostThreshold := um.config.LostThreshold
-					if um.isTollGateConnection {
+					if um.isTollGateConnection.Load() {
 						lostThreshold = um.config.TollGateLostThreshold
 					}
 					logger.WithField("lost_count", lostCount).Info("Connectivity lost")
@@ -598,13 +602,13 @@ func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string, bssid strin
 	logger.WithField("ssid", ssid).Info("Post-switch: verifying connectivity")
 	if um.waitForDefaultRoute(30 * time.Second) {
 		if um.probeTollGateGateway(bssid) {
-			um.isTollGateConnection = true
+			um.isTollGateConnection.Store(true)
 			logger.WithField("ssid", ssid).Info("Post-switch: TollGate detected, skipping internet blacklist check")
 			return
 		}
 	}
 
-	um.isTollGateConnection = false
+	um.isTollGateConnection.Store(false)
 	result := um.probeConnectivity("")
 	if !result.OK {
 		um.blacklistUpstream(ssid, bssid)
