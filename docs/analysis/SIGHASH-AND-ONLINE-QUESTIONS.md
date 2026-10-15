@@ -1,5 +1,18 @@
 # The Hedgehog [CORE]-accept gap, and who must be online
 
+> **SUPERSEDED — READ THE CORRECTIONS FIRST.**
+> This document is retained as the record of two claims that were **wrong**:
+> * Both bugs it describes as "not finished" were later **found and fixed**
+>   (`SIGHASH-FIXED.md`). The Core reject was ours — a missing `sha_sequences`
+>   field plus a witness ordering mistake — and the Hedgehog flow now completes
+>   end-to-end with Core accepting and broadcasting.
+> * Its **Q2 answer is RETRACTED**: Hedgehog *does* support the direction
+>   TollGate needs (offline payer, online payee). See `RETRACTION-DIRECTION.md`
+>   for the executed proof.
+>
+> Kept because the pattern of the errors is the transferable lesson: both came
+> from reasoning about a specification instead of reading or running it.
+
 Two questions answered from the shipped sources. Written 2026-10-15.
 
 ---
@@ -153,4 +166,4 @@ changed the verdict.
 |---|---|
 | Implementation bug or Hedgehog flaw? | **Our harness** — a BIP-341 sighash misreading. Not finished; the exact next step is named above. Core proves the node and the trees are right. |
 | Does it change D5? | **No** — D5 rests on the timelock structure, independently validated. |
-| Does Hedgehog support sender-offline *sending*? | **No** — that is the recipient's property. It is the opposite party from the one TollGate needs offline. |
+| Does Hedgehog support sender-offline *sending*? | ~~No~~ **RETRACTED — YES.** The payer constructs locally with no network; the payee completes later. See `RETRACTION-DIRECTION.md`. |

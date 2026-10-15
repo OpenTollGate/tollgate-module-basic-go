@@ -48,9 +48,9 @@ Every check in `poc/run_poc.py` is labelled by evidence class. 13 checks pass.
 - Core recognises our taproot output key for the real 3-leaf Hedgehog tree as a
   valid `witness_v1_taproot` key.
 - The 2-of-2 P2TR output was funded and confirmed (`getrawtransaction`).
-- Core **verified the fully-signed script-path spend** and rejected it with
-  `Invalid Schnorr signature` — i.e. it reached and executed the tapscript. (See
-  the open item below: this is a *reject*, so it is not yet an end-to-end accept.)
+- Core **verified and ACCEPTED the fully-signed script-path spend**
+  (`allowed=True`, broadcast `d9ddaa98…`) — after we fixed two bugs of our own;
+  see `SIGHASH-FIXED.md` and the corrected honest-boundary section below.
 
 **`[CORE + JS]` — the strongest validation, from `poc/xcheck.py` (10/10):**
 - X1 BIP-340 official test vector: pubkey, signature, verify.
@@ -74,13 +74,22 @@ Every check in `poc/run_poc.py` is labelled by evidence class. 13 checks pass.
 
 ## What is NOT proven — honest boundary
 
-1. **No end-to-end `[CORE]` acceptance.** Core rejected our assembled spend with
-   `Invalid Schnorr signature`. So Core executed the script (good) but did not
-   accept the spend. The signature mismatch is most likely in our sighash
-   plumbing for the *tree* context (`leaf_sighash` must use the tree-derived
-   leaf hash); the local signature verifies against our own verifier, which is
-   precisely the kind of self-agreement that the prior rig's Core cross-check
-   caught four bugs with. **Do not read this leg as a pass.**
+1. ~~**No end-to-end `[CORE]` acceptance.**~~ **RESOLVED — now accepted.**
+   The reject was **our bug**, twice over, and both are fixed. Our BIP-341
+   sighash omitted `sha_sequences` (32 bytes) and used the ANYONECANPAY per-input
+   form plus double-SHA256 streams; separately the witness stack order was
+   `[sig_A, sig_B]` where `<A> CHECKSIG <B> CHECKSIGADD 2 EQUAL` needs
+   `[sig_B, sig_A]`. With both fixed:
+
+   ```
+   Core testmempoolaccept -> allowed=True reason=''
+   broadcast: d9ddaa98a8d754cb30d5d1c7baeffcbd2121f28157cf719b2cc72c73f8a4234d
+   ```
+
+   Note what this cost: our harness and a hand-written "independent"
+   implementation **agreed with each other and both disagreed with Core**,
+   because both were written from the same misreading. Self-agreement is not
+   evidence. See `SIGHASH-FIXED.md`.
 2. **The override race is not executed.** Demonstrating that a sender's rollback
    can be overridden inside the CSV window needs a reorg or a time-warp; this
    harness does not model either. That game-theoretic claim stays **REASONED**.
