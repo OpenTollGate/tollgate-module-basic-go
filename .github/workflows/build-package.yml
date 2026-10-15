@@ -175,13 +175,17 @@ jobs:
       - name: Set package_version variable
         id: determine-package-version
         shell: bash
+        env:
+          # Env context, not run-block interpolation: the dispatch input
+          # must reach the script as data, never as script text.
+          VERSION_INPUT: ${{ github.event.inputs.version }}
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
           # #941: the workflow_dispatch `version` input is TG_VERSION — one
           # knob that re-points stamp AND package version together, so the
           # two can never diverge on a manual build.
-          if [[ -n "${{ github.event.inputs.version }}" ]]; then
-            echo "package_version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          if [[ -n "${VERSION_INPUT:-}" ]]; then
+            echo "package_version=${VERSION_INPUT}" >> $GITHUB_OUTPUT
           elif [[ $GITHUB_REF == refs/tags/* ]]; then
             echo "package_version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
           else
@@ -329,17 +333,17 @@ jobs:
               -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 
             ls -lh "bin/$key/"
-          done < <(printf '%s' "$TARGETS" | jq -c '.[]')
 
-          # #941 fence: every cross-compiled binary must embed BUILD_VERSION
-          # — the same string the packages are versioned with on tag builds.
-          # TG_REQUIRE_VERSION_CONSISTENCY=1 (workflow env) makes a mismatch
-          # fail the build instead of warning. The binaries target routers,
-          # so the fence reads the embedded string instead of executing them.
-          for key in arm64 armv7 mipsle-softfloat mips-softfloat amd64; do
+            # #941 fence: fence each target as it is built, so the fence's
+            # subject list derives from TARGETS above — an enumerated copy
+            # here would silently skip a target added to TARGETS later (the
+            # #791 enumeration-drift class). The binaries target routers,
+            # so the fence reads the embedded string instead of executing
+            # them; TG_REQUIRE_VERSION_CONSISTENCY=1 (workflow env) makes a
+            # mismatch fail the build instead of warning.
             tg_assert_version_consistency "$GITHUB_WORKSPACE/bin/$key/tollgate-wrt" "$BUILD_VERSION"
             tg_assert_version_consistency "$GITHUB_WORKSPACE/bin/$key/tollgate" "$BUILD_VERSION"
-          done
+          done < <(printf '%s' "$TARGETS" | jq -c '.[]')
 
       - name: Install nak
         run: |

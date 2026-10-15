@@ -174,7 +174,14 @@ the rc5 package self-reported rc4).
   version equals the version it packaged** (`tg_assert_version_consistency`
   in [packaging/build-env.sh](packaging/build-env.sh)): a loud warning
   by default, a hard failure when `TG_REQUIRE_VERSION_CONSISTENCY=1`
-  (the release workflow sets that).
+  (both release workflows set that — the GitHub lane and the ngit
+  build-of-record stage-1 shard
+  [.ngit/act/workflows/build-package-binaries.yml](.ngit/act/workflows/build-package-binaries.yml),
+  which stamps from its tag-derived `PACKAGE_VERSION`; the fence
+  subjects derive from the lane's `TARGETS`, never an enumerated copy).
+  The harness lanes (`repro-test.sh`, `repro-variance.sh`,
+  `shc-build-package.sh`) resolve through `tg_version` and pin the
+  resolved string into the builds they drive.
 
 Changes that touch the release version also run, from the repo root:
 

@@ -105,6 +105,30 @@ grep -q 'BUILD_VERSION="${GITHUB_REF_NAME}"' "$WF" \
 grep -q 'tg_assert_version_consistency' "$WF" \
     || fail "build-package.yml does not run the post-build consistency fence"
 
+# --- 3b. the ngit build-of-record lane fences too; no enumerated keys ---------
+
+# The ngit mirror is the build of record (README): its stage-1 compile
+# shard must run the same fence in failing mode, and its CLI binary must
+# carry main.version — an unstamped CLI embeds no version, so the fence
+# would rightly refuse it.
+NGIT="$REPO_ROOT/.ngit/act/workflows/build-package-binaries.yml"
+grep -q 'TG_REQUIRE_VERSION_CONSISTENCY: "1"' "$NGIT" \
+    || fail "the ngit stage-1 compile lane (build of record) does not run the fence in failing mode"
+grep -q 'tg_assert_version_consistency' "$NGIT" \
+    || fail "the ngit stage-1 compile lane lost the post-build version-consistency fence"
+grep -q "main.version=\$PACKAGE_VERSION" "$NGIT" \
+    || fail "the ngit stage-1 compile lane no longer stamps the CLI (main.version)"
+
+# Both compile lanes must derive the fence's subjects from TARGETS, never
+# an enumerated copy of the key list: an enumerated fence silently skips a
+# target added to TARGETS later (the #791 enumeration-drift class,
+# mutation-verified in review).
+for wf in "$WF" "$NGIT"; do
+    if grep -qE 'for key in (arm64|armv7|mips|mipsle|amd64|riscv)' "$wf"; then
+        fail "$(basename "$wf") enumerates the compile keys in its fence loop; derive them from TARGETS"
+    fi
+done
+
 # --- 4. harness lanes resolve (and pin) the same string ---------------------
 
 # The reproducibility lanes were the remaining direct VERSION readers
