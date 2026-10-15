@@ -1,30 +1,20 @@
 {
   "core": "/Satoshi:31.1.0/",
-  "height": 136,
-  "leg1": {
+  "height": 160,
+  "results": {
     "OP_CHECKMULTISIG": {
-      "len": 110,
-      "ok": true,
-      "type": "nonstandard"
+      "leaf_len": 69,
+      "ctrl_len": 33,
+      "addr": "bcrt1pupyjy4a8et8e8x3m2ld4nej0w8am6ljy6r020hscqh6rpdprfztsr8a7hs",
+      "allowed": false,
+      "reject_reason": "mempool-script-verify-flag-failed (OP_CHECKMULTISIG(VERIFY) is not available in tapscript)"
     },
     "OP_CHECKSIGADD": {
-      "len": 111,
-      "ok": true,
-      "type": "nonstandard"
-    }
-  },
-  "leg2": {
-    "OP_CHECKMULTISIG": {
-      "output_key": "5b636649d8e5b9bf3c8a55dad52a8c46045411c04843d498c25373cf2a30f777",
-      "script_len": 110,
-      "ctrl_len": 65,
-      "note": "spk for the CREATED output would be 51205b636649d8e5b9bf\u2026"
-    },
-    "OP_CHECKSIGADD": {
-      "output_key": "9a6a434b5727d6d29765d8122064f2c82d46f45b5ad03067c78955b50f822645",
-      "script_len": 111,
-      "ctrl_len": 65,
-      "note": "spk for the CREATED output would be 51209a6a434b5727d6d2\u2026"
+      "leaf_len": 70,
+      "ctrl_len": 33,
+      "addr": "bcrt1ptlllgewrqxp00vh8slnvzqt22cqkw5tfy7grwvhfp8cav8elxnpq46sam5",
+      "allowed": false,
+      "reject_reason": "mempool-script-verify-flag-failed (Invalid Schnorr signature)"
     }
   }
 }

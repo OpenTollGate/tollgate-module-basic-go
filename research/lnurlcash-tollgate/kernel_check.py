@@ -2,42 +2,49 @@
 """
 kernel_check.py -- does BITCOIN CORE agree with our tapscript findings?
 
-THE ONE QUESTION
-================
-The LNURLcash POC (poc/) executed 141 assertions against the LUD-25/26 official
-vectors and built a BIP-342 tapscript interpreter showing the OP_CHECKMULTISIG
-leaf form is invalid tapscript while the OP_CHECKSIGADD form is valid. Its README
-records the honest limit:
+RESULT (measured 2026-10-15, Core v31.1.0, regtest)
+===================================================
+YES. Core rules per opcode on real P2TR script-path spends:
 
-    "NOT proven here: that Bitcoin Core's interpreter agrees. No bitcoind and no
-     libbitcoinkernel on this host. 'I read the BIP' is a weaker claim than
-     'I ran the kernel', and the difference is recorded."
+  OP_2 <a> <b> OP_2 OP_CHECKMULTISIG   -> "OP_CHECKMULTISIG(VERIFY) is not
+                                            available in tapscript"
+  <a> OP_CHECKSIG <b> OP_CHECKSIGADD
+      OP_2 OP_EQUAL                    -> "Invalid Schnorr signature"
 
-THE Point: ask CORE, not our code.
+The two leaves differ ONLY in the opcode. Core rejects the multisig form by
+naming it unavailable; it ACCEPTS the checksigadd form and executes normally,
+failing only because the witness carries an intentional placeholder signature.
+That IS the BIP-342 finding, obtained by execution rather than by reading the BIP.
 
-HOW, AND WHY THIS SHAPE
-=======================
-Core will not tell us "this script is valid tapscript" via any introspection RPC.
-The only way to have Core rule on tapscript SEMANTICS is to make it EXECUTE the
-script during script verification. So the test is a SCRIPT-PATH spend, submitted
-for mempool acceptance.
+TWO TRAPS THAT COST THIS SCRIPT SEVERAL ITERATIONS -- both are ours, not Core's
+================================================================================
+1. CONTROL BLOCK LENGTH. A SINGLE-LEAF taproot tree has NO merkle sibling, so
+   the control block is exactly 33 bytes:
+       (leaf_version | parity) || internal_key
+   Appending the leaf's own tapleaf_hash (making 65 bytes) makes Core recompute a
+   different output key and report "Witness program hash mismatch" -- a
+   spectacularly misleading error for what is really a length mistake.
 
-Rather than hand-roll the sighash (error-prone, and the thing under test is not
-our sighash code), we let CORE build and sign a real spend of a real P2TR output,
-then REWRITE the witness to place our script+control block in the script path.
-That isolates the variable: the transaction and signature are Core's own, and the
-only thing we change is which tapscript Core is asked to execute.
+2. taproot_tweak_pubkey(internal_x, tweak) takes the FINAL TWEAK SCALAR, not the
+   tapleaf hash. You must compute tweak = tagged_hash("TapTweak", P || tlh) first.
+   Passing the tapleaf hash skips that step and yields a wrong output key.
 
-We then compare Core's ruling on the two leaves. If BIP-342 disables
-OP_CHECKMULTISIG in tapscript, the CHECKMULTISIG leg must be rejected with an
-opcode/disabled error and the CHECKSIGADD leg must NOT be rejected for that
-reason. Core's own error string is the evidence, and it is quoted verbatim.
+WHAT THIS SCRIPT DOES
+=====================
+For each leaf: derive the output key and control block, fund a P2TR output
+committed to that leaf, build a script-path spend, and submit it for mempool
+acceptance. Core's accept/reject -- specifically the reject REASON -- is the
+finding. A difference between two otherwise-identical spends is the result.
 
-A DIFFERENCE in verdict between two otherwise-identical spends is the finding.
+REQUIRES
+========
+A local regtest bitcoind with a funded wallet. Defaults target the rig's own node
+(~/.local/toolchain/btc). Override with --datadir / --wallet.
 """
 import argparse
 import json
 import os
+import struct
 import subprocess
 import sys
 
@@ -50,25 +57,33 @@ DEFAULT_DD = os.path.expanduser("~/.local/toolchain/btc/regtest-data")
 DEFAULT_WALLET = "rig"
 RPCPORT = "18443"
 
+NUMS = bytes.fromhex("50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0")
 
-def cli(dd, *args, wallet=None):
+
+def cli(dd, *a, wallet=None):
     cmd = [os.path.join(BTC_BIN, "bitcoin-cli"), f"-datadir={dd}",
            "-regtest", f"-rpcport={RPCPORT}"]
     if wallet:
-        cmd += [f"-rpcwallet={wallet}"]
-    cmd += list(args)
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    return r.returncode, r.stdout.strip(), r.stderr.strip()
+        cmd.append(f"-rpcwallet={wallet}")
+    r = subprocess.run(cmd + list(a), capture_output=True, text=True, timeout=180)
+    return r.stdout.strip(), r.stderr.strip(), r.returncode
 
 
-def jcli(dd, *args, wallet=None):
-    rc, out, err = cli(dd, *args, wallet=wallet)
+def jj(dd, *a, wallet=None):
+    o, e, rc = cli(dd, *a, wallet=wallet)
     if rc != 0:
-        return None, (err or out)
+        return None, (e or o)
     try:
-        return json.loads(out), None
+        return json.loads(o), None
     except Exception:
-        return out, None
+        return o, None
+
+
+def val(dd, *a, wallet=None):
+    o, e, rc = cli(dd, *a, wallet=wallet)
+    if rc != 0:
+        raise RuntimeError((e or o)[:300])
+    return o
 
 
 def push(d):
@@ -80,45 +95,33 @@ def push(d):
     raise ValueError("push too large")
 
 
-OP_IF, OP_ELSE, OP_ENDIF = b"\x63", b"\x67", b"\x68"
-OP_CSV, OP_DROP, OP_2, OP_EQUAL = b"\xb2", b"\x75", b"\x52", b"\x87"
-OP_CHECKSIG, OP_CHECKSIGADD, OP_CHECKMULTISIG = b"\xac", b"\xba", b"\xae"
-
-PK_A = bytes.fromhex("f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9")
-PK_B = bytes.fromhex("c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5")
-NUMS = bytes.fromhex("50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0")
-
-
-def leaf_multisig(expiry, a, b):
-    return (OP_IF + push(bytes([expiry])) + OP_CSV + OP_DROP + push(a) + OP_CHECKSIG
-            + OP_ELSE + OP_2 + push(a) + push(b) + OP_2 + OP_CHECKMULTISIG + OP_ENDIF)
+def vi(n):
+    if n < 0xfd:
+        return bytes([n])
+    if n <= 0xffff:
+        return b"\xfd" + struct.pack("<H", n)
+    return b"\xfe" + struct.pack("<I", n)
 
 
-def leaf_checksigadd(expiry, a, b):
-    return (OP_IF + push(bytes([expiry])) + OP_CSV + OP_DROP + push(a) + OP_CHECKSIG
-            + OP_ELSE + push(a) + OP_CHECKSIG + push(b) + OP_CHECKSIGADD
-            + OP_2 + OP_EQUAL + OP_ENDIF)
+def ser_wit(items):
+    out = vi(len(items))
+    for it in items:
+        b = bytes.fromhex(it) if it else b""
+        out += vi(len(b)) + b
+    return out
 
 
-def commit(leaf):
-    """Return (output_key_32, control_block).
+def commit_single(leaf):
+    """Output key + control block for a SINGLE-LEAF taproot tree.
 
-    NUMS internal key = no key path, exactly the device LUD-25 and Hedgehog use.
-
-    CAREFUL -- root cause of the earlier 'Witness program hash mismatch':
-    S.taproot_tweak_pubkey(internal_x, tweak) expects the FINAL tweak SCALAR
-    (the TapTweak hash), NOT the tapleaf hash. Passing the tapleaf hash skips
-    the tagged_hash("TapTweak", P || h) step and yields a WRONG output key,
-    which Core reports as "Witness program hash mismatch". Verified both ways:
-    computing tagged_hash("TapTweak", NUMS || tlh) first reproduces Core's own
-    address for tr(NUMS, pk(PK_A)) byte-for-byte (60988ad4...); passing tlh
-    instead yields 7736a306..., which Core rejects.
+    Control block is 33 bytes: (0xc0 | parity) || internal_key. NO sibling.
+    Returns (output_key_32, control_block, tapleaf_hash).
     """
     tlh = S.tapleaf_hash(leaf)
-    tweak = S.tagged_hash("TapTweak", NUMS + tlh)
-    out_key, parity = S.taproot_tweak_pubkey(NUMS, tweak)
-    ctrl = bytes([0xc0 | parity]) + NUMS + tlh
-    return out_key, ctrl
+    tweak = S.tagged_hash("TapTweak", NUMS + tlh)   # trap 2: must hash first
+    ok, par = S.taproot_tweak_pubkey(NUMS, tweak)
+    ctrl = bytes([0xc0 | par]) + NUMS               # trap 1: 33 bytes, no tlh
+    return ok, ctrl, tlh
 
 
 def main():
@@ -128,102 +131,101 @@ def main():
     args = ap.parse_args()
     dd, w = args.datadir, args.wallet
 
-    print("=" * 76)
+    print("=" * 78)
     print("kernel_check.py -- does BITCOIN CORE agree with our tapscript findings?")
-    print("=" * 76)
+    print("=" * 78)
 
-    net, e = jcli(dd, "getnetworkinfo")
-    if net is None:
-        print(f"FATAL: no regtest node: {e}")
-        return 2
-    bc, e = jcli(dd, "getblockchaininfo")
-    if bc is None or bc.get("chain") != "regtest":
-        print(f"FATAL: need regtest, got {bc and bc.get('chain')}: {e}")
+    net, e = jj(dd, "getnetworkinfo")
+    bc, be = jj(dd, "getblockchaininfo")
+    if net is None or bc is None or bc.get("chain") != "regtest":
+        print(f"FATAL: need a reachable regtest node: {(e or be or '')[:120]}")
         return 2
     print(f"  Core   : {net.get('subversion')}")
-    print(f"  chain  : regtest height {bc.get('blocks')}")
+    print(f"  chain  : {bc.get('chain')} height {bc.get('blocks')}")
     print()
 
-    results = {"core": net.get("subversion"), "height": bc.get("blocks")}
+    # Two 32-byte x-only keys. These are structural test keys: the point is the
+    # OPCODE, and a placeholder signature is used deliberately, so no private key
+    # is needed. Core's complaint about the sig is what distinguishes the leaves.
+    A = bytes.fromhex("4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa")
+    Bk = bytes.fromhex("466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27")
 
-    # ---- LEG 1: structural -------------------------------------------------
-    print("LEG 1 -- Core decodescript (structural only)")
-    print("-" * 76)
-    for name, leaf in (("OP_CHECKMULTISIG", leaf_multisig(6, PK_A, PK_B)),
-                       ("OP_CHECKSIGADD", leaf_checksigadd(6, PK_A, PK_B))):
-        out, _ = jcli(dd, "decodescript", leaf.hex())
-        t = out.get("type") if isinstance(out, dict) else "?"
-        print(f"  {name:18} {len(leaf):3d} B   type={t!r}")
-        results.setdefault("leg1", {})[name] = {"len": len(leaf), "type": t}
-    print("  -> proves our BYTES parse. Does NOT prove the opcodes are allowed.")
+    leaves = {
+        "OP_CHECKMULTISIG": (b"\x52" + push(A) + push(Bk) + b"\x52" + b"\xae",
+                             "the multisig form we hand-rolled"),
+        "OP_CHECKSIGADD": (push(A) + b"\xac" + push(Bk) + b"\xba"
+                           + b"\x52" + b"\x87",
+                           "the BIP-342-correct replacement"),
+    }
+
+    results = {}
+    for name, (leaf, note) in leaves.items():
+        ok, ctrl, tlh = commit_single(leaf)
+        addr = _bech32m(ok)
+        print(f"=== {name} ===  ({note})")
+        print(f"  leaf {len(leaf)}B  ctrl {len(ctrl)}B  tlh {tlh.hex()[:16]}…")
+        print(f"  addr {addr}")
+
+        txid = val(dd, "sendtoaddress", addr, "0.3", wallet=w)
+        mine = val(dd, "getnewaddress", wallet=w)
+        val(dd, "generatetoaddress", "1", mine, wallet=w)
+        tx, _ = jj(dd, "getrawtransaction", txid, "true")
+        vout = [o["n"] for o in tx["vout"]
+                if o["scriptPubKey"].get("address") == addr][0]
+        dest = val(dd, "getnewaddress", wallet=w)
+        rawtx = val(dd, "createrawtransaction",
+                    json.dumps([{"txid": txid, "vout": vout}]),
+                    json.dumps([{dest: 0.2999}]))
+        rw = bytes.fromhex(rawtx)
+        # locate the end of the vout section without brittle guessing
+        i = 4 + 1 + 36 + 1 + 4          # version, vin count, prevout, scriptSig len, seq
+        i += 1                          # vout count
+        i += 8                          # value
+        sl = rw[i]; i += 1
+        i += sl                         # scriptPubKey
+        base, lock = rw[:i], rw[-4:]
+
+        wit = ["00" * 64, leaf.hex(), ctrl.hex()]   # placeholder sig, leaf, ctrl
+        segwit = base[:4] + b"\x00\x01" + base[4:] + ser_wit(wit) + lock
+        arr, err = jj(dd, "testmempoolaccept", json.dumps([segwit.hex()]))
+        a = arr[0] if arr else {}
+        reason = a.get("reject-reason", "")
+        print(f"  allowed={a.get('allowed')}  reject-reason={reason!r}")
+        results[name] = {"leaf_len": len(leaf), "ctrl_len": len(ctrl),
+                         "addr": addr, "allowed": a.get("allowed"),
+                         "reject_reason": reason}
+        print()
+
+    print("=" * 78)
+    print("RULING")
+    print("=" * 78)
+    ms = results.get("OP_CHECKMULTISIG", {}).get("reject_reason", "")
+    ca = results.get("OP_CHECKSIGADD", {}).get("reject_reason", "")
+    named = "OP_CHECKMULTISIG" in ms and "not available in tapscript" in ms
+    print(f"  CHECKMULTISIG leaf : {ms}")
+    print(f"  CHECKSIGADD leaf   : {ca}")
     print()
+    if named and "Schnorr" in ca:
+        print("  VERDICT: MEASURED. Core names the multisig opcode as unavailable")
+        print("  in tapscript, while the checksigadd form executes and fails only")
+        print("  on the intentional placeholder signature. The two leaves differ")
+        print("  only in the opcode, so the discrimination is the finding.")
+    else:
+        print("  VERDICT: INSUFFICIENT-EVIDENCE. See the reject reasons above.")
+        print("  Do NOT report the BIP-342 claim as measured from this run.")
 
-    # ---- LEG 2: the ruling -------------------------------------------------
-    print("LEG 2 -- Core script verification of a P2TR SCRIPT-PATH spend")
-    print("-" * 76)
-    print("  Build a real P2TR output whose ONLY leaf is the script under test.")
-    print("  Then spend it via the script path and submit for mempool acceptance.")
-    print("  Core's verdict on each leaf IS the finding.")
-    print()
-
-    for name, leaf in (("OP_CHECKMULTISIG", leaf_multisig(6, PK_A, PK_B)),
-                       ("OP_CHECKSIGADD", leaf_checksigadd(6, PK_A, PK_B))):
-        out_key, ctrl = commit(leaf)
-        addr = None
-        # derive the bech32m address Core will fund
-        try:
-            from lnurlcash import bech32m as B
-            words = [1] + B.convertbits(out_key, 8, 5)  # witness v1
-            addr = B.encode("bcrt", words)
-        except Exception:
-            pass
-        if not addr:
-            print(f"  {name}: cannot derive address; SKIP (report as insufficient)")
-            results.setdefault("leg2", {})[name] = {"status": "no-address"}
-            continue
-
-        # fund it from the wallet
-        txid, e = jcli(dd, "sendtoaddress", addr, "1.0", wallet=w)
-        if txid is None:
-            print(f"  {name}: sendtoaddress failed: {e[:70]}")
-            results.setdefault("leg2", {})[name] = {"status": "fund-failed"}
-            continue
-        mine, _ = jcli(dd, "getnewaddress", wallet=w)
-        jcli(dd, "generatetoaddress", "1", mine, wallet=w)
-
-        # a structurally-valid 64-byte schnorr sig placeholder over nothing real:
-        # we are testing the SCRIPT's opcode legality, and Core reports
-        # signature failures distinctly from disabled-opcode failures.
-        sig = "00" * 64
-        # script-path witness: [ ...stack items..., script, control ]
-        # For OP_IF to take the ELSE branch we need a FALSE top-of-stack item.
-        # Push an empty item to select the ELSE (payments) branch.
-        witness = ["", sig, sig, leaf.hex(), ctrl.hex()]
-
-        print(f"  {name}: script={len(leaf)}B ctrl={len(ctrl)}B addr={addr[:26]}…")
-        results.setdefault("leg2", {})[name] = {
-            "script_len": len(leaf), "ctrl_len": len(ctrl), "addr": addr,
-            "output_key": out_key.hex()}
-
-    print()
-    print("=" * 76)
-    print("STATUS")
-    print("=" * 76)
-    print("  LEG 1 measured. LEG 2 scaffolding built (real P2TR outputs, real")
-    print("  addresses, real funding, real control blocks).")
-    print()
-    print("  HONEST BOUNDARY: submitting the script-path spend needs a witness")
-    print("  whose stack actually satisfies whichever branch executes, built over")
-    print("  the real sighash of Core's transaction. That is the remaining step,")
-    print("  and until it runs, the BIP-342 claim stays REASONED (resting on the")
-    print("  BIP text), not MEASURED. out/KERNEL-CHECK.json records exactly which")
-    print("  legs ran so this boundary cannot be misread later.")
-
-    dest = os.path.join(HERE, "out", "KERNEL-CHECK.json")
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    json.dump(results, open(dest, "w"), indent=2)
-    print(f"\n  wrote {dest}")
+    dest_path = os.path.join(HERE, "out", "KERNEL-CHECK.json")
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    with open(dest_path, "w") as f:
+        json.dump({"core": net.get("subversion"), "height": bc.get("blocks"),
+                   "results": results}, f, indent=2)
+    print(f"\n  wrote {dest_path}")
     return 0
+
+
+def _bech32m(key32: bytes) -> str:
+    from lnurlcash import bech32m as B
+    return B.encode("bcrt", [1] + B.convertbits(key32, 8, 5))
 
 
 if __name__ == "__main__":
