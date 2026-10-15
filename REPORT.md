@@ -18,10 +18,10 @@ exact action required. Everything else is progress; the raw log is PROGRESS.md.
 | P0.2b | Fix the `step_size` unit erratum (bytes, not ms) | **DONE** — 4 stale spots fixed |
 | P1.3 | LNURLcash POC: validate against REAL regtest consensus | **DONE (headline claim MEASURED)** — Core ruled per opcode on real script-path spends: `OP_CHECKMULTISIG(VERIFY) is not available in tapscript` vs CHECKSIGADD executing normally (failing only on a placeholder sig). 6 measured claims total; 3 earlier claims retracted. See KERNEL-CHECK-FINDINGS.md |
 | P1.4 | Hedgehog POC: headless harness + verify D5 verdict | pending |
-| P1.5 | Router-side taproot-note verifier (instrument-agnostic) | pending |
-| P2.6 | Does any construction give non-custodial AND offline? | pending |
-| P2.7 | Is an on-chain channel economic at a realistic price? | pending |
-| P2.8 | What should TollGate take from LNURLcash? | pending |
+| P1.5 | Router-side taproot-note verifier (instrument-agnostic) | **DONE** (adaccc4) — `src/taprootverify/`, Core-validated, 47 assertions, no new dependency. Core caught a real 3-leaf tree-shape bug. |
+| P2.6 | Does any construction give non-custodial AND offline? | **DONE — NO.** Hedgehog is closest (non-custodial ✓ sender-offline ✓ recipient-offline ✓) but RELOCATES the time obligation into a CSV window. See D5-RETEST.md |
+| P2.7 | Is an on-chain channel economic at a realistic price? | **DONE — depends on purchase size.** Live config: metric=bytes, 1 sat = 21 MiB. See §10 + granularity.py |
+| P2.8 | What should TollGate take from LNURLcash? | **DONE — NOT the two hypothesised items; both REJECTED.** Bounded experiment then watch. See P2-VERDICTS.md + OPTIONS-PAPER.md |
 | P3.9 | STC non-interactive question (prepare only) | pending |
 
 ---
