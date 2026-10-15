@@ -54,8 +54,11 @@ the git tag itself).
 - **Every build lane asserts, post-build, that the binary's embedded
   version equals the version it packaged** (`tg_assert_version_consistency`
   in `packaging/build-env.sh`): a loud warning by default, a hard
-  failure under `TG_REQUIRE_VERSION_CONSISTENCY=1`, which the release
-  workflow sets.
+  failure under `TG_REQUIRE_VERSION_CONSISTENCY=1`, which both release
+  workflows set — the GitHub lane and the ngit build-of-record stage-1
+  shard (`../.ngit/act/workflows/build-package-binaries.yml`, whose
+  stamp is its tag-derived `PACKAGE_VERSION`; its CLI binary carries
+  `main.version` for the same reason).
 
 Bump `VERSION` in the release commit, then verify from the repo root:
 

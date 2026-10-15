@@ -211,6 +211,25 @@ if grep -q 'TG_REQUIRE_VERSION_CONSISTENCY: "1"' .github/workflows/build-package
 else
     fail "build-package.yml must run tg_assert_version_consistency with TG_REQUIRE_VERSION_CONSISTENCY=1 (#941)"
 fi
+# The ngit mirror is the build of record (README): its stage-1 compile
+# shard must fence the same way — a committed "every build lane asserts"
+# claim that skips the lane releases actually come from is the drift-doc
+# class this repo fences.
+if grep -q 'TG_REQUIRE_VERSION_CONSISTENCY: "1"' .ngit/act/workflows/build-package-binaries.yml \
+    && grep -q 'tg_assert_version_consistency' .ngit/act/workflows/build-package-binaries.yml; then
+    pass "the ngit build-of-record lane runs the consistency fence in failing mode"
+else
+    fail ".ngit/act/workflows/build-package-binaries.yml must run tg_assert_version_consistency with TG_REQUIRE_VERSION_CONSISTENCY=1 (#941)"
+fi
+# Fence subjects derive from TARGETS, never an enumerated key copy: an
+# enumerated fence silently skips a target added later (#791 class).
+for lane in .github/workflows/build-package.yml .ngit/act/workflows/build-package-binaries.yml; do
+    if grep -qE 'for key in (arm64|armv7|mips|mipsle|amd64|riscv)' "$lane"; then
+        fail "$lane enumerates the compile keys in its fence loop; derive them from TARGETS (#791 class)"
+    else
+        pass "$lane derives its fence subjects from TARGETS"
+    fi
+done
 
 # --- 8c. tg_version is the only VERSION reader among build scripts ----------
 # Discovery by glob, never enumeration: any script under scripts/ or
