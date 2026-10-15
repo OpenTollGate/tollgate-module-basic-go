@@ -84,41 +84,68 @@ rejected at script verification:
 mempool-script-verify-flag-failed (Witness program hash mismatch)
 ```
 
-## What is NOT established, and the precise blocker
+## ROOT CAUSE FOUND — the witness bug was OURS, and it is now fixed
 
-**The BIP-342 headline claim has no consensus ruling.** Every script-path attempt
-was rejected with `Witness program hash mismatch` — including attempts whose
-commitment math we verified matches Core's own derivation. That is a
-contradiction, and it means **something about the spend is still wrong in a way
-not yet identified.**
+The `Witness program hash mismatch` is fully explained, and it was a defect in
+*our* control-block construction — not in the leaves, the commitment, or Core.
 
-Ruled out (each tested, not assumed):
-- leaf bytes — Core parses them and `raw()` descriptors round-trip;
-- tapleaf hash — matches an independent BIP-341 computation;
-- tweak — matches an independent BIP-340 tagged-hash computation;
-- output key — matches Core's `deriveaddresses` for `tr(NUMS, pk(02‖x))`;
-- control block length — 65 B, correct for a single-leaf tree;
-- witness item ORDER — three orderings all produce the identical error;
-- transaction wire format — Core decodes it without complaint.
+**A single-leaf taproot tree has NO merkle sibling.** The control block is
+`(leaf_version | parity) || internal_key` — **33 bytes** — not 65. Our
+`commit()` appended the leaf's own `tapleaf_hash` as if it were a merkle sibling,
+so Core recomputed a *different* output key than the one being spent.
 
-Not yet tested:
-- a *valid* signature over the real sighash (all attempts used a 64-byte
-  placeholder), and whether Core reports `Witness program hash mismatch`
-  preferentially over a signature error;
-- a control block built by Core itself for a descriptor it can sign, to diff
-  against ours.
+Proven by asking Core to build the witness itself. With the private key imported
+(`importdescriptors` on `tr(NUMS,pk(WIF))`, checksum from `getdescriptorinfo`
+applied to the **private** descriptor text), Core signed a script-path spend and
+`testmempoolaccept` returned:
 
-**Next step, precisely:** import a `tr(<internal>, <leaf>)` descriptor into the
-wallet so Core holds the leaf key, spend via the script path with Core signing,
-and diff Core's witness against ours byte-by-byte. That resolves the contradiction
-directly instead of by inference. Everything else is in place — funded outputs,
-verified hashes, working Node access — so this is witness-construction work, not
-discovery.
+```
+allowed: true, vsize: 117
+```
 
-## Why this is recorded as a partial
+Core's witness, verbatim:
 
-The honesty contract forbids claiming a measured result that was not observed, and
-this programme's most valuable output has been its own errata. One earlier claim
-in this very file was wrong and is retracted above. Three claims ARE measured and
-are genuine improvements on the prior state; the headline claim is not, and the
-contradiction is stated rather than smoothed over.
+```
+[
+  "59bad615...0d167e5b",                 <- 64-byte schnorr sig
+  "204f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aaac",  <- the leaf
+  "c050929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"     <- 33-byte control block
+]
+```
+
+Our computed 33-byte control block reproduces Core's **byte-for-byte**:
+
+```
+ours (fixed): c050929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0
+core        : c050929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0   SAME
+```
+
+Also measured in the same run:
+- **Core derives the identical taproot address** for our script-path output:
+  `bcrt1pwaz2yl0ead0ye6fusg6lp7evldzsxd8kxyq50r6ss5nt7amywchqeq5c4a` — ours and
+  Core's `deriveaddresses` agree exactly, for the leaf we were testing.
+- **A control experiment passed**: a key-path P2TR spend signed by Core was
+  accepted (`allowed: true`), so the node, funding, and signing rails are sound
+  and the failure was isolated to script-path witness assembly.
+- The leaf script bytes Core signed are **identical** to ours.
+
+### Retraction, part 2
+
+Two earlier claims in this file were wrong and are withdrawn:
+1. *"Core confirms our commitment math"* — the descriptor used `pk()` with a
+   32-byte x-only key, which Core rejects; the script ignored the return code.
+2. The implicit claim that the mismatch might be a Core/BIP-342 semantic
+   rejection. It was **our** 65-byte control block. Core was right; we were wrong.
+
+## Status of the headline BIP-342 claim
+
+**Still REASONED, not MEASURED — but now for a trivially removable reason.**
+The witness bug that blocked the ruling is identified and fixed. What remains is
+mechanical: rebuild both leaves with the 33-byte control block, import both keys
+so Core can sign, and submit. That is one focused run, not discovery.
+
+Independent cross-check obtained in passing: Core's own `multi_a(2,a,b)` collapses
+to the `OP_CHECKSIGADD` family (it rejects `multi()` for tapscript), which is
+consistent with BIP-342 disabling `OP_CHECKMULTISIG` — but that is a *construction*
+argument from Core's descriptor language, **not** an execution ruling, and is
+recorded as REASONED. The execution ruling requires the run above.

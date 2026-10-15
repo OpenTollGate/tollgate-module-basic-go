@@ -16,7 +16,7 @@ exact action required. Everything else is progress; the raw log is PROGRESS.md.
 | P0.1 | Land the consultant deliverables into the repo | **DONE** (aeeba1f) |
 | P0.2a | Fix the errata bug-count inconsistency ("six" → FOUR) | **DONE** — already clean, verified |
 | P0.2b | Fix the `step_size` unit erratum (bytes, not ms) | **DONE** — 4 stale spots fixed |
-| P1.3 | LNURLcash POC: validate against REAL regtest consensus | **PARTIAL / BLOCKED** — 3 claims MEASURED (Core parses both leaves; P2TR outputs funded+confirmed; Core executes the script path). BIP-342 claim REASONED. One earlier claim RETRACTED (used `pk()` with a 32-byte key Core rejects). Unresolved contradiction: spends rejected `Witness program hash mismatch` even where commit math matches Core. Next: import descriptor, let Core sign, diff witness. See KERNEL-CHECK-FINDINGS.md |
+| P1.3 | LNURLcash POC: validate against REAL regtest consensus | **ROOT CAUSE FOUND, fix identified** — the `Witness program hash mismatch` was OUR bug: a single-leaf tree has no merkle sibling, so the control block is 33 bytes not 65. Core signed+accepted a script-path spend (`allowed: true`) and our fixed 33-byte control block matches Core byte-for-byte. Remaining: one focused re-run of BOTH leaves with the fix to obtain the BIP-342 execution ruling. Two earlier claims RETRACTED. See KERNEL-CHECK-FINDINGS.md |
 | P1.4 | Hedgehog POC: headless harness + verify D5 verdict | pending |
 | P1.5 | Router-side taproot-note verifier (instrument-agnostic) | pending |
 | P2.6 | Does any construction give non-custodial AND offline? | pending |
