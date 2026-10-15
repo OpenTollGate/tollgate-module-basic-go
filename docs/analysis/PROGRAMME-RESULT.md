@@ -74,12 +74,42 @@ none of them our own code, including **byte-for-byte agreement with the *shipped
 `tapscript.js`** for the real 3-leaf Hedgehog tree. That proves we model the tree
 the deployed site actually builds.
 
-**Honest limit:** no end-to-end Core *accept* of the Hedgehog spend — Core
-executed the tapscript and rejected on the signature, so our signature agrees only
-with our own verifier. The D5 conclusion does not depend on that leg; it rests on
-the timelock structure, directly observable in the tree.
+**The Core reject was OUR bug, twice over, and both are fixed.** Our BIP-341
+sighash omitted `sha_sequences` and used the ANYONECANPAY per-input form with
+double-SHA256 streams; separately the witness stack order was inverted for the
+`<A> CHECKSIG <B> CHECKSIGADD 2 EQUAL` leaf. With both fixed, Core **accepts**
+and the spend is broadcast:
 
-→ `docs/analysis/D5-RETEST.md`, `research/hedgehog-poc/`.
+```
+Core testmempoolaccept -> allowed=True reason=''
+broadcast: d9ddaa98a8d754cb30d5d1c7baeffcbd2121f28157cf719b2cc72c73f8a4234d
+```
+
+Worth noting what that cost: our harness and a hand-written "independent"
+implementation **agreed with each other while both disagreed with Core**, because
+both were written from the same misreading of the BIP. **Self-agreement is not
+evidence.**
+
+**A direction objection in an earlier version of this summary is RETRACTED.**
+Hedgehog *does* support the direction TollGate needs — the **payer** constructs
+and signs locally with no network while the **payee** completes later — proven by
+execution:
+
+```
+PAYER side  — payee takes NO action, is NOT contacted
+PAYEE side  — alone, using ONLY the captured signature
+              Core testmempoolaccept: allowed=True
+              broadcast bd18f7c39d06b9bb76806d34d69bb64e486c955edc1d4c101223b1a65cb59f0e
+```
+
+So for D5 the remaining obstacle is **not interactivity and not direction** — it
+is **cost** (an on-chain channel against a shipped price of 1 sat = 21 MiB) plus
+the **CSV window**. And on TollGate's actual shape the CSV duty lands on the
+*righter* party: the customer has no WAN, but the **router is a 24/7 service that
+can observe the chain**, which is exactly what the watchtower duty needs.
+
+→ `docs/analysis/D5-RETEST.md`, `docs/analysis/RETRACTION-DIRECTION.md`,
+`docs/analysis/SIGHASH-FIXED.md`, `research/hedgehog-poc/`.
 
 ## 3. The price erratum — and why it changes the economics
 
@@ -186,19 +216,39 @@ list cannot express shape. Fixed with an explicit nested-tree API
 | Cross-compile `taprootverify` for the router's aarch64 target | **not done** | pure Go, so expected unaffected — but "expected" is not "verified" |
 | Wire the verifier into a spend path | **not done** | the `WalletPort` seam is **dead code** (`src/merchant/merchant.go` calls `NewWalletPort` directly); reviving it is a larger change with its own fund-safety analysis |
 | Hedgehog override race | **REASONED only** | needs a reorg or time-warp; not modelled |
-| Hedgehog end-to-end Core accept | **not achieved** | see §2's honest limit |
+| Hedgehog end-to-end Core accept | ~~not achieved~~ **ACHIEVED** | two of OUR bugs fixed — a BIP-341 sighash missing `sha_sequences`, and an inverted witness order. `allowed=True`, broadcast. See §2 |
 | Decide whether TollGate ships a second instrument | **operator** | product decision, not technical |
 | Mainnet | **untouched** | all work was on regtest |
 
 ## 7. Method note — why the errata are the most valuable output
 
-This branch records **seven retracted or corrected claims** across its life,
-including three in the immediately preceding pass alone: a claim that Core had
-confirmed our commitment math (it had not — an invalid `pk()` form with an
-unchecked return code), an implication that a witness failure might be a BIP-342
-semantic rejection (it was our own 65-byte control block on a single-leaf tree,
-which needs 33), and a claim that the BIP-342 answer would stay unreachable for
-want of a host (the rig's own local regtest node sufficed all along).
+This branch records **ten retracted or corrected claims** across its life. The
+four most instructive:
+
+1. **"Core confirmed our commitment math"** — it had not. The check used `pk()`
+   with a 32-byte x-only key, which Core rejects; our script ignored the return
+   code and compared against a descriptor Core never expanded.
+2. **"The witness failure may be a BIP-342 semantic rejection"** — it was our own
+   **65-byte** control block on a single-leaf tree, which needs **33**.
+3. **"The BIP-342 answer stays unreachable for want of a host"** — the rig's own
+   local regtest node sufficed all along; the blocker was never real.
+4. **"Hedgehog only lets the recipient be offline"** — wrong, and the operator's
+   pushback is what forced the test. It conflated *construction* (local: sign a
+   transaction, hand over text) with *interaction* (needs a network path).
+
+Plus two more: the BIP-341 sighash missing `sha_sequences`, and the inverted
+witness order — both of which made our harness and an "independent" reimplementation
+agree with *each other* while disagreeing with Core.
+
+**Two failure modes recur across all of them**, and they are the reason this
+section exists:
+
+- **Reasoning about a specification instead of reading or running it.** The
+  `sha_sequences` omission was found in one step by reading `bip-0341.mediawiki`'s
+  field list, after many iterations of reasoning and brute force had failed.
+- **Treating self-agreement as evidence.** When two of your own implementations
+  agree and disagree with the reference, do not write a third — read the
+  reference.
 
 Every one was caught by the same discipline: **ask Bitcoin Core, not our own
 code.** That is the single transferable lesson here, and it is why the four

@@ -35,10 +35,19 @@ the reconciler is *moved*, not *removed*.
 strongest supporting evidence is `xcheck.py`, 10/10 independent cross-checks
 including byte-for-byte agreement with the *shipped* `tapscript.js`.
 
-**Honest limit:** no end-to-end `[CORE]` accept on the Hedgehog spend — Core
-executed the tapscript and rejected on the signature, so the local signature
-agrees only with our own verifier. The D5 conclusion does not rest on that leg;
-it rests on the timelock structure, which is directly observable in the tree.
+**Correction:** this leg is now **accepted end-to-end**. The earlier reject was
+our own bug (a BIP-341 sighash missing `sha_sequences`, plus a witness-order
+mistake); both fixed, Core accepts, and the spend is broadcast. The D5 conclusion
+never rested on this leg — it rests on the timelock structure, directly
+observable in the tree. See `SIGHASH-FIXED.md`.
+
+**Second correction, more important:** the *direction* objection in an earlier
+draft of this file is **retracted**. Hedgehog *does* support the direction
+TollGate needs — the payer constructs locally with no network while the payee
+completes later — proven by execution in `RETRACTION-DIRECTION.md`. So the
+remaining obstacle to D5 is **cost and the CSV window**, not interactivity, and
+the router being a 24/7 service that can watch the chain is a *good* fit for the
+watchtower duty.
 
 ---
 
