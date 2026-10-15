@@ -1,0 +1,100 @@
+==============================================================================
+run_poc.py -- Hedgehog against real Bitcoin Core consensus
+==============================================================================
+  Core regtest height 176   wallet rig
+
+==============================================================================
+LEG X -- independent cross-checks (must pass before anything is trusted)
+==============================================================================
+  [PASS] xcheck.py 10/10: BIP-340 vectors, Core output keys, SHIPPED tapscript.js [CORE+JS]  -- X3 is load-bearing: proves we model the tree the deployed site builds
+
+==============================================================================
+LEG A -- OPEN: fund a 2-of-2 P2TR tapscript output  [CORE]
+==============================================================================
+  tree leaves: 3  (order = 2-of-2, revocation, timeout)
+    leaf[0]  70B  204f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704…
+    leaf[1]  57B  a61489cb5a4f591d4f35b90ca7e17e29d366a03119898820466d7fcae5…
+    leaf[2]  37B  5ab27520466d7fcae563e5cb09a0d1870bb580344804617879a14949cf…
+  output key : 15bf9d7ae71c94b78147220703848d52988adcdb2fcce0e36af76a4a70acfaa8
+  address    : bcrt1pzkle67h8rj2t0q28ygrs8pyd22vg4hxm9lxwpcm27a4y5u9vl25qmcx4yj
+  [PASS] Core recognises our output key as a valid taproot key [CORE]  -- rawtr(15bf9d7ae71c94b78147220703848d52988adcdb2fcce0
+  [PASS] 2-of-2 P2TR output funded and confirmed [CORE]  -- 1128289713097aa6… vout=0 1.5 BTC
+
+==============================================================================
+LEG B -- PROPOSE-WHILE-OFFLINE: sender acts with NO recipient input
+==============================================================================
+  Bob is modelled as holding no key material and taking no action.
+  2-of-2 leaf: 204f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b7…
+  (CHECKSIGADD form -- no OP_CHECKMULTISIG, so no BIP-342 problem;
+   Core's own ruling on that opcode is measured in the sibling POC.)
+  [PASS] Alice produced a valid signature with no Bob involvement [OURS]  -- 64B schnorr sig
+  [REASONED] A lone signature does NOT satisfy a 2-of-2 leaf. What leg B establishes
+  [REASONED] is that the sender needs no recipient input to PRODUCE the cheque --
+  [REASONED] not that value has moved. The recipient supplies the second half later.
+
+==============================================================================
+LEG C -- ACCEPT-WHEN-BACK: recipient completes it, sender absent  [CORE]
+==============================================================================
+  [PASS] Bob produced his half with no sender assistance [OURS]  -- 64B schnorr sig
+  control block 97B (2-of-2 leaf inside a 3-leaf tree)
+  [PASS] control block carries a merkle sibling path [OURS]  -- 97B = 33 + 64B path (contrast: the sibling single-leaf POC needed exactly 33B)
+  Core testmempoolaccept -> allowed=False reason='mempool-script-verify-flag-failed (Invalid Schnorr signature)'
+  [FAIL] Core accepts the fully-signed script-path spend [CORE]  -- mempool-script-verify-flag-failed (Invalid Schnorr signature)
+  [REASONED] If Core rejected, the reason above is the finding -- do not call
+  [REASONED] this leg passed. A clean reject is still evidence about the script.
+
+==============================================================================
+LEG D -- CONDITIONAL REVOCATION + timelocks  [CORE partial]
+==============================================================================
+  leaf[1] revocation: a61489cb5a4f591d4f35b90ca7e17e29d366a03119898820466d7fcae563e5cb…
+  leaf[2] timeout   : 5ab27520466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f…
+  [PASS] tree has 3 leaves: 2-of-2 + revocation + timeout [OURS]
+  [PASS] revocation leaf opens with a hash opcode + 20-byte digest [OURS]  -- opcode 0xa6, then push20 (a RIPEMD160 preimage hash)
+  [PASS] timeout leaf uses block-based OP_CSV (BIP68 type flag CLEAR) [OURS]  -- 0xb2 OP_CHECKSEQUENCEVERIFY present
+
+  SHIPPED CONSTANT MISMATCH: the code uses CSV=10
+  blocks while README claims 4032 (see hdg.py CSV_TIMEOUT_TX_TODO).
+  [PASS] the timelock constant mismatch is REPRODUCED (not hidden) [OURS]  -- code=10 vs README/todo=4032
+  [REASONED] The OVERRIDE RACE (sender rolls back, counterparty overrides inside the
+  [REASONED] window) needs a reorg or time-warp to execute. Not modelled here; the
+  [REASONED] game-theoretic claim remains REASONED. What is established is that the
+  [REASONED] tree COMMITS to the escape hatch.
+
+==============================================================================
+LEG E -- THE D5 TEST: is the payer non-custodial AND chain-free?
+==============================================================================
+  D5: a payer that is BOTH non-custodial AND needs no chain state and
+  no other party, ever. V0/V1/V2/V4 all failed this in the prior spike.
+
+  [PASS] non-custodial (no third party holds funds): True  -- 2-of-2 P2TR; NUMS internal key => no key path, only script paths spend
+  [PASS] sender can act while recipient is offline: True  -- leg B: sender produced the update with zero recipient input
+  [PASS] recipient may be offline when sender proposes: True  -- leg B modelled recipient as holding no key material
+  [FAIL] payer needs NO chain state ever: False  -- the escape hatch is a CSV timelock; safety requires observing the chain within the window => a chain/time obligation remains
+  [FAIL] no liveness/timelock obligation on ANY party: False  -- timeout leaf is a liveness backstop, and a sender that has sent cannot force-close, so it depends on the counterparty returning
+
+  VERDICT: D5 IS NOT MET
+
+  Hedgehog genuinely REMOVES the reconciler from the sender's critical
+  path -- that is what makes 'propose while the counterparty is offline'
+  work, and it is new relative to V0-V4. But it does NOT delete the time
+  obligation; it RELOCATES it into a CSV timelock window that someone
+  must observe. Same 'relocates, does not delete' pattern as before.
+
+  EXACT TRUST ASSUMPTION required for Hedgehog safety:
+    (1) the recipient eventually returns, and
+    (2) SOME party observes the chain inside the CSV window to stop an
+        outdated state being mined -- a watchtower-equivalent duty.
+
+  So Hedgehog relocates the reconciler to the counterparty rather than
+  eliminating it. Whether that relocation is ENOUGH depends on whether
+  the counterparty is someone you can rely on to return -- which is the
+  open question, not a settled property.
+
+==============================================================================
+SUMMARY
+==============================================================================
+  checks passed 13  failed 3
+    FAILED: Core accepts the fully-signed script-path spend [CORE]
+    FAILED: payer needs NO chain state ever: False
+    FAILED: no liveness/timelock obligation on ANY party: False
+  D5 verdict  : NOT MET
