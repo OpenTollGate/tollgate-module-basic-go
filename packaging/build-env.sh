@@ -239,6 +239,14 @@ tg_version() {
 # Warns loudly by default; fails when TG_REQUIRE_VERSION_CONSISTENCY=1
 # (the release workflow sets that: a fence that cannot fail is
 # decoration).
+#
+# PIPEFAIL CONTRACT: every caller lane runs `set -euo pipefail`. The
+# match must NOT use `grep -q`: -q exits on first match, the writer
+# (strings, with megabytes to emit over a 12 MB binary) then dies on
+# SIGPIPE, and under pipefail the pipeline reports 141 — the fence
+# denies a correctly-stamped binary (rehearsal-verified on a real
+# build). grep without -q drains the stream to EOF, so strings always
+# exits 0 and the pipeline verdict is grep's alone.
 tg_assert_version_consistency() {
     _bin="$1"
     _expected="$2"
@@ -248,7 +256,7 @@ tg_assert_version_consistency() {
         [ "${TG_REQUIRE_VERSION_CONSISTENCY:-0}" = "1" ] && exit 1
         return 0
     fi
-    if strings "$_bin" 2>/dev/null | grep -qF -- "$_expected"; then
+    if strings "$_bin" 2>/dev/null | grep -F -- "$_expected" >/dev/null; then
         printf 'build-env: version-consistency: %s embeds %s\n' "$_bin" "$_expected" >&2
         return 0
     fi

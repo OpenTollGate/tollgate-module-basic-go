@@ -49,7 +49,12 @@ FALLBACK="$(resolve "")"
 # fence_run <require 0|1> <binary> <expected>: runs the fence in a fresh
 # shell (build-env.sh sources cleanly there) and captures RC + combined
 # output. The rc5 incident shape — binary stamped rc4, package rc5 — is
-# the planted-drift case that must refuse under require=1.
+# the planted-drift case that must refuse under require=1. The inner
+# shell runs `set -euo pipefail` because EVERY caller lane does
+# (local-build-ipk.sh, build-sdk-package.sh, both release workflows):
+# a fence that only behaves without pipefail passed this suite while
+# denying real builds (SIGPIPE from `grep -q` exiting early over a
+# multi-megabyte `strings` stream — rehearsal-verified on a real build).
 fence_run() {
     # set +e in the OUTER shell: the substitution's status is the fence's
     # verdict, and set -e would turn the failing case into a silent exit
@@ -57,7 +62,7 @@ fence_run() {
     set +e
     FENCE_OUT="$(
         TG_ROOT="$REPO_ROOT" SOURCE_DATE_EPOCH=0 TG_REQUIRE_VERSION_CONSISTENCY="$1" \
-            bash -c '. "$TG_ROOT/packaging/build-env.sh"; tg_assert_version_consistency "$1" "$2"' \
+            bash -c 'set -euo pipefail; . "$TG_ROOT/packaging/build-env.sh"; tg_assert_version_consistency "$1" "$2"' \
             fence-run "$2" "$3" 2>&1
     )"
     FENCE_RC=$?
@@ -66,10 +71,24 @@ fence_run() {
 
 printf 'go.build.junk\nv0.6.0-teststamp\ntrailing.data\n' > "$TMP/stamped.bin"
 printf 'v0.6.0-rc4\n' > "$TMP/lagged.bin"
+# Realistic-mass stand-in: the match lands in the first kilobyte and
+# megabytes follow, the shape a 12 MB cross-compiled binary presents to
+# `strings`. Under pipefail this is what turned `grep -q`'s early exit
+# into a 141 denial of a CORRECT stamp — the fixture must stay large
+# enough (pipe buffer + grep's first read) for that class to reproduce.
+{ printf 'v0.6.0-teststamp\n'; head -c 4194304 /dev/zero | tr '\0' 'j' | fold -w 64; } > "$TMP/big-stamped.bin"
 
 fence_run 0 "$TMP/stamped.bin" v0.6.0-teststamp
 [ "$FENCE_RC" -eq 0 ] || fail "fence failed a binary that embeds the expected version"
 case "$FENCE_OUT" in *embeds*) ;; *) fail "fence passed silently; it must report the verified stamp";; esac
+
+# Realistic mass under pipefail: the match early, megabytes behind it —
+# the exact shape that made an early-exiting grep deny a correct stamp.
+fence_run 0 "$TMP/big-stamped.bin" v0.6.0-teststamp
+[ "$FENCE_RC" -eq 0 ] || fail "fence failed a realistic-mass binary that embeds the expected version (pipefail/SIGPIPE regression)"
+case "$FENCE_OUT" in *embeds*) ;; *) fail "fence passed silently on the realistic-mass binary";; esac
+fence_run 1 "$TMP/big-stamped.bin" v0.6.0-teststamp
+[ "$FENCE_RC" -eq 0 ] || fail "require mode denied a correctly-stamped realistic-mass binary (pipefail/SIGPIPE regression)"
 
 fence_run 0 "$TMP/lagged.bin" v0.6.0-rc5
 [ "$FENCE_RC" -eq 0 ] || fail "warn mode must not fail the build (got RC=$FENCE_RC)"
