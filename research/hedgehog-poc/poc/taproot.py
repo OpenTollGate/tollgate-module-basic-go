@@ -155,50 +155,84 @@ def tweak_parity(internal_x: bytes, merkle_root: bytes) -> int:
 # BIP-341 key-path / script-path sighash (SIGHASH_DEFAULT = 0x00)
 # --------------------------------------------------------------------------
 def taproot_sighash(tx, index, prevouts, annex=None, ext_flag=0, leaf_hash_=None,
-                    key_version=0, code_separator_pos=0xFFFFFFFF):
-    """Generic BIP341 sighash.
+                    key_version=0, code_separator_pos=0xFFFFFFFF,
+                    hash_type=0):
+    """BIP-341 signature message, hashed as TapSighash(epoch || SigMsg).
 
     tx            : btclib.Tx
     index         : input index being signed
     prevouts      : list of (value, scriptPubKey) for ALL inputs, in order
+                    (value may be an int or 8-byte LE bytes)
     ext_flag      : 0 = key path, 1 = script path
     leaf_hash_    : tapleaf hash (script path only)
+
+    CORRECTNESS NOTE -- this function previously had FOUR defects, all from one
+    misreading of BIP-341, and all silently self-consistent (which is why a
+    hand-written "independent" implementation agreed with it while both
+    disagreed with Bitcoin Core):
+
+      D1. sha_prevouts was omitted entirely.
+      D2. sha_sequences was omitted entirely.
+      D3. The per-input section emitted outpoint || scriptPubKey || amount ||
+          nSequence -- that is the ANYONECANPAY form. For the default form the
+          spec emits ONLY input_index (4 bytes).
+      D4. Every stream used DOUBLE sha256. BIP-341 specifies a SINGLE sha256
+          for sha_prevouts / sha_amounts / sha_scriptpubkeys / sha_sequences /
+          sha_outputs / sha_annex.
+
+    Also: a sha_annex stream was emitted even when no annex is present. When
+    annex_present is 0, no annex hash is included at all.
+
+    Verified against a signature Bitcoin Core itself produced and accepted --
+    see sighash_fix.py / sighash_groundtruth.py in this directory.
     """
     assert all(not i.witness for i in tx.ins), "prevouts must be clean for hashing"
-    hash_type = 0
     in_i = tx.ins[index]
-    out = bytes([0])  # epoch
-    out += bytes([hash_type])
-    out += tx_version_le(tx)
-    out += tx_locktime_le(tx)
-    if hash_type != 3 and hash_type != 2:  # not SINGLE|ANYONECANPAY
-        # BIP341: sha_amounts over the 8-byte LE value of EVERY input, then
-        # sha_scriptpubkeys. prevouts may carry either the raw int or the
-        # already-serialized bytes -- normalize here so callers cannot get it
-        # wrong (this exact ambiguity cost a debugging cycle).
-        out += dsha256_all([outpoint_value_le(p[0]) if isinstance(p[0], int)
-                            else p[0] for p in prevouts])
-        out += dsha256_all([p[1] for p in prevouts])
-    out += in_i.outpoint()
-    out += varint_small(0)  # scriptPubKey of spent output: empty for BIP341
-    out += outpoint_value_le(prevouts[index][0])
-    out += in_i.sequence.to_bytes(4, "little")
-    if hash_type != 3 and hash_type != 2:
-        out += dsha256_all([o.ser() for o in tx.outs])
-    # spend_type
-    spend_type = (ext_flag * 2) + (1 if annex else 0)
-    out += bytes([spend_type])
-    if annex:
-        out += dsha256_all([serialize_annex(annex)])
+    acp = bool(hash_type & 0x80)
+    none_or_single = (hash_type & 3) in (2, 3)
+
+    msg = bytes([hash_type])
+    msg += tx_version_le(tx)
+    msg += tx_locktime_le(tx)
+
+    if not acp:
+        # D1 + D4: single sha256 over ALL input outpoints / amounts / spks / seqs
+        msg += sha256(b"".join(i.outpoint() for i in tx.ins))
+        msg += sha256(b"".join(
+            outpoint_value_le(p[0]) if isinstance(p[0], int) else p[0]
+            for p in prevouts))
+        msg += sha256(b"".join(
+            varint_small(len(p[1])) + p[1] for p in prevouts))
+        msg += sha256(b"".join(i.sequence.to_bytes(4, "little") for i in tx.ins))
+    if not none_or_single:
+        msg += sha256(b"".join(o.ser() for o in tx.outs))
+
+    annex_present = 1 if annex else 0
+    msg += bytes([(ext_flag * 2) + annex_present])
+
+    if acp:
+        msg += in_i.outpoint()
+        msg += outpoint_value_le(prevouts[index][0]) if isinstance(
+            prevouts[index][0], int) else prevouts[index][0]
+        spk = prevouts[index][1]
+        msg += varint_small(len(spk)) + spk
+        msg += in_i.sequence.to_bytes(4, "little")
     else:
-        out += dsha256_all([])
+        # D3: input_index ONLY -- not the outpoint/scriptcode/amount/sequence
+        msg += index.to_bytes(4, "little")
+
+    if annex:
+        msg += sha256(serialize_annex(annex))
+
     if hash_type == 3:
-        out += sha256(tx.outs[index].ser())
+        msg += sha256(tx.outs[index].ser())
+
     if ext_flag == 1:
-        out += leaf_hash_
-        out += bytes([0])   # key_version
-        out += code_separator_pos.to_bytes(4, "little")
-    return _tagged_hash(TAG_TAPSIGHASH, out)
+        msg += leaf_hash_
+        msg += bytes([key_version])
+        msg += code_separator_pos.to_bytes(4, "little")
+
+    return _tagged_hash(TAG_TAPSIGHASH, bytes([0]) + msg)
 
 
 def tx_version_le(tx):

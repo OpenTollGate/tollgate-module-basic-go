@@ -1,7 +1,7 @@
 ==============================================================================
 run_poc.py -- Hedgehog against real Bitcoin Core consensus
 ==============================================================================
-  Core regtest height 176   wallet rig
+  Core regtest height 186   wallet rig
 
 ==============================================================================
 LEG X -- independent cross-checks (must pass before anything is trusted)
@@ -18,7 +18,7 @@ LEG A -- OPEN: fund a 2-of-2 P2TR tapscript output  [CORE]
   output key : 15bf9d7ae71c94b78147220703848d52988adcdb2fcce0e36af76a4a70acfaa8
   address    : bcrt1pzkle67h8rj2t0q28ygrs8pyd22vg4hxm9lxwpcm27a4y5u9vl25qmcx4yj
   [PASS] Core recognises our output key as a valid taproot key [CORE]  -- rawtr(15bf9d7ae71c94b78147220703848d52988adcdb2fcce0
-  [PASS] 2-of-2 P2TR output funded and confirmed [CORE]  -- 1128289713097aa6… vout=0 1.5 BTC
+  [PASS] 2-of-2 P2TR output funded and confirmed [CORE]  -- 1b635e513fc7d610… vout=1 1.5 BTC
 
 ==============================================================================
 LEG B -- PROPOSE-WHILE-OFFLINE: sender acts with NO recipient input
@@ -38,10 +38,9 @@ LEG C -- ACCEPT-WHEN-BACK: recipient completes it, sender absent  [CORE]
   [PASS] Bob produced his half with no sender assistance [OURS]  -- 64B schnorr sig
   control block 97B (2-of-2 leaf inside a 3-leaf tree)
   [PASS] control block carries a merkle sibling path [OURS]  -- 97B = 33 + 64B path (contrast: the sibling single-leaf POC needed exactly 33B)
-  Core testmempoolaccept -> allowed=False reason='mempool-script-verify-flag-failed (Invalid Schnorr signature)'
-  [FAIL] Core accepts the fully-signed script-path spend [CORE]  -- mempool-script-verify-flag-failed (Invalid Schnorr signature)
-  [REASONED] If Core rejected, the reason above is the finding -- do not call
-  [REASONED] this leg passed. A clean reject is still evidence about the script.
+  Core testmempoolaccept -> allowed=True reason=''
+  [PASS] Core accepts the fully-signed script-path spend [CORE]  -- accepted
+  broadcast: d9ddaa98a8d754cb30d5d1c7baeffcbd2121f28157cf719b2cc72c73f8a4234d
 
 ==============================================================================
 LEG D -- CONDITIONAL REVOCATION + timelocks  [CORE partial]
@@ -93,8 +92,7 @@ LEG E -- THE D5 TEST: is the payer non-custodial AND chain-free?
 ==============================================================================
 SUMMARY
 ==============================================================================
-  checks passed 13  failed 3
-    FAILED: Core accepts the fully-signed script-path spend [CORE]
+  checks passed 14  failed 2
     FAILED: payer needs NO chain state ever: False
     FAILED: no liveness/timelock obligation on ANY party: False
   D5 verdict  : NOT MET
