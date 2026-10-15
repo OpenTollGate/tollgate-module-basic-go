@@ -1,0 +1,31 @@
+{
+  "single_pk_leaf": {
+    "tree": "pk(A)",
+    "descriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,pk(4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa))#8t3t885d",
+    "address": "bcrt1pwaz2yl0ead0ye6fusg6lp7evldzsxd8kxyq50r6ss5nt7amywchqeq5c4a",
+    "spk": "51207744a27df9eb5e4ce93c8235f0fb2cfb450334f63101478f508526bf7764762e"
+  },
+  "multi_a_2_of_2": {
+    "tree": "multi_a(2,A,B)",
+    "descriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,multi_a(2,4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa,466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27))#uylnxs83",
+    "address": "bcrt1p2f6pemxj2nptp0aayzq8qmmelrrktd5whqzc3nuc9at2x3mncrgsxl85fa",
+    "spk": "512052741cecd254c2b0bfbd2080706f79f8c765b68eb80588cf982f56a34773c0d1",
+    "note": "multi_a IS tapscript-legal; multi() is refused by Core"
+  },
+  "nested_3_leaf": {
+    "tree": "{a,{b,c}}",
+    "descriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,{pk(4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa),{pk(466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27),pk(2c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991)}})#ye873gd4",
+    "address": "bcrt1pg42pcsk6dvke79zfdwt8zv6hhf69p4rl2va7uuuerpv8sdwsqnjq8gd4jv",
+    "spk": "512045541c42da6b2d9f14496b96713357ba7450d47f533bee739918587835d004e4"
+  },
+  "flat_3_leaf": {
+    "tree": "{{a,b},c}",
+    "descriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,{{pk(4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa),pk(466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27)},pk(2c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991)})#w6wcgpc7",
+    "address": "bcrt1p837x0fxcrssqcdvwdltumkrwcucfcwc4grgph3evx6fjmnlnazuqu8jdzc",
+    "spk": "51203c7c67a4d81c200c358e6fd7cdd86ec7309c3b1540d01bc72c36932dcff3e8b8"
+  },
+  "multi_refused": {
+    "refused": true,
+    "reason": "error code: -5\nerror message:\nCan only have multi/sortedmulti at top level, in sh(), or in wsh()"
+  }
+}
