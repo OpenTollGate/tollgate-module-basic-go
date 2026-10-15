@@ -160,9 +160,15 @@ def leg_accept(st, pr):
           f"(contrast: the sibling single-leaf POC needed exactly 33B)")
 
     tx = pr["tx"]
-    # btclib's serializer takes RAW BYTES for witness items (it does
-    # varint(len(item)) + item), not hex strings.
-    tx.ins[0].witness = [pr["sig_a"], sig_b, pr["ms"], ctrl]
+    # Witness ORDER matters and was a real bug here. BIP-342 pop discipline:
+    # the 2-of-2 leaf is <A> OP_CHECKSIG <B> OP_CHECKSIGADD OP_2 OP_EQUAL, and
+    # CHECKSIG takes the pubkey from the TOP of the stack. Witness [w1,w2]
+    # pushes w1 then w2, so w2 is on top:
+    #   A CHECKSIG    pairs A with TOP     -> w2 must be A's signature
+    #   B CHECKSIGADD pairs B with the next -> w1 must be B's signature
+    # so the correct order is [sig_B, sig_A]. Shipping [sig_A, sig_B] yields
+    # Core's "Invalid Schnorr signature" -- verified both ways in wit_order.py.
+    tx.ins[0].witness = [sig_b, pr["sig_a"], pr["ms"], ctrl]
     raw = tx.serialize()          # bytes
     rawhex = raw.hex()            # testmempoolaccept takes HEX
     out = BTC.test_mempool_accept(rawhex)
