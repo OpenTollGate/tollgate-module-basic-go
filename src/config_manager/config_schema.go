@@ -176,7 +176,7 @@ func GetConfigSchema() []FieldSchema {
 		},
 		{
 			Name: "EntryUI", JSONKey: "entry_ui", Type: "string",
-			Description: "Which UI answers the router's entry ports (:8080 over HTTP and :443 over HTTPS). board = the TollGate board answers https://<hostname>.lan/ and LuCI moves to :8090/:8443 (the default); luci = LuCI answers the entry pair and the board stays on :8090/:8443, the mapping shipped before 0.6.0. The two packages that write the listeners are released separately, so a router carrying only the first half records this value and keeps serving the legacy mapping until the matching writer is installed.",
+			Description: "Which UI answers the router's entry ports (:8080 over HTTP and :443 over HTTPS). board = the TollGate board answers https://<hostname>.lan/ and LuCI moves to :8090/:8443 (the default); luci = LuCI answers the entry pair and the board stays on :8090/:8443, the mapping shipped before 0.6.0. The two packages that write the listeners are released separately, so a router carrying only the first half keeps serving the legacy mapping: a value you set is recorded as-is, and the populated default is luci until the board-side writer is installed (the marker gate, #928).",
 			Default:     "board", Required: true, Editable: true,
 			Enum: []string{"board", "luci"},
 		},

@@ -181,6 +181,26 @@ The rollout consequence is explicit: **the module half may ship with the
 record's promotion order. A module-only release ships the switch and the
 mapping machinery with the default still `luci`, which is a behaviour no-op.
 
+**Amendment (2026-10-14, #928): the default the daemon *populates* is
+deployment-aware, not fixed.** When `EnsureDefaultConfig` writes an
+`entry_ui` the operator never chose — the fresh-install write, the
+invalid-JSON rewrite, or the migration's empty-field fill — it records
+`board` only when the D4 marker announces the board mapping, and the legacy
+`luci` otherwise. Before this amendment the population always wrote the
+declared default `board`, *after* `99` had already converged the port table,
+so an install the feed never reached (the ipk-only lane) carried a config
+that claimed `board` while nothing listened on `:8090`/`:8443` — a
+config/reality divergence by construction, flagged by PRTA's
+`test_entry_ui_port_mapping_contract`. The direction this record always
+implied ("a module-only release … is a behaviour no-op") now holds at the
+config layer too: a deployment without the feed records the mapping it can
+actually back, and config.json agrees with the converged listeners from the
+first boot. The declared default in the schema stays `board` (D1 unchanged —
+fully-vendored installs get it), and operator-declared values are still
+never rewritten: D4's leave-it-recorded rule governs operator intent, not
+defaults. The marker path's shell/Go declarations are fenced by
+`tests/contract/check-entry-ui-marker-path.sh`.
+
 **D5 — A cross-link is a router answer, HTTPS-only, or it is not rendered.**
 The board renders the LuCI link only from what the router says:
 
