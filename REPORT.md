@@ -37,7 +37,7 @@ also posted to PR #944 (issuecomment-6181747093).
 | (b) each POC green against real consensus w/ RED+GREEN, or HANDOFF w/ named prerequisite | **MET** — LNURLcash codec 141/141 + BIP-342 ruled by Core; Hedgehog 13 checks + D5 verdict; router verifier 47 assertions Core-validated |
 | (c) each P2 question has a written verdict citing its run | **MET** — `docs/analysis/P2-VERDICTS.md` |
 | (d) remaining items are ONLY HANDOFF or operator decisions | **MET** — see HANDOFF table below |
-| (e) PR #944 carries one consolidated summary | **MET** — `PROGRAMME-RESULT.md` + PR comment |
+| (e) PR #944 carries one consolidated summary | **MET** — `PROGRAMME-RESULT.md` + PR comment. **Re-reconciled** after the two corrections (bugs fixed, direction retracted) made the first version stale. |
 
 ## HANDOFF — needs the operator (do NOT retry)
 
