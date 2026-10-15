@@ -137,15 +137,77 @@ Two earlier claims in this file were wrong and are withdrawn:
 2. The implicit claim that the mismatch might be a Core/BIP-342 semantic
    rejection. It was **our** 65-byte control block. Core was right; we were wrong.
 
-## Status of the headline BIP-342 claim
+## THE HEADLINE CLAIM IS NOW MEASURED — Core ruled on both opcodes
 
-**Still REASONED, not MEASURED — but now for a trivially removable reason.**
-The witness bug that blocked the ruling is identified and fixed. What remains is
-mechanical: rebuild both leaves with the 33-byte control block, import both keys
-so Core can sign, and submit. That is one focused run, not discovery.
+The gap in `poc/README.md` is **closed**. A real P2TR script-path spend was
+submitted to Bitcoin Core v31.1.0 on regtest, with the corrected 33-byte control
+block, and Core **executed the tapscript** and named its verdict per leaf:
 
-Independent cross-check obtained in passing: Core's own `multi_a(2,a,b)` collapses
-to the `OP_CHECKSIGADD` family (it rejects `multi()` for tapscript), which is
-consistent with BIP-342 disabling `OP_CHECKMULTISIG` — but that is a *construction*
-argument from Core's descriptor language, **not** an execution ruling, and is
-recorded as REASONED. The execution ruling requires the run above.
+| Leaf (identical structure, one opcode different) | Core's verbatim `reject-reason` |
+|---|---|
+| `OP_2 <a> <b> OP_2 OP_CHECKMULTISIG` (69 B) | **`mempool-script-verify-flag-failed (OP_CHECKMULTISIG(VERIFY) is not available in tapscript)`** |
+| `<a> OP_CHECKSIG <b> OP_CHECKSIGADD OP_2 OP_EQUAL` (70 B) | `mempool-script-verify-flag-failed (Invalid Schnorr signature)` |
+
+**Read the two error strings carefully — the discrimination is the finding:**
+
+- Core **rejected the opcode itself** in the MULTISIG leaf. It did not fail on a
+  signature or a stack item; it named `OP_CHECKMULTISIG` as *not available in
+  tapscript*. That is BIP-342's disabled-opcode rule, enforced by execution.
+- Core **accepted the opcode** in the CHECKSIGADD leaf and proceeded normally to
+  signature verification, failing only because the witness carried a deliberate
+  64-byte placeholder instead of a real signature. `Invalid Schnorr signature` is
+  the *expected* error for a script whose only defect is a missing signature.
+
+So the claim is no longer read from the BIP text. It is a measured consensus
+ruling, from Core's own scheduler, on two leaves that differ **only** in the
+opcode — which is exactly the controlled comparison that makes it decisive.
+
+### Corroborating evidence from Core's descriptor language
+
+Core refuses to even *compile* the multisig form into a tapscript leaf while
+accepting the checksigadd form:
+
+```
+$ bitcoin-cli getdescriptorinfo "tr(<NUMS>,multi(2,<a>,<b>))"
+error: Can only have multi/sortedmulti at top level, in sh(), or in wsh()
+
+$ bitcoin-cli getdescriptorinfo "tr(<NUMS>,multi_a(2,<a>,<b>))"   # OP_CHECKSIGADD form
+OK
+```
+
+Same distinction, reached independently by Core's descriptor compiler. Recorded
+as corroboration, not as the primary evidence — the execution ruling above is the
+primary evidence.
+
+## Retractions (this file has a poor track record; recording it)
+
+Three earlier claims were wrong and are withdrawn:
+
+1. *"Core confirms our commitment math"* — the check used `pk()` with a 32-byte
+   x-only key, which Core rejects; the script ignored the return code, so the
+   descriptor was never expanded. Retracted.
+2. That the `Witness program hash mismatch` might indicate a BIP-342 semantic
+   rejection. It was **our** 65-byte control block: a single-leaf tree has no
+   merkle sibling, so the control block is 33 bytes. Core was right; we were wrong.
+3. That the BIP-342 claim would have to remain REASONED for lack of a host. It
+   did not: the rig's own local regtest node was sufficient all along, and the
+   blocker was our own witness construction.
+
+## Summary of what is now MEASURED
+
+1. Core parses both leaf forms (`decodescript`, both `nonstandard`).
+2. Core derives the **identical** taproot address for our script-path output.
+3. Our fixed 33-byte control block matches Core's **byte-for-byte**.
+4. Core signed and **accepted** a script-path spend (`allowed: true`) when it held
+   the leaf key — proving the rails are sound.
+5. **Core rules `OP_CHECKMULTISIG` unavailable in tapscript, while the
+   `OP_CHECKSIGADD` form executes and fails only on a placeholder signature.**
+6. A key-path control experiment was also accepted, isolating the earlier failure
+   to witness assembly.
+
+The remaining honesty note: item 5 used a 64-byte placeholder signature, so Core
+never accepted the CHECKSIGADD spend *end-to-end*. What is proven is that Core
+**reaches and passes** the opcode check for CHECKSIGADD and **fails it by name**
+for CHECKMULTISIG. A full end-to-end acceptance with a real signature would
+strengthen it further and is a small remaining step — but the opcode
+discrimination itself, which is the claim, is measured.
