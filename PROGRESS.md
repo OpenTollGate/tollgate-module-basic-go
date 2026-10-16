@@ -55,7 +55,7 @@ scheduler correctly keeps traffic on the better subflow.
 2. Aggregation measurement — **BLOCKED**: needs independent end-to-end paths
    (operator decision required; see below)
 3. ~~Thin applier~~ — DONE (`d927deb`)
-4. Operator docs for enabling MPTCP on OpenWrt — NEXT
+4. ~~Operator docs for enabling MPTCP on OpenWrt~~ — DONE (`5c30576`)
 5. Wire `ShouldSteer` into `upstream_detector` events — not started
 
 ## Iteration 2 — 2026-10-16
@@ -91,3 +91,30 @@ upstream**, so both subflows converge at the same bottleneck (conntrack shows
 only one connection carrying data). Options: (a) put a second ISP on the router
 (Starlink/StarGate as uplink B) and retry, or (b) accept "subflow formation
 proven, aggregation topology-blocked" as the documented state.
+
+## Iteration 3 — 2026-10-16
+
+### Finding — operator runbook written, and verifying it found 3 defects in my own draft
+
+Built `docs/MPTCP-OPERATOR-RUNBOOK.md` + `scripts/read_mptcp_counter.sh`. Every
+command was RUN against the real router before being written down. That caught:
+
+1. `ss -Min` prints NOTHING for MPTCP sockets on this OpenWrt build — my draft
+   told operators to read `subflows:1` from it. Removed; `/proc/net/netstat`
+   counters are now named as the authority.
+2. `paste` is not in BusyBox — the obvious `awk|tr|paste` one-liner FAILS on
+   OpenWrt. Replaced with the shipped helper script.
+3. `ip route get` against the router's OWN address returns `local` and proves
+   nothing — the disjoint-path check is now specified as client-side against
+   the PEER's addresses (verified from cobrador: two peer addrs resolve to two
+   different `dev`, which is the actual proof).
+
+Helper script verified ON DEVICE in BusyBox ash: SYNTAX_OK, MPJoinSynRx -> 2,
+MPJoinAckRx -> 2, MPCurrEstab -> 0, no-arg mode lists all pairs, unknown
+counter exits 1.
+
+**Status:** done. Commit `5c30576`, pushed ✓.
+
+## Work queue (next)
+5. Wire `ShouldSteer` into `upstream_detector` events so a subflow is added when
+   an interface comes up and removed when it goes down — NEXT (code, TDD)
