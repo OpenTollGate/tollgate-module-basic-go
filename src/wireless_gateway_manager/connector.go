@@ -211,6 +211,9 @@ func (c *Connector) ExecuteUCI(args ...string) (string, error) {
 }
 
 func (c *Connector) ExecuteUbus(args ...string) (string, error) {
+	if c.runUbus != nil {
+		return c.runUbus(args...)
+	}
 	cmd := exec.Command("ubus", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
