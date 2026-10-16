@@ -188,6 +188,21 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Every tunnel must be PINNABLE, or it silently takes the default route and
+	// both tunnels end up sharing one uplink -- a bond that connects twice
+	// through the same path. `wg set ... bind` is not a real option (verified on
+	// device: `Invalid argument: bind`), so pinning is fwmark + a policy-routing
+	// rule, which requires all three of FwMark, Gateway and Table.
+	for i, t := range c.Tunnels {
+		if t.FwMark == 0 || t.Gateway == "" || t.Table == 0 {
+			return fmt.Errorf(
+				"mptcp_bonding: tunnel %d (%s) cannot be pinned to its uplink: "+
+					"fwmark, gateway and table are all required (a tunnel without "+
+					"them takes the default route, so both tunnels share one uplink)",
+				i, t.Name)
+		}
+	}
+
 	return nil
 }
 
