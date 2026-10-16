@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -246,7 +247,44 @@ func (v *VendorElementProcessor) calculateScore(ni NetworkInfo, vendorElements m
 	return score
 }
 
+// VendorElementProcessor owns the WRITE path: telling hostapd which
+// vendor-specific information elements this AP should beacon. Before this, the
+// whole emit chain was unreachable (EmitTollGateVendorIE had no callers and the
+// reader below returned an empty map), so no router could advertise itself and
+// the scan-side producer had nothing to find.
+type VendorElementProcessor struct {
+	connector *Connector
+
+	// disabled makes the processor inert. Wired from
+	// config.UpstreamWifi.VendorIEDiscovery so that merging the emitter changes
+	// nothing on an existing deployment until the operator opts in.
+	disabled bool
+
+	// foreignElements holds vendor elements this processor did NOT set, keyed
+	// by a stable name, so they can be re-sent alongside ours. Writing only our
+	// own hex would clobber co-resident elements (11k/11v, mesh, other tooling)
+	// because hostapd's set_vendor_elements REPLACES the whole set.
+	foreignElements map[string]string
+
+	// applied records the last payload successfully applied, so
+	// GetLocalAPVendorElements can report what is actually on the AP instead of
+	// an empty map.
+	applied map[string]string
+}
+
+// SetLocalAPVendorElements pushes the given elements to every hostapd
+// interface, PRESERVING any foreign elements previously observed.
+//
+// Returns an error when hostapd interfaces exist but every write to them
+// failed. That case used to return nil, which meant a router could fail to
+// advertise and report success — indistinguishable from a router that simply
+// has nothing to say.
 func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]string) error {
+	if v.disabled {
+		logger.Debug("SetLocalAPVendorElements: vendor-IE discovery disabled; not writing")
+		return nil
+	}
+
 	logger.WithFields(logrus.Fields{
 		"elements": elements,
 	}).Debug("SetLocalAPVendorElements: setting vendor elements on local AP")
@@ -266,24 +304,45 @@ func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]st
 	}
 
 	if len(hostapdIfaces) == 0 {
+		// A router with its radio down is a legitimate state, not a failure.
 		logger.Warn("SetLocalAPVendorElements: no hostapd interfaces found")
 		return nil
 	}
 
+	// Our elements first, then everything we do not own, so a foreign element
+	// survives. Ordering is irrelevant to hostapd; inclusion is not.
+	merged := make(map[string]string, len(elements)+len(v.foreignElements))
+	for k, val := range v.foreignElements {
+		merged[k] = val
+	}
+	for k, val := range elements {
+		merged[k] = val
+	}
+
+	// Deterministic order so the payload is stable run to run (a set of
+	// elements with the same content must produce the same bytes).
+	keys := make([]string, 0, len(merged))
+	for k := range merged {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 	var hexIEs []string
-	for _, h := range elements {
-		hexIEs = append(hexIEs, h)
+	for _, k := range keys {
+		hexIEs = append(hexIEs, merged[k])
 	}
 	combinedHex := strings.Join(hexIEs, "")
 
+	var attempted, failed int
 	for _, iface := range hostapdIfaces {
 		payload := map[string]string{"vendor_elements": combinedHex}
 		jsonBytes, err := json.Marshal(payload)
 		if err != nil {
 			return fmt.Errorf("failed to marshal vendor elements payload: %w", err)
 		}
+		attempted++
 		_, err = v.connector.ExecuteUbus("call", iface, "set_vendor_elements", string(jsonBytes))
 		if err != nil {
+			failed++
 			logger.WithFields(logrus.Fields{
 				"interface": iface,
 				"error":     err,
@@ -293,18 +352,53 @@ func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]st
 		logger.WithField("interface", iface).Info("SetLocalAPVendorElements: vendor elements set")
 	}
 
+	if attempted > 0 && failed == attempted {
+		return fmt.Errorf("failed to set vendor elements on all %d hostapd interface(s)", attempted)
+	}
+
+	// Record what we applied, so the reader can report the AP's real state.
+	if v.applied == nil {
+		v.applied = make(map[string]string, len(elements))
+	}
+	for k, val := range elements {
+		v.applied[k] = val
+	}
+
 	return nil
 }
 
+// GetLocalAPVendorElements reports the elements this processor last applied.
+//
+// LIMITATION, stated so nobody trusts it further than it goes: this is the
+// processor's own record of the last successful write, NOT a read-back from
+// hostapd. OpenWrt's hostapd exposes set_vendor_elements but no getter, so a
+// true read-back is not possible over ubus. A third party changing the elements
+// behind us would not be reflected here.
 func (v *VendorElementProcessor) GetLocalAPVendorElements() (map[string]string, error) {
-	return make(map[string]string), nil
+	out := make(map[string]string, len(v.applied))
+	for k, val := range v.applied {
+		out[k] = val
+	}
+	return out, nil
 }
 
-func NewVendorElementProcessor(connector *Connector) *VendorElementProcessor {
-	return &VendorElementProcessor{connector: connector}
+// NewVendorElementProcessor builds a processor. It defaults to DISABLED so that
+// introducing the emitter changes nothing on an existing deployment; the daemon
+// passes the vendor_ie_discovery config flag to opt in.
+func NewVendorElementProcessor(connector *Connector, enabled ...bool) *VendorElementProcessor {
+	p := &VendorElementProcessor{connector: connector, disabled: true}
+	if len(enabled) > 0 && enabled[0] {
+		p.disabled = false
+	}
+	return p
 }
 
+// EmitTollGateVendorIE encodes the advertisement and pushes it to hostapd.
+// It is a no-op when vendor-IE discovery is disabled.
 func EmitTollGateVendorIE(processor *VendorElementProcessor, adv TollGateAdvertisement) error {
+	if processor == nil || processor.disabled {
+		return nil
+	}
 	ieHex, truncated, err := EncodeTollGateVendorIE(adv)
 	if err != nil {
 		return fmt.Errorf("failed to encode vendor IE: %w", err)

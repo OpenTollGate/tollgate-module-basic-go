@@ -39,6 +39,12 @@ type Connector struct {
 	// STA convergence logic is exercised for real (#817 — the mock-level
 	// tests asserted canned returns and never touched it).
 	runUCI func(args ...string) (string, error)
+
+	// runUbus runs one ubus invocation; nil means the real binary. Same seam
+	// pattern as runUCI above: the vendor-element emitter is the only ubus
+	// writer in this package, and without a seam its tests could only assert
+	// canned returns.
+	runUbus func(args ...string) (string, error)
 }
 
 type Scanner struct {
@@ -98,10 +104,6 @@ type TollGateAdvertisement struct {
 	// never as free.
 	PricePerStep uint16
 	StepSize     uint16
-}
-
-type VendorElementProcessor struct {
-	connector *Connector
 }
 
 type Gateway struct {
