@@ -125,3 +125,52 @@ rather than claimed.
   so: price is a policy that must be told-and-signed, not exchanged
   peer-to-peer (see `docs/architecture/discovery-signaling-decision.md` for the
   signal-vs-authority split this preserves).
+
+---
+
+## On-router evidence (live MT6000, 2026-10-16)
+
+GL.iNet GL-MT6000 · OpenWrt 24.10.2 · `mediatek/filogic` · `aarch64_cortex-a53`.
+Binary cross-built with `CGO_ENABLED=0`, ELF machine field verified as `0xb7`
+(aarch64) **before** transfer.
+
+**A — live scan** (the parser against real air):
+
+```
+iw dev phy0-ap0 scan: 28736 bytes, err=<nil>
+Vendor specific: lines present in raw output = 0
+parsed networks = 12
+identified TollGates = 0
+RESULT: parser ran; no TollGate vendor element in range.
+```
+
+Absence is correct: no neighbour on that air is running this build. This proves
+the parser consumes real `iw` output without crashing or inventing a TollGate.
+
+**B — real scan + one injected TollGate element** (the positive path):
+
+```
+read /tmp/injected-scan.txt: 35168 bytes
+Vendor specific: lines present in raw output = 1
+parsed networks = 16
+TOLLGATE  bssid=b2:36:4a:2a:03:32 ssid="StarGate" signal=0 price_per_step=7 step_size=1000 rawIE_bytes=38
+identified TollGates = 1
+RESULT: vendor-IE producer populated identification + pricing from live output.
+```
+
+The element was injected into **genuine captured router output** (a real
+`iw dev phy0-ap0 scan`, 35 041 bytes, with one correctly-framed vendor element
+added to an existing BSS). The parser located it among 16 parsed networks and
+recovered **`price_per_step=7` and `step_size=1000` exactly** — the values
+encoded into the injected element.
+
+**Honest limits of this evidence:**
+
+- The positive case uses an *injected* element, not a second router running this
+  build. A true two-router air test needs a second TollGate on this firmware.
+- `signal=0` for the identified record is expected and correct: the injected
+  element was added to a scan block whose signal line the injection did not
+  fabricate.
+- Verified on the MT6000 only. The MT3000 was **not** touched.
+- Console access was serialised through the bench mutex
+  (`~/.local/state/tg-bench/tollgate-A04E.lock`) for every session.
