@@ -27,17 +27,38 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: tg-vendor-ie-demo <wireless-device>")
+		fmt.Fprintln(os.Stderr, "usage: tg-vendor-ie-demo <wireless-device> | --file <scan-file>")
 		os.Exit(1)
 	}
 	dev := os.Args[1]
 
 	fmt.Printf("=== tg-vendor-ie-demo on %s ===\n", dev)
 
-	// Show the raw element lines the router actually emits — the ground truth
-	// the parser must cope with.
-	iwOut, iwErr := exec.Command("iw", "dev", dev, "scan").Output()
-	fmt.Printf("iw dev %s scan: %d bytes, err=%v\n", dev, len(iwOut), iwErr)
+	// Two modes:
+	//   <device>        run `iw dev <device> scan` — proves the parser against
+	//                   live air.
+	//   --file <path>   parse a saved scan — lets a synthetic element be
+	//                   injected into REAL captured output, so the positive
+	//                   identification path can be proven where no neighbour
+	//                   running this build exists.
+	var iwOut []byte
+	if dev == "--file" {
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: tg-vendor-ie-demo --file <scan-file>")
+			os.Exit(1)
+		}
+		b, err := os.ReadFile(os.Args[2])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "read %s: %v\n", os.Args[2], err)
+			os.Exit(1)
+		}
+		iwOut = b
+		fmt.Printf("read %s: %d bytes\n", os.Args[2], len(iwOut))
+	} else {
+		out, iwErr := exec.Command("iw", "dev", dev, "scan").Output()
+		iwOut = out
+		fmt.Printf("iw dev %s scan: %d bytes, err=%v\n", dev, len(iwOut), iwErr)
+	}
 
 	if len(iwOut) == 0 {
 		fmt.Println("RESULT: no iw scan output — cannot demonstrate parsing")
