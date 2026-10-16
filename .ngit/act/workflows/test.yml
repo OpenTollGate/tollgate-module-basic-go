@@ -112,8 +112,8 @@ jobs:
       # config_manager's default population, tollgate-cli's resolver). The
       # fence requires every declaration to use ONE path value; a drifted
       # copy silently sees "marker absent" and converges the wrong mapping.
-      # Offline (tree-only) on purpose, so it runs on this lane too — the
-      # ngit act lane is the live CI (#933).
+      # Offline (tree-only) on purpose, so it runs on both lanes — the ngit
+      # act lane is the live CI (#933).
       - name: Entry-UI marker path (one value across shell and Go)
         run: bash tests/contract/check-entry-ui-marker-path.sh
 
