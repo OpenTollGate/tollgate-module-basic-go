@@ -260,16 +260,68 @@ type VendorElementProcessor struct {
 	// nothing on an existing deployment until the operator opts in.
 	disabled bool
 
-	// foreignElements holds vendor elements this processor did NOT set, keyed
-	// by a stable name, so they can be re-sent alongside ours. Writing only our
-	// own hex would clobber co-resident elements (11k/11v, mesh, other tooling)
-	// because hostapd's set_vendor_elements REPLACES the whole set.
+	// foreignElements holds vendor elements this processor did NOT set, keyed by
+	// a stable name, so they can be re-sent alongside ours. hostapd's
+	// set_vendor_elements REPLACES the whole set, so anything absent from the
+	// payload we send is REMOVED from the AP.
+	//
+	// HONEST LIMITATION (found by a cold cross-family review, 2026-10-16): this
+	// map is EMPTY unless someone fills it. OpenWrt's hostapd exposes
+	// set_vendor_elements with no getter, so the current element set CANNOT be
+	// read back over ubus, and nothing in this package can discover it. A caller
+	// that knows the router's other elements (from uci, from provisioning, from a
+	// previous read) MUST supply them here, or the first write will replace them.
+	// Populating it from uci is wired below via loadConfiguredVendorElements,
+	// which is best-effort and may legitimately find nothing.
 	foreignElements map[string]string
 
 	// applied records the last payload successfully applied, so
 	// GetLocalAPVendorElements can report what is actually on the AP instead of
 	// an empty map.
 	applied map[string]string
+}
+
+// loadConfiguredVendorElements makes a best-effort attempt to learn the vendor
+// elements already configured on this router, so a write can preserve them.
+//
+// It reads the uci wireless config, which is where a persisted
+// `vendor_elements` option would live. It returns an empty map (not an error)
+// when nothing is configured: many deployments set vendor elements only at
+// runtime, and those are unreadable — see the limitation on foreignElements.
+func (v *VendorElementProcessor) loadConfiguredVendorElements() {
+	if v.foreignElements != nil {
+		return
+	}
+	v.foreignElements = make(map[string]string)
+
+	out, err := v.connector.ExecuteUCI("show", "wireless")
+	if err != nil {
+		logger.WithError(err).Debug("loadConfiguredVendorElements: uci show wireless failed; " +
+			"cannot preserve pre-existing vendor elements")
+		return
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		// e.g. wireless.default_radio0.vendor_elements='dd0e...'
+		idx := strings.Index(line, ".vendor_elements=")
+		if idx < 0 {
+			continue
+		}
+		section := line[:idx]
+		val := strings.Trim(strings.TrimSpace(line[idx+len(".vendor_elements="):]), "'\"")
+		if val == "" {
+			continue
+		}
+		// Key by uci section so a re-read is idempotent.
+		key := "uci:" + section
+		// Do not re-capture an element we are ourselves responsible for.
+		if strings.Contains(val, tollgateOUI) {
+			continue
+		}
+		v.foreignElements[key] = val
+	}
+	logger.WithField("count", len(v.foreignElements)).
+		Debug("loadConfiguredVendorElements: captured pre-existing vendor elements")
 }
 
 // SetLocalAPVendorElements pushes the given elements to every hostapd
@@ -289,10 +341,16 @@ func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]st
 		"elements": elements,
 	}).Debug("SetLocalAPVendorElements: setting vendor elements on local AP")
 
+	// Best-effort: learn what is already configured so we do not replace it.
+	v.loadConfiguredVendorElements()
+
 	output, err := v.connector.ExecuteUbus("list")
 	if err != nil {
-		logger.WithError(err).Warn("SetLocalAPVendorElements: ubus list failed, hostapd may not be running")
-		return nil
+		// ubus itself being unreachable is NOT the same as "no hostapd
+		// configured". Swallowing it made a broken ubus indistinguishable from
+		// a healthy router with its radio off, which is how a router could fail
+		// to advertise while reporting success.
+		return fmt.Errorf("ubus list failed, cannot determine hostapd interfaces: %w", err)
 	}
 
 	var hostapdIfaces []string
@@ -352,15 +410,24 @@ func (v *VendorElementProcessor) SetLocalAPVendorElements(elements map[string]st
 		logger.WithField("interface", iface).Info("SetLocalAPVendorElements: vendor elements set")
 	}
 
+	// "Advertised on nothing" must never read as success. Partial is reported
+	// but tolerated: one AP being unreachable should not stop the others.
 	if attempted > 0 && failed == attempted {
 		return fmt.Errorf("failed to set vendor elements on all %d hostapd interface(s)", attempted)
 	}
-
-	// Record what we applied, so the reader can report the AP's real state.
-	if v.applied == nil {
-		v.applied = make(map[string]string, len(elements))
+	if failed > 0 {
+		return fmt.Errorf("set vendor elements on %d of %d hostapd interface(s) (%d failed)",
+			attempted-failed, attempted, failed)
 	}
-	for k, val := range elements {
+
+	// Record what we actually sent — the MERGED set, not merely ours. Recording
+	// only our own elements made the reader under-report the AP's real state:
+	// it would omit the preserved foreign elements that are equally present on
+	// the air. (Found by the same review as the clobbering defect.)
+	if v.applied == nil {
+		v.applied = make(map[string]string, len(merged))
+	}
+	for k, val := range merged {
 		v.applied[k] = val
 	}
 
