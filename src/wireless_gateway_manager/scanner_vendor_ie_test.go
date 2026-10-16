@@ -5,65 +5,42 @@ import (
 	"testing"
 )
 
-// The vendor-IE producer wiring (issue: PricePerStep/StepSize were staged
-// zero at the scan boundary — scanner.go's "STAGED (this PR)" block — and
-// had no producer). These tests pin the producer: given raw scan bytes that
-// carry a TollGate vendor IE, ParseIwinfoOutput must populate IsTollGate,
-// RawIEs and — when the IE carries pricing TLVs — PricePerStep/StepSize.
+// The vendor-IE producer wiring: PricePerStep/StepSize were staged zero at the
+// scan boundary (scanner.go's "STAGED (this PR)" block) and had no producer.
+// These tests pin the producer against the format the router ACTUALLY emits.
 //
-// RED first: before the producer is wired, ParseIwinfoOutput hard-omits
-// these fields, so every assertion below fails with a zero value.
+// MEASURED ON HARDWARE (tollgate-A04E, 2026-10-16): neither `iwinfo <dev> scan`
+// nor `iw dev <dev> scan` prints a raw hex "IE:" blob. iwinfo prints
+// signal/ENC/rate and NO elements at all; iw prints each element DECODED into
+// named fields ("SSID:", "RSN:", "HT capabilities:", …). So a hex-IE parser
+// would be dead code on this platform. The producer therefore reads the
+// decoded named fields — including a vendor element printed as
+// "Vendor specific:" with a colon-separated hex body.
 
-// ieHex renders a raw IE byte slice as the hex blob iwinfo/iw emit.
-func ieHex(b []byte) string {
-	const hexdigits = "0123456789abcdef"
-	out := make([]byte, 0, len(b)*2)
-	for _, c := range b {
-		out = append(out, hexdigits[c>>4], hexdigits[c&0x0f])
-	}
-	return string(out)
-}
-
-// buildTollGateIE assembles a TollGate vendor IE with the same shape the
-// emitter produces: OUI 212121 | elemType 01 | version | flags | TLVs.
-func buildTollGateIE(version, flags byte, mintURL string, price, step uint16) []byte {
-	body := []byte{0x21, 0x21, 0x21, 0x01, version, flags}
-
-	// tlvTypeMintURL (0x01) — len-prefixed string.
-	if mintURL != "" {
-		body = append(body, 0x01, byte(len(mintURL)))
-		body = append(body, []byte(mintURL)...)
-	}
-	// tlvTypePricePerStep (0x03) — 2-byte big-endian, per the emitter's
-	// TLV extension for pricing.
-	if price > 0 {
-		body = append(body, 0x03, 0x02, byte(price>>8), byte(price))
-	}
-	// tlvTypeStepSize (0x04) — 2-byte big-endian.
-	if step > 0 {
-		body = append(body, 0x04, 0x02, byte(step>>8), byte(step))
-	}
-
-	return append([]byte{0xDD, byte(len(body))}, body...)
-}
-
-// iwinfoScanBlock renders one iwinfo scan entry. iwinfo's human output has
-// no IE field, so the raw IE is surfaced the way `iwinfo <dev> scan` and
-// iw do: a trailing "IE: <hex>" line summarised from the beacon.
-func iwinfoScanBlock(bssid, ssid string, signal int, enc string, ie []byte) string {
+// iwScanBlock renders one `iw dev <dev> scan` BSS entry in the real shape:
+// tab-indented named fields, with information elements decoded into names.
+func iwScanBlock(bssid, ssid string, signal int, vendorHex string) string {
 	var b strings.Builder
-	b.WriteString("Cell 01 - Address: " + bssid + "\n")
-	b.WriteString("          ESSID: \"" + ssid + "\"\n")
-	b.WriteString("          Mode: Master  Channel: 36\n")
-	b.WriteString("          Signal: " + itoa(signal) + " dBm  Quality: 70/70\n")
-	b.WriteString("          Encryption: " + enc + "\n")
-	if len(ie) > 0 {
-		b.WriteString("          IE: " + ieHex(ie) + "\n")
+	b.WriteString("BSS " + bssid + "(on phy0-ap0)\n")
+	b.WriteString("\tlast seen: 1480 ms ago\n")
+	b.WriteString("\tfreq: 2412.0\n")
+	b.WriteString("\tsignal: " + ftoa(signal) + " dBm\n")
+	b.WriteString("\tcapability: ESS (0x1431)\n")
+	b.WriteString("\tInformation elements from Probe Response frame:\n")
+	if ssid != "" {
+		b.WriteString("\t\tSSID: " + ssid + "\n")
+	}
+	b.WriteString("\t\tRSN:\t * Version: 1\n")
+	b.WriteString("\t\t\t * Group cipher: CCMP\n")
+	b.WriteString("\t\tHT capabilities:\n")
+	b.WriteString("\t\t\tCapabilities: 0x1ad\n")
+	if vendorHex != "" {
+		b.WriteString("\t\tVendor specific: " + vendorHex + "\n")
 	}
 	return b.String()
 }
 
-func itoa(i int) string {
+func ftoa(i int) string {
 	if i == 0 {
 		return "0"
 	}
@@ -76,21 +53,48 @@ func itoa(i int) string {
 		d = append([]byte{byte('0' + i%10)}, d...)
 		i /= 10
 	}
+	s := string(d)
 	if neg {
-		return "-" + string(d)
+		return "-" + s
 	}
-	return string(d)
+	return s
 }
 
-// TestParseIwinfoOutput_PopulatesVendorIEFields is the core RED test: a
-// TollGate IE in the scan bytes must set IsTollGate, retain the raw IE, and
-// populate the pricing fields from the IE's TLVs.
-func TestParseIwinfoOutput_PopulatesVendorIEFields(t *testing.T) {
-	ie := buildTollGateIE(1, flagHasInternet|flagOpenNetwork, "https://mint.example", 7, 1000)
-	out := []byte(iwinfoScanBlock("aa:bb:cc:dd:ee:01", "!TollGate-AB12", -55, "none", ie))
+// vendorHex renders a TollGate vendor element body the way `iw` prints a
+// "Vendor specific:" element: colon-separated hex of OUI | type | payload.
+func vendorTollGateHex(version, flags byte, mintURL string, price, step uint16) string {
+	body := []byte{0x21, 0x21, 0x21, 0x01, version, flags}
+	if mintURL != "" {
+		body = append(body, 0x01, byte(len(mintURL)))
+		body = append(body, []byte(mintURL)...)
+	}
+	if price > 0 {
+		body = append(body, 0x03, 0x02, byte(price>>8), byte(price))
+	}
+	if step > 0 {
+		body = append(body, 0x04, 0x02, byte(step>>8), byte(step))
+	}
+	parts := make([]string, 0, len(body))
+	for _, c := range body {
+		parts = append(parts, hexByte(c))
+	}
+	return strings.Join(parts, ":")
+}
+
+func hexByte(c byte) string {
+	const d = "0123456789abcdef"
+	return string([]byte{d[c>>4], d[c&0x0f]})
+}
+
+// TestParseIWScanOutput_PopulatesVendorIEFields is the core test: a TollGate
+// vendor element in real `iw` output must set IsTollGate and populate the
+// pricing fields from its TLVs.
+func TestParseIWScanOutput_PopulatesVendorIEFields(t *testing.T) {
+	vh := vendorTollGateHex(1, flagHasInternet|flagOpenNetwork, "https://mint.example", 7, 1000)
+	out := []byte(iwScanBlock("94:83:c4:d1:57:59", "!TollGate-A04E", -55, vh))
 
 	s := &Scanner{}
-	nets := s.ParseIwinfoOutput(out, "radio1")
+	nets := s.ParseIwinfoOutput(out, "radio0")
 
 	if len(nets) != 1 {
 		t.Fatalf("want 1 network, got %d", len(nets))
@@ -98,10 +102,7 @@ func TestParseIwinfoOutput_PopulatesVendorIEFields(t *testing.T) {
 	n := nets[0]
 
 	if !n.IsTollGate {
-		t.Errorf("IsTollGate = false, want true (IE with OUI %s present)", tollgateOUI)
-	}
-	if len(n.RawIEs) == 0 {
-		t.Errorf("RawIEs empty, want the raw IE bytes retained")
+		t.Errorf("IsTollGate = false, want true (vendor element with OUI %s present)", tollgateOUI)
 	}
 	if n.PricePerStep != 7 {
 		t.Errorf("PricePerStep = %d, want 7 (from tlvTypePricePerStep)", n.PricePerStep)
@@ -111,73 +112,88 @@ func TestParseIwinfoOutput_PopulatesVendorIEFields(t *testing.T) {
 	}
 }
 
-// TestParseIwinfoOutput_NonTollGateIEIgnored — a foreign vendor IE (any
-// other OUI) must NOT mark the network as a TollGate.
-func TestParseIwinfoOutput_NonTollGateIEIgnored(t *testing.T) {
-	foreign := []byte{0xDD, 0x05, 0x00, 0x11, 0x22, 0x33, 0x01}
-	out := []byte(iwinfoScanBlock("aa:bb:cc:dd:ee:02", "SomeOtherAP", -60, "psk2", foreign))
+// TestParseIWScanOutput_NonTollGateVendorIgnored — a foreign OUI must NOT mark
+// the network as a TollGate.
+func TestParseIWScanOutput_NonTollGateVendorIgnored(t *testing.T) {
+	out := []byte(iwScanBlock("aa:bb:cc:dd:ee:02", "SomeOtherAP", -60, "00:11:22:33:01"))
 
 	s := &Scanner{}
-	nets := s.ParseIwinfoOutput(out, "radio1")
+	nets := s.ParseIwinfoOutput(out, "radio0")
 	if len(nets) != 1 {
 		t.Fatalf("want 1 network, got %d", len(nets))
 	}
 	if nets[0].IsTollGate {
-		t.Errorf("IsTollGate = true for a foreign OUI %s, want false", "001122")
+		t.Errorf("IsTollGate = true for foreign OUI 001122, want false")
 	}
 	if nets[0].PricePerStep != 0 || nets[0].StepSize != 0 {
-		t.Errorf("pricing populated from a foreign IE: price=%d step=%d",
+		t.Errorf("pricing populated from a foreign element: price=%d step=%d",
 			nets[0].PricePerStep, nets[0].StepSize)
 	}
 }
 
-// TestParseIwinfoOutput_TollGateIEWithoutPricingTLVs — identification and
-// pricing are separable. An IE carrying flags but no price TLVs must still
-// identify the TollGate, leaving pricing at zero rather than failing.
-func TestParseIwinfoOutput_TollGateIEWithoutPricingTLVs(t *testing.T) {
-	ie := buildTollGateIE(1, flagHasInternet, "", 0, 0)
-	out := []byte(iwinfoScanBlock("aa:bb:cc:dd:ee:03", "!TollGate-CC33", -48, "none", ie))
+// TestParseIWScanOutput_TollGateWithoutPricingTLVs — identification and pricing
+// are separable; flags-only must still identify.
+func TestParseIWScanOutput_TollGateWithoutPricingTLVs(t *testing.T) {
+	vh := vendorTollGateHex(1, flagHasInternet, "", 0, 0)
+	out := []byte(iwScanBlock("aa:bb:cc:dd:ee:03", "!TollGate-CC33", -48, vh))
 
 	s := &Scanner{}
-	nets := s.ParseIwinfoOutput(out, "radio1")
+	nets := s.ParseIwinfoOutput(out, "radio0")
 	if len(nets) != 1 {
 		t.Fatalf("want 1 network, got %d", len(nets))
 	}
 	if !nets[0].IsTollGate {
-		t.Errorf("IsTollGate = false, want true — identification does not require pricing TLVs")
+		t.Errorf("IsTollGate = false, want true — identification needs no pricing TLV")
 	}
 	if nets[0].PricePerStep != 0 || nets[0].StepSize != 0 {
-		t.Errorf("pricing should stay zero without pricing TLVs, got price=%d step=%d",
+		t.Errorf("pricing should stay zero without pricing TLVs, got %d/%d",
 			nets[0].PricePerStep, nets[0].StepSize)
 	}
 }
 
-// TestParseIwinfoOutput_NoIEMeansNotTollGate — the absence of an IE must not
-// set IsTollGate. This guards the scan boundary against over-claiming.
-func TestParseIwinfoOutput_NoIEMeansNotTollGate(t *testing.T) {
-	out := []byte(iwinfoScanBlock("aa:bb:cc:dd:ee:04", "!TollGate-DD44", -70, "none", nil))
+// TestParseIWScanOutput_NoVendorElementMeansNotTollGate — absence of a vendor
+// element must not set IsTollGate, even for a TollGate-prefixed SSID.
+func TestParseIWScanOutput_NoVendorElementMeansNotTollGate(t *testing.T) {
+	out := []byte(iwScanBlock("aa:bb:cc:dd:ee:04", "!TollGate-DD44", -70, ""))
 
 	s := &Scanner{}
-	nets := s.ParseIwinfoOutput(out, "radio1")
+	nets := s.ParseIwinfoOutput(out, "radio0")
 	if len(nets) != 1 {
 		t.Fatalf("want 1 network, got %d", len(nets))
 	}
 	if nets[0].IsTollGate {
-		t.Errorf("IsTollGate = true with no IE present — SSID prefix alone is a weak " +
-			"signal and must not be promoted to the definitive identification")
+		t.Errorf("IsTollGate = true with no vendor element — the SSID prefix is a weak " +
+			"signal and must not be promoted to definitive identification")
 	}
 }
 
-// TestParseIwinfoOutput_MultipleNetworksAndIEs — the producer must attach the
-// IE to the right network, not leak it across entries.
-func TestParseIwinfoOutput_MultipleNetworksAndIEs(t *testing.T) {
-	tgIE := buildTollGateIE(1, flagHasInternet, "", 3, 500)
-	plain := iwinfoScanBlock("aa:bb:cc:dd:ee:10", "Neighbour-5G", -65, "psk2", nil)
-	tg := iwinfoScanBlock("aa:bb:cc:dd:ee:11", "!TollGate-EE55", -50, "none", tgIE)
+// TestParseIWScanOutput_RealHardwareHiddenSSID — measured on A04E: `iw` prints
+// "SSID: unknown" for an AP whose SSID is not in the frame. That is a literal
+// string, not a hidden-SSID marker, and must not become a network named
+// "unknown" that then competes in upstream selection.
+func TestParseIWScanOutput_RealHardwareHiddenSSID(t *testing.T) {
+	out := []byte(iwScanBlock("34:19:4d:da:c7:6c", "unknown", -90, ""))
+
+	s := &Scanner{}
+	nets := s.ParseIwinfoOutput(out, "radio0")
+	for _, n := range nets {
+		if n.SSID == "unknown" {
+			t.Errorf("network named %q was admitted; a parsed placeholder must not "+
+				"become a selectable upstream", n.SSID)
+		}
+	}
+}
+
+// TestParseIWScanOutput_MultipleNetworksAndVendorElements — the element must
+// attach to the right BSS, not leak across entries.
+func TestParseIWScanOutput_MultipleNetworksAndVendorElements(t *testing.T) {
+	tgVH := vendorTollGateHex(1, flagHasInternet, "", 3, 500)
+	plain := iwScanBlock("aa:bb:cc:dd:ee:10", "Neighbour-2G", -65, "")
+	tg := iwScanBlock("aa:bb:cc:dd:ee:11", "!TollGate-EE55", -50, tgVH)
 	out := []byte(plain + tg)
 
 	s := &Scanner{}
-	nets := s.ParseIwinfoOutput(out, "radio1")
+	nets := s.ParseIwinfoOutput(out, "radio0")
 	if len(nets) != 2 {
 		t.Fatalf("want 2 networks, got %d", len(nets))
 	}
@@ -193,8 +209,7 @@ func TestParseIwinfoOutput_MultipleNetworksAndIEs(t *testing.T) {
 				t.Errorf("TollGate network not identified")
 			}
 			if n.PricePerStep != 3 || n.StepSize != 500 {
-				t.Errorf("pricing misplaced: price=%d step=%d, want 3/500",
-					n.PricePerStep, n.StepSize)
+				t.Errorf("pricing misplaced: %d/%d, want 3/500", n.PricePerStep, n.StepSize)
 			}
 		}
 	}

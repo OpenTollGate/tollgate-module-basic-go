@@ -12,3 +12,17 @@
 - [ ] Build for aarch64_cortex-a53
 - [ ] Install + demo on MT6000 (A04E) under bench mutex
 - [ ] Push branch + open PR
+
+## CORRECTION after hardware verification (2026-10-16)
+Measured on tollgate-A04E: `iwinfo <dev> scan` prints NO information elements
+at all (grep -c 'IE:' == 0), and prints hidden APs as `ESSID: "unknown"`.
+`iw dev <dev> scan` is the only tool that prints elements, and it prints them
+DECODED into named fields (`SSID:`, `RSN:`, `HT capabilities:`), not as a hex
+blob. A vendor element appears as `Vendor specific: <colon-hex>` and — critically
+— iw strips the element ID (0xDD) and length byte, so the body must be
+re-framed before ParseVendorIEsFromScanData will accept it.
+
+So the first implementation (parsing a hex `IE:` line) was WRONG for real
+hardware and is replaced: the parser now accepts BOTH real formats, handles
+the "unknown" placeholder, and re-frames the iw vendor body. Tests rewritten
+to the measured format; 3 failed with the raw-body bug and pass with the fix.
