@@ -581,20 +581,24 @@ regardless of its `on:` clause.
 ## Starting a run by hand
 
 `scripts/ngit-ci-trigger.sh` publishes the kind-9840 Manual Trigger for this
-repository, signed by the maintainer key. It is the replacement for the GitHub
-twin's `peter-evans/repository-dispatch@v4` step (which dispatched into
-`tollgate-os` with a cross-repo token that does not exist here), and it is how
-anything in the release pipeline is started on a ref its own `on:` clause does
-not cover:
+repository, signed by an identity the operator has declared they trust. It is
+the replacement for the GitHub twin's `peter-evans/repository-dispatch@v4`
+step (which dispatched into `tollgate-os` with a cross-repo token that does
+not exist here), and it is how anything in the release pipeline is started on
+a ref its own `on:` clause does not cover:
 
 ```bash
+# Declare the identities this seat may sign with (once, e.g. in the shell
+# profile) — hex pubkeys, npub1… or nsec1… entries:
+export NGIT_TRUST="npub1nn…"
 scripts/ngit-ci-trigger.sh \
   .ngit/act/workflows/build-package-ipk-none.yml \
   "$(git rev-parse HEAD)" refs/heads/release/<version>/<channel>/<release_run>/ipk-none
 ```
 
 For a whole release you do not call it directly — `scripts/ngit-ci-release.sh`
-does, in the right order, and waits for each result:
+does, in the right order, and waits for each result (it inherits `NGIT_TRUST`
+from the environment):
 
 ```bash
 scripts/ngit-ci-release.sh v0.6.0-alpha3 alpha "$(git rev-parse <commit>)"
@@ -611,25 +615,35 @@ then does nothing at all. It also refuses an unknown shard id and a release run
 equal to the build id, rather than silently running nothing.
 
 `ngit-ci-trigger.sh` computes the `w` tag's SHA-256 from the file's content at
-the declared commit (the coordinator rejects a mismatch), refuses to sign with
-anything that is not the maintainer key, and never prints the key. The signing
-key file defaults to `~/.hermes/.ngit-new-key` and is overridable with
-`KEYFILE=`. **The maintainer identity rotated on 2026-09-13** to `9cd14d9a…`
-(the key in that file), and `MAINT_HEX` follows it — the value is also the
-identity in the `a=30617:<hex>:<repo>` coordinate, so a stale one names a
-coordinate the coordinator does not serve. If a trigger starts failing, check
-the live announcement first:
+the declared commit (the coordinator rejects a mismatch), and never prints key
+material. The signing key file defaults to `~/.hermes/.ngit-new-key` and is
+overridable with `KEYFILE=`.
+
+**Trust is declared, not built in.** There is no single source of authority
+for a Nostr identity, so the script ships none: `NGIT_TRUST` (space- or
+comma-separated) lists the identities this seat may sign with — `64-hex`
+pubkeys, `npub1…`, or `nsec1…` entries (an entry's public half is derived,
+never printed). `MAINT_HEX` still works as the legacy single-hex form. With
+neither set the trigger **fails closed**. This replaces the pre-rotation
+design where the maintainer hex was a constant in the script: an identity
+rotation (last one 2026-09-13) is now a declaration change, not a code
+change — carry old and new in `NGIT_TRUST` across the cut, drop the old one
+after. The matched identity also names the `a=30617:<hex>:<repo>` coordinate,
+so it must be one the coordinator still serves for this repository. If a
+trigger is refused or ignored, check the live announcement first:
 
 ```bash
 nak req -k 30617 -d tollgate-module-basic-go wss://relay.ngit.dev
 ```
 
-`tests/ngit-ci-trigger_test.sh` exercises every refusal plus the hash
-computation on a throwaway repo and an unreachable relay — no real event is
-published:
+`tests/ngit-ci-trigger_test.sh` exercises every refusal — fail-closed on
+undeclared trust, signer outside the set, unparseable entries — plus every
+accept form (hex, npub, nsec, legacy, multi-entry sets) and the hash
+computation, on a throwaway repo and an unreachable relay. No real event is
+published and no real identity is used:
 
 ```bash
-bash tests/ngit-ci-trigger_test.sh     # 9 passed, 0 failed
+bash tests/ngit-ci-trigger_test.sh     # 18 passed, 0 failed
 ```
 
 ## State of the checks right now
