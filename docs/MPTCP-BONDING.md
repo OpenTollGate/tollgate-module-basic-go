@@ -229,6 +229,30 @@ transport tests unchanged, plus new config tests for default-off, round-trip, an
 unknown-key rejection. No production PR to `jmcorgan/fips` is planned yet — the
 aggregation measurement gate below must pass first.
 
+## Measurement status
+
+See [`MPTCP-MEASUREMENT.md`](MPTCP-MEASUREMENT.md) for the full lab record.
+
+**Subflow formation: PROVEN.** On the GL-MT6000 (`tollgate-A04E`, OpenWrt 24.10.2)
+with both ends configured `signal subflow`, a real second subflow forms and
+completes its handshake — `MPJoinSynRx` and `MPJoinAckRx` go from 0 to 2 across a
+single measured transfer, and `ss -Min` shows `subflows:1`, `local_addr_used:3`.
+This is the counter that stayed at 0 in every earlier run.
+
+**Aggregation: NOT achieved — topology-limited.** Measured on two disjoint L2
+segments that both terminate at the *same* router:
+
+| Config | Throughput |
+|---|---|
+| single path (`--bind-dev`) | 925–928 Mbit/s |
+| unbound, MPTCP free to use both | 919–921 Mbit/s |
+
+No gain (the difference is noise). Conntrack shows why: only one of the two MPTCP
+connections carries data. Both subflows converge at one router with one upstream,
+so the scheduler correctly keeps traffic on the better subflow instead of
+splitting across a shared bottleneck. Independent *end-to-end* paths are required
+for a real aggregate.
+
 ## Licensing
 
 - This module: same licence as the repository.
