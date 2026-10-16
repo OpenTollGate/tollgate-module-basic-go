@@ -20,6 +20,13 @@ const (
 
 	tlvTypeMintURL = 0x01
 	tlvTypePubkey  = 0x02
+	// Pricing TLVs: the price a customer pays per step, and the step size
+	// (the metric quantum). Both are 2-byte big-endian so a scan-side parser
+	// can read them without a signed advertisement round-trip. The signed
+	// kind-10021 advertisement served on :2121 remains the authority; these
+	// are an unsigned hint that selects candidates for the signed probe.
+	tlvTypePricePerStep = 0x03
+	tlvTypeStepSize     = 0x04
 )
 
 // EncodeTollGateVendorIE serializes the advertisement as one vendor IE.
@@ -68,6 +75,26 @@ func EncodeTollGateVendorIE(adv TollGateAdvertisement) (string, bool, error) {
 		}
 		body = append(body, tlvTypePubkey, uint8(pubkeyLen))
 		body = append(body, adv.Pubkey...)
+	}
+
+	// Pricing TLVs, 2-byte big-endian each. Emitted only when set, and each
+	// is dropped (with truncated=true) rather than pushing out the pubkey or
+	// overflowing the element: identification outranks the pricing hint.
+	for _, tlv := range []struct {
+		typ byte
+		val uint16
+	}{
+		{tlvTypePricePerStep, adv.PricePerStep},
+		{tlvTypeStepSize, adv.StepSize},
+	} {
+		if tlv.val == 0 {
+			continue
+		}
+		if len(body)+4 > 255 {
+			truncated = true
+			continue
+		}
+		body = append(body, tlv.typ, 0x02, byte(tlv.val>>8), byte(tlv.val))
 	}
 
 	ie := append([]byte{0xDD, uint8(len(body))}, body...)
@@ -131,6 +158,14 @@ func ParseTollGateVendorIE(raw []byte) *TollGateAdvertisement {
 		case tlvTypePubkey:
 			adv.Pubkey = make([]byte, len(tlvValue))
 			copy(adv.Pubkey, tlvValue)
+		case tlvTypePricePerStep:
+			if len(tlvValue) == 2 {
+				adv.PricePerStep = uint16(tlvValue[0])<<8 | uint16(tlvValue[1])
+			}
+		case tlvTypeStepSize:
+			if len(tlvValue) == 2 {
+				adv.StepSize = uint16(tlvValue[0])<<8 | uint16(tlvValue[1])
+			}
 		}
 
 		tlvOffset += 2 + tlvLen

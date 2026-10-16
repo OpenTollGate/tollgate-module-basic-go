@@ -65,6 +65,12 @@ type TollGateAdvertisement struct {
 	OpenNetwork bool
 	MintURL     string
 	Pubkey      []byte
+	// PricePerStep and StepSize are the pricing hint. Zero means "not
+	// advertised in the IE" — the signed kind-10021 advertisement on :2121
+	// is the authority for price, and a zero here must be read as unknown,
+	// never as free.
+	PricePerStep uint16
+	StepSize     uint16
 }
 
 type VendorElementProcessor struct {

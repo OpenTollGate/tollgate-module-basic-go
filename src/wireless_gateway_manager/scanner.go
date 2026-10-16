@@ -4,6 +4,7 @@ package wireless_gateway_manager
 import (
 	"bufio"
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -174,6 +175,7 @@ func (s *Scanner) ParseIwinfoOutput(output []byte, radio string) []NetworkInfo {
 		signal    int
 		encrypt   string
 		channel   string
+		rawIE     []byte
 		hasSignal bool
 	}
 
@@ -182,16 +184,8 @@ func (s *Scanner) ParseIwinfoOutput(output []byte, radio string) []NetworkInfo {
 
 		if strings.Contains(line, "Address:") {
 			if current != nil && current.ssid != "" && current.hasSignal {
-				// STAGED (this PR): IsTollGate/RawIEs/PricePerStep/StepSize
-				// stay zero here — the vendor-IE parse that fills them is
-				// wired in the follow-up that gates on VendorIEDiscovery.
-				networks = append(networks, NetworkInfo{
-					BSSID:      current.bssid,
-					SSID:       current.ssid,
-					Signal:     current.signal,
-					Encryption: current.encrypt,
-					Radio:      radio,
-				})
+				networks = append(networks, s.buildNetworkInfo(current.bssid, current.ssid,
+					current.signal, current.encrypt, radio, current.rawIE))
 			}
 			fields := strings.Fields(line)
 			current = &struct {
@@ -200,6 +194,7 @@ func (s *Scanner) ParseIwinfoOutput(output []byte, radio string) []NetworkInfo {
 				signal    int
 				encrypt   string
 				channel   string
+				rawIE     []byte
 				hasSignal bool
 			}{}
 			if len(fields) > 0 {
@@ -257,19 +252,69 @@ func (s *Scanner) ParseIwinfoOutput(output []byte, radio string) []NetworkInfo {
 			}
 			continue
 		}
+
+		// The raw IE blob. iwinfo's human output carries it as a hex-dumped
+		// "IE:" line (iw prints `IE: <hex>` the same way); it is the only
+		// source of the vendor-specific element on the scan path, so the
+		// producer needs it retained on the in-flight entry. A malformed hex
+		// blob is ignored rather than poisoning the whole scan.
+		if strings.HasPrefix(line, "IE:") {
+			hexBlob := strings.TrimSpace(strings.TrimPrefix(line, "IE:"))
+			if b, err := hex.DecodeString(hexBlob); err == nil {
+				current.rawIE = b
+			}
+			continue
+		}
 	}
 
 	if current != nil && current.ssid != "" && current.hasSignal && current.ssid != "(hidden)" {
-		networks = append(networks, NetworkInfo{
-			BSSID:      current.bssid,
-			SSID:       current.ssid,
-			Signal:     current.signal,
-			Encryption: current.encrypt,
-			Radio:      radio,
-		})
+		networks = append(networks, s.buildNetworkInfo(current.bssid, current.ssid,
+			current.signal, current.encrypt, radio, current.rawIE))
 	}
 
 	return networks
+}
+
+// buildNetworkInfo assembles a NetworkInfo and, when raw scan bytes carry a
+// TollGate vendor IE, fills the definitive-identification and pricing fields
+// from it. This is the producer the scan boundary was previously staged for:
+// IsTollGate/RawIEs/PricePerStep/StepSize used to be hard-zero here.
+//
+// Authority note: the IE is an UNSIGNED hint. Identification via OUI is the
+// scan-side signal that selects a candidate for the signed kind-10021 probe
+// served on :2121, which remains the authority for price. A zero pricing
+// value therefore means "not advertised here", never "free".
+func (s *Scanner) buildNetworkInfo(bssid, ssid string, signal int, encrypt, radio string, rawIE []byte) NetworkInfo {
+	n := NetworkInfo{
+		BSSID:      bssid,
+		SSID:       ssid,
+		Signal:     signal,
+		Encryption: encrypt,
+		Radio:      radio,
+	}
+
+	if len(rawIE) == 0 {
+		return n
+	}
+
+	n.RawIEs = rawIE
+	for _, adv := range ParseVendorIEsFromScanData(rawIE) {
+		if adv == nil {
+			continue
+		}
+		n.IsTollGate = true
+		if adv.PricePerStep > 0 {
+			n.PricePerStep = int(adv.PricePerStep)
+		}
+		if adv.StepSize > 0 {
+			n.StepSize = int(adv.StepSize)
+		}
+		// One TollGate advertisement per AP is the contract; take the first
+		// and stop rather than letting a later element overwrite it.
+		break
+	}
+
+	return n
 }
 
 func (s *Scanner) GetRadios() ([]string, error) {
