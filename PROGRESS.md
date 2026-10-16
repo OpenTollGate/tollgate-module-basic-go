@@ -289,3 +289,48 @@ Would have caught every mistake made in this investigation before running it.
     genuinely separate — correct, but the client-side hop is the blocker. Needs
     two genuinely separate FIRST HOPS at the client (e.g. USB LTE stick), not a
     stronger StarGate signal. Ceiling stays 1.2-1.3x, NOT 2x.
+
+## Iterations 9-11 — 2026-10-16/17 (6c: host-side wiring)
+
+### DONE: 6c — the bond is now reachable from the running daemon
+Commit `652c187`, pushed, remote-verified.
+
+- `upstream_detector`: new `InterfaceEventSink` + `SetBondReconciler` setter
+  (mirrors `SetUpstreamSessionManager`). NO dependency on mptcp_bonding — the
+  boundary is an interface, so it is testable with a fake and the modules stay
+  decoupled. All four observed events forwarded, nil-guarded.
+- `main.go`: module dep added (require + replace), builds the Reconciler when
+  config enables a bond, Applier runs the script via /bin/sh, startup calls
+  `ReconcileCurrent()`.
+- `mptcp_bonding`: `ReconcileCurrent()` added — the monitor only reports CHANGES,
+  so an uplink that came up before the daemon started would otherwise never be
+  registered.
+
+### Design detail worth keeping
+The sink's methods return `error`, matching `Reconciler` exactly. The first
+draft declared no return and `go build` **rejected the real reconciler** as not
+satisfying the interface. That caught a genuine design mistake: a failed apply
+(missing ip-full, rejected endpoint) must be logged, not dropped.
+
+### A malformed bond must not take the node down
+`main.go` LOGS and disables the bond on a bad section rather than Fatal. The
+bond is optional; a router that boots without it still serves customers.
+
+### Coverage, measured not assumed
+- upstream_detector: 13.8% -> 21.4% (measured by removing only the new test file
+  from the same tree — the low absolute figure is pre-existing; that module is
+  netlink-heavy and was already thinly covered).
+- mptcp_bonding: 91.3% -> 91.8%.
+
+### Environment note (not a regression)
+`src/` root package tests need `/etc/tollgate` to exist. It was absent on this
+dev box; the resulting ENOTDIR is an environment gap. After creating it the root
+package passes in 9.0s.
+
+### Work queue status
+Items 1, 3, 4, 5 DONE. Item 2 (aggregation) has a measured answer:
+two disjoint subflows carrying data simultaneously proven (~1.23 GB across two
+client interfaces, MPJoinSynRx=28); throughput 1.20-1.27 Gbit/s above either
+single path but capped by the client's own ~1 GbE links. Documented in
+MPTCP-MEASUREMENT-UPLINKS.md.
+6a/6b/6c all DONE. Remaining: nothing on the original queue.
