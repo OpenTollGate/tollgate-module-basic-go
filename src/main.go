@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -24,6 +25,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/identity"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/mptcp_bonding"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
@@ -707,6 +709,32 @@ func installMerchant(merchantInstance merchant.MerchantInterface) {
 	}
 }
 
+// bondConfigJSON re-serialises the managed mptcp_bonding section into the JSON
+// the mptcp_bonding module parses.
+//
+// The two packages are separate Go modules and neither imports the other's
+// types, so the boundary is the JSON shape -- which is also the on-disk shape,
+// so there is no second schema to drift. Marshalling the typed struct (rather
+// than reading the file) means the section the operator set through
+// `tollgate config` is exactly what the bond sees.
+//
+// On a node with no bond, the section marshals to {} and LoadConfig returns a
+// disabled bond.
+func bondConfigJSON() []byte {
+	cfg := configManager.GetConfig()
+	if cfg == nil {
+		return nil
+	}
+	blob, err := json.Marshal(cfg.MPTCPBonding)
+	if err != nil {
+		// Callers treat an error from LoadConfig as "bond disabled"; return the
+		// raw error path by handing back an unparseable token so it is logged,
+		// not silently ignored.
+		return []byte(`{"__marshal_error__":true}`)
+	}
+	return blob
+}
+
 func initUpstreamDetector() {
 	upstreamDetectorInstance, err := upstream_detector.NewUpstreamDetector(configManager)
 	if err != nil {
@@ -718,6 +746,29 @@ func initUpstreamDetector() {
 		mainLogger.WithError(err).Fatal("Failed to create upstream session manager instance")
 	}
 	upstreamDetectorInstance.SetUpstreamSessionManager(usmInstance)
+
+	// MPTCP bond (optional). When the config enables it, the detector's
+	// interface events drive the bond's endpoint reconciliation. Absent or
+	// disabled config changes nothing: no sink is set and the detector behaves
+	// exactly as before.
+	if bondCfg, err := mptcp_bonding.LoadConfig(bondConfigJSON()); err != nil {
+		// A malformed bond section must not take the node down -- the bond is
+		// optional, and a router that boots without it still serves customers.
+		// Log it loudly so the misconfiguration is not invisible.
+		mainLogger.WithError(err).Error("MPTCP bond config invalid; bond disabled")
+	} else if bondCfg.Enabled {
+		applier := func(script string) error {
+			return exec.Command("/bin/sh", "-c", script).Run()
+		}
+		reconciler := mptcp_bonding.NewReconciler(bondCfg, applier)
+		upstreamDetectorInstance.SetBondReconciler(reconciler)
+		// Register what is already up: the detector only reports CHANGES, so
+		// without this an uplink that came up before the daemon started would
+		// never be registered.
+		if err := reconciler.ReconcileCurrent(); err != nil {
+			mainLogger.WithError(err).Error("MPTCP bond initial reconcile failed")
+		}
+	}
 
 	go func() {
 		err := upstreamDetectorInstance.Start()

@@ -2,6 +2,7 @@ package mptcp_bonding
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -150,4 +151,45 @@ func containsUplink(list []string, name string) bool {
 		}
 	}
 	return false
+}
+
+func TestReconcileCurrentRegistersStartupUplinks(t *testing.T) {
+	// The detector only reports CHANGES. An uplink that came up before the
+	// daemon started would otherwise never be registered, so startup must
+	// explicitly reconcile what is already configured.
+	c := validConfig()
+	c.Uplinks = []Uplink{
+		{Interface: "lan1", Address: "192.168.2.15"},
+		{Interface: "br-private", Address: "10.63.101.1"},
+	}
+	ap := &fakeApplier{}
+	r := NewReconciler(c, ap.apply)
+
+	if err := r.ReconcileCurrent(); err != nil {
+		t.Fatalf("ReconcileCurrent returned error: %v", err)
+	}
+	if ap.calls != 1 {
+		t.Fatalf("startup must apply exactly once, got %d", ap.calls)
+	}
+	if !strings.Contains(ap.last, "192.168.2.15") || !strings.Contains(ap.last, "10.63.101.1") {
+		t.Errorf("both configured uplinks must be registered at startup, got:\n%s", ap.last)
+	}
+	// A second call must be a no-op: startup may run more than once.
+	if err := r.ReconcileCurrent(); err != nil {
+		t.Fatal(err)
+	}
+	if ap.calls != 1 {
+		t.Errorf("a repeated startup reconcile must not re-apply, got %d", ap.calls)
+	}
+}
+
+func TestReconcileCurrentDisabledIsInert(t *testing.T) {
+	ap := &fakeApplier{}
+	r := NewReconciler(&Config{}, ap.apply)
+	if err := r.ReconcileCurrent(); err != nil {
+		t.Fatalf("disabled bond must not error: %v", err)
+	}
+	if ap.calls != 0 {
+		t.Errorf("disabled bond must apply nothing, got %d", ap.calls)
+	}
 }

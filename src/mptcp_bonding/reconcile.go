@@ -181,6 +181,22 @@ func (r *Reconciler) reconcile() error {
 	return nil
 }
 
+// ReconcileCurrent applies the bond for whatever the Config already declares.
+//
+// This exists because the network monitor only reports CHANGES. An uplink that
+// associated before the daemon started produces no event, so without an initial
+// apply it would never be registered and the bond would silently use only the
+// interfaces that happened to flap afterwards.
+//
+// Safe to call more than once: reconcile already skips an unchanged script, so
+// a repeated startup is a no-op rather than a second round of delete-then-add.
+func (r *Reconciler) ReconcileCurrent() error {
+	if r.cfg == nil || !r.cfg.Enabled {
+		return nil
+	}
+	return r.reconcile()
+}
+
 // RegisteredUplinks returns the interfaces whose addresses are currently part
 // of the bond, sorted for stable output in logs and tests.
 func (r *Reconciler) RegisteredUplinks() []string {
