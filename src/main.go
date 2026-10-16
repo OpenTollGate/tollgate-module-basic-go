@@ -583,7 +583,15 @@ func init() {
 	if mainConfig != nil && mainConfig.UpstreamWifi.DHCPTimeoutSeconds > 0 {
 		sharedConnector.DHCPTimeout = time.Duration(mainConfig.UpstreamWifi.DHCPTimeoutSeconds) * time.Second
 	}
-	sharedScanner = &wireless_gateway_manager.Scanner{Connector: sharedConnector}
+	// The vendor-IE discovery flag was declared in config but never read, so
+	// the scan-side producer that identifies TollGates by their vendor element
+	// could never fire. Wire it here so the flag has a consumer. The field
+	// lives on the UpstreamWifi sub-struct, not on Config.
+	vendorIEDiscovery := false
+	if mainConfig != nil {
+		vendorIEDiscovery = mainConfig.UpstreamWifi.VendorIEDiscovery
+	}
+	sharedScanner = wireless_gateway_manager.NewScanner(sharedConnector, vendorIEDiscovery)
 
 	mainLogger.WithField("ip_randomized", installConfig.IPAddressRandomized).Info("Configuration loaded")
 

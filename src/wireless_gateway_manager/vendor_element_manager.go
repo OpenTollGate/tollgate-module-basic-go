@@ -20,6 +20,13 @@ const (
 
 	tlvTypeMintURL = 0x01
 	tlvTypePubkey  = 0x02
+	// Pricing TLVs: the price a customer pays per step, and the step size
+	// (the metric quantum). Both are 2-byte big-endian so a scan-side parser
+	// can read them without a signed advertisement round-trip. The signed
+	// kind-10021 advertisement served on :2121 remains the authority; these
+	// are an unsigned hint that selects candidates for the signed probe.
+	tlvTypePricePerStep = 0x03
+	tlvTypeStepSize     = 0x04
 )
 
 // EncodeTollGateVendorIE serializes the advertisement as one vendor IE.
@@ -62,12 +69,50 @@ func EncodeTollGateVendorIE(adv TollGateAdvertisement) (string, bool, error) {
 		}
 	}
 
+	// Pricing TLVs, 2-byte big-endian each. Emitted only when set, and each is
+	// dropped (with truncated=true) rather than pushing out the pubkey or
+	// overflowing the element: identification outranks the pricing hint.
+	//
+	// ORDER MATTERS. Pricing is emitted BEFORE the pubkey. A pubkey can be up to
+	// 251 bytes and still pass the fit check below, landing the body at 253-255;
+	// if pricing were appended after it, the 4-byte guard would fire and the
+	// pricing would be silently dropped while the element still claimed success.
+	// Ordering pricing first means an oversized pubkey instead fails the LOUD
+	// error path, so a caller never believes a price was advertised when it
+	// was not. (Defect found by a cold cross-family review of the original
+	// ordering, 2026-10-16.)
+	for _, tlv := range []struct {
+		typ byte
+		val uint16
+	}{
+		{tlvTypePricePerStep, adv.PricePerStep},
+		{tlvTypeStepSize, adv.StepSize},
+	} {
+		if tlv.val == 0 {
+			continue
+		}
+		if len(body)+4 > 255 {
+			truncated = true
+			continue
+		}
+		body = append(body, tlv.typ, 0x02, byte(tlv.val>>8), byte(tlv.val))
+	}
+
 	if pubkeyLen > 0 {
 		if len(body)+2+pubkeyLen > 255 {
 			return "", false, fmt.Errorf("vendor IE body too long: pubkey %d bytes cannot fit (body so far %d, max 255)", pubkeyLen, len(body))
 		}
 		body = append(body, tlvTypePubkey, uint8(pubkeyLen))
 		body = append(body, adv.Pubkey...)
+	}
+
+	// The length octet is a single byte. It can never legitimately exceed 255
+	// because every append above is guarded, but a silent truncation here would
+	// emit a malformed element that a peer could misparse, so the wrap is made
+	// explicit and reported instead of assumed unreachable.
+	if len(body) > 255 {
+		truncated = true
+		body = body[:255]
 	}
 
 	ie := append([]byte{0xDD, uint8(len(body))}, body...)
@@ -131,6 +176,14 @@ func ParseTollGateVendorIE(raw []byte) *TollGateAdvertisement {
 		case tlvTypePubkey:
 			adv.Pubkey = make([]byte, len(tlvValue))
 			copy(adv.Pubkey, tlvValue)
+		case tlvTypePricePerStep:
+			if len(tlvValue) == 2 {
+				adv.PricePerStep = uint16(tlvValue[0])<<8 | uint16(tlvValue[1])
+			}
+		case tlvTypeStepSize:
+			if len(tlvValue) == 2 {
+				adv.StepSize = uint16(tlvValue[0])<<8 | uint16(tlvValue[1])
+			}
 		}
 
 		tlvOffset += 2 + tlvLen
