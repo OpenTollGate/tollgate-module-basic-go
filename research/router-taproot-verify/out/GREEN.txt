@@ -1,0 +1,28 @@
+=== RUN   TestOutputKeyMatchesCore
+=== RUN   TestOutputKeyMatchesCore/1leaf_A
+=== RUN   TestOutputKeyMatchesCore/2leaf_A_B
+=== RUN   TestOutputKeyMatchesCore/3leaf_A_B_C
+--- PASS: TestOutputKeyMatchesCore (0.01s)
+    --- PASS: TestOutputKeyMatchesCore/1leaf_A (0.01s)
+    --- PASS: TestOutputKeyMatchesCore/2leaf_A_B (0.00s)
+    --- PASS: TestOutputKeyMatchesCore/3leaf_A_B_C (0.00s)
+=== RUN   TestIsTaproot
+--- PASS: TestIsTaproot (0.00s)
+=== RUN   TestVerifyCommitmentAcceptsRealSpend
+--- PASS: TestVerifyCommitmentAcceptsRealSpend (0.00s)
+=== RUN   TestVerifyCommitmentRejectsWrongLeaf
+--- PASS: TestVerifyCommitmentRejectsWrongLeaf (0.00s)
+=== RUN   TestVerifyCommitmentRejectsMalformed
+=== RUN   TestVerifyCommitmentRejectsMalformed/short_control_block
+=== RUN   TestVerifyCommitmentRejectsMalformed/wrong_leaf_version
+=== RUN   TestVerifyCommitmentRejectsMalformed/ragged_path
+--- PASS: TestVerifyCommitmentRejectsMalformed (0.00s)
+    --- PASS: TestVerifyCommitmentRejectsMalformed/short_control_block (0.00s)
+    --- PASS: TestVerifyCommitmentRejectsMalformed/wrong_leaf_version (0.00s)
+    --- PASS: TestVerifyCommitmentRejectsMalformed/ragged_path (0.00s)
+=== RUN   TestMerkleRootThreeLeafDivergence
+    taprootverify_test.go:280: correct rule -> e853c205dc36261f (matches Core's bcrt1papfuypwuxcnp7fzcxr4sllmhudhknmrv07g3lv3pq6xc5tu5yz5qeewaeg)
+    taprootverify_test.go:281: wrong rule   -> 2c0805f547bf6e28 (DIVERGES -- this is the trap)
+--- PASS: TestMerkleRootThreeLeafDivergence (0.00s)
+PASS
+ok  	github.com/OpenTollGate/tollgate-module-basic-go/taprootverify	(cached)

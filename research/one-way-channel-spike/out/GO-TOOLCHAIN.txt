@@ -1,0 +1,33 @@
+host        : <host>
+date        : 2026-10-14T18:05:38Z
+
+== Go toolchains on this host ==
+  /tmp/goroot/bin/go                             go version go1.22.5 linux/amd64
+  <home>/.local/toolchain/go/bin/go      go version go1.27.2 linux/amd64
+  /tmp/goroot/bin/go                             go version go1.22.5 linux/amd64
+  apt candidate for golang-go: 2:1.22~2build1
+
+== module Go floors (the fetch is not optional) ==
+  /tmp/tmbg/go.mod                               go 1.24.2
+  /tmp/tmbg/src/go.mod                           go 1.26.0
+  /tmp/tmbg/research/bearer-port-demo/go.mod     go 1.25.0
+
+== DEMONSTRATION: Ubuntu's packaged Go cannot build the module ==
+  $ cd /tmp/tmbg/src && /tmp/goroot/bin/go build ./...
+go: go.mod requires go >= 1.26.0 (running go 1.22.5; GOTOOLCHAIN=local)
+  -> apt's Go is too old. 'apt install golang-go' is NOT a working path.
+
+== FETCHED Go go1.27.2 ==
+  $ cd /tmp/tmbg/src && go build ./...   (downloads deps on first run)
+  build rc=0
+
+== research/bearer-port-demo (the RED/GREEN convention this spike follows) ==
+ok  	bearerport	0.003s
+?   	bearerport/cmd/demo	[no test files]
+  test rc=0
+
+== CONCLUSION ==
+  The Go research surface IS reachable on this host, but ONLY after a
+  network fetch of a Go >= 1.26 toolchain (~70 MB). Ubuntu 24.04's own
+  golang-go (1.22.5) is below the module's floor and cannot build it.
+  QEMU (for a real OpenWrt aarch64 image) is NOT present; no Docker/podman.

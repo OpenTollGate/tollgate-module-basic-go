@@ -1,0 +1,47 @@
+# RED capture -- taprootverify BEFORE the tree-shape fix
+#
+# This is the observed failing run. Two genuine failures, both informative:
+#   (1) the 3-leaf fixture disagreed with Bitcoin Core's output key
+#   (2) a test assertion was wrong (case 4 was actually VALID taproot)
+# Plus a build failure before the type fix. The build failure is shown first
+# because it is what the first `go test` produced.
+
+## Stage 1 -- build failure (type mismatch)
+$ go test ./taprootverify/...
+# github.com/OpenTollGate/tollgate-module-basic-go/taprootverify [build failed]
+taprootverify/taprootverify.go:126:20: invalid operation: leafVersion != TapLeafVersion (mismatched types byte and txscript.TapscriptLeafVersion)
+taprootverify/taprootverify_test.go:160:32: invalid operation: TapLeafVersion | parity (mismatched types txscript.TapscriptLeafVersion and byte)
+FAIL
+
+## Stage 2 -- after the type fix: the substantive failures
+$ go test -v ./taprootverify/...
+=== RUN   TestOutputKeyMatchesCore
+    --- PASS: TestOutputKeyMatchesCore/1leaf_A
+    --- PASS: TestOutputKeyMatchesCore/2leaf_A_B
+    taprootverify_test.go:103: output key disagrees with CORE
+          core e853c205dc36261f245830eb0fff77e36f69ec6c7f911fb221068d8a2f9420a8
+          ours 08f7a04cdae0b219217f8298675f48ea516a96a0b6d3ab462d79d5860d4a6303
+    --- FAIL: TestOutputKeyMatchesCore/3leaf_A_B_C
+=== RUN   TestIsTaproot
+    taprootverify_test.go:132: case 4: wrongly recognised as taproot: 512050929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0
+--- FAIL: TestIsTaproot
+=== RUN   TestMerkleRootThreeLeafDivergence
+    our 3-leaf root does not reproduce Core's key
+          core e853c205dc36261f245830eb0fff77e36f69ec6c7f911fb221068d8a2f9420a8
+          ours 08f7a04cdae0b219217f8298675f48ea516a96a0b6d3ab462d79d5860d4a6303
+    wrong rule   -> 2c0805f547bf6e28 (DIVERGES -- this is the trap)
+--- FAIL
+FAIL
+
+## Why failure (1) matters
+1-leaf and 2-leaf trees agreed with Core. Only the 3-leaf tree was wrong.
+A flat, balanced 3-leaf root computes br(br(hA,hB),br(hC,hC)) by promoting the
+odd leaf. Core's descriptor was `tr(K,{pk(A),{pk(B),pk(C)}})`, which is a NESTED
+tree: br(hA, br(hB,hC)). Different shape -> different root -> different key.
+The API could not express the shape, which was the real defect: `MerkleRoot(flat
+list)` silently assumed balance.
+
+## Failure (2) was a test bug, recorded rather than quietly fixed
+`5120 || 32 bytes` IS a valid tapscript program, so `IsTaproot` was RIGHT to
+accept it and the assertion was wrong. The assertion was corrected to test a
+genuinely invalid shape (a 33-byte v1 program) instead of weakening the code.

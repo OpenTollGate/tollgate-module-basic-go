@@ -1,0 +1,27 @@
+=== C1  bearer note: rebuild cw1 offline from `h` alone (LUD-25 25.md:33-37) ===
+  tapleaf_hash  edffc9fa683d8844ded0ba5ec4215d5940ae436b0675257c1344bcb082516b50  MATCH
+  Q (= cp1)     d18b619687343df2fc7a47e1daf25260b909bb563fb4b4b11e59e2bd64880982  MATCH
+  control_block c050929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0  MATCH
+  payload 114 B -> cw1 string 192 chars ; vector 192 ; byte-identical True ; checksum ok True
+  cp1 short form cp16x9kr958xs7l9lr6glsa4ujjvzusnw6k876tfvg7t83t6eygpxpq6we0xc  (True)
+  k1 SHORT FORM  : a raw 64-hex preimage is a valid k1 (25.md:41-45) -> True
+
+=== C1b  the SAME container holds a Spilman-shaped leaf (ENCODING ONLY) ===
+  leaf 114 B  = OP_IF <n> CSV DROP <payer> CHECKSIG OP_ELSE <payer> CHECKSIG <payee> CHECKSIGADD 2 NUMEQUAL OP_ENDIF
+    refund (IF branch)   2 witness items -> payload 228 B -> cw1 374 chars
+    claim (ELSE, 2-of-2) 3 witness items -> payload 293 B -> cw1 478 chars
+  25.md:190's ~2000-char URL budget: 5 channel notes/merge URL vs 10 bearer notes/merge URL
+
+=== C2  cs1: offline issuance proof, with no consumption state (25.md:198-235) ===
+  mintPubkey 035acdbd57663f858be6d61ec4bfcbc99492699010f1451e30a6550f26295e813d (advertised in the withdrawRequest, 25.md:232)
+  amount      1000 msat | digest==spec True | ECDSA verifies True | recovered==mintPubkey True | metadata='r||s||recid' True | cs1 116 chars
+  amount  21000000 msat | digest==spec True | ECDSA verifies True | recovered==mintPubkey True | metadata='r||s||recid' True | cs1 117 chars
+  signed message = 'LNURLcash:<amount_msat>:<hex(Q)>'  (25.md:209-212)
+  it contains NO nonce, NO timestamp, NO recipient, NO counter => the same cs1 bytes
+  verify against the same Q forever, for every presenter. Issuance != outstanding.
+  certification is a SHOULD: 'SERVICE SHOULD certify notes' (25.md:232) -> optional evidence.
+
+=== C3  the replay exposure, as URL arithmetic a router can actually hit ===
+  a whole bearer note travels as: lnurlw://mint.example/w?k1=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f&c=cs10n1caxh3wxfa0g2zxj6lt90rlksv8dgemtavcj7dqymvfxa7683d268mawdsvygd0maru024z9ehtdv5fptumsr3t0v0vuv2x3e953557qq5c70z5
+  length 210 chars. A TollGate customer can paste this into POST / as the body.
+  POST / caps the body at 1 MiB (main.go:1103), so URL length is not a barrier here.
