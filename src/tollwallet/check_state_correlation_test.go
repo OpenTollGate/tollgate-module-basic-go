@@ -20,8 +20,6 @@ import (
 // (NUT-07: states MUST match the request; correlation makes a lying
 // mint's job harder than counting did).
 
-const correlationTestKeysetsJSON = `{"keysets":[{"id":"009a1f293253e41e","unit":"sat","active":true,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}]}`
-
 // newLyingCheckStateMint answers the requested Ys UNSPENT and then appends
 // the injected extra state entries — the shapes a mint must not be able to
 // sneak past: a foreign Y, or a duplicate of a requested one.
@@ -30,7 +28,7 @@ func newLyingCheckStateMint(t *testing.T, extraStates []map[string]string) *http
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/keys", "/v1/keysets":
-			fmt.Fprint(w, correlationTestKeysetsJSON)
+			fmt.Fprint(w, fixtureKeysetsJSON())
 		case "/v1/checkstate":
 			var req struct {
 				Ys []string `json:"Ys"`
@@ -139,7 +137,7 @@ func newFixedAnswerCheckStateMint(t *testing.T, body string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/keys", "/v1/keysets":
-			fmt.Fprint(w, correlationTestKeysetsJSON)
+			fmt.Fprint(w, fixtureKeysetsJSON())
 		case "/v1/checkstate":
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, body)
