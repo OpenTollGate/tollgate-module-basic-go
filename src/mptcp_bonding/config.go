@@ -82,6 +82,16 @@ type Config struct {
 	// the values the module already uses.
 	FwMark      string `json:"fwmark"`
 	FwMarkTable int    `json:"fwmark_table"`
+
+	// Tunnels are optional per-uplink WireGuard overlays.
+	//
+	// They exist because MPTCP's second subflow needs the PEER to connect back
+	// to an advertised address, and behind CGNAT/satellite no uplink address is
+	// reachable. A tunnel makes the advertised address reachable through a
+	// connection this side initiates, so it does not depend on what the uplink
+	// provides. Empty means "advertise the uplink addresses directly", which is
+	// correct only on a network with real public addresses.
+	Tunnels []Tunnel `json:"tunnels,omitempty"`
 }
 
 // DefaultSubflows is the kernel default and a sane ceiling for a mobile box.
