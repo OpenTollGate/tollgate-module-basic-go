@@ -115,6 +115,38 @@ counter exits 1.
 
 **Status:** done. Commit `5c30576`, pushed ✓.
 
+## Iteration 4 — 2026-10-16
+
+### Finding — the "wiring" item was premature; the missing seam was the real work
+
+Item 5 said "wire `ShouldSteer` into `upstream_detector` events". Checking first
+showed `mptcp_bonding` is **not imported anywhere** — no imports, no
+initialisation in `main.go`. Nothing calls into the package, so there was no
+lifecycle to wire an event handler onto.
+
+So the actual missing piece is the event-driven reconciler that the wiring would
+call. Built that instead: `NewReconciler(cfg, apply)` with methods mirroring
+`upstream_detector`'s event set exactly (`HandleInterfaceUp`,
+`HandleAddressAdded`, `HandleInterfaceDown`, `HandleAddressDeleted`) so the
+future wiring is a direct call-through with no adapter.
+
+Two safety rules, both tested:
+  * only declared uplinks reconcile (a router has many flapping interfaces);
+  * apply only when the RENDERED SCRIPT changed — the apply script is
+    delete-then-add, so re-applying an identical render would rebuild every
+    endpoint and interrupt an in-flight subflow on every unrelated event.
+
+The side effect is injected (`Applier func(string) error`), so logic is testable
+with no router and a nil Applier / nil Config is inert rather than panicking.
+
+**Status:** done. Commit `c8e2d0f`, pushed ✓.
+Tests: 14 new (RED first: `undefined: NewReconciler`), 35 total, coverage 91.0%
+(up from 90.3%), vet/gofmt/build clean.
+
 ## Work queue (next)
-5. Wire `ShouldSteer` into `upstream_detector` events so a subflow is added when
-   an interface comes up and removed when it goes down — NEXT (code, TDD)
+6. Wire the reconciler to `upstream_detector`'s event loop (now a direct
+   call-through) and initialise `mptcp_bonding` in `main.go` — NEXT (code, TDD).
+   NOTE this is a cross-module change: `mptcp_bonding` and `upstream_detector`
+   are separate Go modules with `replace` directives, so it needs a go.mod
+   require + replace entry, and main.go needs config plumbing. Bigger blast
+   radius than the previous items; flag if you want it split.
