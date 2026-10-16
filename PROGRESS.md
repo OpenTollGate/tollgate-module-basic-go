@@ -477,3 +477,67 @@ was derived from the running system, not from the version string.
 ### Work queue: still complete. No new code items.
 The remaining barrier to a throughput multiplier is a KERNEL PACKAGING property,
 not code in this PR.
+
+## Iteration 15 — 2026-10-16 (scheduler question chased to a real root cause)
+
+Operator asked me to chase the scheduler question: force per-uplink subflow
+pinning and see whether both uplinks can carry payload.
+
+### RESULT: they cannot, and the cause is NAT — NOT the scheduler
+Commit `4dff91c`, pushed.
+
+**Mechanism.** MPTCP builds the second subflow by having the PEER connect BACK to
+an address the client advertised with ADD_ADDR. The router's addresses are both
+private:
+
+| Router address | Reality |
+|---|---|
+| 192.168.2.15 | private, NAT-ed behind 192.168.2.1 |
+| 10.2.1.122 (StarGate) | private, behind Starlink CGNAT |
+
+The peer therefore receives a non-routable address and cannot join it.
+
+**Evidence from the peer (decisive):**
+```
+ss -tn | grep -cE "10.2.1.122|192.168.2.15"    -> 0
+       the VPS NEVER sees either address as a peer
+nstat -az | grep -i mptcp
+       MPTcpExtMPJoinNoTokenFound   58
+       58 JOIN attempts, ZERO successes
+ping -c1 10.2.1.122 / 192.168.2.15 from the VPS -> both unreachable
+```
+On the router the StarGate subflow sits at ~1.7 KB forever: handshake completed,
+no payload.
+
+### I CORRECTED MY OWN EARLIER CLAIM
+I had concluded "only the default scheduler is compiled in, therefore it cannot
+spread". The absence is real and was measured correctly — but it is NOT the
+operative cause. **No scheduler can use a subflow whose establishment fails.**
+`MPJoinNoTokenFound` is direct evidence the failure sits upstream of scheduling.
+The scheduler limit stays a true fact about the build (a tuning limitation), not
+the reason one path is idle. Documented in `MPTCP-SUBFLOW-NAT-ROOTCAUSE.md`.
+
+Also closed: `ip mptcp endpoint change <addr> fullmesh` -> `RTNETLINK Invalid
+argument` on this kernel, so that avenue is unavailable too.
+
+### Everything else was already correct
+- both uplinks registered `signal subflow` -> ADD_ADDR IS sent;
+- peer `add_addr_accepted=4` -> willing to accept;
+- `MPJoinSynRx`/`MPJoinAckRx` non-zero -> signalling works;
+- paths genuinely separate (different ISPs), each carries data alone
+  (StarGate ~4 Mbit/s, wired ~4-9 Mbit/s to the VPS);
+- saturation test: 4 streams reached 24.5-27.4 Mbit/s, ALL on the wired path,
+  StarGate flat at ~1.7 KB.
+
+### What would fix it (topology/addressing — none of it code in this PR)
+1. a routable IPv6 prefix on the second uplink so the advertised address is
+   reachable (Starlink CGNAT blocks v4);
+2. a tunnel/overlay terminating on a public endpoint per uplink;
+3. two uplinks with public addresses.
+
+### Aggregation status
+Unchanged and now FULLY explained: no multiplier demonstrated, and it cannot be
+in this topology. Subflow SIGNALLING works; subflow ESTABLISHMENT fails because
+the advertised addresses are NAT-ed. Ceiling if it did work: 1.2-1.3x, not 2x.
+
+### Work queue: complete. Remaining barrier is addressing, not code.
