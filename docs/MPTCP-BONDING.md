@@ -143,6 +143,92 @@ Proven (on a GL-MT6000, OpenWrt 25.12.5, kernel 6.12.94):
   host, so they share the bottleneck and the RTT. This is **resilience and
   session continuity**, *not* "2×". Do not market it as doubling.
 
+## Endpoint provisioning (`mptcp_endpoints.go`)
+
+Enabling MPTCP on the node is **not** the same as having a working bond. The
+kernel side must be configured, and the lab proved the failure modes are silent:
+a bond can look completely configured and still carry everything on one path.
+
+Three facts, each earned from a lab session (GL-MT6000 `tollgate-A04E`, OpenWrt
+24.10.2, kernel 6.12.94, MPTCP enabled):
+
+1. **A `subflow`-only endpoint is useless.** Without `signal` the kernel never
+   sends `ADD_ADDR`, so the peer never learns the address and no second subflow
+   can ever form. It looks configured and does nothing. Every endpoint must be
+   `signal subflow`. Verified: the router's endpoints were `subflow` only, and
+   `MPTcpExtMPJoinSynRx` stayed at 0 across every run.
+2. **`subflow`-only was the *second* bug, not the first.** Even after fixing it,
+   no subflow formed — because the two hosts shared a single physical path
+   (`ip route get` resolved every destination to the same interface and next
+   hop). MPTCP correctly refuses to create a subflow over a path it already has.
+   **Two genuinely disjoint L2 segments are a prerequisite, not a detail.**
+3. **The kernel default of 2 subflows is too small.** `ip mptcp limits set
+   subflow N add_addr_accepted N` must be raised to cover the uplink count, or
+   the extra uplinks are configured but never used.
+
+`EndpointPlan()` renders one `ip mptcp endpoint add <addr> dev <iface> signal
+subflow` per uplink that has a known address; `LimitsSetCommand()` renders the
+matching ceilings, raising the subflow ceiling to the uplink count but never
+lowering it below. Both return nothing when the bond is disabled, so a
+non-participating device renders no commands.
+
+`PrerequisitePackages()` names `ip-full`: OpenWrt's default BusyBox `ip` has no
+`mptcp` subcommand, so every command above fails with a usage error on a stock
+image.
+
+### What the router side can and cannot do
+
+TollGate can prepare a node: install `ip-full`, enable MPTCP, register endpoints,
+raise limits. **It cannot make the socket multipath-capable** — FIPS creates its
+own socket, and an ordinary `IPPROTO_TCP` socket will not form subflows however
+well the host is configured. Endpoint provisioning is *necessary but not
+sufficient*; the socket change belongs in FIPS. See "FIPS transport patch" below.
+
+### Why this is not a per-node bonding daemon
+
+A "bonding client/server" pair on each node would re-implement in userspace what
+the kernel already does: MPTCP subflows are exactly "nodes connect to each other
+over multiple paths". Adding a daemon would add a process, a protocol, and a
+failure mode to duplicate the kernel's scheduler. The only missing piece is the
+socket protocol, which is a transport-layer change.
+
+## FIPS transport patch (carried on a fork, not PR'd upstream)
+
+The multipath capability itself is a small, wire-format-neutral change to FIPS's
+TCP transport, carried on a fork:
+
+**`felixfelix-bot/fips` @ `pr/tcp-mptcp-option`**
+<https://github.com/felixfelix-bot/fips/tree/pr/tcp-mptcp-option>
+
+Base: `jmcorgan/fips` `master` @ `d769e50`. Commit
+`36f82c86` ("feat(tcp): optional MPTCP (multipath TCP) for the TCP transport").
+
+| File | Site | Change |
+|---|---|---|
+| `src/config/transport.rs` | `TcpConfig` | add `mptcp: Option<bool>` + `mptcp()` accessor (default false) |
+| `src/transport/tcp/mod.rs` | `connect_to_any_addr` | take `mptcp: bool`, call `connect_stream` |
+| `src/transport/tcp/mod.rs` | `connect_stream` (new) | try MPTCP, fall back to plain TCP |
+| `src/transport/tcp/mod.rs` | `try_connect_mptcp` (new) | `socket2` socket with `Protocol::MPTCP`, cfg-gated to Linux |
+
+Design points that matter:
+
+- **Socket creation, not `configure_socket`.** MPTCP is selected when the socket
+  is created; it cannot be retrofitted via `SockRef`. `configure_socket` (NODELAY,
+  keepalive, buffers) is unchanged and applies identically to an MPTCP socket.
+- **`socket2` already has `Protocol::MPTCP`**, cfg-gated to Linux inside the
+  crate, so no hand-rolled protocol number and no cross-platform breakage: the
+  non-Linux arm returns `Unsupported` and macOS/BSD builds never name the symbol.
+- **Fallback is mandatory and quiet.** Old kernels, MPTCP compiled out, and
+  restrictive sandboxes all fail socket creation; the transport falls back to
+  plain TCP and logs at debug. Failing hard would take a node off the network for
+  an optional optimisation.
+
+Verification on the fork branch: `cargo check --all-targets` clean (zero
+warnings), `cargo test --lib` **945 passed / 0 failed**, including all 72 TCP
+transport tests unchanged, plus new config tests for default-off, round-trip, and
+unknown-key rejection. No production PR to `jmcorgan/fips` is planned yet — the
+aggregation measurement gate below must pass first.
+
 ## Licensing
 
 - This module: same licence as the repository.
