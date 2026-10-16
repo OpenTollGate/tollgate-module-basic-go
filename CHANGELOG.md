@@ -85,23 +85,18 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **The router no longer rate-limits its own localhost installer, so the
-  readable `starting` refusal wins again.** `registerAPIHandlers` wires
-  `RateLimitMiddleware` OUTSIDE `requireStarted`, so the per-IP limiter
-  (10 req/min, burst 10) ran before the startup gate: while the merchant was
-  being constructed the installer's 3 s poll of `127.0.0.1:2121` (~20 req/min)
-  tripped it, and the probe received `429 {"error":"rate limit exceeded"}`
-  instead of `503 {"code":"starting"}` — a correct install was reported as
-  "Setup failed" on 2026-10-16. Loopback callers are now exempt from the
-  limiter; every real client's budget is unchanged, the route ordering is
-  unchanged, and the exemption is decided from the CONNECTION, never from
-  `X-Real-Ip`/`X-Forwarded-For` — a header a caller controls must not be able
-  to mint an unlimited-rate bucket (the trust boundary of #808's loopback XFF
-  finding). Regression tests drive the real route table with the gate closed:
-  a loopback burst of 25 probes gets 25 starting refusals, `::1` is exempt, a
-  LAN caller past its budget still gets the 429, and neither a spoofed
-  forwarded header nor a forwarded header on a genuinely-local caller changes
-  the decision. ([#953](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/953))
+- **Notice events no longer emit the customer MAC in the `p` tag (#950).**
+  Every payment-error and degraded-refusal notice on the raw-token path
+  addressed its customer by passing `macAddress` where a Nostr pubkey
+  belongs — spec-invalid for any consumer validating `p`, and unusable for
+  `#p` filtering (same wire class as the #949 session-event fix). The
+  raw-token flow has no customer identity, so those call sites now pass
+  none (the tag is omitted per tollgate#26), and `createNoticeEvent` itself
+  drops any non-pubkey value with a log line — a future caller passing a
+  device identifier can no longer ship the violation. The live-captured
+  shape (degraded `service-unavailable` refusal carrying `["p", <MAC>]`) is
+  pinned by `TestNoticeEventOmitsPTagOnPaymentErrorPaths`; the guard and the
+  positive pubkey branch are mutation-checked companions.
 
 - **The rebrand gutter allows documented prose references to the commercial
   re-brand.** `tests/packaging/rebrand-literal-gutter_test.sh` was red on
