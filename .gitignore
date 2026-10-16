@@ -99,3 +99,4 @@ tests/cloud-lab/.conformance/
 PR-BODY.md
 PROGRESS.md
 build-review-prompt*.py
+src/cmd/tollgate-cvm/tollgate-cvm

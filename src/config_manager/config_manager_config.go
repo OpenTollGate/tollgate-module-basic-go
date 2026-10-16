@@ -28,6 +28,20 @@ type Config struct {
 	UpstreamDetector       UpstreamDetectorConfig       `json:"upstream_detector"`
 	UpstreamSessionManager UpstreamSessionManagerConfig `json:"upstream_session_manager"`
 	UpstreamWifi           UpstreamWifiConfig           `json:"upstream_wifi"`
+	// MaintainerNpub names the Nostr identity that owns this tollgate. It is
+	// the authorization boundary of the CVM control plane: only this npub may
+	// call a state-changing tool over Nostr (see
+	// docs/architecture/cvm-control-plane-decision.md, D3). It is ALSO the
+	// discovery key — the router publishes it in the `p` tag of its kind-11316
+	// announcement, which is how a dashboard finds every tollgate one
+	// maintainer owns without any registry (D4).
+	//
+	// Empty is the "unclaimed" sentinel and is legal: a router that has not
+	// been claimed still serves customers, it just cannot be managed remotely
+	// and does not appear in anyone's fleet view. Anything non-empty must be a
+	// bech32 npub1… key — see ValidateMaintainerNpub for why a raw hex pubkey
+	// is refused rather than normalized.
+	MaintainerNpub string `json:"maintainer_npub,omitempty"`
 	// MPTCPBonding is an OPTIONAL multi-WAN bond. It is off by default and
 	// nothing in this package acts on it: the mptcp_bonding module reads it and
 	// renders the kernel state. Declared here so the schema entry is not an
