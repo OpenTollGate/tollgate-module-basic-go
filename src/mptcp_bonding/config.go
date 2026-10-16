@@ -146,6 +146,19 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("mptcp_bonding: uplink %q listed twice", u.Interface)
 		}
 		seen[u.Interface] = true
+		// #974: a CIDR here used to pass validation and render
+		// `ip mptcp endpoint add 10.0.1.1/30 …`, which the kernel rejects —
+		// and the apply script swallowed it, leaving a silently unbonded
+		// router. Reject the form loudly at load time; the kernel wants a
+		// bare address.
+		if addr := strings.TrimSpace(u.Address); addr != "" {
+			if _, _, err := net.ParseCIDR(addr); err == nil {
+				return fmt.Errorf("mptcp_bonding: uplinks[%d].address %q is a CIDR; the kernel wants a bare address (drop the /prefix)", i, addr)
+			}
+			if net.ParseIP(addr) == nil {
+				return fmt.Errorf("mptcp_bonding: uplinks[%d].address %q is not a bare IP address", i, addr)
+			}
+		}
 	}
 
 	switch c.Policy {

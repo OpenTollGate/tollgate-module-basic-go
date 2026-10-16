@@ -756,9 +756,10 @@ func initUpstreamDetector() {
 	upstreamDetectorInstance.SetUpstreamSessionManager(usmInstance)
 
 	// MPTCP bond (optional). When the config enables it, the detector's
-	// interface events drive the bond's endpoint reconciliation. Absent or
-	// disabled config changes nothing: no sink is set and the detector behaves
-	// exactly as before.
+	// interface events drive the bond's endpoint reconciliation. A clean
+	// disable (section absent or enabled=false) flushes any kernel endpoints
+	// a previous enabled boot left behind (#974: disable used to leave
+	// orphans). A malformed section changes nothing and is logged loudly.
 	if bondCfg, err := mptcp_bonding.LoadConfig(bondConfigJSON()); err != nil {
 		// A malformed bond section must not take the node down -- the bond is
 		// optional, and a router that boots without it still serves customers.
@@ -775,6 +776,17 @@ func initUpstreamDetector() {
 		// never be registered.
 		if err := reconciler.ReconcileCurrent(); err != nil {
 			mainLogger.WithError(err).Error("MPTCP bond initial reconcile failed")
+		}
+		// #972 observability: the bond wires up late in boot (after merchant
+		// construction), and early samples read as false negatives without a
+		// positive marker.
+		mainLogger.Infof("MPTCP bond applied: %d uplink endpoint(s) from config", len(bondCfg.EndpointPlan()))
+	} else {
+		// Disable-path teardown: idempotent; a no-op on kernels without MPTCP.
+		if err := exec.Command("/bin/sh", "-c", mptcp_bonding.FlushScript()).Run(); err != nil {
+			mainLogger.WithError(err).Warn("MPTCP bond disabled; endpoint flush failed")
+		} else {
+			mainLogger.Info("MPTCP bond disabled; kernel endpoints flushed")
 		}
 	}
 
