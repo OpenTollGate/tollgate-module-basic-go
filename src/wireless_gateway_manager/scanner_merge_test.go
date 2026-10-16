@@ -18,7 +18,7 @@ func TestMergeScanResults_EnrichesExistingByBSSID(t *testing.T) {
 		BSSID: "aa:bb:cc:dd:ee:01", SSID: "!TollGate-AB12",
 		Signal: -55, Radio: "radio0",
 		IsTollGate: true, RawIEs: []byte{0xDD, 0x03, 0x21, 0x21, 0x21},
-		PricePerStep: 7, StepSize: 1000,
+		AdvertisedPricePerStep: 7, AdvertisedStepSize: 1000,
 	}}
 
 	got := mergeScanResults(iwinfo, iw)
@@ -32,8 +32,8 @@ func TestMergeScanResults_EnrichesExistingByBSSID(t *testing.T) {
 	if len(n.RawIEs) == 0 {
 		t.Errorf("RawIEs empty, want the iw element bytes")
 	}
-	if n.PricePerStep != 7 || n.StepSize != 1000 {
-		t.Errorf("pricing = %d/%d, want 7/1000 from the iw view", n.PricePerStep, n.StepSize)
+	if n.AdvertisedPricePerStep != 7 || n.AdvertisedStepSize != 1000 {
+		t.Errorf("pricing = %d/%d, want 7/1000 from the iw view", n.AdvertisedPricePerStep, n.AdvertisedStepSize)
 	}
 	// iwinfo's encryption must survive: iw has no such line.
 	if n.Encryption != "none" {

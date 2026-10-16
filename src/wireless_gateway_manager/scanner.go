@@ -221,11 +221,11 @@ func mergeScanResults(base, extra []NetworkInfo) []NetworkInfo {
 		if len(e.RawIEs) > 0 {
 			base[i].RawIEs = e.RawIEs
 		}
-		if e.PricePerStep > 0 {
-			base[i].PricePerStep = e.PricePerStep
+		if e.AdvertisedPricePerStep > 0 {
+			base[i].AdvertisedPricePerStep = e.AdvertisedPricePerStep
 		}
-		if e.StepSize > 0 {
-			base[i].StepSize = e.StepSize
+		if e.AdvertisedStepSize > 0 {
+			base[i].AdvertisedStepSize = e.AdvertisedStepSize
 		}
 		if base[i].Signal == 0 && e.Signal != 0 {
 			base[i].Signal = e.Signal
@@ -440,7 +440,8 @@ func parseColonHex(s string) ([]byte, bool) {
 // buildNetworkInfo assembles a NetworkInfo and, when the scan carried a
 // TollGate vendor element, fills the definitive-identification and pricing
 // fields from it. This is the producer the scan boundary was previously staged
-// for: IsTollGate/RawIEs/PricePerStep/StepSize used to be hard-zero here.
+// for: IsTollGate/RawIEs/AdvertisedPricePerStep/AdvertisedStepSize were
+// hard-zeroed here.
 //
 // Authority note: the element is an UNSIGNED hint. OUI identification is the
 // scan-side signal that selects a candidate for the signed kind-10021 probe
@@ -466,10 +467,10 @@ func (s *Scanner) buildNetworkInfo(bssid, ssid string, signal int, encrypt, radi
 		}
 		n.IsTollGate = true
 		if adv.PricePerStep > 0 {
-			n.PricePerStep = int(adv.PricePerStep)
+			n.AdvertisedPricePerStep = int(adv.PricePerStep)
 		}
 		if adv.StepSize > 0 {
-			n.StepSize = int(adv.StepSize)
+			n.AdvertisedStepSize = int(adv.StepSize)
 		}
 		// One TollGate advertisement per AP is the contract; take the first
 		// and stop rather than letting a later element overwrite it.

@@ -61,16 +61,28 @@ func NewScanner(c *Connector, vendorIEDiscovery bool) *Scanner {
 func (s *Scanner) SetVendorIEDiscovery(on bool) { s.vendorIEDiscovery = on }
 
 type NetworkInfo struct {
-	BSSID        string
-	SSID         string
-	Signal       int
-	Encryption   string
-	PricePerStep int
-	StepSize     int
-	RawIEs       []byte
-	Radio        string
-	Band         string // "2g"/"5g", or "unknown" when no band info exists
-	IsTollGate   bool
+	BSSID      string
+	SSID       string
+	Signal     int
+	Encryption string
+	// AdvertisedPricePerStep / AdvertisedStepSize are the UNSIGNED pricing
+	// hint read from a neighbour's vendor information element. They are NOT
+	// authoritative: the signed kind-10021 advertisement served on :2121 is the
+	// authority for price, and the money path reads only that
+	// (tollgate_protocol.PricingOption, via validator.go -> session.go).
+	//
+	// Deliberately named "Advertised..." so it cannot be confused with
+	// PricingOption.PricePerStep. A cold cross-family review of PR #959 raised
+	// a false blocker precisely because the two fields shared a name and the
+	// excerpt could not show which was authoritative.
+	//
+	// Zero means "not advertised here", NEVER "free".
+	AdvertisedPricePerStep int
+	AdvertisedStepSize     int
+	RawIEs                 []byte
+	Radio                  string
+	Band                   string // "2g"/"5g", or "unknown" when no band info exists
+	IsTollGate             bool
 }
 
 type TollGateAdvertisement struct {

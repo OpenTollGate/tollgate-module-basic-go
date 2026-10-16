@@ -689,15 +689,15 @@ func (s *CLIServer) handleUpstreamScan() CLIResponse {
 	var result []UpstreamNetwork
 	for _, net := range networks {
 		result = append(result, UpstreamNetwork{
-			SSID:         net.SSID,
-			Signal:       net.Signal,
-			Encryption:   net.Encryption,
-			BSSID:        net.BSSID,
-			Radio:        net.Radio,
-			Band:         net.Band,
-			IsTollGate:   net.IsTollGate,
-			PricePerStep: net.PricePerStep,
-			StepSize:     net.StepSize,
+			SSID:                   net.SSID,
+			Signal:                 net.Signal,
+			Encryption:             net.Encryption,
+			BSSID:                  net.BSSID,
+			Radio:                  net.Radio,
+			Band:                   net.Band,
+			IsTollGate:             net.IsTollGate,
+			AdvertisedPricePerStep: net.AdvertisedPricePerStep,
+			AdvertisedStepSize:     net.AdvertisedStepSize,
 		})
 	}
 

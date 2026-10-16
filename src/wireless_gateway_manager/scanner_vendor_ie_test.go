@@ -104,11 +104,11 @@ func TestParseIWScanOutput_PopulatesVendorIEFields(t *testing.T) {
 	if !n.IsTollGate {
 		t.Errorf("IsTollGate = false, want true (vendor element with OUI %s present)", tollgateOUI)
 	}
-	if n.PricePerStep != 7 {
-		t.Errorf("PricePerStep = %d, want 7 (from tlvTypePricePerStep)", n.PricePerStep)
+	if n.AdvertisedPricePerStep != 7 {
+		t.Errorf("AdvertisedPricePerStep = %d, want 7 (from tlvTypePricePerStep)", n.AdvertisedPricePerStep)
 	}
-	if n.StepSize != 1000 {
-		t.Errorf("StepSize = %d, want 1000 (from tlvTypeStepSize)", n.StepSize)
+	if n.AdvertisedStepSize != 1000 {
+		t.Errorf("AdvertisedStepSize = %d, want 1000 (from tlvTypeStepSize)", n.AdvertisedStepSize)
 	}
 }
 
@@ -125,9 +125,9 @@ func TestParseIWScanOutput_NonTollGateVendorIgnored(t *testing.T) {
 	if nets[0].IsTollGate {
 		t.Errorf("IsTollGate = true for foreign OUI 001122, want false")
 	}
-	if nets[0].PricePerStep != 0 || nets[0].StepSize != 0 {
+	if nets[0].AdvertisedPricePerStep != 0 || nets[0].AdvertisedStepSize != 0 {
 		t.Errorf("pricing populated from a foreign element: price=%d step=%d",
-			nets[0].PricePerStep, nets[0].StepSize)
+			nets[0].AdvertisedPricePerStep, nets[0].AdvertisedStepSize)
 	}
 }
 
@@ -145,9 +145,9 @@ func TestParseIWScanOutput_TollGateWithoutPricingTLVs(t *testing.T) {
 	if !nets[0].IsTollGate {
 		t.Errorf("IsTollGate = false, want true — identification needs no pricing TLV")
 	}
-	if nets[0].PricePerStep != 0 || nets[0].StepSize != 0 {
+	if nets[0].AdvertisedPricePerStep != 0 || nets[0].AdvertisedStepSize != 0 {
 		t.Errorf("pricing should stay zero without pricing TLVs, got %d/%d",
-			nets[0].PricePerStep, nets[0].StepSize)
+			nets[0].AdvertisedPricePerStep, nets[0].AdvertisedStepSize)
 	}
 }
 
@@ -208,8 +208,8 @@ func TestParseIWScanOutput_MultipleNetworksAndVendorElements(t *testing.T) {
 			if !n.IsTollGate {
 				t.Errorf("TollGate network not identified")
 			}
-			if n.PricePerStep != 3 || n.StepSize != 500 {
-				t.Errorf("pricing misplaced: %d/%d, want 3/500", n.PricePerStep, n.StepSize)
+			if n.AdvertisedPricePerStep != 3 || n.AdvertisedStepSize != 500 {
+				t.Errorf("pricing misplaced: %d/%d, want 3/500", n.AdvertisedPricePerStep, n.AdvertisedStepSize)
 			}
 		}
 	}

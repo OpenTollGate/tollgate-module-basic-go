@@ -85,7 +85,7 @@ func main() {
 		}
 		tollGates++
 		fmt.Printf("TOLLGATE  bssid=%s ssid=%q signal=%d price_per_step=%d step_size=%d rawIE_bytes=%d\n",
-			n.BSSID, n.SSID, n.Signal, n.PricePerStep, n.StepSize, len(n.RawIEs))
+			n.BSSID, n.SSID, n.Signal, n.AdvertisedPricePerStep, n.AdvertisedStepSize, len(n.RawIEs))
 	}
 	fmt.Printf("\nidentified TollGates = %d\n", tollGates)
 
