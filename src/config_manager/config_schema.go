@@ -195,7 +195,7 @@ func GetConfigSchema() []FieldSchema {
 					Name: "Uplinks", JSONKey: "uplinks", Type: "array",
 					Description: "Uplink interfaces to register as subflow endpoints", Required: false, Editable: true,
 					Children: []FieldSchema{
-						{Name: "Interface", JSONKey: "interface", Type: "string", Description: "Interface name", Required: true, Editable: true},
+						{Name: "Interface", JSONKey: "interface", Type: "string", Description: "Interface name", Default: "", Required: true, Editable: true},
 						{Name: "Address", JSONKey: "address", Type: "string", Description: "Address to advertise (optional; learned at runtime if empty)", Required: false, Editable: true},
 					},
 				},
@@ -206,6 +206,15 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "FwMark", JSONKey: "fwmark", Type: "string", Description: "Firewall mark for policy routing", Default: "0x1", Required: false, Editable: true},
 				{Name: "FwMarkTable", JSONKey: "fwmark_table", Type: "int", Description: "Routing table for marked traffic", Default: 100, Required: false, Editable: true, Min: 1, Max: 9999},
 			},
+		},
+		{
+			Name: "MaintainerNpub", JSONKey: "maintainer_npub", Type: "string",
+			Description: "The maintainer's Nostr public key (bech32 npub1…). Authorizes CVM control-plane write tools and is the discovery key the maintainer dashboard subscribes to, so one npub finds every tollgate it owns. Empty = unclaimed: the router still serves customers but cannot be managed remotely and appears in no fleet view.",
+			Default:     "", Required: false, Editable: true,
+			// An npub1 key is 63 characters. The bound is a cheap shape gate
+			// ahead of the bech32 decode so a pasted blob is refused with a
+			// length message rather than a decode error.
+			MaxLength: 80,
 		},
 	}
 }
