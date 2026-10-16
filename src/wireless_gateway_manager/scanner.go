@@ -158,10 +158,84 @@ func (s *Scanner) scanRadio(radio, device string) ([]NetworkInfo, error) {
 			continue
 		}
 
-		return s.ParseIwinfoOutput(stdout.Bytes(), radio), nil
+		networks := s.ParseIwinfoOutput(stdout.Bytes(), radio)
+
+		// `iwinfo` prints NO information elements (measured on
+		// tollgate-A04E, 2026-10-16), so it can never identify a TollGate by
+		// its vendor element. When vendor-IE discovery is enabled, merge in
+		// an `iw` scan — the only tool that emits elements — so the
+		// identification and pricing fields can be populated. iwinfo is
+		// still run first because it reports hidden APs that iw can omit.
+		if s.vendorIEDiscovery {
+			if iwScan := s.scanRadioWithIW(radio, device); len(iwScan) > 0 {
+				networks = mergeScanResults(networks, iwScan)
+			}
+		}
+
+		return networks, nil
 	}
 
 	return nil, lastErr
+}
+
+// scanRadioWithIW runs `iw dev <device> scan`, whose output is the only source
+// of information elements (including the TollGate vendor element). Best-effort:
+// an iw failure or empty result returns nil and the caller keeps the iwinfo
+// view rather than failing the whole scan.
+func (s *Scanner) scanRadioWithIW(radio, device string) []NetworkInfo {
+	cmd := exec.Command("iw", "dev", device, "scan")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &bytes.Buffer{}
+	if err := cmd.Run(); err != nil {
+		logger.WithError(err).Debug("iw scan failed; vendor-element discovery unavailable")
+		return nil
+	}
+	if stdout.Len() == 0 {
+		return nil
+	}
+	return s.ParseIwinfoOutput(stdout.Bytes(), radio)
+}
+
+// mergeScanResults folds a second scan view into the first, keyed by BSSID.
+// The second view (iw) carries the information elements, so its vendor-element
+// fields win; the first view (iwinfo) keeps entries the second one lacks.
+func mergeScanResults(base, extra []NetworkInfo) []NetworkInfo {
+	idx := make(map[string]int, len(base))
+	for i, n := range base {
+		idx[n.BSSID] = i
+	}
+
+	for _, e := range extra {
+		i, ok := idx[e.BSSID]
+		if !ok {
+			base = append(base, e)
+			idx[e.BSSID] = len(base) - 1
+			continue
+		}
+		// Enrich in place: take the element-derived fields from the iw view,
+		// and fill any gap the iwinfo view left (signal, encryption, channel).
+		if e.IsTollGate {
+			base[i].IsTollGate = true
+		}
+		if len(e.RawIEs) > 0 {
+			base[i].RawIEs = e.RawIEs
+		}
+		if e.PricePerStep > 0 {
+			base[i].PricePerStep = e.PricePerStep
+		}
+		if e.StepSize > 0 {
+			base[i].StepSize = e.StepSize
+		}
+		if base[i].Signal == 0 && e.Signal != 0 {
+			base[i].Signal = e.Signal
+		}
+		if base[i].Encryption == "" {
+			base[i].Encryption = e.Encryption
+		}
+	}
+
+	return base
 }
 
 // ParseIwinfoOutput parses a wireless scan into NetworkInfo records.

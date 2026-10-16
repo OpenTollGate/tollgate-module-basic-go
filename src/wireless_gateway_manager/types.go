@@ -43,7 +43,22 @@ type Connector struct {
 
 type Scanner struct {
 	Connector *Connector
+	// vendorIEDiscovery enables the `iw` scan pass that supplies information
+	// elements. `iwinfo` prints NO elements (measured on tollgate-A04E,
+	// 2026-10-16), so without this the vendor element — and therefore
+	// IsTollGate/PricePerStep/StepSize — can never be populated. Wired from
+	// config.VendorIEDiscovery via NewScanner.
+	vendorIEDiscovery bool
 }
+
+// NewScanner builds a Scanner with vendor-element discovery wired from config,
+// so the flag that gated this producer is actually read.
+func NewScanner(c *Connector, vendorIEDiscovery bool) *Scanner {
+	return &Scanner{Connector: c, vendorIEDiscovery: vendorIEDiscovery}
+}
+
+// SetVendorIEDiscovery flips the iw-scan pass on an existing Scanner.
+func (s *Scanner) SetVendorIEDiscovery(on bool) { s.vendorIEDiscovery = on }
 
 type NetworkInfo struct {
 	BSSID        string
