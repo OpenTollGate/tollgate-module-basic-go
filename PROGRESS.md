@@ -192,3 +192,43 @@ HOST-SIDE wiring, which is genuinely a different kind of change:
 This touches the module that manages live router CONNECTIVITY on every
 deployed node. A mistake can affect every node, not just the lab. Flagged to
 the operator rather than executed unattended.
+
+## Iteration 6 — 2026-10-16 (operator chose option (a): StarGate as 2nd uplink)
+
+### ACHIEVED: StarGate is now a live second uplink on the router
+Constructed the STA via `uci` + `wifi reload` (per the MT7986 rule):
+  sta_stargate: mode=sta ssid=StarGate psk2 network=wwan2
+Result: phy0-sta0 @ 10.2.1.122/16, gateway 10.2.0.1, associated -73 dBm,
+gateway RTT 2.1 ms, reaches 8.8.8.8 at 35 ms. Two uplinks with INDEPENDENT
+gateways now exist on the router (wired 192.168.2.1 + StarGate 10.2.0.1).
+
+### ACHIEVED: two subflows across two DIFFERENT client interfaces carried data
+Previously the 2nd subflow formed on the SAME path (869 MB vs 725 B). This run
+drove the client over both local paths and got two genuinely distinct subflows:
+  src=192.168.2.36  (wlp58s0)        49823 pkts / 510695705 B
+  src=10.63.101.201 (enx6c6e0750c33b) 85187 pkts / 1256176480 B
+both ESTABLISHED simultaneously. MPJoinSynRx advanced 2 -> 16.
+
+### NOT achieved: throughput gain
+  wifi only           1.25 Gbit/s
+  cable only          1.20 Gbit/s
+  aggregated (3 runs) 1.19 / 1.21 / 1.27 Gbit/s  <- within noise
+Cause: both client paths terminate on the SAME house LAN switch. Subflows are
+logically distinct but physically share one network.
+
+### Measurement flaw corrected mid-iteration
+My first 2-gateway run was invalid: the iperf3 SERVER was on the router, so
+traffic never traversed the uplinks at all. Documented rather than buried.
+
+### Router left clean
+temp nft test rule deleted (verified count 0), iperf3 killed, temp logs removed.
+
+Docs: MPTCP-MEASUREMENT-2GATEWAY.md, MPTCP-MEASUREMENT-DUALPATH.md
+Commits: 94e0bce, 9e061fa, b650f6d
+
+## Work queue (next)
+7. Remaining: host-side wiring 6a/6b/6c (config schema, main.go, upstream_detector
+   call-through). Still flagged for operator go/no-go: touches the module
+   managing live node connectivity fleet-wide.
+8. Aggregation gain: needs genuinely disjoint paths end-to-end (two separate
+   networks at the client). Not achievable on this lab.
