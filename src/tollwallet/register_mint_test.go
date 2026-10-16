@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,7 +57,10 @@ func newTogglableMint(t *testing.T) (baseURL string, setHealthy func(bool)) {
 		t.Fatalf("generate private key: %v", err)
 	}
 	pubKeyHex := hex.EncodeToString(priv.PubKey().SerializeCompressed())
-	keysetID := strings.Repeat("ab", 16)
+	// The #705 guard (gonuts v0.14.0) refuses a mint whose advertised keyset
+	// id is not the NUT-02 derivation of its published keys — derive it for
+	// real so the fixture registers like a genuine mint.
+	keysetID := mustDeriveKeysetID(`{"1":"` + pubKeyHex + `"}`)
 	var healthy atomic.Bool
 	healthy.Store(true)
 
