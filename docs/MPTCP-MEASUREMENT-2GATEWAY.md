@@ -107,6 +107,36 @@ Because of this, the correct conclusion is **not** "aggregation failed" but
 is proven, and the throughput question remains open pending a correctly shaped
 test.
 
+## Per-subflow evidence: the second subflow forms on the SAME path
+
+Router conntrack during a live 30 s transfer, showing both MPTCP connections:
+
+```
+src=10.63.101.201 sport=51104 dport=7201  packets=41747  bytes=869303545   <- all data
+src=10.63.101.201 sport=51090 dport=7201  packets=8      bytes=725         <- handshake only
+```
+
+Both entries carry the **same source and destination addresses**
+(`10.63.101.201 -> 10.63.101.1`), differing only in source port. So the second
+subflow was created on the **same path** as the first: it completes its
+handshake, carries ~725 bytes, and adds **zero capacity**.
+
+That is the mechanism of the "no gain" result, and it is distinct from both
+earlier explanations. The subflow exists and is healthy; it simply is not a
+*different* path. Diversifying would require the peer to advertise an address
+that is genuinely reached over a different local interface, and for the client
+to have a matching local address on that path — which this client does not have
+for the router's uplink-side addresses.
+
+## Scheduler
+
+Only the `default` scheduler is available on this kernel: `/proc/sys/net/mptcp/
+scheduler` reads `default` and roundrobin/redundant writes are refused
+(`mptcp_sched_roundrobin` is not built in). So the latency-preferring default
+cannot be swapped for a spreading scheduler here. Note the default scheduler is
+*correct* to prefer one path; forcing a spread across a shared bottleneck would
+not create capacity either.
+
 ## Honest labelling
 
 Even with a correctly shaped topology, expect **1.2–1.3×, not 2×**, and only
