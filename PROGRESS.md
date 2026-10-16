@@ -373,3 +373,36 @@ endpoint state IDENTICAL, ids UNCHANGED
 A unit-tested renderer is not a verified renderer. The grammar of the commands
 it emits is only proven on the target. Both bugs were invisible to mocked tests
 and would have made every apply report failure in the field.
+
+## Iteration 12 — 2026-10-16 (StarGate re-cabling result + PR body refresh)
+
+### Operator question: "I brought stargate closer. Did it help?"
+**Yes, measurably.** Commit `566ae6a`, pushed.
+
+| Metric | Before move | After |
+|---|---|---|
+| Signal (avg) | -73 dBm | -72 dBm (ack -70) |
+| TX bitrate | 104 MBit/s MCS 13 | **156 MBit/s MCS 21** |
+| Link quality | 37/70 | 38/70 |
+
+Two modulation steps from a ~1 dB change: the gain is SNR/interference margin at
+the same power, not raw signal. Latency healthy (0% loss, 30 ms avg).
+
+**Scope, stated so nothing overclaims:** the StarGate UPLINK is genuinely faster,
+which is a real improvement to the node. The AGGREGATION number is unchanged,
+because the bottleneck was never the uplink -- both client legs terminate on the
+same house switch. A faster uplink makes the router a better gateway; it cannot
+give the client two disjoint first hops. Ceiling stays 1.2-1.3x, not 2x.
+
+**Caveat recorded:** 156 MBit/s is the observed LINK-LAYER rate. No end-to-end
+StarGate throughput figure is claimed -- the router-side fetch hung and BusyBox
+wget has no --bind-address to steer it.
+
+### PR #927 body refreshed
+Now 36 files, +3947/-6, head `566ae6a`. Adds a measurement index over the five
+docs, an explicit "what is proven / what is NOT" split, the lan1-is-WAN operator
+gotcha, and a note on the AssessPaths preflight.
+
+### Work queue: COMPLETE
+Items 1, 3, 4, 5 done; item 2 answered by measurement; 6a/6b/6c done. Nothing
+outstanding on the original queue.
