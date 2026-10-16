@@ -19,11 +19,10 @@ import (
 
 func newCheckStateMint(t *testing.T, states map[string]string) *httptest.Server {
 	t.Helper()
-	keysetsJSON := `{"keysets":[{"id":"000f715baf5d4c2e","unit":"sat","active":true,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}]}`
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/keys", "/v1/keysets":
-			fmt.Fprint(w, keysetsJSON)
+			fmt.Fprint(w, fixtureKeysetsJSON())
 		case "/v1/checkstate":
 			var req struct {
 				Ys []string `json:"Ys"`
@@ -59,9 +58,9 @@ func checkStateProof(t *testing.T, secret string) cashu.Proof {
 	// token well-formed.
 	return cashu.Proof{
 		Amount: 1,
-		Id:     "000f715baf5d4c2e",
+		Id:     fixtureKeysetID,
 		Secret: secret,
-		C:      "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+		C:      fixtureAmount1Key,
 	}
 }
 

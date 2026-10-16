@@ -58,17 +58,11 @@ func (l *swapSightingLog) snapshot() (requests int, outputs map[string]int) {
 // which is exactly how the conformance lane caught it and a unit payment test
 // could not.
 func TestReceive_DroppedSwapResponseNeverReExposesOutputs(t *testing.T) {
-	const keysetID = "000f715baf5d4c2e"
-	const amount1Key = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
-
-	keysetsJSON := `{"keysets":[{"id":"` + keysetID + `","unit":"sat","active":true,` +
-		`"keys":{"1":"` + amount1Key + `"}}]}`
-
 	log := &swapSightingLog{}
 	mint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/keys", "/v1/keysets":
-			fmt.Fprint(w, keysetsJSON)
+			fmt.Fprint(w, fixtureKeysetsJSON())
 		case "/v1/swap":
 			buf := make([]byte, r.ContentLength)
 			for total := 0; total < len(buf); {
@@ -100,7 +94,7 @@ func TestReceive_DroppedSwapResponseNeverReExposesOutputs(t *testing.T) {
 	}
 	defer tw.Shutdown()
 
-	proof := cashu.Proof{Amount: 1, Id: keysetID, Secret: "ambiguous-outcome-secret", C: amount1Key}
+	proof := cashu.Proof{Amount: 1, Id: fixtureKeysetID, Secret: "ambiguous-outcome-secret", C: fixtureAmount1Key}
 	token, err := cashu.NewTokenV3(cashu.Proofs{proof}, mint.URL, cashu.Sat, false)
 	if err != nil {
 		t.Fatal(err)
@@ -127,19 +121,13 @@ func TestReceive_DroppedSwapResponseNeverReExposesOutputs(t *testing.T) {
 // poisoned state — a later Receive of a different note against the same mint,
 // once it answers again, completes normally.
 func TestReceive_WalletUsableAfterDroppedSwapResponse(t *testing.T) {
-	const keysetID = "000f715baf5d4c2e"
-	const amount1Key = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
-
-	keysetsJSON := `{"keysets":[{"id":"` + keysetID + `","unit":"sat","active":true,` +
-		`"keys":{"1":"` + amount1Key + `"}}]}`
-
 	var answerMu sync.Mutex
 	answers := false
 	dropped := 0
 	mint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/keys", "/v1/keysets":
-			fmt.Fprint(w, keysetsJSON)
+			fmt.Fprint(w, fixtureKeysetsJSON())
 		case "/v1/swap":
 			answerMu.Lock()
 			answering := answers
@@ -158,7 +146,7 @@ func TestReceive_WalletUsableAfterDroppedSwapResponse(t *testing.T) {
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"signatures":[{"amount":1,"C_":"`+amount1Key+`","id":"`+keysetID+`"}]}`)
+			fmt.Fprint(w, `{"signatures":[{"amount":1,"C_":"`+fixtureAmount1Key+`","id":"`+fixtureKeysetID+`"}]}`)
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
@@ -171,7 +159,7 @@ func TestReceive_WalletUsableAfterDroppedSwapResponse(t *testing.T) {
 	}
 	defer tw.Shutdown()
 
-	firstProof := cashu.Proof{Amount: 1, Id: keysetID, Secret: "ambiguous-outcome-secret-first", C: amount1Key}
+	firstProof := cashu.Proof{Amount: 1, Id: fixtureKeysetID, Secret: "ambiguous-outcome-secret-first", C: fixtureAmount1Key}
 	firstToken, err := cashu.NewTokenV3(cashu.Proofs{firstProof}, mint.URL, cashu.Sat, false)
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +172,7 @@ func TestReceive_WalletUsableAfterDroppedSwapResponse(t *testing.T) {
 	answers = true
 	answerMu.Unlock()
 
-	secondProof := cashu.Proof{Amount: 1, Id: keysetID, Secret: "post-recovery-secret-second", C: amount1Key}
+	secondProof := cashu.Proof{Amount: 1, Id: fixtureKeysetID, Secret: "post-recovery-secret-second", C: fixtureAmount1Key}
 	secondToken, err := cashu.NewTokenV3(cashu.Proofs{secondProof}, mint.URL, cashu.Sat, false)
 	if err != nil {
 		t.Fatal(err)

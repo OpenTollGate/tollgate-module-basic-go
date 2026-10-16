@@ -17,15 +17,10 @@ import (
 // ErrTokenAlreadySpent mapping below unreachable. The test fails on either
 // regression: swallowing at the gonuts layer, or match drift at this layer.
 func TestReceive_SpentTokenMapsToSentinel(t *testing.T) {
-	const keysetID = "000f715baf5d4c2e"
-	const amount1Key = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
-
-	keysetsJSON := `{"keysets":[{"id":"` + keysetID + `","unit":"sat","active":true,` +
-		`"keys":{"1":"` + amount1Key + `"}}]}`
 	mint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/keys", "/v1/keysets":
-			fmt.Fprint(w, keysetsJSON)
+			fmt.Fprint(w, fixtureKeysetsJSON())
 		case "/v1/swap":
 			http.Error(w, `{"code":3,"detail":"inputs have already been spent"}`, http.StatusBadRequest)
 		default:
@@ -40,7 +35,7 @@ func TestReceive_SpentTokenMapsToSentinel(t *testing.T) {
 	}
 	defer tw.Shutdown()
 
-	proof := cashu.Proof{Amount: 1, Id: keysetID, Secret: "sentinel-e2e-secret", C: amount1Key}
+	proof := cashu.Proof{Amount: 1, Id: fixtureKeysetID, Secret: "sentinel-e2e-secret", C: fixtureAmount1Key}
 	token, err := cashu.NewTokenV3(cashu.Proofs{proof}, mint.URL, cashu.Sat, false)
 	if err != nil {
 		t.Fatal(err)
