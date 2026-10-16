@@ -406,3 +406,74 @@ gotcha, and a note on the AssessPaths preflight.
 ### Work queue: COMPLETE
 Items 1, 3, 4, 5 done; item 2 answered by measurement; 6a/6b/6c done. Nothing
 outstanding on the original queue.
+
+## Iterations 13-14 — 2026-10-16 (operator's topology correction + scheduler answer)
+
+### Operator was RIGHT: my test topology was wrong
+Commits `b2087f9`, `6e8fb7e`. Pushed.
+
+Every earlier measurement ran **iperf3 ON THE ROUTER**, so traffic stopped at the
+router's own socket and **never entered the uplinks**. No uplink topology could
+show up in that number. My repeated "shared switch" diagnosis was true of the
+client<->router path pair, not of the topology that answers the aggregation
+question. Retired.
+
+### Correct topology now tested
+```
+MT6000 (CLIENT) -- lan1      -> wired WAN --\
+                \-- phy0-sta0 -> StarGate  --+--> VPS 23.182.128.51 (peer)
+```
+Obstacles cleared, each of which LOOKED like a routing bug:
+- VPS was already reachable; the earlier `Permission denied` was my wrong SSH
+  user (root vs the `vps2fips` alias), not a dead host.
+- VPS `add_addr_accepted` defaulted to **0** -> would have refused the router's
+  ADD_ADDR and blocked subflows entirely.
+- VPS **UFW INPUT policy DROP** -> server listening, firewall silently dropping.
+
+MEASURED (3 runs each, router as client):
+```
+stargate only  3.92 / 3.75 / 2.90 Mbit/s
+wired only     5.58 / 9.44 / 9.66 Mbit/s
+both (unbound) 2.83 Mbit/s   <- slower than either alone
+```
+Both uplinks far below their 104-156 Mbit/s link rate => the bottleneck is now
+genuinely upstream of the radio. **First time the uplinks themselves are the
+constraint**, which is what makes this the right test bed.
+
+WHY "both" was slowest -- mid-transfer conntrack:
+```
+src=192.168.2.15 (wired)    11728 pkts / 34736249 bytes  <- ALL the data
+src=10.2.1.122 (StarGate)      24 pkts /     1738 bytes  <- handshake only
+```
+Only ONE uplink carried payload. Exactly what `AssessPaths` flags as
+`AllCarryPayload=false`.
+
+### The scheduler question -- ANSWERED: it is a kernel build limit
+Evidence read from the router:
+```
+cat /proc/sys/net/mptcp/scheduler           -> default
+cat /proc/sys/net/mptcp/available_schedulers -> NO SUCH FILE
+echo roundrobin > .../scheduler             -> REJECTED
+modprobe mptcp_sched_roundrobin/_redundant/_bpf -> all unavailable
+find /lib/modules/$(uname -r) -name '*mptcp*'  -> mptcp_diag.ko ONLY
+```
+Structural, not merely unconfigured: the multi-scheduler sysctl API is absent, no
+netlink path to select one, and MPTcpExt has NO MP*Sched* counters.
+
+=> With a ~0.5 ms vs ~30 ms RTT gap, the latency-preferring `default` scheduler
+concentrating on one path is EXPECTED behaviour on this build. Not a config
+error; endpoints are provably correct.
+
+Would change it: (1) a kernel built with CONFIG_MPTCP_SCHED* + the roundrobin/
+redundant modules (OpenWrt 24.10.2 for this target ships neither); (2) two
+uplinks of comparable latency (testable here, but the second uplink is Starlink
+and inherently high-latency).
+
+### CORRECTION: kernel version
+Router reports **6.6.93** (`uname -r`, `/proc/version`), NOT 6.12.94 as earlier
+notes in this work stated. OpenWrt 24.10.2 is correct. The scheduler conclusion
+was derived from the running system, not from the version string.
+
+### Work queue: still complete. No new code items.
+The remaining barrier to a throughput multiplier is a KERNEL PACKAGING property,
+not code in this PR.
