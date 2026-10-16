@@ -94,3 +94,8 @@ tests/cloud-lab/conformance/__pycache__/
 # Conformance lane runtime state (tokens stashed between phases, generated
 # config, verdict parts, evidence logs) — see tests/cloud-lab/conformance/.
 tests/cloud-lab/.conformance/
+
+# session scratch (review prompts + PR body are session artifacts, not deliverables)
+PR-BODY.md
+PROGRESS.md
+build-review-prompt*.py
