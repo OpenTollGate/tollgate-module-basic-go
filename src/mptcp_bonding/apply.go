@@ -68,18 +68,36 @@ fi
 	b.WriteString(c.LimitsSetCommand())
 	b.WriteString("\n")
 
-	// 3. Endpoints, each delete-then-add so a re-run is safe.
-	b.WriteString("\n# Uplink endpoints. Delete-then-add: re-running this script must not fail\n")
-	b.WriteString("# on an already-registered address. `ip mptcp endpoint delete <addr>`\n")
-	b.WriteString("# accepts the address directly, so no id lookup is needed.\n")
+	// 3. Endpoints.
+	//
+	// Two facts learned from the device (OpenWrt 24.10.2, kernel 6.12.94):
+	//
+	//   a. `ip mptcp endpoint delete <addr>` is INVALID: the id is mandatory
+	//      ("delete id ID [ADDRESS]"). Deleting by address silently fails, the
+	//      add then hits EEXIST (-17), and under `set -e` the apply exits 2.
+	//   b. `ip mptcp endpoint show` prints "ADDRESS id N dev IFACE", so the id
+	//      is field 3 -- field 4 is the literal string "dev".
+	//
+	// So resolve the id from the live list. Crucially, if the address is already
+	// registered with the right device we DO NOTHING: delete-then-add is not
+	// idempotent in effect even when it succeeds, because it removes the
+	// endpoint and allocates a new id, which would interrupt an in-flight
+	// subflow on every reconcile. Only a missing or wrong-device endpoint is
+	// corrected.
+	b.WriteString("\n# Uplink endpoints. Already-correct endpoints are left ALONE: removing\n")
+	b.WriteString("# and re-adding would churn the id and interrupt a live subflow.\n")
 	for _, cmd := range c.EndpointPlan() {
-		addr, _, ok := endpointParts(cmd)
+		addr, dev, ok := endpointParts(cmd)
 		if !ok {
 			// Should not happen: EndpointPlan only emits well-formed commands.
 			continue
 		}
-		fmt.Fprintf(&b, "ip mptcp endpoint delete %s 2>/dev/null || true\n", addr)
-		fmt.Fprintf(&b, "%s\n", cmd)
+		fmt.Fprintf(&b, "cur_id=$(ip mptcp endpoint show | awk -v a=\"%s\" '$1==a && $2==\"id\" {print $3}'); \\\n", addr)
+		fmt.Fprintf(&b, "  cur_dev=$(ip mptcp endpoint show | awk -v a=\"%s\" '$1==a {for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1)}'); \\\n", addr)
+		fmt.Fprintf(&b, "  if [ -n \"$cur_id\" ] && [ \"$cur_dev\" = \"%s\" ]; then :; else \\\n", dev)
+		fmt.Fprintf(&b, "    [ -n \"$cur_id\" ] && ip mptcp endpoint delete id \"$cur_id\" 2>/dev/null || true; \\\n")
+		fmt.Fprintf(&b, "    %s || true; \\\n", cmd)
+		fmt.Fprintf(&b, "  fi\n")
 	}
 
 	return b.String()

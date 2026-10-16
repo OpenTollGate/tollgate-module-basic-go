@@ -59,24 +59,30 @@ func TestApplyScriptIsIdempotentOnEndpoints(t *testing.T) {
 		if !strings.Contains(line, "ip mptcp endpoint add") {
 			continue
 		}
-		// The guarantee is that a delete of the same address appears BEFORE
-		// the add, so re-running cannot fail on a duplicate registration.
-		// Extract the address and look for its delete in the preceding lines.
+		// The guarantee is that the address is de-registered BEFORE the add, so
+		// re-running cannot fail on a duplicate registration. The delete must go
+		// through the owning id: `endpoint delete <addr>` is invalid grammar.
+		// So look for an id-resolving delete of this address in the preceding
+		// lines, and require that the add itself is guarded.
 		fields := strings.Fields(line)
 		if len(fields) < 5 {
 			t.Errorf("malformed endpoint add: %q", line)
 			continue
 		}
 		addr := fields[4]
+		if !strings.Contains(line, "|| true") {
+			t.Errorf("endpoint add for %s must be guarded so EEXIST cannot abort: %q", addr, line)
+		}
 		guarded := false
-		for j := i - 1; j >= 0 && j >= i-3; j-- {
-			if strings.Contains(lines[j], "endpoint delete") && strings.Contains(lines[j], addr) {
+		for j := i - 1; j >= 0 && j >= i-6; j-- {
+			if strings.Contains(lines[j], "ip mptcp endpoint delete id") &&
+				strings.Contains(lines[j-2], addr) {
 				guarded = true
 				break
 			}
 		}
 		if !guarded {
-			t.Errorf("endpoint add for %s must be preceded by a delete of the same address, got:\n%s",
+			t.Errorf("endpoint add for %s must be preceded by an id-resolving delete of the same address, got:\n%s",
 				addr, script)
 		}
 	}
