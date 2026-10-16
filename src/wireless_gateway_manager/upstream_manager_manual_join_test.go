@@ -49,7 +49,7 @@ func (c *midJoinConnector) GetActiveSTA() (*STASection, error) {
 	return &STASection{Name: "upstream_2", SSID: "2", Device: ""}, nil
 }
 
-func (c *midJoinConnector) SwitchUpstream(active, candidate, ssid string) error {
+func (c *midJoinConnector) SwitchUpstream(active, candidate, ssid, bssid string) error {
 	c.mu.Lock()
 	c.switches = append(c.switches, active+" -> "+candidate+" ("+ssid+")")
 	c.mu.Unlock()

@@ -80,7 +80,7 @@ func (c *joinBlockingConnector) GetSTASections() ([]wireless_gateway_manager.STA
 	}, nil
 }
 
-func (c *joinBlockingConnector) SwitchUpstream(active, candidate, ssid string) error {
+func (c *joinBlockingConnector) SwitchUpstream(active, candidate, ssid, bssid string) error {
 	c.mu.Lock()
 	c.switches = append(c.switches, active+" -> "+candidate+" ("+ssid+")")
 	c.mu.Unlock()
