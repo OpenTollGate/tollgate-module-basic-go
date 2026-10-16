@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,22 +18,27 @@ import (
 // Writing these tests surfaced the reason the tool forks a worker: bbolt
 // v1.4 PANICS on torn input — at open for a truncated file (recoverable
 // in-process) and inside Tx.Check's own goroutine for meta-page
-// corruption (fatal in-process). The meta-page case therefore runs the
-// checker through the helper-process re-exec, exactly like the real
-// worker, and asserts the crash maps to a corruption verdict. The
-// leaf-value bit-rot case is deliberately absent — bbolt v1.4 has no data
-// checksums, so value bit-rot is NOT detectable by tx.Check (documented
-// limitation in the command help and the runbook, and an audit finding
-// in #505).
+// corruption (fatal in-process). The panic also races the worker's exit
+// (bbolt's deferred channel close fires mid-panic, so draining the
+// findings and exiting cleanly can beat the crash), which is why the
+// meta pages are prechecked deterministically before bbolt runs. The
+// meta-page case still goes through the helper-process re-exec, exactly
+// like the real worker, and asserts the verdict names corruption — now
+// via findings rather than via the racy crash. The leaf-value bit-rot
+// case is deliberately absent — bbolt v1.4 has no data checksums, so
+// value bit-rot is NOT detectable by tx.Check (documented limitation in
+// the command help and the runbook, and an audit finding in #505).
 
 // TestMain doubles as the crash-isolation helper: the meta-corruption test
 // re-execs the test binary with TOLLGATE_CHECK_HELPER=worker and the path
 // in the environment, TestMain runs the in-process checker instead of the
 // suite, and the parent observes the exit code the real worker contract
-// defines.
+// defines. Findings go to stderr before the exit, exactly like the hidden
+// cobra worker does — the verdict mapping for exit 1 carries them.
 func TestMain(m *testing.M) {
 	if os.Getenv("TOLLGATE_CHECK_HELPER") == "worker" {
 		if err := checkWalletDBInProcess(os.Getenv("TOLLGATE_CHECK_HELPER_PATH")); err != nil {
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(workerExitFindings)
 		}
 		os.Exit(workerExitIntact)
@@ -103,7 +109,11 @@ func TestCheckWalletDB_TruncatedFileIsFlaggedViaWorker(t *testing.T) {
 // corruptMetaPage triggers the unrecoverable shape: the check goroutine's
 // page assertions panic. The checker must still produce a corruption
 // verdict — via the worker contract — which is the whole reason the tool
-// forks.
+// forks. The panic itself races the worker's exit (bbolt closes the
+// findings channel while the panic unwinds, so a clean drain-and-exit can
+// beat the crash roughly one run in ten), which is why the meta pages are
+// validated deterministically by precheckMetaPages before bbolt runs: this
+// test takes the exit-1 findings path, not the crash path, every time.
 func TestCheckWalletDB_CorruptMetaPageIsFlaggedViaWorker(t *testing.T) {
 	path := seedHealthyWalletDB(t)
 	data, err := os.ReadFile(path)

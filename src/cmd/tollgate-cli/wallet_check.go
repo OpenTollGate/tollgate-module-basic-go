@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +25,11 @@ import (
 // recoverable in-process; both shapes were observed while writing the
 // seeded-corruption tests). A corruption checker must never die on
 // corruption, so the worker's death is simply another corruption verdict.
+// One wrinkle the seeded-corruption tests also caught: that goroutine's
+// deferred channel close fires mid-panic, so a worker whose main goroutine
+// wins the race to exit reports a corrupt database as intact — the meta
+// pages, where the race lives, are therefore validated up front by
+// precheckMetaPages and never reach the racing path at all.
 
 // ErrNoWalletDB reports that no wallet database exists at the checked path
 // (fresh install or wrong --path) — a different situation than corruption.
@@ -39,20 +45,103 @@ func walletDBPath() string {
 	return "/etc/tollgate/wallet.db"
 }
 
+// bbolt's on-disk format constants (from go.etcd.io/bbolt's internal/common:
+// page.go and types.go — stable wire-format values the module does not export).
+const (
+	bboltPageHeaderSize = 16 // id (8) + flags (2) + count (2) + overflow (4)
+	bboltMetaPageFlag   = 0x04
+	bboltMetaMagic      = 0xED0CDAED
+	bboltMetaVersion    = 2
+)
+
+// precheckMetaPages validates the structural identity of the two meta pages
+// straight from the file, before bbolt's own machinery runs. This closes a
+// race the seeded-corruption tests surfaced: Tx.Check walks pages on its own
+// goroutine and PANICS on a torn meta page (the page id/flags assertions),
+// but its deferred close(ch) fires while the panic is still unwinding — so a
+// consumer that drains the findings channel and exits before the runtime's
+// fatal exit observes zero findings for a corrupt database. In the worker
+// that is a scheduling race between os.Exit(0) and the panic's exit(2), and
+// it was lost roughly one run in ten on CI-grade hardware: `wallet check`
+// could report a torn wallet.db "structurally consistent". Header identity
+// of pages 0 and 1 is exactly the invariant whose violation panics, checked
+// here with plain pread calls that cannot race anything.
+//
+// One honest limit remains, recorded with the others in the runbook: a torn
+// header deeper inside the B+tree (a leaf or branch page id) still panics
+// the walk goroutine and still resolves through the worker's crash-versus-
+// exit race. Walking the tree ourselves to check every page would mean
+// reimplementing bbolt's checker; the meta pages — the first sectors flash
+// writes touch, and the shape #505 worried about — are covered
+// deterministically here.
+func precheckMetaPages(path string, size int64) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open for meta-page precheck: %w", err)
+	}
+	defer f.Close()
+
+	readHeader := func(off int64, wantID uint64) error {
+		var hdr [bboltPageHeaderSize]byte
+		if _, err := f.ReadAt(hdr[:], off); err != nil {
+			return fmt.Errorf("meta page %d unreadable (file is %d bytes): %w", wantID, size, err)
+		}
+		id := binary.LittleEndian.Uint64(hdr[0:8])
+		flags := binary.LittleEndian.Uint16(hdr[8:10])
+		if id != wantID || flags != bboltMetaPageFlag {
+			return fmt.Errorf("meta page %d header is torn: page identifies as id=%d flags=%#x, want id=%d flags=%#x", wantID, id, flags, wantID, bboltMetaPageFlag)
+		}
+		return nil
+	}
+	if err := readHeader(0, 0); err != nil {
+		return err
+	}
+
+	// Locate page 1 via the page size meta page 0 declares, but trust that
+	// number only when magic, version and the size itself are self-
+	// consistent; otherwise leave page 1 to bbolt's own candidate scan (a
+	// torn page 0 is already flagged above, and Open fails outright when no
+	// meta validates at all).
+	var meta [16 + 12]byte // page header + magic, version, pageSize
+	if _, err := f.ReadAt(meta[:], 0); err != nil {
+		return fmt.Errorf("meta page 0 unreadable (file is %d bytes): %w", size, err)
+	}
+	if binary.LittleEndian.Uint32(meta[16:20]) != bboltMetaMagic ||
+		binary.LittleEndian.Uint32(meta[20:24]) != bboltMetaVersion {
+		return nil
+	}
+	ps := binary.LittleEndian.Uint32(meta[24:28])
+	if ps < 512 || ps > 1<<20 || ps&(ps-1) != 0 {
+		return nil
+	}
+	if size < int64(ps)*2 {
+		return fmt.Errorf("file is %d bytes, smaller than the two %d-byte meta pages every bbolt database has", size, ps)
+	}
+	return readHeader(int64(ps), 1)
+}
+
 // checkWalletDBInProcess opens the database read-only and runs bbolt's
 // structural consistency check (page layout, freelist, key ordering, bucket
 // references). It answers "intact" only when the file opens cleanly AND
-// the B+tree walk finds nothing wrong. Two honest limitations, recorded in
-// the runbook: bbolt v1.4 panics on some torn inputs instead of erroring
-// (the worker subprocess converts that death into a corruption verdict),
-// and there are no data-page checksums — a clean check proves structure,
-// not byte-level fidelity against silent bit-rot.
+// the B+tree walk finds nothing wrong. Three honest limitations, recorded in
+// the runbook: bbolt v1.4 panics on some torn inputs instead of erroring,
+// and those panics race the worker's exit — so the meta pages (the shape
+// that races) are validated deterministically by precheckMetaPages before
+// bbolt runs, while deeper shapes still lean on the worker subprocess
+// converting its death into a corruption verdict; there are no data-page
+// checksums — a clean check proves structure, not byte-level fidelity
+// against silent bit-rot; and a torn older meta page beside a valid newer
+// one is a healthy double-buffered database, not corruption.
 func checkWalletDBInProcess(path string) (err error) {
-	if _, err := os.Stat(path); err != nil {
+	info, err := os.Stat(path)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("%w: %s", ErrNoWalletDB, path)
 		}
 		return fmt.Errorf("stat wallet database: %w", err)
+	}
+	if err := precheckMetaPages(path, info.Size()); err != nil {
+		return fmt.Errorf("wallet database failed to open (corrupt or unreadable): %w", err)
 	}
 	defer func() {
 		if r := recover(); r != nil {
