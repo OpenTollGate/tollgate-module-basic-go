@@ -232,3 +232,60 @@ Commits: 94e0bce, 9e061fa, b650f6d
    managing live node connectivity fleet-wide.
 8. Aggregation gain: needs genuinely disjoint paths end-to-end (two separate
    networks at the client). Not achievable on this lab.
+
+## Iterations 7-8 — 2026-10-16 (operator approved 6a/6b/6c)
+
+### Committed + PUSHED (all remote-verified)
+- `da98648` feat(config): mptcp_bonding config section, disabled by default (6a+6b)
+- `bb3be12` fix(cli): redact secrets nested in the schema, not only top level
+- `0824560` feat(mptcp): preflight disjointness check
+- `0a3d7f6` test(mptcp): disjointness check on real lab conntrack
+
+Remote head now `0a3d7f6` on pr/mptcp-bonding-demo.
+
+### Security bug found and fixed (bb3be12)
+`secretJSONKeys()` walked only TOP-LEVEL schema fields, never `Children`. So
+`mptcp_bonding.password` marked Secret was never reported => never redacted
+=> `config get` would have handed the bond shared secret to any authenticated
+board session. Fixed recursively. Proven:
+  original="SUPER-SECRET" redacted=""  secretKeys=[private_key password]
+  state=map[password:true private_key:false]
+
+Guardrails that fired and each caught a real defect:
+  * TestSchemaHasNoOrphanEntries (schema vs struct json tags)
+  * TestSchemaDefaultsMatchNewDefaultConfig (schema vs NewDefaultConfig)
+  * TestEverySchemaSecretIsRedactedAndReported (new secret must be named)
+
+### Commit-hook false positive (resolved correctly)
+Hook blocked the security-fix commit: the test FIXTURE literal assigned to
+`cfg.MPTCPBonding.Password` matches the credential heuristic. Resolved by
+adding the self-describing literal to ~/.git-hooks/secret-allowlist.txt WITH a
+comment — NOT via --no-verify.
+
+### Disjointness preflight (0824560 + 0a3d7f6) — answers the operator question
+"Can we programmatically ensure subflows are disjoint before using them?"
+Honest answer: three tiers, two decidable.
+  Tier 1 counters: formed AND carrying payload?      decidable
+  Tier 2 local:    different local interfaces?       decidable
+  Tier 3 upstream: disjoint downstream?              NOT decidable from one node
+
+Tier 3 is reported as `UpstreamDisjointKnown=false` ALWAYS — an explicit field,
+not an omission, so "no complaint" cannot be mistaken for "verified".
+
+`PayloadFloorBytes = 64 KiB` exists because a subflow can complete its handshake
+and carry nothing (observed: 801 bytes vs 1.09 GB).
+
+Run on REAL lab conntrack, verdict observed:
+  disjoint=false payload=false
+  reason="all 2 subflows use the same local interface (...): distinct addresses
+          are not enough, the paths must leave by different interfaces"
+
+Would have caught every mistake made in this investigation before running it.
+
+### Next
+9. 6c: main.go construction + upstream_detector call-through (the reconciler
+   now has CheckAssess + reconciler; main.go still does not construct either).
+10. Aggregation number: still not obtainable here. Operator notes StarGate IS
+    genuinely separate — correct, but the client-side hop is the blocker. Needs
+    two genuinely separate FIRST HOPS at the client (e.g. USB LTE stick), not a
+    stronger StarGate signal. Ceiling stays 1.2-1.3x, NOT 2x.
