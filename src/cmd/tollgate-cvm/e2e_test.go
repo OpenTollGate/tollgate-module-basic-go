@@ -55,7 +55,7 @@ func TestE2ERequestResponse(t *testing.T) {
 		return CLIResponse{Success: true, Data: map[string]interface{}{"running": true}, Timestamp: time.Now()}, nil
 	}}
 	authz := NewAuthorizer("") // reads open
-	dispatcher := NewDispatcher(authz, bridge, serverPK)
+	dispatcher := NewDispatcher(authz, bridge)
 
 	// Server loop in a goroutine (mirrors Serve, but in-test for assertions).
 	type outcome struct {
