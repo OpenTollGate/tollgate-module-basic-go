@@ -61,6 +61,43 @@ func getIPLimiter(ip string) *rate.Limiter {
 
 func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// The router's own loopback caller is exempt from the per-IP budget.
+		//
+		// WHY: registerAPIHandlers wires this middleware OUTSIDE requireStarted
+		// (RateLimitMiddleware(CorsMiddleware(requireStarted(...)))), so the
+		// limiter runs FIRST. The installer polls 127.0.0.1:2121 every 3 s
+		// (~20 req/min) while it waits for the merchant, against a default
+		// budget of 10 req/min — so the router used to rate-limit its own
+		// localhost installer, which then read `429 {"error":"rate limit
+		// exceeded"}` instead of the readable `503 {"code":"starting"}` refusal
+		// from startup_gate.go, and reported a correct install as "Setup
+		// failed" (2026-10-16 incident, tracked in #953).
+		//
+		// Exempting loopback fixes that at the narrowest possible point: no
+		// route ordering changes and no real client's budget changes. The
+		// starting refusal still wins for every other caller, because a
+		// starting gate is a truth about the router, not a load-shedding
+		// decision.
+		//
+		// The decision is made from the CONNECTION (isLocalRequest), never from
+		// a header. The identity helpers nearby (getIP, sourceNetworkKey,
+		// clientLimiterKey) deliberately read X-Real-Ip / X-Forwarded-For for a
+		// loopback peer, because a proxy on the box forwards a real customer's
+		// address that way. That is right for NAMING a client and wrong for
+		// deciding trust: this router runs no reverse proxy in front of :2121
+		// (the guest portal and every route here call the API directly), and
+		// the packaging drops WAN-side callers at the firewall
+		// (packaging/files/etc/nftables.d/30-backend-firewall.nft admits only
+		// br-lan, br-private and lo). A loopback connection carrying a
+		// forwarded header is therefore either a local process or a caller who
+		// set the header itself, and a header a caller controls must never mint
+		// an unlimited-rate bucket — the same trust boundary as #808's loopback
+		// XFF finding. A LAN caller who cannot claim loopback still gets the
+		// 429, which is what bounds them.
+		if isLocalRequest(r) {
+			next(w, r)
+			return
+		}
 		ip := getIP(r)
 		if !getIPLimiter(ip).Allow() {
 			mainLogger.WithField("ip", ip).Warn("Rate limit exceeded")
