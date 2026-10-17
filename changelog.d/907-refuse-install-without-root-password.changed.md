@@ -9,3 +9,5 @@
   state), and the check is dependency-free (no `jq`, honouring the jq-less
   upgrade lesson). Offline/image builds (`IPKG_INSTROOT`) bypass it, as does the
   documented CI hatch `TOLLGATE_ALLOW_EMPTY_ROOT=1`.
+
+([#907](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/907)).

@@ -10,3 +10,5 @@
   persistence and the payment-flow scenarios (real payment, concurrent
   duplicate, kill-recovery — the #502 journal's first on-target exercise) are
   the lane's documented next steps.
+
+([#704](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/704)).
