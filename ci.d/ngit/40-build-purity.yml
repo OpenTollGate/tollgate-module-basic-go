@@ -1,0 +1,13 @@
+  build-purity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+      - name: Build purity check
+        run: bash tests/contract/build-purity.sh
+      - name: Shipped AP SSID format check
+        run: bash tests/contract/check-ssid-format.sh
+      - name: SSID naming contract (the matcher's acceptance table)
+        run: bash tests/contract/check-ssid-naming.sh

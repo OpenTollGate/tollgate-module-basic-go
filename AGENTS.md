@@ -23,6 +23,31 @@ map and configuration reference.
   firewall, Wi-Fi, `ndsctl`). Unit tests passing does not mean a
   router-visible change works — say so honestly in PR descriptions.
 
+## Topic doctrine (docs/agents/) — load before you touch
+
+This file is the stable core every agent reads; the doctrine that
+GROWS — one area per file — lives under [docs/agents/](docs/agents/) so
+a lane edits its own topic file instead of appending here (#920). The
+entries below are LOAD DIRECTIVES, not suggestions: open the file before
+working in its area. The core summarizes; it does not replace them.
+
+- [docs/agents/firewall-engagement.md](docs/agents/firewall-engagement.md)
+  — the nftables/topology rules of engagement, every rule bench-earned.
+  Load before touching `/etc/nftables.d/`, interface names, or anything
+  that reloads the firewall.
+- [docs/agents/labgrid-testing.md](docs/agents/labgrid-testing.md) —
+  the labgrid place protocol, the conwrt-bench registry rules, flashing
+  and adoption, the VM lane pattern. Load before reserving or driving
+  any router or VM rig.
+- [docs/agents/verification-homes.md](docs/agents/verification-homes.md)
+  — where each class of verification lives (contract suites, bench QEMU
+  lanes, PRTA, cloud-lab, labgrid physical tier). Load before adding a
+  suite or choosing where a change is verified.
+
+`tests/contract/check-agents-partition.py` fences this index in both
+directions: every topic file is listed, every listing resolves, and
+every entry carries its load directive.
+
 ## Fund safety, crash consistency, and distributed transaction invariants
 
 Any change touching payments, wallets, sessions, gates, mints, payouts,
@@ -242,150 +267,45 @@ contract without a named decision record is a bug.
 
 ## Firewall, nftables, and topology-naming rules of engagement
 
-Every rule here was learned from a bench-verified failure on the 0.6.0
-train (#754, #755, #756, #757, PR #782's first design, and the 2026-10-09
-stop-ship reviews). If a change touches `/etc/nftables.d/`, interface
-names, or anything that reloads the firewall, this section governs it.
-These are the OPERATIONAL rules; the structural rules — one declaration
-per fact, fenced duplication, glob discovery — are the environment-truth
-doctrine above, and the two sections cite each other where they meet.
+The full, bench-earned rulebook — accept-is-not-final across base
+chains in detail, same-priority chain ordering, the fw4-reload/NDS
+state contract, the three "lan" namespaces, the Go-side literal greps —
+lives in
+[docs/agents/firewall-engagement.md](docs/agents/firewall-engagement.md).
+LOAD IT before touching `/etc/nftables.d/`, interface names, or anything
+that reloads the firewall. The three rules you must not need the file to
+remember:
 
-- **Accept is not final across base chains.** In nftables only `drop` and
-  `reject` terminate; a packet accepted by one base chain still traverses
-  later base chains on the same hook (nftables wiki, "Configuring
-  chains"). An accept in a separate earlier-priority chain can therefore
-  NEVER shield a flow from a later chain's reject — a fully green
-  render-level contract suite hid exactly this bug in PR #782's first
-  design (a −2 accept chain "ahead of" the −1 reject), and only a live
-  dataplane rig caught it. To exempt flows from a terminal rule: put the
-  accepts in the SAME chain ahead of it, or set a mark an earlier rule in
-  that chain already honors.
-- **Never install firewall rules at runtime** (`nft add/insert`): `fw4
+- Only `drop` and `reject` terminate. An accept in a different base
+  chain shields nothing from a later chain's reject — a green
+  render-level suite hid exactly this in PR #782's first design.
+- Never install firewall rules at runtime (`nft add/insert`): `fw4
   reload` rebuilds the ruleset from files and silently wipes them.
-  Firewall state lives only in `/etc/nftables.d/*.nft` files (fragments
-  rewritten by a renderer on convergence are the sanctioned pattern).
-- **No interface-name literals in rule lines — shipped or GENERATED.**
-  fw4 includes `/etc/nftables.d/*.nft` inside `table inet fw4` in lexical
-  order, so `$tg_portal_if` / `$tg_private_if` from
-  `00-tollgate-defs.nft` (re-rendered from the router's own config,
-  #757) are in scope for every later include. Generated fragments must
-  use the defines too. The fencing contract for literals — static and
-  generated fragments alike are asserted against the one port/interface
-  table — is the doctrine's "Firewall fragments" rule above; the known
-  open instance (the Go-side `34-admin-access-scope.nft` generator in
-  `src/cli/operator_settings.go` emitting literal bridge names) is the
-  #796 F2 backlog item, and #601's planned static `33-` fragment must
-  follow the same rule.
-- **Same-priority base chains have unspecified order.** NDS's
-  `ip filter FORWARD` (iptables-nft) and fw4's `inet fw4 forward` both
-  sit at priority `filter`; the whole enforcement bridge relies on their
-  relative registration order (see `20-nds-enforce.nft`'s header). Never
-  add a new base chain at a priority where cross-chain ordering matters —
-  pick an earlier/later priority deliberately.
-- **`fw4 reload` procd-restarts nodogsplash** and wipes its runtime
-  trust/auth state (bench-verified on 25.12). Any change that adds or
-  widens a reload trigger must state what NDS state dies, what restores
-  it (keepalive contract), and how long customers are interrupted.
-- **"lan" is three namespaces, not one.** (The declared bridge
-  vocabulary is the doctrine's "Network and interface names" rule
-  above; this bullet is about the rename hazards.) The bridge DEVICE
-  (`br-lan`),
-  the network SECTION (`lan`), and the firewall ZONE (`lan`) — plus
-  `dhcp.lan` and dnsmasq's `local=/lan/` — are independent uci objects
-  that share a string by convention only. Renaming one does not rename
-  the others: fw4 skips a renamed zone ref with **exit 0** and no syslog
-  (#755), setup used to rebind APs to a deleted `network.lan` (#756),
-  and netifd regenerates `/etc/config/wireless` bound to `lan` after the
-  file is deleted (caught by the topology self-check, 2026-10-09).
-  Topology-touching code resolves names from the router's own config
-  (the `resolve_*` helpers in `99-tollgate-setup`), warns loudly on
-  every non-stock decision, and never silently skips.
-- **Go-side interface literals are the same bug class outside the .nft
-  files.** Find them by grep, not by list — an enumeration here rots the
-  day a new site lands (the doctrine's glob rule). Grep
-  `grep -rn '"br-lan"\|"br-private"\|"br-mgmt"' src/` before touching
-  interface naming; as of 2026-10-09 that reaches the admin-scope
-  generator (`src/cli/operator_settings.go`), `src/identity/identity.go`
-  (`StandardInterfaces`), the `ignore_interfaces` default in
-  `config_manager`, and `src/upstream_detector`'s bridge-exclusion lists
-  — verify against the live grep, not this sentence. The unfenced ones
-  are the #796 fence backlog's F1 class.
+- No interface-name literals in rule lines, shipped or generated —
+  `$tg_portal_if` / `$tg_private_if` from `00-tollgate-defs.nft` are in
+  scope for every later include, and the fencing contract for literals
+  is the "Firewall fragments" rule above.
 
-## Hardware and VM testing (labgrid)
+## Hardware, VM, and verification homes
 
 All router- and VM-based testing is coordinated through **labgrid**
-(coordinator `ai-legion:20408`). Do not drive lab hardware ad hoc: reserve
-through places (`labgrid-client -p <place> acquire` … `release`), and treat
-a place held by someone else as theirs. Note some hosts carry a stale
-`LG_COORDINATOR` pointing at a dead address — use the hostname form:
+(coordinator `ai-legion:20408`): reserve through places
+(`labgrid-client -p <place> acquire` … `release`), treat a place held
+by someone else as theirs, and never drive lab hardware ad hoc. The
+lab's single source of truth is the private `Amperstrand/conwrt-bench`
+repo (ADR-0005); `conwrt-lab` is retired — do not add data there. Each
+class of verification has ONE canonical home, and a change is verified
+where its failure class is observable — including the rule that every
+contract suite must be mutation-checked before it ships (revert the
+guarded fix, confirm the suite FAILS).
 
-```bash
-export LG_COORDINATOR=ai-legion:20408
-labgrid-client places          # inventory + comments say what each seat is
-labgrid-client who             # current holders
-```
-
-The lab's single source of truth is the private
-**`Amperstrand/conwrt-bench`** repo (ADR-0005): `registry/` for devices,
-`labgrid/` for place seeds and examples, `docs/decisions/` for the why,
-sops for secrets. `conwrt-lab` is retired — do not add data there. Rules
-that every hardware-touching change follows:
-
-1. Never hardcode device IPs, MACs or serial paths — resolve from the
-   registry or a labgrid place.
-2. Access hardware through labgrid places (`ssh|console|power`), with
-   acquire/release for exclusivity during a test.
-3. Flashing and adoption go through conwrt tooling
-   (`dut_recover.py --from-lab`, `bench_net.py`), which updates the
-   registry.
-4. A state change ends with a registry commit — flashed, moved or
-   adopted devices must be reflected before you walk away.
-5. When surprised, reconcile first
-   (`lab_registry.py reconcile`) before touching anything.
-
-VM lane: `labgrid/qemu-x86-64.yaml.example` in conwrt-bench is the
-pattern — the client runs ON ai-legion (QEMUDriver executes where the
-client runs), pristine per-acquire boots via `snapshot=on`. The on-target
-package harness is `tests/happy-path/run.sh --artifact <extracted pkg>`;
-the artifact is the published bytes from a kind-`1063` event
-(hash-pinned via its `x` tag) or, for pre-tag candidates, a local
-`scripts/build-sdk-package.sh` build whose sha256 is recorded in the
-evidence.
-
-### Where each class of verification lives (single source of truth)
-
-Complexity has outgrown any single rig — each class has ONE canonical
-home, and a change is verified where its failure class is observable:
-
-- **Contract suites** (`tests/contract/`, offline, both CI lanes):
-  render-level and structural checks. They CANNOT catch dataplane
-  semantics — PR #782's contract suite was green while its ordering was
-  dead (see the firewall section). Every contract suite must be
-  mutation-checked before it ships: revert the guarded fix and confirm
-  the suite FAILS; a suite that still passes on the broken shape has
-  decorative assertions. Equally: a gate cited as protection must
-  actually test the thing it is cited for (#778's build-purity claim).
-- **Bench QEMU lanes** (per OpenWrt era — both 24.10 and 25.12 matter
-  when the compat lane is touched; their netifd/nft behavior differs.
-  The SUPPORT policy is the doctrine's two-era rule above: 25.12/apk is
-  the only feature target, 24.10/ipk security-and-stop-ship only): dataplane ordering and packet
-  counters. The #754/#755/#757 re-verify legs with counter asserts are
-  the model. Bench VM images must pass an image-doctor check (depmod
-  present, kmods non-zero-byte, wpad/veth/ip-full installed) before a
-  campaign — stock minimal images ship without them.
-- **PRTA** (the `physical-router-test-automation` repo — the deployed-lab
-  and campaign harness): `scripts/extensive-test.sh` (tiered campaign),
-  the wifi suites (`test_mac80211_hwsim.py`: in-guest radios — scan,
-  associate, DHCP, reconnect; `test_virtual_wifi_hwsim_netns.py`: netns
-  plane, dual-AP captive journeys; the `--vwifi` cross-VM 802.11 relay
-  on the cloud lane), and `scripts/0.6.0-validation/` (phases A–G plus
-  the 24h soak). New topology/journey scenarios belong THERE, as cases
-  in these suites — not as scratch bench scripts that rot in /tmp.
-- **cloud-lab crash lanes** (`tests/cloud-lab/`): the fund-safety
-  kill/restart boundaries from the section above; runs anywhere with
-  docker (ai-legion has it).
-- **Labgrid physical tier**: real RF, real client devices, power-pull
-  windows, era-specific kernels (e.g. mt7621 bridge-teardown behavior).
+LOAD [docs/agents/labgrid-testing.md](docs/agents/labgrid-testing.md)
+before reserving or driving any router/VM rig (registry rules, conwrt
+flashing and adoption tooling, the VM lane pattern), and LOAD
+[docs/agents/verification-homes.md](docs/agents/verification-homes.md)
+before adding a suite or choosing where a change is verified (contract
+suites, bench QEMU lanes, PRTA, cloud-lab crash lanes, labgrid physical
+tier).
 
 ## Contributing process
 
@@ -400,6 +320,16 @@ get wrong:
   committed: `README.md`, `CHANGELOG.md`, protocol specs, module docs.
 - **No coding-assistant attribution** in commits or PR bodies — no
   `Co-Authored-By: Claude`, no `Generated with ...` footers.
+- **Adding CI, a fence, or doctrine means adding a file — never editing
+  a shared anchor (#920).** A pre-commit fence is a
+  `fences.d/NN-<slug>.sh` fragment (a complete if/fi block; see
+  [fences.d/README.md](fences.d/README.md)); a CI job is a
+  `ci.d/<lane>/NN-<slug>.yml` fragment, followed by
+  `python3 scripts/assemble-ci.py` to re-render both Test workflow twins
+  (see [ci.d/README.md](ci.d/README.md)); growing doctrine goes in its
+  [docs/agents/](docs/agents/) topic file, indexed in the
+  "Topic doctrine" section above. `hooks/pre-commit` and the rendered
+  workflows are build products — never hand-edit them.
 - Before opening a PR, run the Go battery **from the repo root**:
 
   ```bash
