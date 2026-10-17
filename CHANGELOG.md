@@ -85,6 +85,19 @@ and [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Notice events no longer emit the customer MAC in the `p` tag (#950).**
+  Every payment-error and degraded-refusal notice on the raw-token path
+  addressed its customer by passing `macAddress` where a Nostr pubkey
+  belongs — spec-invalid for any consumer validating `p`, and unusable for
+  `#p` filtering (same wire class as the #949 session-event fix). The
+  raw-token flow has no customer identity, so those call sites now pass
+  none (the tag is omitted per tollgate#26), and `createNoticeEvent` itself
+  drops any non-pubkey value with a log line — a future caller passing a
+  device identifier can no longer ship the violation. The live-captured
+  shape (degraded `service-unavailable` refusal carrying `["p", <MAC>]`) is
+  pinned by `TestNoticeEventOmitsPTagOnPaymentErrorPaths`; the guard and the
+  positive pubkey branch are mutation-checked companions.
+
 - **The rebrand gutter allows documented prose references to the commercial
   re-brand.** `tests/packaging/rebrand-literal-gutter_test.sh` was red on
   `main` (5 passed / 1 failed): the merged discovery-signaling decision
