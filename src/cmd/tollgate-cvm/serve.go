@@ -142,20 +142,24 @@ func Serve(ctx context.Context, cfg *ServerConfig, bridge Bridge) error {
 				continue
 			}
 
-			// Freshness before decryption: a stale event is a replay attempt
-			// and refusing it costs nothing (audit Q1).
-			if err := CheckFreshness(int64(evt.CreatedAt), time.Now()); err != nil {
-				continue
-			}
-
 			// Duplicate delivery of the same event id executes once.
 			if seen.Seen(evt.ID, time.Now()) {
 				continue
 			}
 
 			// Unwrap + dispatch; an unwrap failure is someone else's traffic.
-			req, caller, err := UnwrapRequest(*evt, sk)
+			//
+			// Freshness is decided on the RUMOR's created_at — the request's
+			// real clock — never on the gift wrap's: NIP-59 randomizes the
+			// wrap's timestamp (up to hours into the past) for timing
+			// privacy, so a freshness check on the wrap rejects legitimate
+			// requests by construction (#980 D1 — the relay-delivered control
+			// plane was silently inert for exactly this reason).
+			req, caller, rumorTS, err := UnwrapRequest(*evt, sk)
 			if err != nil {
+				continue
+			}
+			if err := CheckFreshness(int64(rumorTS), time.Now()); err != nil {
 				continue
 			}
 
