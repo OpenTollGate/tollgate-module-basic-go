@@ -1,0 +1,2 @@
+- `tollgate network private set-address <a.b.c.1[/24]>` pins the management subnet: the address is recorded in the sysupgrade-kept store, every later setup preserves it instead of re-deriving the LAN-adjacent /24, and the post-install upstream-collision re-check refuses to move it (logging the collision instead) — the fix for a management subnet that collides with a network the operator's own devices are on, which the router cannot see
+([#935](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/935))
