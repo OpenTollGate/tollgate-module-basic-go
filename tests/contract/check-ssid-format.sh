@@ -1,19 +1,31 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016  # SSID patterns below are literal text, not expansions
-# Contract: the open AP this package ships is named `<brand>-<device code>` —
-# four characters of [A-Z0-9], minted once and stored per #605 (one device
-# code: docs/architecture/one-device-code.md) — and nothing else:
-# `^TollGate-[A-Z0-9]{4}$` for the default brand.
+# Contract: the open AP this package ships is named `!<brand>-<device code>` —
+# the #706 leading '!' plus four characters of [A-Z0-9], minted once and stored
+# per #605 (one device code: docs/architecture/one-device-code.md) — and
+# nothing else: `^!TollGate-[A-Z0-9]{4}$` for the default brand.
+#
+# Why the '!' is part of the contract: 0x21 sorts before every digit and letter,
+# so the guest network sorts FIRST in an alphabetically-ordered client scan
+# list. The INSTALLER has written `!TollGate-<code>` since #706; this script
+# wrote the bare form, so the two writers published different SSIDs for the
+# same router and a name the reader had to match twice. The '!' is now written
+# here too and is ONE optional character to every reader — the Go matcher
+# (hasTollGateSSID, ssidDecoration) trims one before the prefix compare, the
+# shell parsers here and in 99-tollgate-setup strip one the same way, and the
+# pinned acceptance table (tests/contract/ssid-naming-fixtures.txt) carries
+# both spellings plus the double-'!' negative.
 #
 # Why the exact shape is pinned: the SSID is the gateway's public name. The Go
 # side keys on the brand prefixes (src/wireless_gateway_manager/brands.go
 # `hasTollGateSSID`, vendor_element_manager.go `calculateScore`
-# — "TollGate SSID format: 'TollGate-' + random chars"), the operator reads the
-# code to tell two routers apart, and every scanner in range sees whatever
-# this script writes into the beacon. A band suffix ("TollGate-A1B2-2.4GHz") or
-# any other decoration is drift: it makes the name a lie on one radio, breaks
-# the "both radios broadcast one network" property, and multiplies the names a
-# client has to match.
+# — "TollGate SSID format: 'TollGate-' + random chars", behind the one-'!'
+# trim), the operator reads the code to tell two routers apart, and every
+# scanner in range sees whatever this script writes into the beacon. A band
+# suffix ("TollGate-A1B2-2.4GHz"), a second '!', or any other decoration is
+# drift: it makes the name a lie on one radio, breaks the "both radios
+# broadcast one network" property, and multiplies the names a client has to
+# match.
 #
 # Two layers, because neither is sufficient alone:
 #
@@ -36,7 +48,14 @@ set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 ROOT="$(pwd)"
 SCRIPT="$ROOT/packaging/files/etc/uci-defaults/99-tollgate-setup"
-CONTRACT_DEFAULT_RE='^TollGate-[A-Z0-9]{4}$'
+# The #706 decoration is ONE optional leading '!' in front of the brand prefix,
+# and it is now part of what this writer emits (the installer has always
+# written it). CONTRACT_DEFAULT_RE pins what the writer must EMIT — the '!'
+# present and exactly one of them. The derivations below strip at most one '!'
+# before the brand prefix, because a router deployed before #706 carries the
+# bare spelling and is the same router.
+DECORATION='!'
+CONTRACT_DEFAULT_RE='^!TollGate-[A-Z0-9]{4}$'
 # The 4-character device code, as minted by mint_device_code() / shared with
 # the installer (#605). The acceptance domain is the full [A-Z0-9] alphabet:
 # this side's mint happens to emit hex, the installer's emits all of [A-Z0-9],
@@ -200,9 +219,9 @@ if [ -r /etc/tollgate/brand ]; then
         net4sats) brand_prefix="Net4sats" ;;
         *) brand_prefix="TollGate" ;;
     esac
-    info "host has /etc/tollgate/brand='${brand}' -> expecting prefix '${brand_prefix}-'"
+    info "host has /etc/tollgate/brand='${brand}' -> expecting prefix '${DECORATION}${brand_prefix}-'"
 else
-    info "host has no /etc/tollgate/brand -> expecting default prefix 'TollGate-' (first-boot default-brand path)"
+    info "host has no /etc/tollgate/brand -> expecting default prefix '!TollGate-' (first-boot default-brand path)"
 fi
 
 # --- A. behavioural ---------------------------------------------------------
@@ -228,7 +247,13 @@ else
     fail "${n_apis} AP SSID write(s), expected one per radio (2)"
 fi
 
-expected_re="^${brand_prefix}-[A-Z0-9]{4}\$"
+# The WRITER's shape: the #706 decoration, the brand prefix, four [A-Z0-9]. The
+# decoration is not optional here — this is what the shipped script must WRITE.
+expected_re="^${DECORATION}${brand_prefix}-[A-Z0-9]{4}\$"
+# The READER's derivation: strip at most ONE '!' (a router deployed before #706
+# carries the bare spelling and is the same router), then the brand prefix. The
+# code behind either spelling must be the same four characters.
+strip_prefix_re="^${DECORATION}?${brand_prefix}-"
 idx=0
 while IFS= read -r ssid; do
     idx=$((idx + 1))
@@ -245,6 +270,14 @@ if [ "$brand_prefix" = "TollGate" ]; then
     else
         fail "default-brand SSID '${ssid0:-<none>}' does not match ${CONTRACT_DEFAULT_RE}"
     fi
+fi
+# ...and the decoration is EXACTLY ONE: a double-banged name is not this
+# writer's output (#706; the pinned acceptance table rejects '!!TollGate-…'
+# and hasTollGateSSID trims at most one).
+if printf '%s' "$ssid0" | grep -qE "^${DECORATION}{2}"; then
+    fail "the emitted SSID '${ssid0}' carries a DOUBLE decoration — #706 allows at most one '!'"
+else
+    pass "the emitted SSID '${ssid0}' carries at most one '!' (the #706 decoration)"
 fi
 
 distinct_ssids="$(printf '%s\n' "$out" | sort -u | wc -l)"
@@ -287,14 +320,14 @@ if [ -n "$reuse_a" ] && [ "$reuse_a" = "$reuse_b" ]; then
 else
     fail "a same-store rerun re-minted: '${reuse_a:-<none>}' then '${reuse_b:-<none>}'"
 fi
-derived="$(printf '%s' "$reuse_b" | sed -E "s/^${brand_prefix}-//")"
+derived="$(printf '%s' "$reuse_b" | sed -E "s/${strip_prefix_re}//")"
 if printf '%s' "$stored_code" | grep -qE "$SUFFIX_RE" && [ "$stored_code" = "$derived" ]; then
     pass "the store carries the code ('${stored_code}') and the SSID is derived from it"
 else
     fail "store/SSID disagreement: stored='${stored_code}', SSID derives '${derived}'"
 fi
 
-suffix="$(printf '%s' "$ssid0" | sed -E "s/^${brand_prefix}-//")"
+suffix="$(printf '%s' "$ssid0" | sed -E "s/${strip_prefix_re}//")"
 if printf '%s' "$suffix" | grep -qE "$SUFFIX_RE"; then
     pass "device code '${suffix}' is exactly 4 characters from [A-Z0-9]"
 else
