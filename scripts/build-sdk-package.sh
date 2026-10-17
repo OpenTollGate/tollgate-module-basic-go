@@ -94,7 +94,7 @@ if [ -z "$PACKAGE_VERSION" ]; then
         PACKAGE_VERSION="0.0.0-r0"
     fi
 fi
-STAGE_DIR="$(mktemp -d)"
+STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tollgate-build.XXXXXX")"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 
 # Reproducible-build environment: pinned SDK digest, SOURCE_DATE_EPOCH,
@@ -103,6 +103,41 @@ trap 'rm -rf "$STAGE_DIR"' EXIT
 TG_ROOT="$REPO_ROOT"
 export TG_ROOT
 . "$REPO_ROOT/packaging/build-env.sh"
+
+# Fail-closed portal preflight: the recipe stages FIVE gitignored build
+# products (packaging/portal-build.sh header, products 1-5) that only
+# `make portal-build` produces. Building without them fails ~10 minutes
+# deep inside the SDK container with an install error naming a
+# container-internal path — so every input is verified here, first, and a
+# missing or stale bundle either gets rebuilt from the pin or aborts the
+# build naming the exact remediation (never EACCES-in-npm, never a
+# truncated-staging phantom).
+verify_portal_products() {
+    local guest="$REPO_ROOT/packaging/files/tollgate-captive-portal-site"
+    local admin="$REPO_ROOT/packaging/files/tollgate-admin"
+    local plugin="$REPO_ROOT/packaging/files/usr/libexec/rpcd/tollgate"
+    local acl="$REPO_ROOT/packaging/files/usr/share/rpcd/acl.d/tollgate.json"
+    local admin_setup="$REPO_ROOT/packaging/files/etc/uci-defaults/999-tollgate-admin-setup"
+    local stamp="$REPO_ROOT/packaging/portal-resolved.sha"
+    [ -f "$guest/splash.html" ] && [ -d "$guest/assets" ] \
+        && [ -f "$admin/index.html" ] \
+        && [ -x "$plugin" ] && [ -s "$acl" ] && [ -x "$admin_setup" ] \
+        && [ -s "$stamp" ] && [ "$(cat "$stamp")" = "$PORTAL_COMMIT" ]
+}
+
+if ! verify_portal_products; then
+    if [ "${SKIP_PORTAL_BUILD:-0}" = "1" ]; then
+        printf '%s\n' "ERROR: portal bundle missing or stale (resolved sha != pinned $PORTAL_COMMIT), and SKIP_PORTAL_BUILD=1 forbids rebuilding." >&2
+        printf '%s\n' "Run: make portal-build   (then retry; see packaging/portal-build.sh)" >&2
+        exit 1
+    fi
+    printf '%s\n' "portal bundle missing or stale — building it from the pinned tree first"
+    (cd "$REPO_ROOT" && bash packaging/portal-build.sh)
+    if ! verify_portal_products; then
+        printf '%s\n' "ERROR: portal build ran but the products still fail verification (node/npm pins? see output above)." >&2
+        exit 1
+    fi
+fi
 
 GO_BIN="${GO_BIN:-go}"
 ACTIVE_GO="$("$GO_BIN" version | awk '{print $3}')"
@@ -155,6 +190,25 @@ printf '%s\n' 'Building target binaries locally before invoking the OpenWrt SDK.
 
 cp -r "$REPO_ROOT/packaging/." "$STAGE_DIR/"
 cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/LICENSE"
+
+# Verify the staging copy landed complete: a truncated `cp -r` (full /tmp,
+# quota) previously surfaced only inside the SDK as "No rule to make
+# target 'package/tollgate-wrt/compile'" — ten minutes from its cause.
+for _required in \
+    "$STAGE_DIR/Makefile" \
+    "$STAGE_DIR/LICENSE" \
+    "$STAGE_DIR/tollgate-wrt" \
+    "$STAGE_DIR/tollgate" \
+    "$STAGE_DIR/files/etc/uci-defaults/99-tollgate-setup" \
+    "$STAGE_DIR/files/etc/uci-defaults/999-tollgate-admin-setup" \
+    "$STAGE_DIR/files/tollgate-captive-portal-site/splash.html"
+do
+    if [ ! -s "$_required" ]; then
+        printf 'ERROR: staging incomplete: %s missing or empty (disk full under %s?)\n' \
+            "${_required#"$STAGE_DIR"/}" "${TMPDIR:-/tmp}" >&2
+        exit 1
+    fi
+done
 
 # Staged source and payload mtimes feed SDK apk packaging: pin them to
 # SOURCE_DATE_EPOCH before the container reads them.
