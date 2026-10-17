@@ -91,6 +91,14 @@ func newIntentMerchant(t *testing.T, wallet *intentWallet, storeDir string) *Mer
 	if storeDir != "" {
 		m.receiveIntentStore = newReceiveIntentStore(filepath.Join(storeDir, "receive-intents.json"))
 	}
+	// Compress the owed-grant monitor's retry clock (#733): the convergence
+	// deadlines below must not be coupled to the production 5 s first-attempt
+	// delay — under a loaded -race full-suite run that coupling is what made
+	// this row time out once in three suite runs while never reproducing in
+	// isolation.
+	m.owedGrantRetryBase = 10 * time.Millisecond
+	m.owedGrantRetryCap = 40 * time.Millisecond
+	retireOwedMonitorsOnCleanup(t, m)
 	_ = valve.CloseGate(intentMAC)
 	return m
 }

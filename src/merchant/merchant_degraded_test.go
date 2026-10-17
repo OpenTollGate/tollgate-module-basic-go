@@ -390,15 +390,22 @@ func TestNew_ReturnsDegradedWhenNoMintsReachable(t *testing.T) {
 	}
 }
 
-func TestOnFirstReachable_SetCallbackResetsHadReachableMint(t *testing.T) {
+// TestOnFirstReachable_SetCallbackReArmsOnlyFromAnEmptyReachableSet pins the
+// re-arm contract of SetOnFirstReachableForDegraded (#732): the one-shot
+// recovery flag is re-armed only when the reachable set is empty at
+// registration — the degraded state the API is documented for. A tracker that
+// already has a reachable mint has nothing to recover from; re-arming it made
+// the next proactive check treat that mint as "recovered" and fire the
+// degraded-upgrade callback spuriously.
+func TestOnFirstReachable_SetCallbackReArmsOnlyFromAnEmptyReachableSet(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeKeysetsOK(w)
 	}))
 	defer srv.Close()
 
+	// Reachable set non-empty: the flag must stay armed-as-seen.
 	tracker := newTestTracker(mintConfigWithURLs(srv.URL), nil)
 	tracker.recoveryThreshold = 3
-
 	tracker.RunInitialProbe()
 
 	tracker.mu.RLock()
@@ -413,12 +420,35 @@ func TestOnFirstReachable_SetCallbackResetsHadReachableMint(t *testing.T) {
 	tracker.mu.RLock()
 	hadMint = tracker.hadReachableMint
 	tracker.mu.RUnlock()
+	if !hadMint {
+		t.Error("expected hadReachableMint to stay true when a mint is already reachable — nothing to recover from")
+	}
+
+	// Reachable set empty (the documented degraded state): re-arm.
+	badSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer badSrv.Close()
+
+	degraded := newTestTracker(mintConfigWithURLs(badSrv.URL), nil)
+	degraded.RunInitialProbe()
+	degraded.SetOnFirstReachableForDegraded(func() {})
+
+	degraded.mu.RLock()
+	hadMint = degraded.hadReachableMint
+	degraded.mu.RUnlock()
 	if hadMint {
-		t.Error("expected hadReachableMint to be reset to false after SetOnFirstReachableForDegraded")
+		t.Error("expected hadReachableMint to re-arm to false when the reachable set is empty")
 	}
 }
 
-func TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset(t *testing.T) {
+// TestOnFirstReachable_NotFiredAfterSetWhenMintAlreadyReachable replaces the
+// pre-#732 contract (which pinned the spurious fire as desired): a callback
+// registered while the mint is already reachable must never fire, because the
+// first-reachable trigger exists to upgrade the merchant out of degraded mode
+// when a mint RECOVERS — not to re-attempt the upgrade for a mint that never
+// went down.
+func TestOnFirstReachable_NotFiredAfterSetWhenMintAlreadyReachable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeKeysetsOK(w)
 	}))
@@ -429,13 +459,6 @@ func TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset(t *testi
 
 	tracker.RunInitialProbe()
 
-	tracker.mu.RLock()
-	hadMint := tracker.hadReachableMint
-	tracker.mu.RUnlock()
-	if !hadMint {
-		t.Fatal("expected hadReachableMint to be true after initial probe")
-	}
-
 	done := make(chan struct{})
 	tracker.SetOnFirstReachableForDegraded(func() {
 		close(done)
@@ -445,8 +468,8 @@ func TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset(t *testi
 
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Error("expected onFirstReachable to fire after SetOnFirstReachableForDegraded reset and proactive check")
+		t.Error("expected onFirstReachable to NOT fire when the mint was already reachable at registration")
+	default:
 	}
 }
 
