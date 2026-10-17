@@ -147,7 +147,16 @@ touched package will fail the build.
 
 The release version is written down in exactly one place: the
 [VERSION](VERSION) file at the repository root. Everything else derives
-from it:
+from it — or overrides it in exactly one way: **`TG_VERSION`** is the
+single documented override knob, resolved in one place
+(`tg_version` in [packaging/build-env.sh](packaging/build-env.sh):
+`TG_VERSION` wins, the VERSION file is the fallback). It re-points the
+binary stamp, the package version and the `__TOLLGATE_VERSION__` marker
+together in every packaging path (`packaging/local-build-ipk.sh`,
+`scripts/build-sdk-package.sh`, and the release workflow's
+`workflow_dispatch` version input; tag-triggered builds derive the
+stamp from the git tag itself, never from a lagged VERSION file — #941,
+the rc5 package self-reported rc4).
 
 - **CI** ([.github/workflows/build-package.yml](.github/workflows/build-package.yml))
   takes the version from the pushed tag and passes it to the Go binaries
@@ -161,6 +170,18 @@ from it:
   version marker.
 - **`src/cli/version.go`** must keep the non-release `dev` sentinel: a
   plain `go build` then cannot pass itself off as a release.
+- **Every build lane asserts, post-build, that the binary's embedded
+  version equals the version it packaged** (`tg_assert_version_consistency`
+  in [packaging/build-env.sh](packaging/build-env.sh)): a loud warning
+  by default, a hard failure when `TG_REQUIRE_VERSION_CONSISTENCY=1`
+  (both release workflows set that — the GitHub lane and the ngit
+  build-of-record stage-1 shard
+  [.ngit/act/workflows/build-package-binaries.yml](.ngit/act/workflows/build-package-binaries.yml),
+  which stamps from its tag-derived `PACKAGE_VERSION`; the fence
+  subjects derive from the lane's `TARGETS`, never an enumerated copy).
+  The harness lanes (`repro-test.sh`, `repro-variance.sh`,
+  `shc-build-package.sh`) resolve through `tg_version` and pin the
+  resolved string into the builds they drive.
 
 Changes that touch the release version also run, from the repo root:
 
