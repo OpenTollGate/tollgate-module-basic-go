@@ -93,6 +93,12 @@ func (m *MerchantDegraded) AttemptUpgrade() {
 	}
 	if m.onUpgrade != nil {
 		m.onUpgrade(fullMerchant)
+	} else if s, ok := fullMerchant.(interface{ Shutdown() error }); ok {
+		// An upgraded merchant with nowhere to go must not leak the
+		// background work its construction started: nobody will ever Shut
+		// it down. Production always wires onUpgrade; this is the defensive
+		// seam upgrade-strand tests exercise.
+		_ = s.Shutdown()
 	}
 }
 
