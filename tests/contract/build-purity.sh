@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Verifies that test-only configuration (TOLLGATE_TEST_CONFIG_DIR) is not
+# Verifies that test-only configuration (TOLLGATE_TEST_CONFIG_DIR, and the
+# rateLimitTestBypass test-context bypass of #748) is not
 # compiled into the production binary. Catches the class of bug where a Go
-# source file with an init() that sets test env vars uses a filename that
-# doesn't match *_test.go and lacks a build-tag guard.
+# source file with an init() that sets test env vars or flags uses a filename
+# that doesn't match *_test.go and lacks a build-tag guard.
 
 set -euo pipefail
 
@@ -32,7 +33,11 @@ while IFS= read -r -d '' f; do
     case "$base" in
         *_test.go) continue ;;
     esac
-    if grep -q 'os\.Setenv.*TOLLGATE_TEST_CONFIG_DIR' "$f"; then
+    # The audited test-context writers: TOLLGATE_TEST_CONFIG_DIR (os.Setenv)
+    # and rateLimitTestBypass = true (the #748 test-context bypass). Both
+    # must live only in build-tag-guarded files or _test.go — this is the
+    # check behind "#778: enforced by the build-purity contract".
+    if grep -qE 'os\.Setenv.*TOLLGATE_TEST_CONFIG_DIR|rateLimitTestBypass[[:space:]]*=[[:space:]]*true' "$f"; then
         first_line=$(head -1 "$f")
         if echo "$first_line" | grep -q '^//go:build'; then
             continue
@@ -42,22 +47,22 @@ while IFS= read -r -d '' f; do
 done < <(find "$SRC" -name '*.go' -not -path '*/vendor/*' -print0)
 
 if [ -z "$offenders" ]; then
-    pass "no production source file sets TOLLGATE_TEST_CONFIG_DIR (all guarded by build tag or _test.go)"
+    pass "no production source file sets test-context state (TOLLGATE_TEST_CONFIG_DIR / rateLimitTestBypass: all guarded by build tag or _test.go)"
 else
-    fail "production files set TOLLGATE_TEST_CONFIG_DIR without guard:$offenders"
+    fail "production files set test-context state without guard:$offenders"
 fi
 
-# --- Test 2: Any file with test config dir init has a build tag ---
+# --- Test 2: Any file with test config state has a build tag ---
 echo "${BOLD}--- build tag guard check ---${RESET}"
 while IFS= read -r -d '' f; do
     base="$(basename "$f")"
     # skip this script's directory
-    if grep -q 'os\.Setenv.*TOLLGATE_TEST_CONFIG_DIR' "$f"; then
+    if grep -qE 'os\.Setenv.*TOLLGATE_TEST_CONFIG_DIR|rateLimitTestBypass[[:space:]]*=[[:space:]]*true' "$f"; then
         first_line=$(head -1 "$f")
         if echo "$first_line" | grep -q '^//go:build'; then
             pass "$base has build tag guard"
         else
-            fail "$base sets TOLLGATE_TEST_CONFIG_DIR without build tag"
+            fail "$base sets test-context state without build tag"
         fi
     fi
 done < <(find "$SRC" -name '*.go' -not -path '*/vendor/*' -print0)
