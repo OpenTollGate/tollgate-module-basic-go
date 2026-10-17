@@ -198,7 +198,7 @@ printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
 
 SRC="$TMP/99-tollgate-setup"
 sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$TMP/tollgate-setup-done\"|" \
-    -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$TMP/setup.log|" \
+    -e "s|^LOGFILE=\"\${LOGFILE:-/tmp/tollgate-setup\.log}\"\$|LOGFILE=$TMP/setup.log|" \
     -e "s|^SETUP_VERSION=\"__TOLLGATE_VERSION__\"\$|SETUP_VERSION=\"$SHIPPED\"|" \
     -e "s|^NDS_INIT=\"/etc/init.d/nodogsplash\"\$|NDS_INIT=\"$TMP/no-such-init\"|" \
     -e "s|^UHTTPD_INIT=\"/etc/init.d/uhttpd\"\$|UHTTPD_INIT=\"$TMP/no-such-init\"|" \
