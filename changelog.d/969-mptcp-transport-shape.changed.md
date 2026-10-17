@@ -18,4 +18,5 @@
   `SPDX-License-Identifier: AGPL-3.0-or-later`. Recorded as a dated correction
   rather than a silent edit, and the no-vendor conclusion is restated on
   structural grounds (a packaged feed client plus a server-side systemd
-  component, with no library for Go code to import).
+  component, with no library for Go code to import)
+  ([#979](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/979)).
