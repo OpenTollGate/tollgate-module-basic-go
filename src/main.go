@@ -712,6 +712,11 @@ func installMerchant(merchantInstance merchant.MerchantInterface) {
 			swapMerchant(full)
 			registerReachableSetChangedCallback(full)
 		})
+		// The startup path needs the same recovery wiring as the runtime
+		// downgrade (#400): without WireRecoveryTrigger the tracker's
+		// onFirstReachable stays nil and the service stays degraded forever
+		// even after the mint returns (#10).
+		deg.WireRecoveryTrigger()
 	} else {
 		registerReachableSetChangedCallback(merchantInstance)
 	}
