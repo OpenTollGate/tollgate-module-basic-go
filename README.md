@@ -534,15 +534,24 @@ firewall fragment, pre-auth entry or guest-path rule moves, and setting the
 field back to luci reverts the whole change without a downgrade. All four admin
 ports stay dropped for br-lan clients in both mappings.
 
-**The flip is released in two halves and applied only when both are present.**
-The two listeners are written by two packages that install through different
-paths (the module's 99-tollgate-setup and the feed's 92-tollgate-admin-setup). A
-module-only upgrade therefore *records* board and keeps serving the legacy
-mapping, logging one WARNING that names the feed re-vendor; the release that
-vendors both halves applies it. The alternative — binding 443 on both instances
-— is not a wrong answer but a listener that fails to start, so the gate is
-deliberate. See the entry-port decision record in docs/architecture for the
-mapping table, the invariants and the release boundary.
+**Both halves ship in this package; the mapping is applied only when the
+mode-aware admin half is present.** The module's 99-tollgate-setup writes
+LuCI's listener, and the portal's mode-aware admin script ships in the same
+package as `999-tollgate-admin-setup` (staged from the pinned portal at build
+time), which writes the board's listener and runs after `99` on install and at
+boot — the fail-closed credential gate must see the credential `99` can
+establish first. Because a fresh install has no mapping marker yet (its writer
+runs after `99`), `99` detects the staged mode-aware admin script itself,
+applies `board`, and records the mapping in `/etc/tollgate/entry-ui-mapping` —
+without that, `99` would hand the entry pair to LuCI and the admin script would
+then strip it, leaving LuCI with no listener at all (#849). Against a
+pre-switch admin writer (the feed lane, or an old staged script) the module
+instead keeps serving the legacy mapping, logging one WARNING that names the
+feed re-vendor; the release that vendors both halves applies it. The
+alternative — binding 443 on both instances — is not a wrong answer but a
+listener that fails to start, so the gate is deliberate. See the entry-port
+decision record in docs/architecture for the mapping table, the invariants and
+the release boundary.
 
 ## SSID conventions
 
