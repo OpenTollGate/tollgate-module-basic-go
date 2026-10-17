@@ -49,7 +49,7 @@ cd tollgate-module-basic-go
 make go-battery
 ```
 
-`make go-battery` is the full gate across all 16 modules; the bare
+`make go-battery` is the full gate across all 18 modules; the bare
 `cd src && go build ./...` form covers only the root module. Go tooling
 that targets one module still runs from [src/](src/), not the repo root.
 The Go version is pinned in [src/go.mod](src/go.mod); CI installs
@@ -136,7 +136,7 @@ make go-battery
 That is the same gate CI runs: `gofmt -l .` (must print nothing),
 `go vet ./...`, `go build ./...` and `go test -race -count=1 -tags
 testenv ./...` — executed in **every** Go module. src/ is a multi-module
-tree (16 nested `go.mod` files): running the commands from `src/` alone
+tree (18 nested `go.mod` files): running the commands from `src/` alone
 covers only the root module and silently skips the subpackages. The one
 implementation is [scripts/go-battery.sh](scripts/go-battery.sh).
 
