@@ -715,18 +715,19 @@ router and answers instead of guessing. It runs locally (uci + filesystem,
 like the `ssl` family) and does not need the TollGate service running.
 
 On a router that has no TLS listener yet, every link reports why there is
-none rather than printing a URL that would not work:
+none rather than printing a URL that would not work. This is a host with no
+TLS listener at all, so both rows are empty:
 
 ```
-entry_ui: board
+entry_ui: luci
 
 board:
-  ports: http 8080 / https 443
-  url:   (none) — no HTTPS listener on 443
-
-luci:
   ports: http 8090 / https 8443
   url:   (none) — no HTTPS listener on 8443
+
+luci:
+  ports: http 8080 / https 443
+  url:   (none) — no HTTPS listener on 443
 ```
 
 Once `tollgate ssl apply` has installed a certificate that covers the
@@ -738,6 +739,15 @@ Under `entry_ui=luci` the pairs swap: LuCI takes `:8080` / `:443` and the
 board moves to `:8090` / `:8443`. See the README's "Which UI answers the
 entry ports" for the switch itself and the marker file that records which
 mapping is actually applied.
+
+The headline reflects the **live** mapping, which is not always the
+configured intent: `entry_ui` is honoured only once the marker file
+`/etc/tollgate/entry-ui-mapping` records that the board mapping has actually
+been written. A router whose `config.json` says `board` but whose setup path
+never applied it reports `entry_ui: luci` — the command fails toward a bound
+listener rather than toward no admin UI at all. If the headline disagrees with
+`config.json`, the mapping was not applied; re-running setup (or the setup
+path's convergence step) writes the marker.
 
 A link is printed only when that UI has a live TLS listener **and** a
 certificate that covers this router — the same fail-closed predicate
