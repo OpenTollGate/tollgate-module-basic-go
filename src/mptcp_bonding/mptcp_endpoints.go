@@ -13,6 +13,7 @@ package mptcp_bonding
 
 import (
 	"fmt"
+	"net"
 	"strings"
 )
 
@@ -48,6 +49,15 @@ func (c *Config) EndpointPlan() []string {
 		addr := strings.TrimSpace(u.Address)
 		iface := strings.TrimSpace(u.Interface)
 		if addr == "" || iface == "" {
+			continue
+		}
+		// #974 defense-in-depth: LoadConfig rejects CIDR-form addresses, but
+		// programmatic callers (and runtime-learned addresses) bypass it, and
+		// the kernel rejects `endpoint add <addr>/<len>`. Normalize what can
+		// be normalized; skip what could only render a failing command.
+		if ip, _, err := net.ParseCIDR(addr); err == nil {
+			addr = ip.String()
+		} else if net.ParseIP(addr) == nil {
 			continue
 		}
 		out = append(out, fmt.Sprintf("ip mptcp endpoint add %s dev %s signal subflow", addr, iface))
