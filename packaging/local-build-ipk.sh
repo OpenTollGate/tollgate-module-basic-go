@@ -186,10 +186,10 @@ normalize_mtime "$PAYLOAD"
 #   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
 #     into the control file, where `Replaces` does supersede the named package.
 #
-# So: declare the daemon, never also claim to replace it. Same contract as the
-# shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
-# with FreedomTechFeed/packages#57, which this module's change mirrors).
+# So: declare the daemon, never also claim to replace it. The dependency
+# list for this lane is the DEPENDS below; packaging/Makefile owns the SDK
+# lane's list, and tests/packaging/package-nodogsplash-dependency_test.sh
+# fences every in-tree recipe against divergence.
 #
 # ca-bundle is the same class of defect: this module does money over TLS with
 # Go's system root pool and no insecure escape hatch, so an image with no CA
