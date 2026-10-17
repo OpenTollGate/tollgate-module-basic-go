@@ -42,3 +42,8 @@ reproducibility-test-default:
 # the complement to the clean-roots check above. Requires reprotest (pip).
 reproducibility-variance:
 	@bash scripts/repro-variance.sh "$(T)" "$(ARCH)"
+
+# #947: strict pre/post-run hygiene for the happy-path suite (shared hosts).
+# Fixture-proves the identification logic (own-tree kills, foreign refusals).
+happy-path-hygiene-test:
+	@bash tests/happy-path/hygiene_test.sh
