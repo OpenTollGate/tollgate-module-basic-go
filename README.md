@@ -473,7 +473,7 @@ The current schema version is **`v0.0.10`**. An abridged example:
 Key fields:
 
 - **`metric`** — `"bytes"` sells data, `"milliseconds"` sells time. `step_size` is the unit.
-- **`accepted_mints[*]`** — per-mint URL, pricing, and payout thresholds. Multiple mints are supported; the first mint holding sufficient balance wins on payout.
+- **`accepted_mints[*]`** — per-mint URL, pricing, and payout thresholds. Multiple mints are supported; the first mint holding sufficient balance wins on payout. Entries must be objects: a malformed value (e.g. a plain string array) makes the daemon refuse to start with the file left untouched, rather than silently falling back to the factory mint list.
 - **`profit_share[*]`** — each entry references an `identity` that maps to an entry in `/etc/tollgate/identities.json`; `factor` values should sum to 1.0.
 - **`reseller_mode`** — when true, this router actively purchases from an upstream TollGate and resells to its own customers.
 - **`upstream_detector`** / **`upstream_session_manager`** — control the *client* side (buying from an upstream).
