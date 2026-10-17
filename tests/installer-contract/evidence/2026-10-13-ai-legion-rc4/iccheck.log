@@ -1,0 +1,47 @@
+ICCHECK preflight:ssh PASS 127.0.0.1:22222 reachable after serial bootstrap (fresh-boot VM)
+ICCHECK preflight:apk-era PASS OpenWrt 25.12.5 (apk era)
+ICCHECK preflight:openssl PASS lane host has openssl (credential comparison)
+ICCHECK provenance:artifact-sha256 PASS tollgate-wrt-0.6.0_rc4-r0.apk sha256 79e67a5914ed6c343d2027a407b93405d60094d708cd349e9405b7051f51e08c
+ICCHECK provenance:source-sha PASS artifact recorded as built from 6b572ddaeeac0ccede4d9a09acad94668baaa2c6
+ICCHECK pristine:factory-reset PASS firstboot + forced reboot, ssh back
+ICCHECK pristine:verified PASS no tollgate-wrt registered and root credential empty
+ICCHECK install:transfer PASS tollgate-wrt-0.6.0_rc4-r0.apk sha256 79e67a5914ed6c343d2027a407b93405d60094d708cd349e9405b7051f51e08c
+ICCHECK contract:preinst-refuses-empty-root FAIL apk add exited 0 on an empty-root device — the preinst gate did not even fire: exit=0 guidance=suppressed registered=yes service=running
+ICCHECK flow:operator-sets-password PASS root password set by the operator before install
+ICCHECK install:apk-add PASS apk add exit 0 after the operator set the credential, tollgate-wrt registered
+ICCHECK contract:package-sets-no-credential PASS root's hash is byte-identical across the install — nothing was applied, replaced or generated
+ICCHECK contract:no-provisional-marker FAIL provisional marker exists on a pristine install — a credential was generated
+ICCHECK contract:no-plaintext PASS the operator's root password never appears in the install output
+ICCHECK services:tollgate-wrt PASS running: API :2121 listening and /var/run/tollgate.sock present
+ICCHECK services:nodogsplash PASS nodogsplash running
+ICCHECK services:uhttpd PASS uhttpd running
+ICCHECK listeners:80 PASS listening
+ICCHECK listeners:443 PASS listening
+ICCHECK listeners:2050 PASS listening
+ICCHECK listeners:2051 PASS listening
+ICCHECK listeners:8080 PASS listening
+ICCHECK listeners:8090 FAIL nothing listening on :8090
+ICCHECK listeners:8443 FAIL nothing listening on :8443
+ICCHECK http:guest-entry PASS GET / on :80 answered
+ICCHECK http:admin-tls PASS admin pair answers TLS on :443
+ICCHECK mapping:entry-ui PASS board
+ICCHECK listeners:uhttpd-sections FAIL listenerless uhttpd section(s): defaults main — the #899 tear (an instance with no listen_http/listen_https crashes with 'No sockets bound')
+ICCHECK mapping:port-ownership FAIL mapping=board but the expected owners are absent: main:8090 main:8443 (main='[]' admin='[8080 8080 443 443 ]')
+ICCHECK logs:crash-signatures FAIL crash signatures in logread: 'No sockets bound'=5, segfault/core=0
+ICCHECK persistence:credential PASS root credential survived the reboot
+ICCHECK persistence:mapping PASS entry-ui mapping stable (board)
+ICCHECK persistence:services PASS tollgate-wrt auto-started after reboot
+ICCHECK persistence:listeners:80 PASS listening after reboot
+ICCHECK persistence:listeners:443 PASS listening after reboot
+ICCHECK persistence:listeners:2050 PASS listening after reboot
+ICCHECK persistence:listeners:2051 PASS listening after reboot
+ICCHECK persistence:listeners:8080 PASS listening after reboot
+ICCHECK persistence:listeners:8090 FAIL nothing listening on :8090 after reboot
+ICCHECK persistence:listeners:8443 FAIL nothing listening on :8443 after reboot
+ICCHECK persistence:uhttpd-sections FAIL listenerless uhttpd section(s): defaults main — the #899 tear (an instance with no listen_http/listen_https crashes with 'No sockets bound')
+ICCHECK persistence:port-ownership FAIL mapping=board but the expected owners are absent: main:8090 main:8443 (main='[]' admin='[8080 8080 443 443 ]')
+ICCHECK persistence:crash-signatures FAIL crash signatures in logread: 'No sockets bound'=2, segfault/core=0
+evidence: /home/ubuntu/ic-gate/evidence-run2 (admin/wifi values: root-only /home/ubuntu/ic-gate/evidence-run2/admin-password)
+ICRESULT total=43 pass=31 fail=12 skip=0 not_verified=0
+ICFAILED contract:preinst-refuses-empty-root contract:no-provisional-marker listeners:8090 listeners:8443 listeners:uhttpd-sections mapping:port-ownership logs:crash-signatures persistence:listeners:8090 persistence:listeners:8443 persistence:uhttpd-sections persistence:port-ownership persistence:crash-signatures
+ICEXIT 1
