@@ -57,6 +57,13 @@ battery, package artifact), follow
 `make go-battery` is the full gate across all modules; the bare
 `cd src && go build ./...` form covers only the root module. Go tooling
 that targets one module still runs from [src/](src/), not the repo root.
+For test runs there is also `make test` (one module:
+`make test M=src/cli`): the same per-module test invocation as the
+battery, but callable from any directory of any checkout — including
+git worktrees, where a root-level `go test ./src/...` fails in every
+checkout type alike (#961; the repo root itself carries a guard package
+so `go test ./...` there fails with the remedy instead of silently
+testing nothing).
 The Go version is pinned in [src/go.mod](src/go.mod); CI installs
 exactly that version
 via `go-version-file`. The `testenv` build tag provisions a hermetic

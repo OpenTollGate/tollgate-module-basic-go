@@ -89,7 +89,10 @@ is generated from
 ## Modules
 
 Source lives under [src/](src/). Go tooling runs from there
-(`cd src && go build ./...`, `cd src && go test ./...`).
+(`cd src && go build ./...`, `cd src && go test ./...`), or through
+`make test`, which runs every module's tests from any directory of any
+checkout — including git worktrees, where a root-level
+`go test ./src/...` cannot work ([#961](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/961)).
 
 | Module | Role |
 |---|---|
@@ -592,7 +595,13 @@ public AP format is pinned by `tests/contract/check-ssid-format.sh`.
 
 ## Testing
 
-Unit tests, from the [src/](src/) directory:
+Unit tests, from any directory of any checkout (worktrees included):
+
+```sh
+make test
+```
+
+or, from the [src/](src/) directory:
 
 ```sh
 cd src && go test -tags testenv ./...
@@ -601,11 +610,15 @@ cd src && go test -tags testenv ./...
 The `testenv` build tag provisions a hermetic temp config dir so the main
 package's `init()` does not depend on `/etc/tollgate/config.json` — letting the
 suite run off-router (CI, dev machines). The tag is a no-op for subpackages.
+(`make test` passes it on every module; a bare `go test ./...` at the repo
+root runs no tests — the root guard package fails with a remedy instead, see
+[#961](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/961).)
 
 A single package:
 
 ```sh
-cd src && go test ./upstream_session_manager/...
+make test M=src/upstream_session_manager
+# or: cd src && go test ./upstream_session_manager/...
 ```
 
 End-to-end tests live in [tests/](tests/) and use pytest against real
