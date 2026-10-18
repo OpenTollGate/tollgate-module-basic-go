@@ -6,7 +6,7 @@ import (
 )
 
 // knownBackends is the set of wallet backends the selection layer understands.
-var knownBackends = map[string]bool{"gonuts": true, "cdk": true, "nucula": true}
+var knownBackends = map[string]bool{"gonuts": true, "cdk": true}
 
 // TestPolicyBackendsHaveManifests keeps the selection policy and the capability
 // manifests consistent: every backend named by the policy must have a valid
