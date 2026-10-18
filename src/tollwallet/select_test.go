@@ -20,7 +20,7 @@ func TestOpenWalletSidecar(t *testing.T) {
 }
 
 func TestOpenWalletSidecarNeedsSocket(t *testing.T) {
-	if _, _, err := OpenWallet(WalletConfig{Backend: "nucula"}); err == nil {
+	if _, _, err := OpenWallet(WalletConfig{Backend: "cdk"}); err == nil {
 		t.Fatal("expected error when socket is missing")
 	}
 }
