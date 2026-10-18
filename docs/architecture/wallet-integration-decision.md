@@ -3,21 +3,33 @@
 **Decided:** 2026-09-16, on the measurements recorded in the wallet-migration
 archive (<https://github.com/felixfelix-bot/tollgate-wallet-migration-research>).
 
+> **Superseded in part (2026-10-18): the default is now CDK on every target.**
+> The per-tier split below assumed the in-process `gonuts` backend was a viable
+> long-term maintenance path. `elnosh/gonuts` was **archived upstream on
+> 2025-08-16**, which makes `OpenTollGate/gonuts-tollgate` (~36 patches,
+> ahead 63 / behind 6) a permanent hard fork with no upstream to merge back to.
+> `wallet-policy.json` therefore selects `cdk` for all targets. The policy is a
+> **default, never a lock**: `wallet.backend` still overrides it, so the gonuts
+> path remains usable while both backends are maintained. The per-tier
+> *rationale* below still explains the flash economics, which are now a
+> **verification obligation on the small tier** rather than a reason to stay
+> in-process.
+
 ## Decision
 
-**Per target, not one-size-fits-all:**
+**Historical (2026-09-16). Superseded by the note above — see the table.** The
+original per-tier split was:
 
 | Target tier | Wallet form | Backend |
 |---|---|---|
-| **Small / 16 MB mipsel** | **in-process** | gonuts (default; no extra artifact) |
+| **Small / 16 MB mipsel** | **in-process** | gonuts ~~(default; no extra artifact)~~ → **now cdk sidecar** |
 | **Large / ≥128 MB aarch64** (MT6000-class) | **sidecar** | CDK daemon (`cdk-walletd`) |
 
 The choice is data (`wallet-policy.json`), not a build fork: the sidecar client
-is always compiled in (`src/tollwallet/sidecar.go`, landing with the
-wallet-backend pull request #395 — **not yet on `main` while #395 is open**;
-if #395 is ever abandoned, this paragraph describes a file that does not
-exist) and the router points at a daemon (or not) via
-`wallet.backend` + `wallet.socket`.
+is always compiled in (`src/tollwallet/sidecar.go`, merged to `main` in #395 on
+2026-09-20, merge commit `51fa7f3`; it carries **no build tag** and is a socket +
+JSON client, so the Go service stays CGO-free and links no Cashu library) and the
+router points at a daemon (or not) via `wallet.backend` + `wallet.socket`.
 
 ## Why
 
