@@ -65,13 +65,23 @@ func TestPolicyOpenFor(t *testing.T) {
 		t.Fatalf("expected sidecar port, got %T", port)
 	}
 
-	// 16MB mipsel -> gonuts (in-process) per policy; explicit backend overrides.
-	port, manifest, err = p.OpenFor("mipsel_24kc", 16, WalletConfig{Path: t.TempDir(), AcceptedMints: []string{"https://testmint.example.com"}})
+	// 16MB mipsel -> cdk sidecar per policy (every arch now selects cdk), so an
+	// explicit socket override is required or the policy's fake path is used.
+	if _, _, err := p.OpenFor("mipsel_24kc", 16, WalletConfig{Socket: sock}); err != nil {
+		t.Fatalf("OpenFor(mipsel, policy default): %v", err)
+	}
+
+	// The policy is a DEFAULT, never a lock: an operator can still force the
+	// in-process backend, which is what keeps the gonuts path usable as a
+	// fallback for as long as we maintain both.
+	port, manifest, err = p.OpenFor("mipsel_24kc", 16, WalletConfig{
+		Backend: "gonuts", Path: t.TempDir(), AcceptedMints: []string{"https://testmint.example.com"},
+	})
 	if err != nil {
-		t.Fatalf("OpenFor(mipsel): %v", err)
+		t.Fatalf("OpenFor(mipsel, explicit gonuts): %v", err)
 	}
 	if manifest != nil {
-		t.Errorf("gonuts should have no manifest, got %+v", manifest)
+		t.Errorf("in-process should have no manifest, got %+v", manifest)
 	}
 	_ = port
 }
