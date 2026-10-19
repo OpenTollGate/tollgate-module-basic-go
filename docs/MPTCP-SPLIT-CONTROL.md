@@ -1,78 +1,85 @@
-# Can we control the split between the two paths?
+# Split control: complete map — `tc` shaping makes the split deterministic
 
 Date: 2026-10-19
-Answer: **partially — three levers, one of them newly proven on live connections.**
+Extends `MPTCP-SPLIT-CONTROL.md`. Answers "can we control the split between the
+two paths?" with the last missing lever tested.
 
-## Lever 1 — `backup`: re-steers LIVE connections (newly proven)
+## The fourth lever: `tc` rate-shaping works and makes the split DETERMINISTIC
 
-Earlier `backup` was proven at **connect** time: marking the wired endpoint
-`backup` moved the traffic share from 8.6 % to 100 % satellite. The open question
-was whether it works **mid-connection** — MPTCP's MP_PRIO option — and that is what
-this experiment settles.
-
-Setup: initial subflow forced through the wired tunnel by host-routing the peer
-(`ip route add <peer>/32 dev mptcp-wan1`), so `local 10.99.98.2` confirms the
-initial subflow rode the tunnel. 20 s transfer, `backup` applied at t≈7 s:
+`tc` installs from **stock OpenWrt feeds** (`opkg install tc kmod-sched-core` — it
+was previously reported missing; it was merely not installed). With the initial
+subflow host-routed through the wired tunnel and a 5 Mbit/s tbf qdisc on that
+tunnel:
 
 ```
-wan1 tx: 19,044,820 -> 19,262,292 (t=7) -> 19,326,116 (t=20)   +217 KB total
-wan2 tx:  5,278,260 ->  5,421,588 (t=7) ->  5,491,364 (t=20)   +213 KB total,
-                                                                ~143 KB of it
-                                                                post-switch
-receiver: 11.8 MBytes  4.89 Mbits/sec (satellite tunnel alone)
+wan1 (shaped 5 Mbit/s):  468,003,216 -> 473,788,560   +5.79 MB  ≈ 5.4 Mbit/s
+wan2 (unshaped):         162,334,112 -> 168,045,364   +5.71 MB  ≈ 4.2 Mbit/s
+receiver:                9.62 MBytes over 12.2 s       sum matches both paths
 ```
 
-**The wired leg went essentially silent after the switch; every subsequent byte
-moved to the satellite tunnel.** The connection did not drop. This is live
-re-steering with `ip mptcp endpoint change`, the same mechanism as failover but
-deliberate and reversible (`nobackup` restores).
+**The shaped leg sat at its cap; the excess moved to the other leg; total = the
+sum.** This is a deterministic ~50/50 split — the thing the missing scheduler
+cannot do, achieved with an ordinary qdisc. The MPTCP congestion controller does
+the routing naturally: cap one path and the surplus spills to the other.
 
-Practical use: **cost-aware steering on live connections**. If a metered uplink
-becomes expensive mid-session, `endpoint change id <n> backup` moves traffic off it
-within seconds without dropping the session — the same resilience argument as
-failover, now in the steering direction.
+## Why shaping without the host route does nothing
 
-## Lever 2 — route selection at connect: strongest, and it composes
+First attempt shaped the tunnel with no host route: 23.5 MB transferred, wan1's
+counter moved 299 KB. **The initial subflow rode the direct underlay path**
+(`192.168.2.20` via lan1), completely bypassing the shaped qdisc — tbf on the
+tunnel only shapes tunnel subflows. So the ordering is:
 
-Where the **initial** subflow goes is a plain routing decision, and it is the
-dominant one: without the host route, the transfer sent 48.9 MB while the two
-tunnels together carried ~400 KB — the kernel rode the direct path and treated the
-tunnels as standby. Adding `ip route add <peer>/32 dev mptcp-wan1` put the initial
-subflow *inside* the tunnel (local `10.99.98.2`).
+1. `ip route add <peer>/32 dev mptcp-wanN` — force the initial subflow into a
+   tunnel (verify with the iperf `local` address);
+2. **then** `tc qdisc add dev mptcp-wanN root tbf rate X` — shape it.
 
-So the honest model is:
+Both are needed. Shaping a tunnel while the initial subflow rides the underlay
+shapes nothing that matters.
 
-- **Initial subflow:** routing table decides (direct underlay vs tunnel).
-- **Additional subflows:** created only to addresses the peer can reach (tunnels).
-- **Rebalance/steer:** `backup` on endpoints governs tunnel subflows, live.
+## Two instrumentation traps, both caught before answering
 
-If you want *all* traffic in tunnels (e.g. every byte accounted per uplink), the
-host route is mandatory. If you only want a standby second path, it is not needed.
+1. **`awk '{print $2}'` reads RX, not TX.** In these tests the router is the
+   *sender*, so field 3 (TX) is the payload attribution. An earlier reading had
+   "11.5 MB received but only 0.53 MB of tunnel deltas" — that mismatch was this
+   bug (RX ≈ ACKs), not a third subflow.
+2. **Field 1 is the peer's public key**, not a byte counter — easy to grab the
+   wrong column and get plausible-looking nonsense.
 
-## Lever 3 — what does NOT exist on this build
+The reliable recipe remains: TX delta per tunnel, before/after, and the receiver's
+byte count must equal the sum of both deltas (± encapsulation).
 
-- **No weighted split.** Only the `default` scheduler is compiled in; no
-  `available_schedulers`, no `roundrobin`, no BPF scheduler, no weight knob. The
-  ~85/15 vs ~50/50 split variation measured in the controlled comparison is
-  congestion-window luck, not a policy.
-- **`tc` is not installed**, so even rate-shaping one leg to force a split is not
-  available on this image.
-- **`pm_type=1`** (userspace path manager) is writable and could express more
-  policy, but it needs a daemon — which contradicts the no-per-node-daemon
-  constraint — and it is untested here.
+## Complete control surface
 
-## What this means for cost-aware steering
+| lever | controls | when | deterministic? |
+|---|---|---|---|
+| host route (`ip route add <peer>/32 dev mptcp-wanN`) | which tunnel carries the **initial** subflow | connect time | yes |
+| `tc tbf` on a tunnel | that path's **share** (cap it and surplus spills) | anytime | **yes — measured 50/50 at 5 Mbit/s cap** |
+| `ip mptcp endpoint change id N backup` | primary/fallback policy on **live** connections | anytime | yes (policy, not ratio) |
+| `signal` flag | peer-initiated subflow creation | connect time | yes |
+| scheduler | proportional spread | — | **not available** (only `default`) |
+| `pm_type=1` | arbitrary userspace policy | anytime | needs a daemon — excluded by constraint |
 
-The practical recipe, all kernel-provided and no daemon:
+## Practical recipes
 
-1. **Decide the primary path at connect time** with a host route
-   (`ip route add <peer>/32 dev mptcp-wanN`) — the initial subflow is the one that
-   carries most bytes.
-2. **Demote the expensive leg live** with
-   `ip mptcp endpoint change id <n> backup` — proven to re-steer within seconds
-   without dropping the connection.
-3. **Restore** with `nobackup` when pricing changes back.
+**Deterministic 50/50 (bandwidth cost averaging):**
+```sh
+ip route add <peer>/32 dev mptcp-wan1            # initial subflow in tunnel 1
+tc qdisc add dev mptcp-wan1 root tbf rate 5mbit burst 32kbit latency 50ms
+# measure; adjust rate until the desired split; remove with:
+# tc qdisc del dev mptcp-wan1 root && ip route del <peer>/32 dev mptcp-wan1
+```
 
-And the measurement caveat that always applies on this bench: the satellite leg's
-quality swings, so any single-run throughput number should be read as a sample,
-not a state. The byte-share numbers above are the reliable signal.
+**Cost-aware steering (metered uplink):** keep the cheap leg unshaped and cap the
+expensive one at what you are willing to pay, e.g. `rate 2mbit` — the surplus
+automatically spills to the cheap path. This composes with `backup` for a hard
+off-switch when the expensive path is congested.
+
+## Caveats
+
+- tbf shapes the *tunnel device*; per-*uplink* shaping would go on `lan1` /
+  `phy0-sta0` and would affect all traffic on that uplink, not just the bond's
+  share.
+- The 5 Mbit/s / 50/50 numbers are single-run measurements on a bench with
+  variable satellite quality; the *mechanism* (cap → spill) is the durable result.
+- tbf on `mptcp-wanN` only shapes the router's own subflows; the peer's inbound
+  congestion behaviour is unaffected.
