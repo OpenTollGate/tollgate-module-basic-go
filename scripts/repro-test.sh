@@ -127,6 +127,13 @@ run_in_root() {
                 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=${GOARM:-} GOMIPS=${GOMIPS:-} \
                   go build -C src/cmd/tollgate-cli -o "$ROOT/out/tollgate" \
                   -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
+                # The CVM daemon: third contract binary (no version ldflags —
+                # its identity travels in the CEP-6 announcement pubkey).
+                # T=binaries compares the full shipped set; the contract
+                # fence (check-build-contract.py) keeps this list honest.
+                CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=${GOARM:-} GOMIPS=${GOMIPS:-} \
+                  go build -C src/cmd/tollgate-cvm -o "$ROOT/out/tollgate-cvm" \
+                  -trimpath -buildvcs=false
                 ;;
             portal)
                 PORTAL_DIR="$ROOT/portal-src" OUTPUT_DIR="$ROOT/out-portal" \
@@ -161,7 +168,7 @@ run_in_root() {
 artifact_for() {
     ROOT="$BASE/$1"
     case "$TARGET" in
-        binaries) printf '%s\n' "$ROOT/out/tollgate-wrt" "$ROOT/out/tollgate" ;;
+        binaries) printf '%s\n' "$ROOT/out/tollgate-wrt" "$ROOT/out/tollgate" "$ROOT/out/tollgate-cvm" ;;
         portal)   printf '%s\n' "$ROOT/out-portal" ;;
         apk)      find "$ROOT/out" -name 'tollgate-wrt*.apk' -type f | sort ;;
         *)        printf '%s\n' "$ROOT/out/tollgate-wrt_${PKG_VERSION}_${ARCH}.ipk" ;;
@@ -172,7 +179,7 @@ artifact_for() {
 artifact_desc() {
     ROOT="$BASE/$1"
     case "$TARGET" in
-        binaries) printf '%s' "$ROOT/out/tollgate-wrt and $ROOT/out/tollgate" ;;
+        binaries) printf '%s' "$ROOT/out/tollgate-wrt, $ROOT/out/tollgate and $ROOT/out/tollgate-cvm" ;;
         portal)   printf '%s' "$ROOT/out-portal" ;;
         apk)      printf '%s' "$ROOT/out/tollgate-wrt*.apk" ;;
         *)        printf '%s' "$ROOT/out/tollgate-wrt_${PKG_VERSION}_${ARCH}.ipk" ;;
