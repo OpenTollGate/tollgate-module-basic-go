@@ -59,7 +59,10 @@ env:
   # unreachable from a job container (25 s connect timeout) while the other four
   # answer, and BLOSSOM_MIN_SUCCESS=1 means the dead mirror only bought ~60 s of
   # retries per uploaded file.
-  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom2.orangesync.tech https://drive.cashu.email"
+  # drive.cashu.email dropped 2026-10-20: it started returning
+  # "402 Payment required for files over 1 MiB" for every artifact upload,
+  # which can never satisfy a mirror-success threshold; keep 3 free mirrors.
+  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom2.orangesync.tech"
   BLOSSOM_MIN_SUCCESS: "1"
   COORDINATION_RELAYS: >-
     wss://relay.damus.io
@@ -296,7 +299,10 @@ jobs:
           # is in this job's env, which packaging/build-env.sh requires.
           UPX_DIR=$(bash scripts/fetch-upx.sh)
           echo "PATH=$UPX_DIR:$PATH" >> "${GITHUB_ENV:-/dev/null}"
-          "$UPX_DIR/upx" --version | head -1
+          # SIGPIPE-armoured (head can exit before upx finishes writing ->
+          # upx dies with 141 and set -e kills the step; live-twice on shard
+          # ipk-upx-fast-best, 2026-10-20):
+          { "$UPX_DIR/upx" --version | head -1; true; }
 
       - name: Build .ipk
         id: build
