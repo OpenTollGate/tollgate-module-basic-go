@@ -74,7 +74,7 @@ a second redemption attempt of the same secret was refused by the mint.
   loops because nodogsplash is absent on the x86 lab node. Payment accounting is
   complete; the *network enforcement* half is what Q4 builds.
 
-## Teardown (after evidence capture)
+## Teardown (EXECUTED 2026-10-20 — verified: ports 4242/2121 free, no tollgated/mintd processes, /etc/tollgate restored (prod mint coinos first), q3up link + onlink default + static ARP removed, dq05 /tmp cleaned; /tmp/q3lab on x280 keeps binaries+logs as receipts)
 
 ```
 x280:  sudo ip route del default via 192.168.2.32 dev q3up
