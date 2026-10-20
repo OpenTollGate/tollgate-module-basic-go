@@ -19,6 +19,11 @@ if [ -x "$BIN" ] && [ "$("$BIN" --version 2>/dev/null | head -1)" = "upx $UPX_VE
     printf '%s\n' "$DEST"
     exit 0
 fi
+# NOTE: every `upx --version | head -1` below is SIGPIPE-armoured: under
+# `set -e`, upx dying with SIGPIPE (exit 141) when head exits first made the
+# whole install step fail intermittently (live: shard ipk-upx-fast-best,
+# 2026-10-20). `{ ... ; true; }` and `|| true` keep the pipeline's status
+# from ever being upx's writer-side signal death.
 
 mkdir -p "$DEST"
 TMP="$(mktemp -d)"
@@ -28,5 +33,5 @@ printf '%s  %s\n' "$SHA" "$TMP/upx.tar.xz" | sha256sum -c - >&2
 tar xJf "$TMP/upx.tar.xz" -C "$TMP"
 cp "$TMP"/upx-"$UPX_VERSION"-amd64_linux/upx "$BIN"
 chmod +x "$BIN"
-"$BIN" --version | head -1 >&2
+{ "$BIN" --version | head -1; true; } >&2
 printf '%s\n' "$DEST"
