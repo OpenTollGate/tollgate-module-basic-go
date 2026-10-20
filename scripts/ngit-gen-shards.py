@@ -195,14 +195,20 @@ RESOLVE_INPUTS = """\
           : ${GITHUB_OUTPUT:=/tmp/github_output}
 
           # Returns the newest event line for the addressable record <d>.
+          # 40 x 30s = ~20 min of patience: stage-1 (build-package-binaries)
+          # takes 12-15 min on the coordinator, and when a release run starts
+          # right after a mirror push the shard can race stage-1 end-to-end.
+          # 20 attempts (~10 min) lost that race live (ipk-none, run
+          # 28d2dfc3-20261020T205550Z: gave up at 10m44s while stage-1's
+          # portal record landed 6 min later).
           fetch_record() {
             local d="$1" out
-            for attempt in $(seq 1 20); do
+            for attempt in $(seq 1 40); do
               out=$(timeout 45 nak req -k 30078 --tag "d=tollgate-build/${BUILD_ID}/${d}" \\
                 --limit 1 $COORDINATION_RELAYS < /dev/null 2>/dev/null \\
                 | grep -m1 '^{' || true)
               if [ -n "$out" ]; then printf '%s' "$out"; return 0; fi
-              echo "  ${d} record not published yet (attempt $attempt/20); waiting 30s" >&2
+              echo "  ${d} record not published yet (attempt $attempt/40); waiting 30s" >&2
               sleep 30
             done
             return 1
