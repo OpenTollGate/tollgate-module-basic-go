@@ -32,22 +32,50 @@ import (
 func TestMain(m *testing.M) {
 	code := m.Run()
 	if live := usageSweepLive.Load(); live > 0 {
-		fmt.Fprintf(os.Stderr, "\nLEAK: %d usage sweep(s) still live at test exit — a sweep that outlives its merchant will exec ndsctl and report into whichever later test's fixtures are live (#733; see sweep_leak_guard_test.go). Some test constructed a full merchant (or received one via an upgrade) without draining it: add drainUsageSweep / m.stopDataUsageMonitoring, or m.Shutdown() the merchant.\n", live)
+		fmt.Fprintf(os.Stderr, "\nLEAK: %d usage sweep(s) still live at test exit — a sweep that outlives its merchant will exec ndsctl and report into whichever later test's fixtures are live (#733; see sweep_leak_guard_test.go). Some test constructed a full merchant (or received one via an upgrade) without draining it: add drainBackgroundWorkers / m.stopDataUsageMonitoring, or m.Shutdown() the merchant.\n", live)
 		usageSweepBorn.Range(func(k, v any) bool {
 			fmt.Fprintf(os.Stderr, "=== LEAKED SWEEP #%d born at (run with TOLLGATE_TEST_SWEEP_STACKS=1 to keep these):\n%s\n", k.(int32), v.(string))
 			return true
 		})
 		os.Exit(1)
 	}
+	if payout := payoutLive.Load(); payout > 0 {
+		fmt.Fprintf(os.Stderr, "\nLEAK: %d payout routine goroutine(s) still live at test exit — a payout routine that outlives its merchant keeps ticker-driven wallet work running on a merchant nobody owns (#733 follow-up; see sweep_leak_guard_test.go). Some test constructed a full merchant (or received one via an upgrade) without m.Shutdown()-ing or draining it.\n", payout)
+		os.Exit(1)
+	}
+	if janitors := janitorLive.Load(); janitors > 0 {
+		fmt.Fprintf(os.Stderr, "\nLEAK: %d lightning-quote janitor goroutine(s) still live at test exit — same class as a leaked payout routine (#733 follow-up; see sweep_leak_guard_test.go).\n", janitors)
+		os.Exit(1)
+	}
 	os.Exit(code)
 }
 
-// orderingWitnessWallet fails its test if the merchant's usage sweep is still
-// armed when the wallet is shut down: (*Merchant).Shutdown must stop the
-// sweep BEFORE the wallet, because stopDataUsageMonitoring also waits out the
-// sweep pass that is in flight — a sweep metering sessions against a wallet
-// that is already closing underneath it is exactly the window the ordering
-// exists to keep shut.
+// workersStillArmed reports whether any of the merchant's timer-driven
+// background work is still armed (usage sweep, payout routine, quote
+// janitor), read under each worker's own lock.
+func (m *Merchant) workersStillArmed() bool {
+	m.monitorMu.Lock()
+	sweep := m.monitorOn || m.monitorDone != nil
+	m.monitorMu.Unlock()
+
+	m.payoutMu.Lock()
+	payout := m.payoutOn || m.payoutStop != nil
+	m.payoutMu.Unlock()
+
+	m.janitorMu.Lock()
+	janitor := m.janitorOn || m.janitorStop != nil || m.janitorDone != nil
+	m.janitorMu.Unlock()
+
+	return sweep || payout || janitor
+}
+
+// orderingWitnessWallet fails its test if any of the merchant's timer-driven
+// background work is still armed when the wallet is shut down: (*Merchant).
+// Shutdown must stop the usage sweep, the payout routine and the quote
+// janitor BEFORE the wallet — each stop also waits out the pass that is in
+// flight, because a sweep metering sessions or a payout moving wallet money
+// against a wallet that is already closing underneath it is exactly the
+// window the ordering exists to keep shut.
 type orderingWitnessWallet struct {
 	tollwallet.WalletPort
 	t *testing.T
@@ -55,46 +83,53 @@ type orderingWitnessWallet struct {
 }
 
 func (w *orderingWitnessWallet) Shutdown() error {
-	if w.sweepStillArmed() {
-		w.t.Error("(*Merchant).Shutdown shut the wallet down while the usage sweep was still armed: the sweep must be stopped (and its in-flight pass waited out) BEFORE the wallet closes — a metering sweep against a closing wallet is the race the ordering exists to prevent (#733)")
+	if w.m.workersStillArmed() {
+		w.t.Error("(*Merchant).Shutdown shut the wallet down while background work (usage sweep / payout routine / quote janitor) was still armed: every worker must be stopped (and its in-flight pass waited out) BEFORE the wallet closes — work running against a closing wallet is the race the ordering exists to prevent (#733)")
 	}
 	return nil
 }
 
-// sweepStillArmed reads the sweep's armed state under monitorMu, so a witness
-// can observe it from inside wallet.Shutdown race-free.
-func (w *orderingWitnessWallet) sweepStillArmed() bool {
-	w.m.monitorMu.Lock()
-	defer w.m.monitorMu.Unlock()
-	return w.m.monitorOn || w.m.monitorDone != nil
-}
-
-// TestShutdownStopsTheSweepBeforeTheWallet pins the ordering guarantee of the
-// #887 Shutdown: stopDataUsageMonitoring runs to completion first, then the
-// wallet closes. The witness wallet observes the sweep's armed state from
-// inside wallet.Shutdown, so the assertion is about the exact instant the
-// ordering question asks about, not a before/after timing inference.
-func TestShutdownStopsTheSweepBeforeTheWallet(t *testing.T) {
+// TestShutdownStopsEveryBackgroundWorkerBeforeTheWallet pins the ordering
+// guarantee of Shutdown: all three timer-driven workers (usage sweep, payout
+// routine, quote janitor) are retired before the wallet closes, and stay
+// retired afterwards. The witness wallet observes the armed state from inside
+// wallet.Shutdown, so the assertion is about the exact instant the ordering
+// question asks about, not a before/after timing inference.
+func TestShutdownStopsEveryBackgroundWorkerBeforeTheWallet(t *testing.T) {
 	w := &orderingWitnessWallet{t: t}
 	m := &Merchant{
-		config:           &config_manager.Config{Metric: "milliseconds"},
+		config: &config_manager.Config{
+			Metric: "milliseconds",
+			AcceptedMints: []config_manager.MintConfig{
+				{URL: "https://witness-mint.example.com", PricePerStep: 1, PriceUnit: "sat"},
+			},
+		},
 		customerSessions: make(map[string]*CustomerSession),
 		expiredSessions:  make(map[string]int64),
 		tollwallet:       w,
 	}
 	w.m = m
 
-	m.startUsageSweep()
+	// The mint health tracker is shared infrastructure (a runtime-downgraded
+	// merchant keeps using it to upgrade back), so Shutdown deliberately does
+	// not stop it — this test must not leak its proactive checks either.
+	tracker := newTestTracker(m.config, nil)
+	t.Cleanup(tracker.Stop)
+	m.mintHealthTracker = tracker
 
-	if !w.sweepStillArmed() {
-		t.Fatal("precondition: the sweep must be armed before Shutdown is called")
+	m.startUsageSweep()
+	m.StartPayoutRoutine()
+	m.startLightningQuoteJanitor()
+
+	if !m.workersStillArmed() {
+		t.Fatal("precondition: the workers must be armed before Shutdown is called")
 	}
 
 	if err := m.Shutdown(); err != nil {
 		t.Fatalf("Shutdown: %v", err)
 	}
 
-	if w.sweepStillArmed() {
-		t.Error("Shutdown returned with the usage sweep still armed")
+	if m.workersStillArmed() {
+		t.Error("Shutdown returned with background work still armed")
 	}
 }
