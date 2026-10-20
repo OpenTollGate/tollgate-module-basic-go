@@ -8,10 +8,12 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	gonutsclient "github.com/OpenTollGate/gonuts-tollgate/wallet/client"
@@ -684,7 +686,21 @@ func (m *Merchant) startUsageSweep() {
 	m.monitorStop, m.monitorDone, m.monitorOn = stop, done, true
 
 	ticker := time.NewTicker(2 * time.Second) // Check every 2 seconds
+	// The leak guard's bookkeeping (#733): counted before the goroutine exists
+	// so a sweep that is started but never scheduled cannot be missed, and
+	// released as the goroutine's FIRST act on exit so the counter is already
+	// accurate again before close(done) lets stopDataUsageMonitoring return.
+	usageSweepLive.Add(1)
+	sweepID := usageSweepStarted.Add(1)
+	keepSweepStacks := os.Getenv("TOLLGATE_TEST_SWEEP_STACKS") != ""
+	if keepSweepStacks {
+		usageSweepBorn.Store(sweepID, string(debug.Stack()))
+	}
 	go func() {
+		defer func() {
+			usageSweepLive.Add(-1)
+			usageSweepBorn.Delete(sweepID)
+		}()
 		defer ticker.Stop()
 		defer close(done)
 		for {
@@ -697,6 +713,20 @@ func (m *Merchant) startUsageSweep() {
 		}
 	}()
 }
+
+// The usage-sweep leak guard's state (#733): a sweep goroutine that outlives
+// its merchant execs ndsctl through whichever later test's PATH-scoped fake
+// is live and reports into whatever log capture holds, which is the
+// green-serialized / flaky-under-load family this guard exists to make
+// impossible to reintroduce silently. The test binary fails (TestMain, in
+// sweep_leak_guard_test.go) if any sweep is still live when it exits; with
+// TOLLGATE_TEST_SWEEP_STACKS=1 the construction stacks of live sweeps are
+// kept so the failing run names the test that leaked.
+var (
+	usageSweepLive    atomic.Int32
+	usageSweepStarted atomic.Int32
+	usageSweepBorn    sync.Map
+)
 
 // stopDataUsageMonitoring stops the sweep startUsageSweep started and waits for
 // the sweep that was in flight to return, so that after it returns nothing of
