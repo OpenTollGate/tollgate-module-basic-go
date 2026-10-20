@@ -231,6 +231,21 @@ in-SDK Go build through the feed's `golang/host`, or a toolchain bump the
 SDK has not shipped), the binaries the two paths produce would differ, and
 `check` is what turns that from a silent divergence into a red light.
 
+Doctrine for the two ways: the fast/reproducible lane **is** the release
+pipeline — it is pinned end-to-end (toolchain tarball sha256,
+`SOURCE_DATE_EPOCH`), so it reproduces months later, and every shipped
+byte comes from it. The OpenWrt-SDK way is the **compatibility canary**:
+it exists to notice when OpenWrt's own toolchain would build something
+different, not to produce artifacts. Because the feeds move under a
+static tree (the released 25.12.0 feed moved 1.26.8 → 1.26.9 with no
+release tag), the two are required to agree **at the time of commit**:
+`hooks/pre-commit` runs this same `check` on every commit (drift blocks,
+an unreachable feed only warns — a hook never blocks on network; CI's
+`repro-check.yml` re-runs the fence where network is guaranteed), and
+the full path-parity comparison stays a spot check for when in doubt,
+not a release gate. Drift is cured by re-tracking the pin intentionally
+— never by unpinning the fast way to follow the feed.
+
 One caveat for older lines: a full in-SDK Go build also needs the source
 tree's language minimum (`src/go.mod` `go` directive, currently 1.25.0) to
 be ≤ the line's official golang. 23.05 (1.21.x) and 24.10 (1.23.x) do not
