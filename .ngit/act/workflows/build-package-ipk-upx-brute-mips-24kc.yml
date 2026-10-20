@@ -289,10 +289,11 @@ jobs:
           # is in this job's env, which packaging/build-env.sh requires.
           UPX_DIR=$(bash scripts/fetch-upx.sh)
           echo "PATH=$UPX_DIR:$PATH" >> "${GITHUB_ENV:-/dev/null}"
-          # SIGPIPE-armoured (head can exit before upx finishes writing ->
-          # upx dies with 141 and set -e kills the step; live-twice on shard
-          # ipk-upx-fast-best, 2026-10-20):
-          { "$UPX_DIR/upx" --version | head -1; true; }
+          # `|| true` — NOT `{ pipe; true; }`: under set -euo pipefail the
+          # shell exits at the pipeline's own failure and the trailing true
+          # never runs (proven locally: yes|head in { } form exits 141).
+          # upx SIGPIPE death here killed this shard 3x on 2026-10-20:
+          "$UPX_DIR/upx" --version 2>/dev/null | head -1 || true
 
       - name: Build .ipk
         id: build

@@ -33,5 +33,9 @@ printf '%s  %s\n' "$SHA" "$TMP/upx.tar.xz" | sha256sum -c - >&2
 tar xJf "$TMP/upx.tar.xz" -C "$TMP"
 cp "$TMP"/upx-"$UPX_VERSION"-amd64_linux/upx "$BIN"
 chmod +x "$BIN"
-{ "$BIN" --version | head -1; true; } >&2
+# `|| true` — NOT `{ pipe; true; }`: under `set -e` the shell exits at the
+# pipeline's own failure and the trailing true never runs (proven: yes|head
+# in { } form still exits 141). upx dying with SIGPIPE when head exits first
+# killed the Install UPX step 3x live (shard ipk-upx-fast-best, 2026-10-20).
+"$BIN" --version 2>/dev/null | head -1 >&2 || true
 printf '%s\n' "$DEST"
