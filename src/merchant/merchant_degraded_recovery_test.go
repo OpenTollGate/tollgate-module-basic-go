@@ -63,7 +63,7 @@ func TestDegradedWireRecoveryTrigger_RuntimDowngradeUpgrades(t *testing.T) {
 	// The runtime-downgrade construction from main.go: a degraded merchant
 	// carrying the full merchant's tracker, with only an onUpgrade consumer.
 	deg := NewMerchantDegradedWithWallet(cm, tracker, DefaultWalletFactory, testDir)
-	drainUsageSweep(t, deg)
+	drainBackgroundWorkers(t, deg)
 	upgraded := make(chan MerchantInterface, 1)
 	deg.OnUpgrade(func(mi MerchantInterface) { upgraded <- mi })
 	deg.WireRecoveryTrigger()
@@ -83,7 +83,7 @@ func TestDegradedWireRecoveryTrigger_RuntimDowngradeUpgrades(t *testing.T) {
 			}
 			// This test is the upgraded merchant's owner now: retire the
 			// usage sweep its construction started (#733).
-			drainUsageSweep(t, mi)
+			drainBackgroundWorkers(t, mi)
 			return
 		case <-time.After(200 * time.Millisecond):
 		}
