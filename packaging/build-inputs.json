@@ -3,7 +3,7 @@
   "comment": "Immutable build inputs for reproducible tollgate-wrt artifacts. Every byte-affecting external input is pinned here. Update intentionally (see docs/reproducible-builds.md); never point portal.commit at a floating ref.",
   "go": {
     "version": "1.26.9",
-    "comment": "The toolchain that compiles the shipped binaries. Must equal the official golang of the pinned OpenWrt SDK release's packages feed (see .openwrt_sdk.go_per_release; scripts/sdk-go-version.sh check enforces it).",
+    "comment": "The toolchain that compiles the shipped binaries. SOURCE OF TRUTH: the official golang of the pinned OpenWrt SDK release's packages feed (see .openwrt_sdk.go_per_release) — the feed defines it, so our binaries are reproducible against the SDK's own toolchain; never a minor of our own choosing (#448). scripts/sdk-go-version.sh check enforces it against the live feeds; update re-derives it.",
     "tarball_linux_amd64": {
       "url": "https://go.dev/dl/go1.26.9.linux-amd64.tar.gz",
       "sha256": "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d"
