@@ -240,6 +240,21 @@ this module's `99-tollgate-setup` AND the feed's
 (the WARNING-named re-vendor contract in the README). A cross-repo
 contract without a named decision record is a bug.
 
+The feed ecosystem, explicitly, so agents file things in the right
+brain: this module owns the Go source and the generated **build
+contract** (`packaging/build-contract.json`, fenced by
+`tests/contract/check-build-contract.py`); `FreedomTechFeed/packages`
+`net/tollgate-wrt` owns the **canonical** OpenWrt feed recipe (its
+`test-build-contract.sh` consumes the contract from the pinned tarball);
+`FreedomTechFeed/feed` is a **wrapper mirror** of that recipe (synced by
+`scripts/sync-from-canonical.sh` — never hand-edit it). Bug routing: Go
+code and packaging payloads → here; recipe/pins/portal vendoring → the
+canonical feed; anything found in the wrapper → fixed by re-sync, not by
+editing the wrapper. When a contract-governed fact changes here (binary
+set, go minimum), say so in the PR body — the feed's fences go red on
+its next repin until it catches up, and that is the intended signal, not
+an accident.
+
 ## Firewall, nftables, and topology-naming rules of engagement
 
 Every rule here was learned from a bench-verified failure on the 0.6.0

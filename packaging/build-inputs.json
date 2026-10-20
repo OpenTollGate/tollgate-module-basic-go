@@ -39,7 +39,7 @@
   "openwrt_sdk": {
     "image": "openwrt/sdk",
     "go_per_release": {
-      "_comment": "Official Go toolchain of each OpenWrt release line, as shipped by that line's openwrt/packages feed (branch openwrt-<series>). scripts/sdk-go-version.sh check|update audits these against the live feed; the pinned .go.version must match the entry of the pinned .release's series. In-SDK Go builds on 23.05/24.10 additionally require src/go.mod's language minimum to be <= these versions (currently 1.25.0, so only 25.x qualifies).",
+      "_comment": "Official Go toolchain of each OpenWrt release line, as shipped by that line's openwrt/packages feed (branch openwrt-<series>). scripts/sdk-go-version.sh check|update audits these against the live feed; the pinned .go.version must match the entry of the pinned .release's series. In-SDK Go builds on 23.05/24.10 additionally require the tree's language minimum (generated into packaging/build-contract.json, go.minimum — 1.26.0 today) to be <= these versions, so only 25.x qualifies.",
       "23.05": "1.21.13",
       "24.10": "1.23.12",
       "25.12": "1.26.10"
