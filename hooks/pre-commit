@@ -133,3 +133,30 @@ if git diff --cached --name-only | grep -qE '^changelog\.d/.*\.md$'; then
     echo "🔍 Checking changelog fragments..."
     python3 scripts/changelog-assemble.py check
 fi
+
+# The SDK-Go fence, at commit time. The fast/reproducible lane is the
+# release pipeline; the OpenWrt-SDK lane is the compatibility canary —
+# and the two are required to agree WHEN A COMMIT IS MADE, because the
+# feeds move under a static tree (the 25.12.0 released feed moved
+# 1.26.8 -> 1.26.9 with no release tag). Runs on every commit: drift
+# comes from the world, not from the diff. Real drift blocks (cure:
+# scripts/sdk-go-version.sh update + the intentional .go.version bump,
+# docs/reproducible-builds.md "SDK Go alignment"); an unreachable feed
+# only warns — a hook must never block on network (repro-check.yml
+# re-runs this exact fence on every push/PR where network is
+# guaranteed). TG_SKIP_SDK_GO_AUDIT=1 skips.
+if [ -z "${TG_SKIP_SDK_GO_AUDIT:-}" ]; then
+    echo "🔍 Auditing the SDK Go pin against the live OpenWrt feeds..."
+    if ! audit_out="$(scripts/sdk-go-version.sh check 2>&1)"; then
+        if printf '%s\n' "$audit_out" | grep -q '<unreachable>'; then
+            echo "⚠️  OpenWrt feeds unreachable — fence skipped here; CI (repro-check) will run it."
+        else
+            echo "❌ SDK Go pin drifted from the live OpenWrt feeds:"
+            printf '%s\n' "$audit_out"
+            echo ""
+            echo "Cure: scripts/sdk-go-version.sh update, plus the intentional .go.version"
+            echo "bump (docs/reproducible-builds.md) — or TG_SKIP_SDK_GO_AUDIT=1 to skip here."
+            exit 1
+        fi
+    fi
+fi
