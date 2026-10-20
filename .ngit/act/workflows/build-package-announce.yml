@@ -36,13 +36,16 @@ on:
 
 env:
   PACKAGE_NAME: "tollgate-wrt"
+  # relay1.orangesync.tech removed 2026-10-20: it resolves to a dead IP
+  # (66.92.204.38) and every publish to it stalls/errs. relay2 (ours,
+  # uncapped) + damus carry the release history; nos.lol/nostr.mom are
+  # best-effort extras.
   COORDINATION_RELAYS: >-
     wss://relay.damus.io
     wss://nos.lol
     wss://nostr.mom
-    wss://relay1.orangesync.tech
     wss://relay2.orangesync.tech
-  RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
+  RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay2.orangesync.tech"
 
 jobs:
   # --------------------------------------------------------------------------
