@@ -152,6 +152,17 @@ printf '%s\n' 'Building target binaries locally before invoking the OpenWrt SDK.
     env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
         "$GO_BIN" build -o "$STAGE_DIR/tollgate" -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 )
+(
+    cd "$REPO_ROOT/src/cmd/tollgate-cvm"
+    # No version ldflags: the CVM daemon's build identity travels in the
+    # CEP-6 announcement's pubkey, not a stamped string — same as the
+    # twin stanza in packaging/local-build-ipk.sh. The SDK Makefile refuses
+    # to build without PREBUILT_CVM staged (packaging/Makefile), and this
+    # script is the stager — missing it broke every apk-lane build since
+    # the CVM daemon landed (local-build-ipk.sh was never affected).
+    env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
+        "$GO_BIN" build -o "$STAGE_DIR/tollgate-cvm" -trimpath -buildvcs=false
+)
 
 # The CVM control-plane daemon is its own module. Build it when the pinned
 # tree carries it (main does; older tags predate it), matching the feed's
