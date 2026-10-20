@@ -116,6 +116,27 @@ including the cold-cache check that catches missing `go.sum` entries, is
 make manual-check     # portal + all-module Go battery in a fresh module cache
 ```
 
+## Packaging downstream (OpenWrt feeds)
+
+This repository is the module; OpenWrt distribution happens through a
+feed ecosystem that consumes it. One authority per fact, pointing both
+ways:
+
+| Repo | Owns | File bugs there for |
+| --- | --- | --- |
+| **this repo** | the Go source, the release tarball, the [build contract](packaging/build-contract.json) (generated: binary set, module map, go minimum, pinned toolchain) | anything in `src/`, packaging payloads under `packaging/files/`, contract contents |
+| [`FreedomTechFeed/packages`](https://github.com/FreedomTechFeed/packages) (`net/tollgate-wrt`) | the **canonical** OpenWrt feed recipe: builds the pinned tarball via `golang-package.mk`, vendors the portal under `vendor.lock.json`, publishes per-arch | the recipe, pin bumps, portal vendoring, feed CI |
+| [`FreedomTechFeed/feed`](https://github.com/FreedomTechFeed/feed) | a **wrapper mirror** of the canonical recipe for standalone `src-git` consumers (synced by `scripts/sync-from-canonical.sh`; do not hand-edit) | nothing — re-sync from canonical |
+
+The contract is the interface between the halves: it ships inside every
+release tarball (tags and SHA pins alike), the feed's
+`test-build-contract.sh` enforces recipe↔contract parity and the feed's
+own golang against the contract's language minimum, and this repo's
+`tests/contract/check-build-contract.py` fences every carrier here to the
+same set. A bug found on either side is fixed at its owner and every
+consumer inherits — single source of truth, single source of authority,
+single source of bugs and fixes.
+
 ## Installation
 
 > **Build setup status (October 2026):** we’re sorry the build setup is messy
