@@ -499,10 +499,13 @@ APK_BUILD = """\
         run: |
           set -euo pipefail
           SDK="${{ matrix.sdk }}"
+          INPUTS="packaging/build-inputs.json"
+          [ -f "$INPUTS" ] || INPUTS="src-checkout/packaging/build-inputs.json"
+          [ -f "$INPUTS" ] || { echo "ERROR: packaging/build-inputs.json not found (root or src-checkout)" >&2; exit 1; }
           DIGEST=$(jq -r --arg sdk "$SDK" \\
-            '.openwrt_sdk.targets[$sdk].digest // empty' packaging/build-inputs.json)
-          [ -n "$DIGEST" ] || { echo "ERROR: no SDK digest pinned for target $SDK in packaging/build-inputs.json" >&2; exit 1; }
-          RELEASE=$(jq -r '.openwrt_sdk.release' packaging/build-inputs.json)
+            '.openwrt_sdk.targets[$sdk].digest // empty' "$INPUTS")
+          [ -n "$DIGEST" ] || { echo "ERROR: no SDK digest pinned for target $SDK in $INPUTS" >&2; exit 1; }
+          RELEASE=$(jq -r '.openwrt_sdk.release' "$INPUTS")
           echo "SDK_REF=openwrt/sdk:${SDK}-${RELEASE}@${DIGEST}" >> "${GITHUB_ENV:-/dev/null}"
           echo "resolved SDK_REF=openwrt/sdk:${SDK}-${RELEASE}@${DIGEST}"
 
@@ -557,7 +560,7 @@ APK_BUILD = """\
           if [ "$USE_UPX" = "1" ]; then
             UPX_DIR=$(bash src-checkout/scripts/fetch-upx.sh)
             docker exec -i "$SVC" sh -c 'cat > /usr/local/bin/upx && chmod 0755 /usr/local/bin/upx' < "$UPX_DIR/upx"
-            docker exec "$SVC" upx --version | head -1
+            docker exec "$SVC" upx --version 2>/dev/null | head -1 || true
           fi
 
           docker exec -e PACKAGE_VERSION="${{ needs.resolve-inputs.outputs.package_version }}" \\
