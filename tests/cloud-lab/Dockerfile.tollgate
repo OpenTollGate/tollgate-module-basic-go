@@ -7,7 +7,7 @@
 # Toolchain + version come from the manifest (packaging/build-inputs.json)
 # via docker-compose build args exported by lab.sh — the defaults below are
 # lockstep fallbacks, drift-gated by tests/contract/check-toolchain-parity.py.
-ARG GO_VERSION=1.26.8
+ARG GO_VERSION=1.26.9
 FROM golang:${GO_VERSION}-bookworm AS builder
 
 WORKDIR /build

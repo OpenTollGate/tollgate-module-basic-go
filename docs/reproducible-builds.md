@@ -231,11 +231,55 @@ in-SDK Go build through the feed's `golang/host`, or a toolchain bump the
 SDK has not shipped), the binaries the two paths produce would differ, and
 `check` is what turns that from a silent divergence into a red light.
 
+Doctrine for the two ways: the fast/reproducible lane **is** the release
+pipeline — it is pinned end-to-end (toolchain tarball sha256,
+`SOURCE_DATE_EPOCH`), so it reproduces months later, and every shipped
+byte comes from it. The OpenWrt-SDK way is the **compatibility canary**:
+it exists to notice when OpenWrt's own toolchain would build something
+different, not to produce artifacts. Because the feeds move under a
+static tree (the released 25.12.0 feed moved 1.26.8 → 1.26.9 with no
+release tag), the two are required to agree **at the time of commit**:
+`hooks/pre-commit` runs this same `check` on every commit (drift blocks,
+an unreachable feed only warns — a hook never blocks on network; CI's
+`repro-check.yml` re-runs the fence where network is guaranteed), and
+the full path-parity comparison stays a spot check for when in doubt,
+not a release gate. Drift is cured by re-tracking the pin intentionally
+— never by unpinning the fast way to follow the feed.
+
 One caveat for older lines: a full in-SDK Go build also needs the source
 tree's language minimum (`src/go.mod` `go` directive, currently 1.25.0) to
 be ≤ the line's official golang. 23.05 (1.21.x) and 24.10 (1.23.x) do not
 qualify; their artifacts must come from the host-compiled staging path the
 release lanes use today.
+
+## The build contract (one declaration, N consumers)
+
+`packaging/build-contract.json` is the machine-readable face of everything
+above: the binary set (authority: `packaging/Makefile` `PREBUILT_*`), the
+module map and ldflags profiles per binary, the **arch table** (authority:
+`scripts/repro-test.sh`'s arch case, cross-checked both directions — the
+feed's build matrix and the fast lane's cross-compile consume it instead of
+re-listing arches), the language minimum (max `go` directive across every
+`src/**/go.mod`, glob-discovered), the toolchain pin and the portal commit. `scripts/gen-build-contract.sh` is its single
+writer — the committed file is generated, never hand-edited — and
+`tests/contract/check-build-contract.py` fences it two ways: the
+generator must reproduce the committed bytes, and every carrier that
+builds Go binaries must ship the whole set (content-discovered carriers,
+explicit `# contract-exempt:` markers with reasons for harnesses).
+
+Why a generated file at all: the binary set used to live in three carrier
+scripts plus two downstream feed repos, and the fifth copy is where
+reality diverged — upstream's apk lane broke on a missing CVM daemon
+(#1020) while the Gen-1 feed still ships two binaries with a broken CLI
+version injection. One generated declaration plus fences turns that class
+from "detected eventually, per repo" into "impossible, everywhere".
+
+Downstream feeds (e.g. FreedomTechFeed) consume the contract straight out
+of the release tarball — codeload tarballs are repo snapshots, so every
+tag and every SHA pin carries it for free — instead of re-deriving the
+facts by hand. Keeping it IN the release lane (not a side artifact) is
+what makes it the single source of truth: a contract that can lag a
+release is a second source of truth waiting to happen.
 
 ## Reproducing a historical release
 
