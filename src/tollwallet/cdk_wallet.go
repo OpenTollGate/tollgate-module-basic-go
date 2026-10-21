@@ -75,7 +75,11 @@ func loadOrCreateMnemonic(walletPath string) (string, error) {
 }
 
 func DecodeToken(tokenStr string) (Token, error) {
-	t, err := cdk_ffi.TokenDecode(tokenStr)
+	// cdk-mintd 0.18.0 emits V4 tokens with the mint URL under "f"; the cdk-go
+	// FFI decoder requires "m". Without this, a token the router issued is
+	// rejected by that same router with a bare "missing field `m`". See
+	// v4_field_skew.go for the source citation and the measurement.
+	t, err := cdk_ffi.TokenDecode(normalizeV4MintFieldName(tokenStr))
 	if err != nil {
 		return nil, fmt.Errorf("cdk-go token decode failed: %w", err)
 	}
