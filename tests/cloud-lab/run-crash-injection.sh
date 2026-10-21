@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+#
+# SCRATCH-PATCH rc1-793: build.network host added to every build in the
+# per-run override (this host's build bridge has no DNS for
+# proxy.golang.org; identical to the rel-771 workaround). Lane-local,
+# disclosed in the rel-verify comment.
 # run-crash-injection.sh — the #497 acceptance harness at the TollGate
 # layer: SIGKILL the tollgate between the mint's swap acceptance and the
 # wallet's proof save, restart, and require the value to be recovered.
@@ -56,18 +61,24 @@ mkdir -p "$RUN_DIR"
 cat > "$RUN_DIR/override.yml" <<EOF
 services:
   mint:
+    build:
+      network: host
     container_name: $PROJECT-mint
     ports: !reset []
     networks:
       tollgate-lab:
         ipv4_address: $MINT_IP
   mint-fees:
+    build:
+      network: host
     container_name: $PROJECT-mint-fees
     ports: !reset []
     networks:
       tollgate-lab:
         ipv4_address: $SUBNET.3
   mint-rotate:
+    build:
+      network: host
     container_name: $PROJECT-mint-rotate
     ports: !reset []
     networks:
@@ -77,6 +88,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.client
+      network: host
     container_name: $PROJECT-killer
     entrypoint: ["python3", "/killer/killerproxy.py", "8085", "http://$MINT_IP:8085", "/v1/swap", "/marker/kill.marker"]
     volumes:
@@ -86,6 +98,8 @@ services:
       tollgate-lab:
         ipv4_address: $SUBNET.30
   upstream:
+    build:
+      network: host
     container_name: $PROJECT-upstream
     ports: !reset []
     volumes:
@@ -96,12 +110,16 @@ services:
       tollgate-lab:
         ipv4_address: $SUBNET.10
   reseller:
+    build:
+      network: host
     container_name: $PROJECT-reseller
     ports: !reset []
     networks:
       tollgate-lab:
         ipv4_address: $SUBNET.11
   client:
+    build:
+      network: host
     container_name: $PROJECT-client
     ports: !reset []
     networks:
