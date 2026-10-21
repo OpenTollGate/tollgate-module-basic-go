@@ -1,10 +1,20 @@
-.PHONY: portal-build reproducibility-test reproducibility-variance go-battery release-check release-check-fast
+.PHONY: portal-build reproducibility-test reproducibility-variance go-battery test release-check release-check-fast
 
 # Canonical pre-PR Go gate across ALL 16 modules (src/ is a multi-module
 # tree: `go ... ./...` from src/ alone covers only the root module).
 # Same set the go-test CI lane runs: gofmt, vet, build, race tests.
 go-battery:
 	@bash scripts/go-battery.sh
+
+# Test-only counterpart of go-battery: same module discovery and test
+# flags, runnable from any directory of any checkout — normal clones AND
+# git worktrees (#961). A raw `go test ./src/...` from the repo root
+# cannot work in any checkout (the root module contains no packages), so
+# the root carries a guard package that makes `go test ./...` there fail
+# with the remedy instead of false-greening. Select modules with M=:
+# make test M=src/cli
+test:
+	@bash scripts/go-test.sh $(M)
 
 # One-command pre-release gate (docs/release-process.md): orchestrates the
 # existing gates — go-battery, deps/imports, contract, packaging shell
