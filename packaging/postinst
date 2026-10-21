@@ -46,6 +46,20 @@ restore_default_routes() {
 /etc/init.d/network restart 2>/dev/null || true
 wait_for_iface br-lan
 wait_for_iface br-private || echo "Note: br-private not found — this is expected on devices without a private network configured."
+
+# The uplink lease can arrive only AFTER the restart above, so the private subnet
+# chosen at uci-defaults time may now collide with the upstream — a router that
+# came up with 192.168.1.0/24 on both sides has no working private network. The
+# feed recipe (packaging/Makefile) has carried this recheck, and its second
+# restart, since #926; this standalone recipe did not, so a seat installed from
+# it kept a colliding private subnet. Keep the two recipes structurally equal:
+# this is the same second restart the restore below must sit after.
+if [ -x /etc/uci-defaults/99-tollgate-setup ]; then
+    ( TOLLGATE_SETUP_LIB_ONLY=1 . /etc/uci-defaults/99-tollgate-setup 2>/dev/null
+      recheck_private_subnet && /etc/init.d/network restart 2>/dev/null || true
+    )
+fi
+
 restore_default_routes "$_pre_restart_defroutes"
 
 echo "Reloading remaining services..."
