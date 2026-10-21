@@ -118,6 +118,12 @@ make manual-check     # portal + all-module Go battery in a fresh module cache
 
 ## Installation
 
+> **Build setup status (October 2026):** we’re sorry the build setup is messy
+> at the moment. GitHub removed CI from all OpenTollGate repositories; we are
+> rebuilding the pipeline and working on reproducible builds. For a normal
+> install, use the
+> [installer runbook](https://github.com/OpenTollGate/tollgate-installer/blob/main/docs/install-runbook.md).
+
 Build artifacts produced by the CI matrix in
 [.github/workflows/build-package.yml](.github/workflows/build-package.yml)
 target both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats.

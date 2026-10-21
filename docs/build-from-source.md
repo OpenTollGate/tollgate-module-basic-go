@@ -5,6 +5,24 @@ build the portal and the package, and how to prove the tree builds from a cold
 module cache. For the pinning/reproducibility design, see
 [reproducible-builds.md](reproducible-builds.md).
 
+## Build setup status (October 2026)
+
+**We’re sorry the build setup is messy at the moment.** GitHub removed CI from
+all repositories under [github.com/OpenTollGate](https://github.com/OpenTollGate/),
+so the automated build/release lanes that used to carry this work are not
+currently running there. We are rebuilding the CI pipeline and working on
+reproducible builds at the same time.
+
+Until that work lands:
+
+- **For a normal install, use the installer runbook:**
+  https://github.com/OpenTollGate/tollgate-installer/blob/main/docs/install-runbook.md
+  (installer repo: https://github.com/OpenTollGate/tollgate-installer).
+- For a source build, follow this manual and expect some rough edges. The
+  cold-cache check below is the minimum evidence to include in a bug report.
+- If you hit a failure, include the exact ref/commit, the command, and the
+  first error; “build is broken” without the ref is not reproducible.
+
 ## Just want a package for a router?
 
 You do not need to build from source. Use the release artifacts:
