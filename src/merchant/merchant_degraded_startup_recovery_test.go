@@ -7,10 +7,16 @@ import (
 
 // TestDegradedStartupWireRecoveryTrigger_Upgrades pins #10: a merchant that
 // STARTS in degraded mode (all mints unreachable at boot, never had a full
-// merchant) must also upgrade once a mint recovers. The runtime-downgrade
-// path got WireRecoveryTrigger in #400; the startup path (installMerchant in
+// merchant) must also upgrade once a mint recovers. The runtime-downgrade path
+// got WireRecoveryTrigger in #400; the startup path (installMerchant in
 // main.go) was missed, leaving the tracker's onFirstReachable nil and the
 // service stuck degraded forever even after the mint returned.
+//
+// This test goes through WireStartupDegraded — the SAME method main.go's
+// startup path calls. It previously re-implemented the sequence inline
+// (OnUpgrade then WireRecoveryTrigger), which meant deleting
+// WireRecoveryTrigger() from installMerchant left this test green: it was
+// exercising the library, not the startup wiring it claimed to pin.
 func TestDegradedStartupWireRecoveryTrigger_Upgrades(t *testing.T) {
 	srv := newSwitchableMintServer(t)
 
@@ -24,13 +30,11 @@ func TestDegradedStartupWireRecoveryTrigger_Upgrades(t *testing.T) {
 		t.Fatal("precondition: mint must be unreachable for a degraded start")
 	}
 
-	// The startup construction from installMerchant in main.go: a degraded
-	// merchant with an onUpgrade consumer and WireRecoveryTrigger called.
-	// Before #10's fix, WireRecoveryTrigger was only on the runtime path.
+	// The startup construction from installMerchant in main.go, via the same
+	// entry point it uses.
 	deg := NewMerchantDegradedWithWallet(cm, tracker, DefaultWalletFactory, testDir)
 	upgraded := make(chan MerchantInterface, 1)
-	deg.OnUpgrade(func(mi MerchantInterface) { upgraded <- mi })
-	deg.WireRecoveryTrigger()
+	deg.WireStartupDegraded(func(mi MerchantInterface) { upgraded <- mi })
 
 	// Mint comes back; the aggressive probe fires the first-reachable trigger.
 	srv.healthy.Store(true)
@@ -46,51 +50,17 @@ func TestDegradedStartupWireRecoveryTrigger_Upgrades(t *testing.T) {
 				t.Fatalf("onUpgrade fired with %T, want *Merchant", mi)
 			}
 			return
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	t.Fatal("startup-degraded merchant never upgraded after mint recovery (#10)")
+	t.Fatal("service stayed degraded after the mint recovered — the startup path did not wire the recovery trigger (#10)")
 }
 
-// TestDegradedWithoutWireRecoveryTrigger_StaysDegraded pins the anti-flap
-// invariant: a degraded merchant WITHOUT the recovery trigger wired (the
-// pre-fix state) stays degraded even when the mint returns — proving the fix
-// is the wiring, not the probe loop. This also guards against the trigger
-// firing spuriously (no upgrade when there's nothing to fire).
-func TestDegradedWithoutWireRecoveryTrigger_StaysDegraded(t *testing.T) {
-	srv := newSwitchableMintServer(t)
-
-	cm, testDir := setupTestConfigManager(t)
-	cfg := cm.GetConfig()
-	cfg.AcceptedMints = simpleMintConfig(srv.URL)
-
-	tracker := newTestTracker(cfg, nil)
-	tracker.RunInitialProbe()
-	if tracker.IsReachable(srv.URL) {
-		t.Fatal("precondition: mint must be unreachable for a degraded start")
-	}
-
-	// No WireRecoveryTrigger — the pre-#10 state.
-	deg := NewMerchantDegradedWithWallet(cm, tracker, DefaultWalletFactory, testDir)
-	upgraded := make(chan MerchantInterface, 1)
-	deg.OnUpgrade(func(mi MerchantInterface) { upgraded <- mi })
-	// Deliberately NOT calling deg.WireRecoveryTrigger()
-
-	srv.healthy.Store(true)
-	tracker.runProactiveCheck()
-
-	select {
-	case <-upgraded:
-		t.Fatal("upgrade fired without WireRecoveryTrigger — the trigger wiring is broken (spurious fire)")
-	case <-time.After(500 * time.Millisecond):
-		// Correct: stayed degraded because nothing was wired.
-	}
-}
-
-// TestDegradedStaysDegradedWhileMintDown pins the no-flap invariant: while
-// the mint is unreachable, the degraded merchant does not attempt to upgrade
-// (no spurious upgrades, no oscillation), even with the trigger properly wired.
-func TestDegradedStaysDegradedWhileMintDown(t *testing.T) {
+// The complement, and the reason the two steps must stay a pair: wiring the
+// trigger while the mint is still down must NOT upgrade. A test that only
+// asserted "eventually upgrades" would pass if the trigger fired
+// unconditionally, so this pins the other direction.
+func TestDegradedStartupWiringDoesNotUpgradeWhileTheMintIsDown(t *testing.T) {
 	srv := newSwitchableMintServer(t)
 	// Mint stays unhealthy for the entire test.
 
@@ -106,15 +76,41 @@ func TestDegradedStaysDegradedWhileMintDown(t *testing.T) {
 
 	deg := NewMerchantDegradedWithWallet(cm, tracker, DefaultWalletFactory, testDir)
 	upgraded := make(chan MerchantInterface, 1)
-	deg.OnUpgrade(func(mi MerchantInterface) { upgraded <- mi })
-	deg.WireRecoveryTrigger()
+	deg.WireStartupDegraded(func(mi MerchantInterface) { upgraded <- mi })
 
 	tracker.runProactiveCheck()
 
 	select {
 	case <-upgraded:
-		t.Fatal("upgrade fired while mint is unreachable — flapping detected")
+		t.Fatal("upgrade fired while the mint is unreachable — the startup wiring must not upgrade unconditionally")
 	case <-time.After(500 * time.Millisecond):
 		// Correct: stayed degraded while the mint is down.
+	}
+}
+
+// A merchant that is NOT degraded must not get the degraded wiring at all —
+// the type assertion in installMerchant decides this.
+func TestWireStartupDegradedIsDegradedOnly(t *testing.T) {
+	srv := newSwitchableMintServer(t)
+	srv.healthy.Store(true)
+
+	cm, _ := setupTestConfigManager(t)
+	cfg := cm.GetConfig()
+	cfg.AcceptedMints = simpleMintConfig(srv.URL)
+
+	full, err := New(cm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if s, ok := full.(interface{ Shutdown() error }); ok {
+		defer func() { _ = s.Shutdown() }()
+	}
+
+	// The startup path's type switch: only *MerchantDegraded takes the
+	// degraded wiring. With the mint up, New must not hand back a degraded
+	// merchant — otherwise installMerchant would wire the degraded pair onto
+	// a service that has a working wallet.
+	if deg, ok := full.(*MerchantDegraded); ok {
+		t.Fatalf("New returned a degraded merchant (%T) with the mint healthy; installMerchant would wire the degraded pair", deg)
 	}
 }
