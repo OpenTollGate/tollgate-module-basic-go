@@ -3,4 +3,4 @@
   links, CI/reproducible-builds status, package instructions), `make
   manual-check`/`cold-battery`, `make package-ipk`/`package-apk`, and the SDK
   `tollgate-cvm` staging fix that makes the `.apk` target work
-  ([#1041](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1043)).
+  ([#1043](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1043)).
