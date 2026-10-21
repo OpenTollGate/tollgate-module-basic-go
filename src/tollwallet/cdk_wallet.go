@@ -221,6 +221,41 @@ func (w *CdkWallet) GetBalanceByMint(mintUrl string) uint64 {
 	// destroy the wallet mid-read (use-after-free).
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	// Wallets are keyed mint|unit (see getOrCreateWallet): a custom-unit mint
+	// and a sat mint can coexist on one router, so the unit is part of the
+	// identity. Reading the bare mint URL always missed and reported 0 — an
+	// operator-issued mb/min balance read as empty while the wallet held
+	// funds. Sum across every unit open for this mint.
+	var total uint64
+	for key, wlt := range w.wallets {
+		if key != mintUrl && !strings.HasPrefix(key, mintUrl+"|") {
+			continue
+		}
+		if amt, err := wlt.TotalBalance(); err == nil {
+			total += amt.Value
+		}
+	}
+	if total == 0 {
+		// Distinguish "no wallet open" from "open wallet, zero balance" the
+		// same way the previous single-lookup path did.
+		if _, ok := w.wallets[mintUrl]; !ok && !w.anyUnitWallet(mintUrl) {
+			return 0
+		}
+	}
+	return total
+}
+
+// anyUnitWallet reports whether any unit-keyed wallet exists for mintUrl.
+func (w *CdkWallet) anyUnitWallet(mintUrl string) bool {
+	for key := range w.wallets {
+		if strings.HasPrefix(key, mintUrl+"|") {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *CdkWallet) getBalanceByMintLegacy(mintUrl string) uint64 {
 	wlt, ok := w.wallets[mintUrl]
 	if !ok {
 		return 0
