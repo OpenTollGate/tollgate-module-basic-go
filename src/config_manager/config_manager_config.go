@@ -588,6 +588,14 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		log.Printf("WARNING: Invalid profit_share, resetting to defaults: %v", profitShareErr)
 		config.ProfitShare = defaultConfig.ProfitShare
 	}
+	// A custom-unit mint priced with a step_size from another unit gives away
+	// access on every sale (unit "mb" with the bytes default 22020096 sold 21x
+	// the access for the same money in the 2026-10 CDK integration). Warn
+	// rather than refuse: the router must keep serving customers who already
+	// paid, but the operator has to see this in logread.
+	if err := config.ValidateUnitPricingForConfig(); err != nil {
+		log.Printf("WARNING: unit/step_size mismatch — this router is mispricing access: %v", err)
+	}
 	if config.ConfigVersion != defaultConfig.ConfigVersion {
 		log.Printf("INFO: Config version %s → %s, migrating (preserving user settings)", config.ConfigVersion, defaultConfig.ConfigVersion)
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", config.ConfigVersion); backupErr != nil {
