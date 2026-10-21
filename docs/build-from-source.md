@@ -259,6 +259,9 @@ Go is not a substitute for a release build.
 |---|---|---|---|
 | `v0.6.0` | `9364f2e` | cold `make go-battery` | PASS — 16 modules |
 | `main` post-#1032 | `4e55543` | cold `make cold-battery` | battery PASS — 18 modules; cleanup trap fixed in this PR |
+| PR branch | `5e27c28` | `TG_TOOLS=… make manual-check` | PASS — portal + 18 modules, clean cache cleanup |
+| PR branch | `5e27c28` | `make package-ipk ARCH=x86_64` | PASS — `.ipk`, 8.5 MB |
+| PR branch | `089f262` | `make package-apk SDK_TAG=x86-64-25.12.0` | PASS after the CVM staging fix — `.apk`, 12.6 MB |
 | `main` pre-#1032 | `9ed8687` | cold build of the two modules | expected #1036 failure |
 
 When you change the pins or the build path, update this table and the
