@@ -234,7 +234,7 @@ type receiveResult struct {
 // make the reference the customer quotes answerable today, because the operator
 // cannot tell a late success (the mint took the note) from a late failure (it
 // did not) without it.
-func (m *Merchant) recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, macAddress, reference string, tokenAmount uint64) {
+func (m *Merchant) recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, macAddress, reference string, tokenAmount uint64, tokenUnit string) {
 	res := <-ch
 	if res.err != nil {
 		// An error is not a refusal. A `Receive` that answers after the deadline
@@ -265,7 +265,7 @@ func (m *Merchant) recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, ma
 	// over-grant by the swap fee, noted in the journal record.
 	log.Printf("PurchaseSession: late Receive COMPLETED for mint=%s mac=%s reference=%s amount=%d — recording the owed entitlement",
 		mintURL, macAddress, reference, res.amount)
-	allotment, allotErr := m.calculateAllotment(tokenAmount, mintURL)
+	allotment, allotErr := m.calculateAllotmentForUnit(tokenAmount, tokenUnit, mintURL)
 	if allotErr != nil {
 		log.Printf("ReceiveIntent: late success for reference %s could not be priced (%v) — reconciler will retry", reference, allotErr)
 		return
@@ -1680,7 +1680,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		// is consumed, so a resubmission arriving after the deadline but before
 		// the mint answers is refused exactly like a concurrent one.
 		go func() {
-			m.recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference, paymentCashuToken.Amount())
+			m.recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference, paymentCashuToken.Amount(), paymentCashuToken.Unit())
 			m.endReceive(reference)
 		}()
 
@@ -1774,9 +1774,13 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	log.Printf("Amount after swap: %d", amountAfterSwap)
 
-	// Calculate allotment using the configured metric and mint-specific pricing
+	// Calculate allotment using the configured metric and mint-specific pricing.
+	// The token's unit is part of the price: an operator-issued custom-unit
+	// token (mb/min from a local CDK mint) prices against a mint config that
+	// declares the same unit; a mismatch is refused by calculateAllotmentForUnit
+	// instead of being silently treated as sats.
 	mintURL := paymentCashuToken.Mint()
-	allotment, err := m.calculateAllotment(amountAfterSwap, mintURL)
+	allotment, err := m.calculateAllotmentForUnit(amountAfterSwap, paymentCashuToken.Unit(), mintURL)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-error",
 			fmt.Sprintf("Failed to calculate allotment: %v", err), macAddress)
@@ -2052,13 +2056,34 @@ func (m *Merchant) extractDeviceIdentifier(paymentEvent nostr.Event) (string, er
 	return "", fmt.Errorf("no device-identifier tag found in event")
 }
 
-// calculateAllotment calculates allotment using the configured metric and mint-specific pricing
+// calculateAllotment calculates allotment using the configured metric and mint-specific pricing.
+//
+// Kept for every sat-priced path that predates unit-aware pricing; it
+// delegates to calculateAllotmentForUnit with the sat unit, which preserves
+// its exact behaviour (division by PricePerStep in sats) while keeping ONE
+// pricing implementation.
 func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64, error) {
+	return m.calculateAllotmentForUnit(amountSats, "sat", mintURL)
+}
+
+// calculateAllotmentForUnit prices an amount in the token's unit against the
+// mint's price table. The unit is part of the price: a number without its
+// unit is not a price. Rules:
+//
+//   - The mint config's Unit names what that config prices ("sat" when
+//     empty — every pre-existing config is a satoshi mint).
+//   - A token whose unit does not match the config is REFUSED. Silently
+//     treating 64 "mb" as 64 sats is the exact mispricing this exists to
+//     prevent; an operator who issues megabyte tokens configures
+//     price_per_step=1&unit=mb and a 64mb token prices as 64 steps.
+//   - Case-folded comparison ("MB" == "mb"): Cashu units are lowercase on
+//     the wire but config files are human-written.
+func (m *Merchant) calculateAllotmentForUnit(amount uint64, tokenUnit string, mintURL string) (uint64, error) {
 	// Find the mint configuration for this mint
 	var mintConfig *config_manager.MintConfig
-	for _, mint := range m.config.AcceptedMints {
-		if tollwallet.MintURLMatches(mint.URL, mintURL) {
-			mintConfig = &mint
+	for i := range m.config.AcceptedMints {
+		if tollwallet.MintURLMatches(m.config.AcceptedMints[i].URL, mintURL) {
+			mintConfig = &m.config.AcceptedMints[i]
 			break
 		}
 	}
@@ -2071,7 +2096,23 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 		return 0, fmt.Errorf("price_per_step is 0 for mint %s (division by zero)", mintURL)
 	}
 
-	steps := amountSats / mintConfig.PricePerStep
+	// Unit gate: the config's unit ("" == sat) must match the token's unit
+	// ("" == unknown — priced only when the config does not declare a
+	// custom unit, i.e. sat-priced legacy flow). This is the one place a
+	// unit mismatch becomes a refusal instead of a silent misprice.
+	configUnit := mintConfig.Unit
+	if configUnit == "" {
+		configUnit = "sat"
+	}
+	tokenUnitNorm := strings.ToLower(strings.TrimSpace(tokenUnit))
+	if tokenUnitNorm == "" {
+		tokenUnitNorm = "sat"
+	}
+	if tokenUnitNorm != strings.ToLower(configUnit) {
+		return 0, fmt.Errorf("token unit %q does not match mint %s pricing unit %q: refusing rather than mispricing (configure price_per_step with \"unit\" on the mint if this is an operator-issued custom unit)", tokenUnitNorm, mintURL, configUnit)
+	}
+
+	steps := amount / mintConfig.PricePerStep
 
 	// Check if payment meets minimum purchase requirement
 	if steps < mintConfig.MinPurchaseSteps {

@@ -105,6 +105,14 @@ func (t *cdkToken) Serialize() (string, error) {
 	return t.inner.Encode(), nil
 }
 
+// Unit returns "": the cdk-go FFI surface in use here exposes Value() and
+// MintUrl() but no unit accessor, and inventing "sat" would be exactly the
+// silent mispricing this interface change exists to prevent. Tokens decoded
+// through this adapter price against the mint's configured price_unit
+// default (calculateAllotmentForUnit); a custom-unit token from an
+// operator-run mint must therefore be routed through a unit-aware adapter.
+func (t *cdkToken) Unit() string { return "" }
+
 func (t *cdkToken) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()

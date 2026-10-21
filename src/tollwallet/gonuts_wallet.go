@@ -45,6 +45,26 @@ type gonutsToken struct {
 
 func (t *gonutsToken) Mint() string   { return t.inner.Mint() }
 func (t *gonutsToken) Amount() uint64 { return t.inner.Amount() }
+
+// Unit reports the unit carried on the token wire (V4 "u" field, V3 "unit"
+// field). The gonuts cashu.Token interface itself does not expose it, so this
+// asserts the concrete decoded type — the only two DecodeToken products.
+// A token built by other means returns "" (unknown), which the merchant
+// refuses rather than misprices.
+func (t *gonutsToken) Unit() string {
+	switch v := t.inner.(type) {
+	case cashu.TokenV4:
+		return v.Unit
+	case *cashu.TokenV4:
+		return v.Unit
+	case cashu.TokenV3:
+		return v.Unit
+	case *cashu.TokenV3:
+		return v.Unit
+	default:
+		return ""
+	}
+}
 func (t *gonutsToken) Secrets() []string {
 	proofs := t.inner.Proofs()
 	secrets := make([]string, 0, len(proofs))

@@ -43,6 +43,7 @@ type renewalToken struct{}
 
 func (renewalToken) Mint() string   { return renewalMintURL }
 func (renewalToken) Amount() uint64 { return renewalSats }
+func (renewalToken) Unit() string { return "" }
 
 // Each purchase serializes a distinct note (a renewal is a NEW economic
 // event, not a resubmission): a per-call counter keeps references unique so

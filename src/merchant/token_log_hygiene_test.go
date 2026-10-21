@@ -46,6 +46,7 @@ type serializableToken struct {
 
 func (t serializableToken) Mint() string               { return "https://log-hygiene.example.com" }
 func (t serializableToken) Amount() uint64             { return 1 }
+func (t serializableToken) Unit() string { return "" }
 func (t serializableToken) Serialize() (string, error) { return t.serialized, nil }
 func (t serializableToken) Secrets() []string          { return nil }
 

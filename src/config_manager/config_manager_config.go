@@ -133,6 +133,14 @@ type MintConfig struct {
 	MinPayoutAmount         uint64 `json:"min_payout_amount"`
 	PricePerStep            uint64 `json:"price_per_step"`
 	PriceUnit               string `json:"price_unit"`
+	// Unit names the ecash unit this mint issues and this config prices, as
+	// the mint declares it on the wire ("sat", "msat", "usd", or an
+	// operator-issued custom unit such as "mb"/"min"). Empty means "sat":
+	// every pre-existing config is a satoshi mint, and the merchant prices
+	// sat tokens against it without a config change. A token in any OTHER
+	// unit is refused rather than mispriced — the 2026-10 draft integration
+	// with an operator-run CDK mint depends on this being explicit.
+	Unit                    string `json:"unit"`
 	MinPurchaseSteps        uint64 `json:"purchase_min_steps"`
 }
 
