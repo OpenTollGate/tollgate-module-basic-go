@@ -1,0 +1,6 @@
+go 1.26.0
+
+use (
+	.
+	/home/c08r4d0r/repos/cdk-go-musl/cdk-go
+)
