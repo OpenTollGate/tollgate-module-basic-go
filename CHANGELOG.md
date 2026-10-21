@@ -245,6 +245,88 @@ and [Semantic Versioning](https://semver.org/).
   "admin UI" entry point
   ([#698](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/698)).
 
+- **The duplicate-guard harness installs the ndsctl its grant assertion
+  exercises.** `newDuplicateGuardMerchant` ended by asserting a *granted*
+  session — the only grant-exercising assertion in its file — but installed no
+  fake `ndsctl`, unlike every other grant-exercising test. On a host without
+  `ndsctl` on PATH the third submission died as a grant-pending notice instead,
+  so the file's battery was deterministically red on every bare host/CI runner
+  regardless of any other fix. The harness now installs the same renewal fake
+  the other tests use, scoped to each test's lifetime
+  ([#822](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/822)).
+
+- **The bcm2709 artifact rows build again.** `build-sdk-package.sh`
+  defaulted bcm2709 to `EXPECTED_ARCH=arm_cortex-a7`, but the SDK stages
+  its packages under `arm_cortex-a7_neon-vfpv4` — the staged-packages
+  directory check failed and killed the copy step on an otherwise-clean
+  cross-compile (the rc1 artifact matrix's two missing rows)
+  ([#717](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/717)).
+
+- **The late-receive outcome test no longer races its own log.** The
+  #700 test sampled "the last non-deadline log line" while the code path
+  under test logs two lines in fixed order (the COMPLETED record, then
+  the unconditional owed-grant ERROR) — the pass depended on
+  snapshotting between them, and the #681 dependency sweep's goroutine
+  timing flipped it deterministically in some environments, leaving
+  `make go-battery` red on main. The selection now names the record it
+  wants
+  ([#718](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/718)).
+
+- **CHANGELOG duplicate entries are now a checked contract.** Resolving a
+  CHANGELOG conflict with a section-level "take ours" can resurrect an entry a
+  branch had already moved or reworded, leaving one change described twice (this
+  bit twice in one rebasing session). `tests/contract/check-changelog-duplicates.py`
+  — wired into `hooks/pre-commit` alongside the version-sync check, and into CI
+  beside the deps/import contract checks — fails when the same bold lead-in
+  appears in two sections and at least one of them is `[Unreleased]`; the same
+  lead-in inside already-released sections is history and is deliberately
+  tolerated
+  ([#581](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/581)).
+
+- **An authorisation NoDogSplash holds that this module never made is closed by
+  the usage sweep — the inverse of the zombie-session drift.** The startup
+  reconciliation (#595, #596) closes the window a module *restart* creates, but a
+  startup pass can only ever see the drift that exists at the instant it runs.
+  A client NoDogSplash reports as `Authenticated` that entered its list without
+  going through this module at all — an `ndsctl auth` run by hand or by a script,
+  a record restored from NoDogSplash's own state file when the *service* restarts
+  (`state_file_import`, nodogsplash 5.0.2), or a box whose merchant came up
+  degraded so the startup pass never ran — held an open, **unmetered** gate with
+  no session, no metering baseline, no allotment and no `/balance` record, for as
+  long as NoDogSplash's own session timeout (configured here at 86400 s, because
+  the Go backend is meant to be the sole authority on when a session ends). The
+  usage sweep now reads the client list (`valve.ListClients`, `ndsctl json` with
+  no argument) on the same ~30 s cadence as the stale-binding reconciliation and
+  closes the gate of every such client, FAIL CLOSED, naming each MAC and the fact
+  that the customer must buy again. A client this module knows — a session, or a
+  gate the valve still tracks, which includes one whose close is still
+  unconfirmed — is left alone, and the membership test folds MAC case on both
+  sides (the session map is lower-case while ndsctl's own lookup is
+  case-sensitive, so a differently-spelled MAC of the module's OWN customer would
+  otherwise be read as inherited and have a paying customer's gate closed). Every
+  state other than `Authenticated` is left alone deliberately: a
+  `Preauthenticated` record is a client on its way through the captive portal —
+  splash page, FAS, `/nodogsplash_auth/` — which cannot pass traffic and is a
+  legitimate record, so it is never deauthorised; `Trusted`/`Blocked` are the
+  operator's own `trustedmaclist`/`blockedmaclist`. A client list the module
+  cannot READ changes nothing and is reported once per outage, and the pass never
+  reports a refused close as done. `ClientRecord.Authorised()` remains the only
+  authorisation test, so `#545`/`#595`'s "a failed probe is never evidence" holds
+  unchanged.
+  ([#619](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/619))
+  ([#619](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/619))
+
+- **CONTRIBUTING now states the branch-refresh discipline: rebase in
+  place, never hand-carry `main`.** Merging `main` forward into a PR
+  branch (evil merges, a `go.sum` equal to neither parent, replayed
+  thousand-line diffs) and opening fresh "rebase of #N" PRs (zombie
+  originals nobody closes) are both named as anti-patterns, with the
+  in-place recipe: rebase onto current `main`, run the battery,
+  `--force-with-lease` the original PR branch, close what you supersede
+  in the same action, and keep carried CHANGELOG entries under
+  `[Unreleased]` with their PR link.
+  ([#693](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/693))
+
 ### Fixed
 
 - **The cloud-lab client image can build from scratch again.** `Dockerfile.client`
@@ -350,82 +432,6 @@ and [Semantic Versioning](https://semver.org/).
   unspent-abandon-frees-fresh-payment; plus the checkstate semantics trio at
   the wallet layer.
 
-### Changed / Internal
-
-- **The duplicate-guard harness installs the ndsctl its grant assertion
-  exercises.** `newDuplicateGuardMerchant` ended by asserting a *granted*
-  session — the only grant-exercising assertion in its file — but installed no
-  fake `ndsctl`, unlike every other grant-exercising test. On a host without
-  `ndsctl` on PATH the third submission died as a grant-pending notice instead,
-  so the file's battery was deterministically red on every bare host/CI runner
-  regardless of any other fix. The harness now installs the same renewal fake
-  the other tests use, scoped to each test's lifetime
-  ([#822](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/822)).
-
-- **The bcm2709 artifact rows build again.** `build-sdk-package.sh`
-  defaulted bcm2709 to `EXPECTED_ARCH=arm_cortex-a7`, but the SDK stages
-  its packages under `arm_cortex-a7_neon-vfpv4` — the staged-packages
-  directory check failed and killed the copy step on an otherwise-clean
-  cross-compile (the rc1 artifact matrix's two missing rows)
-  ([#717](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/717)).
-
-- **The late-receive outcome test no longer races its own log.** The
-  #700 test sampled "the last non-deadline log line" while the code path
-  under test logs two lines in fixed order (the COMPLETED record, then
-  the unconditional owed-grant ERROR) — the pass depended on
-  snapshotting between them, and the #681 dependency sweep's goroutine
-  timing flipped it deterministically in some environments, leaving
-  `make go-battery` red on main. The selection now names the record it
-  wants
-  ([#718](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/718)).
-
-- **CHANGELOG duplicate entries are now a checked contract.** Resolving a
-  CHANGELOG conflict with a section-level "take ours" can resurrect an entry a
-  branch had already moved or reworded, leaving one change described twice (this
-  bit twice in one rebasing session). `tests/contract/check-changelog-duplicates.py`
-  — wired into `hooks/pre-commit` alongside the version-sync check, and into CI
-  beside the deps/import contract checks — fails when the same bold lead-in
-  appears in two sections and at least one of them is `[Unreleased]`; the same
-  lead-in inside already-released sections is history and is deliberately
-  tolerated
-  ([#581](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/581)).
-
-- **An authorisation NoDogSplash holds that this module never made is closed by
-  the usage sweep — the inverse of the zombie-session drift.** The startup
-  reconciliation (#595, #596) closes the window a module *restart* creates, but a
-  startup pass can only ever see the drift that exists at the instant it runs.
-  A client NoDogSplash reports as `Authenticated` that entered its list without
-  going through this module at all — an `ndsctl auth` run by hand or by a script,
-  a record restored from NoDogSplash's own state file when the *service* restarts
-  (`state_file_import`, nodogsplash 5.0.2), or a box whose merchant came up
-  degraded so the startup pass never ran — held an open, **unmetered** gate with
-  no session, no metering baseline, no allotment and no `/balance` record, for as
-  long as NoDogSplash's own session timeout (configured here at 86400 s, because
-  the Go backend is meant to be the sole authority on when a session ends). The
-  usage sweep now reads the client list (`valve.ListClients`, `ndsctl json` with
-  no argument) on the same ~30 s cadence as the stale-binding reconciliation and
-  closes the gate of every such client, FAIL CLOSED, naming each MAC and the fact
-  that the customer must buy again. A client this module knows — a session, or a
-  gate the valve still tracks, which includes one whose close is still
-  unconfirmed — is left alone, and the membership test folds MAC case on both
-  sides (the session map is lower-case while ndsctl's own lookup is
-  case-sensitive, so a differently-spelled MAC of the module's OWN customer would
-  otherwise be read as inherited and have a paying customer's gate closed). Every
-  state other than `Authenticated` is left alone deliberately: a
-  `Preauthenticated` record is a client on its way through the captive portal —
-  splash page, FAS, `/nodogsplash_auth/` — which cannot pass traffic and is a
-  legitimate record, so it is never deauthorised; `Trusted`/`Blocked` are the
-  operator's own `trustedmaclist`/`blockedmaclist`. A client list the module
-  cannot READ changes nothing and is reported once per outage, and the pass never
-  reports a refused close as done. `ClientRecord.Authorised()` remains the only
-  authorisation test, so `#545`/`#595`'s "a failed probe is never evidence" holds
-  unchanged.
-  ([#619](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/619))
-  ([#619](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/619))
-
-
-### Fixed
-
 - **The rebrand gutter allows documented prose references to the commercial
   re-brand.** `tests/packaging/rebrand-literal-gutter_test.sh` was red on
   `main` (5 passed / 1 failed): the merged discovery-signaling decision
@@ -489,19 +495,6 @@ and [Semantic Versioning](https://semver.org/).
   and the extended table in
   [`docs/architecture/walletport-contract.md`](docs/architecture/walletport-contract.md#5-candidate-mapping-first-pass).
   ([#631](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/631))
-
-### Changed / Internal
-
-- **CONTRIBUTING now states the branch-refresh discipline: rebase in
-  place, never hand-carry `main`.** Merging `main` forward into a PR
-  branch (evil merges, a `go.sum` equal to neither parent, replayed
-  thousand-line diffs) and opening fresh "rebase of #N" PRs (zombie
-  originals nobody closes) are both named as anti-patterns, with the
-  in-place recipe: rebase onto current `main`, run the battery,
-  `--force-with-lease` the original PR branch, close what you supersede
-  in the same action, and keep carried CHANGELOG entries under
-  `[Unreleased]` with their PR link.
-  ([#693](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/693))
 
 ## [v0.6.0-rc1] - 2026-10-05
 ### Added
