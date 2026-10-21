@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # go-battery.sh — the canonical pre-PR Go gate across ALL modules.
+# contract-exempt: the test battery compiles per-module ./..., never a packaging set
 #
 # WHY A SCRIPT: src/ is a multi-module tree (16 nested go.mod files with
 # replace directives); `go <cmd> ./...` from src/ covers ONLY the root

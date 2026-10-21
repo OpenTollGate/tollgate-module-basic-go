@@ -42,6 +42,7 @@ BUILD_SCRIPTS = {
     "shc-build-package.sh",     # Path A transport (short-lived VM wrapper)
     "build-env.sh",             # shared: manifest-pinned environment
     "portal-build.sh",          # asset build (portal bundle, not a package path)
+    "gen-build-contract.sh",    # contract emitter (not a build path; feeds consume its output from the tarball)
     "normalize-apk-version.sh", # apk packaging helper
     "normalize-ipk-version.sh", # ipk packaging helper (#738: Debian pre-release ordering)
     "update-build-inputs.sh",   # manifest refresher (not a build path)
