@@ -356,6 +356,11 @@ type MerchantInterface interface {
 	SetOnReachableSetChanged(callback func())
 	IssueSessionTicket(macAddress string) (string, int64, error)
 	RebindSession(ticket, macAddress string) (*CustomerSession, error)
+	// IssueOnRequest issues custom-unit ecash from an operator mint to hand to
+	// a customer, who holds it and spends it in small transactions.
+	IssueOnRequest(mintURL, unit string, amount uint64) (string, error)
+	// DefaultIssuanceMint returns the configured mint issuing a unit, or "".
+	DefaultIssuanceMint(unit string) string
 }
 
 // Merchant represents the financial decision maker for the tollgate
@@ -363,6 +368,11 @@ type Merchant struct {
 	config            *config_manager.Config
 	configManager     *config_manager.ConfigManager
 	tollwallet        tollwallet.WalletPort
+	// issuePollInterval/issueTimeout bound how long IssueOnRequest waits for a
+	// quote to be paid. Zero means the package defaults; they are fields so a
+	// test can exercise the timeout path without waiting two minutes.
+	issuePollInterval time.Duration
+	issueTimeout      time.Duration
 	mintHealthTracker *MintHealthTracker
 	customerSessions  map[string]*CustomerSession
 	expiredSessions   map[string]int64

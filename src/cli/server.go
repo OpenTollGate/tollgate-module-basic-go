@@ -4,16 +4,16 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"net"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
-
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
 	"github.com/sirupsen/logrus"
+	"net"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 )
 
 const (
@@ -216,12 +216,89 @@ func (s *CLIServer) handleWalletCommand(args []string, flags map[string]string) 
 		return s.handleWalletInfo()
 	case "fund":
 		return s.handleWalletFund(args[1:], flags)
+	case "issue":
+		return s.handleWalletIssue(args[1:], flags)
 	default:
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Unknown wallet action: %s (supported: drain, balance, info, fund)", action),
+			Error:     fmt.Sprintf("Unknown wallet action: %s (supported: drain, balance, info, fund, issue)", action),
 			Timestamp: time.Now(),
 		}
+	}
+}
+
+// handleWalletIssue issues custom-unit ecash on request and returns the
+// serialized token. The token is the product: it goes to the customer, who
+// holds it and spends it in small transactions.
+//
+// Arguments are positional and validated in the merchant layer rather than
+// here, so the safety checks live with the money code and are covered by its
+// tests.
+func (s *CLIServer) handleWalletIssue(issueArgs []string, flags map[string]string) CLIResponse {
+	if len(issueArgs) < 2 {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Issue command requires an amount and a unit: wallet issue <amount> <unit> [mint-url]",
+			Timestamp: time.Now(),
+		}
+	}
+	amount, err := strconv.ParseUint(issueArgs[0], 10, 64)
+	if err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Invalid amount %q: must be a whole number", issueArgs[0]),
+			Timestamp: time.Now(),
+		}
+	}
+	unit := issueArgs[1]
+
+	m := s.merchantProvider.GetMerchant()
+	if m == nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     "Merchant not available",
+			Timestamp: time.Now(),
+		}
+	}
+
+	// Default to the single configured mint when the caller does not name one:
+	// the common case is a router with exactly one operator mint.
+	mintURL := ""
+	if len(issueArgs) >= 3 {
+		mintURL = issueArgs[2]
+	}
+	if mintURL == "" {
+		mintURL = m.DefaultIssuanceMint(unit)
+	}
+	if mintURL == "" {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("No mint configured for unit %q; pass a mint URL explicitly", unit),
+			Timestamp: time.Now(),
+		}
+	}
+
+	token, err := m.IssueOnRequest(mintURL, unit, amount)
+	if err != nil {
+		cliLogger.WithError(err).WithField("unit", unit).Error("Issuance failed")
+		return CLIResponse{
+			Success:   false,
+			Error:     err.Error(),
+			Timestamp: time.Now(),
+		}
+	}
+
+	cliLogger.WithFields(logrus.Fields{"amount": amount, "unit": unit}).Info("Issued ecash on request")
+	return CLIResponse{
+		Success: true,
+		Message: fmt.Sprintf("Issued %d %s", amount, unit),
+		Data: map[string]interface{}{
+			"amount": amount,
+			"unit":   unit,
+			"mint":   mintURL,
+			"token":  token,
+		},
+		Timestamp: time.Now(),
 	}
 }
 

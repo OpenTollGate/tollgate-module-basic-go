@@ -106,6 +106,15 @@ func (m *scriptedDrainMerchant) Fund(cashuToken string) (uint64, error)     { re
 func (m *scriptedDrainMerchant) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*merchant.LightningInvoice, error) {
 	return nil, nil
 }
+
+// IssueOnRequest/DefaultIssuanceMint complete the MerchantInterface. A mock
+// cannot issue real ecash, so it reports an empty token; tests that exercise
+// issuance use the merchant package's own fake wallet instead.
+func (m *scriptedDrainMerchant) IssueOnRequest(string, string, uint64) (string, error) {
+	return "", nil
+}
+
+func (m *scriptedDrainMerchant) DefaultIssuanceMint(string) string { return "" }
 func (m *scriptedDrainMerchant) GetLightningInvoiceStatus(quoteID, macAddress string) (*merchant.LightningQuoteStatus, error) {
 	return nil, nil
 }
