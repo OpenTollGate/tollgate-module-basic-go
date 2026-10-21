@@ -124,9 +124,11 @@ make manual-check     # portal + all-module Go battery in a fresh module cache
 > install, use the
 > [installer runbook](https://github.com/OpenTollGate/tollgate-installer/blob/main/docs/install-runbook.md).
 
-Build artifacts produced by the CI matrix in
+The build workflow definition in
 [.github/workflows/build-package.yml](.github/workflows/build-package.yml)
-target both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats.
+targets both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats. The
+GitHub Actions lane is currently being rebuilt; use the release assets or the
+installer runbook above until it is restored.
 
 On OpenWrt 25.x:
 ```sh
