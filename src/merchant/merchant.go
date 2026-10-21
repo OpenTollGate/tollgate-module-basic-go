@@ -497,8 +497,19 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	}
 
 	mintURLs := make([]string, len(reachableMints))
+	mintUnits := make(map[string]string, len(reachableMints))
 	for i, mint := range reachableMints {
 		mintURLs[i] = mint.URL
+		// Per-mint currency unit. Empty means sat, so a config written before
+		// custom units existed behaves exactly as before. The cdk backend uses
+		// this to open the mint's wallet in the unit the mint issues; gonuts
+		// ignores it.
+		for _, mc := range configManager.GetConfig().AcceptedMints {
+			if mc.URL == mint.URL {
+				mintUnits[mint.URL] = mc.Unit
+				break
+			}
+		}
 	}
 
 	log.Printf("Setting up wallet...")
@@ -506,7 +517,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
 	}
-	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false)
+	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false, mintUnits)
 
 	if walletErr != nil {
 		log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)

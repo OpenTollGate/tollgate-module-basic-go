@@ -26,9 +26,16 @@ type CdkWallet struct {
 	quoteToMint    map[string]string
 	acceptedMints  []string
 	allowUntrusted bool
+	// mintUnits carries the configured unit per mint URL ("" == sat). A wallet
+	// created for a mint must run in the unit that mint issues: the cdk-go
+	// FFI keys every wallet (keyset lookup, receive, balance) by unit, so an
+	// mb token from an operator mint needs a wallet in CurrencyUnitCustom
+	// "mb" — a Sat wallet cannot even see the mb keyset (probe evidence in
+	// cdk_custom_unit_probe_test.go).
+	mintUnits map[string]string
 }
 
-func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool) (WalletPort, error) {
+func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool, mintUnits map[string]string) (WalletPort, error) {
 	mnemonic, err := loadOrCreateMnemonic(walletPath)
 	if err != nil {
 		return nil, fmt.Errorf("load or create cdk wallet mnemonic: %w", err)
@@ -40,6 +47,7 @@ func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrus
 		quoteToMint:    make(map[string]string),
 		acceptedMints:  acceptedMints,
 		allowUntrusted: allowAndSwapUntrustedMints,
+		mintUnits:      mintUnits,
 	}, nil
 }
 
@@ -90,7 +98,32 @@ func (t *cdkToken) Mint() string {
 	if err != nil {
 		return ""
 	}
-	return fmt.Sprintf("%v", mu)
+	// cdk-go 0.17.3 returns a MintUrl struct; %v rendered "{url}" which could
+	// never match an accepted-mints list entry — tokens were rejected before
+	// any unit logic ran (found by the mb receive probe).
+	return mu.Url
+}
+
+// Unit reports the token's currency unit, or "" when the FFI cannot say. The
+// merchant prices with this value (see calculateAllotmentForUnit), so a
+// missing unit is reported honestly rather than assumed to be "sat".
+func (t *cdkToken) Unit() string {
+	u := t.inner.Unit()
+	if u == nil || *u == nil {
+		return ""
+	}
+	switch v := (*u).(type) {
+	case cdk_ffi.CurrencyUnitSat:
+		return "sat"
+	case cdk_ffi.CurrencyUnitMsat:
+		return "msat"
+	case cdk_ffi.CurrencyUnitUsd:
+		return "usd"
+	case cdk_ffi.CurrencyUnitCustom:
+		return v.Unit
+	default:
+		return ""
+	}
 }
 
 func (t *cdkToken) Amount() uint64 {
@@ -104,14 +137,6 @@ func (t *cdkToken) Amount() uint64 {
 func (t *cdkToken) Serialize() (string, error) {
 	return t.inner.Encode(), nil
 }
-
-// Unit returns "": the cdk-go FFI surface in use here exposes Value() and
-// MintUrl() but no unit accessor, and inventing "sat" would be exactly the
-// silent mispricing this interface change exists to prevent. Tokens decoded
-// through this adapter price against the mint's configured price_unit
-// default (calculateAllotmentForUnit); a custom-unit token from an
-// operator-run mint must therefore be routed through a unit-aware adapter.
-func (t *cdkToken) Unit() string { return "" }
 
 func (t *cdkToken) Close() {
 	t.mu.Lock()
@@ -142,7 +167,12 @@ func (w *CdkWallet) Receive(t Token) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	amount, err := wallet.Receive(ct.inner, cdk_ffi.ReceiveOptions{})
+	// ReceiveOptions{} has a nil AmountSplitTarget interface; the uniffi
+	// lowerer panics on nil enum values ("invalid enum value <nil>" — found
+	// by the mb receive probe). SplitTargetNone is the explicit default.
+	amount, err := wallet.Receive(ct.inner, cdk_ffi.ReceiveOptions{
+		AmountSplitTarget: cdk_ffi.SplitTargetNone{},
+	})
 	if err != nil {
 		return 0, mapCdkError(err)
 	}
@@ -236,6 +266,18 @@ func (w *CdkWallet) Send(amount uint64, mintUrl string, includeFees bool) (Token
 	}
 	opts := cdk_ffi.SendOptions{
 		IncludeFee: includeFees,
+		// The FFI lowers AmountSplitTarget as a non-optional enum: a zero value
+		// panics inside FfiConverterSplitTarget.Write ("invalid enum value
+		// <nil>"). Send a whole-proof token, which is what a caller handing a
+		// token to a user wants anyway.
+		AmountSplitTarget: cdk_ffi.SplitTargetNone{},
+		// Same class of bug: SendKind is also lowered as a non-optional enum.
+		// OnlineExact lets the wallet swap first so the token carries exactly
+		// the requested amount.
+		SendKind: cdk_ffi.SendKindOnlineExact{},
+		// Third non-optional enum in this struct: the zero value is rejected
+		// ("Invalid P2PKLockedProofSendMode enum value: 0").
+		P2pkLockedProofSendMode: cdk_ffi.P2pkLockedProofSendModeSwap,
 	}
 	prepared, err := wallet.PrepareSend(cdk_ffi.Amount{Value: amount}, opts)
 	if err != nil {
@@ -395,7 +437,8 @@ func (w *CdkWallet) getOrCreateWallet(mintUrl string) (*cdk_ffi.Wallet, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if wlt, ok := w.wallets[mintUrl]; ok {
+	unit := w.mintUnits[mintUrl]
+	if wlt, ok := w.wallets[mintUrl+"|"+unit]; ok {
 		return wlt, nil
 	}
 
@@ -403,7 +446,17 @@ func (w *CdkWallet) getOrCreateWallet(mintUrl string) (*cdk_ffi.Wallet, error) {
 		return nil, errors.New("cdk wallet has no mnemonic — NewWalletPort must initialize it")
 	}
 
-	h := sha256.Sum256([]byte(mintUrl))
+	// Unit: the wallet must run in the unit the mint issues (config's
+	// "unit"; "" == sat). The FFI keys keysets/balances by unit, so this is
+	// not cosmetic — a Sat wallet cannot see a custom-unit keyset.
+	var cdkUnit cdk_ffi.CurrencyUnit
+	if unit == "" || unit == "sat" {
+		cdkUnit = cdk_ffi.CurrencyUnitSat{}
+	} else {
+		cdkUnit = cdk_ffi.CurrencyUnitCustom{Unit: unit}
+	}
+
+	h := sha256.Sum256([]byte(mintUrl + "|" + unit))
 	dbPath := filepath.Join(w.walletPath, hex.EncodeToString(h[:8])+".sqlite")
 
 	store := cdk_ffi.WalletStoreSqlite{Path: dbPath}
@@ -411,16 +464,16 @@ func (w *CdkWallet) getOrCreateWallet(mintUrl string) (*cdk_ffi.Wallet, error) {
 
 	wallet, err := cdk_ffi.NewWallet(
 		mintUrl,
-		cdk_ffi.CurrencyUnitSat{},
+		cdkUnit,
 		w.mnemonic,
 		store,
 		config,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("create wallet for %s: %w", mintUrl, err)
+		return nil, fmt.Errorf("create wallet for %s (unit %q): %w", mintUrl, unit, err)
 	}
 
-	w.wallets[mintUrl] = wallet
+	w.wallets[mintUrl+"|"+unit] = wallet
 	return wallet, nil
 }
 

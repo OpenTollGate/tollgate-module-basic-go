@@ -76,6 +76,10 @@ github.com/bytedance/sonic/loader v0.2.4 h1:ZWCw4stuXUsn1/+zQDqeE7JKP+QO47tz7QCN
 github.com/bytedance/sonic/loader v0.2.4/go.mod h1:N8A3vUdtUebEY2/VQC0MyhYeKUFosQU6FxH2JmUe6VI=
 github.com/cashubtc/cdk-go v0.17.3 h1:ncU2UbKCZ8OalMc9RQA2Fbh5rbuDYz4ULbF+aZSE7nw=
 github.com/cashubtc/cdk-go v0.17.3/go.mod h1:LkFjdm+QOW+35OIgA8cwPiElZDBDd5qlONTIs492PDE=
+github.com/cashubtc/cdk-go v0.18.1 h1:xRyzuB26lA8xz5PBpH5DcaJJ9DbEsrkLGHFqbgUDCEw=
+github.com/cashubtc/cdk-go v0.18.1/go.mod h1:LkFjdm+QOW+35OIgA8cwPiElZDBDd5qlONTIs492PDE=
+github.com/cashubtc/cdk-go v0.18.2 h1:p5K4OtwIUL1PvEQeOa7DoBtAPyCboN+xddzHJssoEMo=
+github.com/cashubtc/cdk-go v0.18.2/go.mod h1:LkFjdm+QOW+35OIgA8cwPiElZDBDd5qlONTIs492PDE=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
 github.com/cenkalti/backoff/v4 v4.3.0/go.mod h1:Y3VNntkOUPxTVeUxJ/G5vcM//AlwfmyYozVcomhLiZE=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=

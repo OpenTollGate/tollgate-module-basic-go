@@ -28,7 +28,13 @@ type GonutsWallet struct {
 
 // NewWalletPort creates a WalletPort backed by gonuts-tollgate.
 // This is the default factory; the cdk_wallet build tag provides an alternative.
-func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool) (WalletPort, error) {
+//
+// mintUnits is accepted for signature parity with the cdk backend and ignored
+// here: gonuts represents every amount in satoshis, so there is no per-mint
+// unit to open a wallet in. Callers that need custom units (operator-run
+// mb/min mints) select the cdk backend.
+func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool, mintUnits map[string]string) (WalletPort, error) {
+	_ = mintUnits
 	tw, err := New(walletPath, acceptedMints, allowAndSwapUntrustedMints)
 	if err != nil {
 		return nil, err
