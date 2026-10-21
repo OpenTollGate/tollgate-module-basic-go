@@ -204,6 +204,11 @@ jobs:
           GOFLAGS: -buildvcs=false
           PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
           SOURCE_DATE_EPOCH: ${{ needs.determine-versioning.outputs.source_date_epoch }}
+          # #941: this lane is the build of record, so the post-build
+          # version-consistency fence must FAIL here, not warn — a release
+          # whose stamp diverged from its package is unshippable, and a
+          # fence that cannot fail is decoration.
+          TG_REQUIRE_VERSION_CONSISTENCY: "1"
         run: |
           set -euo pipefail
           # From the source commit (#383): two builds of one commit must
@@ -215,6 +220,23 @@ jobs:
             -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.Version=$PACKAGE_VERSION' \
             -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.GitCommit=$GIT_COMMIT' \
             -X 'github.com/OpenTollGate/tollgate-module-basic-go/src/cli.BuildTime=$BUILD_TIME'"
+          # The CLI is a separate module that does not link src/cli, so its
+          # version rides main.version (same composition as cli_ldflags in
+          # packaging/build-env.sh — kept inline here because this lane's
+          # ldflags stay hand-maintained per the two-lane split). Without it
+          # the fence below would rightly fail: an unstamped CLI embeds no
+          # version at all.
+          CLI_LDFLAGS="$LDFLAGS \
+            -X 'main.version=$PACKAGE_VERSION'"
+
+          # #941 fence support: the post-build assert lives in
+          # packaging/build-env.sh — the same helpers the packaging legs
+          # reach through scripts/fetch-upx.sh. TG_ROOT matters: build-env.sh
+          # cannot infer the repository from $0 in a workflow step script.
+          TG_ROOT="$PWD"
+          export TG_ROOT
+          # shellcheck source=packaging/build-env.sh
+          . "$PWD/packaging/build-env.sh"
 
           TARGETS='[
             {"key":"arm64","goarch":"arm64"},
@@ -239,9 +261,17 @@ jobs:
 
             GOOS=linux GOARCH=$goarch GOARM=${goarm:-} GOMIPS=${gomips:-} \
               go build -C src/cmd/tollgate-cli -o "$PWD/bin/$key/tollgate" \
-              -trimpath -ldflags="$LDFLAGS"
+              -trimpath -ldflags="$CLI_LDFLAGS"
 
             ls -lh "bin/$key/"
+
+            # #941 fence: fence each target as it is built, so the fence's
+            # subject list derives from TARGETS above — an enumerated copy
+            # here would silently skip a target added to TARGETS later (the
+            # #791 enumeration-drift class). This lane stamps
+            # PACKAGE_VERSION, so that is the expected string.
+            tg_assert_version_consistency "$PWD/bin/$key/tollgate-wrt" "$PACKAGE_VERSION"
+            tg_assert_version_consistency "$PWD/bin/$key/tollgate" "$PACKAGE_VERSION"
           done < <(printf '%s' "$TARGETS" | jq -c '.[]')
 
       - name: Install nak
