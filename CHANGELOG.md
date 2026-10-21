@@ -9,6 +9,347 @@ and [Semantic Versioning](https://semver.org/).
 > `v0.4.0` tag.
 
 ## [Unreleased]
+
+## [v0.6.0] - 2026-10-21
+
+### Added
+
+- **Changelog entries no longer conflict on merge: a change's entry is its own
+  file.** Every PR used to append its bullet to the same anchor of
+  `CHANGELOG.md`, so the second of two open PRs always conflicted there — about a
+  dozen hand-resolved hunks on the 0.6.0 train, two of which resurrected an entry
+  a branch had already moved past a keep-both-sides resolution (#524, #531). An
+  entry is now a fragment, `changelog.d/<pr>-<slug>.<type>.md`, whose body is the
+  bullet verbatim: unique filenames cannot conflict, so a merge never touches the
+  changelog. `scripts/changelog-assemble.py fold` writes the accumulated
+  fragments into the release section in one deterministic step — one wave under
+  the release heading, newest PR first, subsections in canonical order — and
+  deletes them; `check` validates fragments in the pre-commit hook and in CI
+  ([#679](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/679)).
+
+- **`ca-bundle` is now a declared dependency on every build lane, instead of an
+  assumption the installer used to paper over.** The gateway does money over
+  TLS — it talks to Cashu mints and Lightning with Go's system root pool and no
+  insecure escape hatch — so a box that cannot verify TLS cannot take a payment.
+  The CA store was previously missing from the package metadata: the SDK recipe
+  (packaging/Makefile) and the `.ipk` recipes (packaging/local-build-ipk.sh, the
+  GitHub `.ipk` lane, the generated ngit shards) all declare `ca-bundle` now, so
+  apk/opkg resolves the closure and pulls the CA store in with the package. On a
+  box that can still reach the feed, that is the whole fix.
+  ([#828](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/828)).
+
+  The missing dependency surfaced on a GL-MT3000 (OpenWrt 25.12.5): installing
+  the shipped package by hand failed at the first HTTPS fetch, where `wget` and
+  `apk update` both died with "SSL verify error: unknown error" because the
+  image carried no CA store.
+
+  It does not, and cannot, bootstrap a box that has NO trust anchors at all:
+  there the very first HTTPS fetch already fails verification, and no dependency
+  can repair a fetch that must itself be verified. The README now states that
+  honest offline path — fetch the package files to the box by other means
+  (scp), then install them locally in one call under a single explicit trust
+  override — and no longer implies the dependency alone can bootstrap an
+  anchor-less box. The manual-install docs also name the file the verifier
+  actually consumes, the allowed-signers entry at
+  .github/release-keys/allowed_signers rather than the bare public key
+  (release-signing.pub) beside it, pin it by commit SHA rather than the moving
+  master branch, and note that a stock router ships dropbear (no ssh-keygen)
+  and wget or uclient-fetch (no curl), so the manifest is verified on a trusted
+  machine and the hash checked on the router. The dependency is now asserted
+  from build metadata, not grepped text:
+  tests/packaging/apk-install-resolution_test.sh expands packaging/Makefile
+  with `make -pn` and requires ca-bundle in the package definition's DEPENDS,
+  and builds a real `.ipk` with packaging/build-ipk.sh and asserts the
+  `Depends:` field of the control file opkg consumes — both fail closed when
+  the dependency is dropped or moved into a comment, where the previous
+  literal-string greps could not tell the difference.
+
+- **The x86-64 VM acceptance lane exists and its first campaign is green.**
+  A QEMU-on-ai-legion lane (`tests/vm-campaign/`, the conwrt-bench
+  snapshot-boot pattern) boots pristine OpenWrt 25.12.0 x86-64 and drives the
+  release acceptance checks over the serial console: artifact install with its
+  dependency closure, post-install hostname/network convergence,
+  `tollgate version` = v0.6.0-rc1, payment API `:2121` listening, portal files
+  on `/www/tollgate/`, NoDogSplash on `gatewayport 2050`, the NTP pre-auth nft
+  rule, and same-version reinstall idempotence — all PASS against the local
+  build-sdk-package artifact (sha256 recorded in the lane README). Reboot
+  persistence and the payment-flow scenarios (real payment, concurrent
+  duplicate, kill-recovery — the #502 journal's first on-target exercise) are
+  the lane's documented next steps.
+
+### Changed
+
+- **A fresh install now sets a fixed default admin and management-WiFi
+  password (`TollGate`) instead of refusing.** rc2/rc3 left a credential-less
+  router with the admin board switched OFF and required the operator to run
+  `passwd root` before the package would install at all — a burden that was
+  also lane-inconsistent, because apk-tools 3 treats a failing `pre-install` as
+  non-fatal and the `.apk` landed anyway. The uci-defaults now set root's
+  password to a well-known constant and the private (management) WiFi key to
+  the same value, mark the admin credential PROVISIONAL, and serve the board;
+  the admin/config UI forces the operator to choose their own password at first
+  login (shipped separately, post-release). The package still accepts NO
+  install-time credential — `TOLLGATE_ADMIN_PASSWORD` and a staged
+  `/etc/tollgate/admin-password` file stay ignored — and an operator's own
+  password is never rewritten. The `preinst` refusal is removed (now a no-op);
+  the write still fails CLOSED if the default cannot be set.
+
+- **The package never sets or generates a credential the operator did not
+  choose.** When root had no password the package once generated a provisional
+  credential and served a first-run page to set it; a later revision instead set
+  root from `TOLLGATE_ADMIN_PASSWORD`, or — because apk-tools 3 (OpenWrt >=
+  25.12) does not forward the install environment to package scriptlets — from a
+  root-only file (`/etc/tollgate/admin-password`, and
+  `/etc/tollgate/wifi-password` for the private-WiFi passphrase). **Both are
+  gone.** The package now sets **nothing**: it refuses to serve the admin board
+  until the operator has a password (set with `passwd root`, or the LuCI
+  password page) and re-runs the setup, and on the private WiFi it leaves the AP
+  **disabled** until a passphrase is set with `tollgate network private
+  set-password` (the wired `br-private` management bridge is unaffected). A
+  non-interactive "supply a value" mechanism is too easy to mis-fire: an
+  operator who pasted the run-book's **example** value verbatim ended up with a
+  password they never chose and no link to it. A provisional marker carried over
+  from an older install is still honoured, so an upgraded router keeps telling
+  the operator its root password was generated rather than chosen, and a
+  deliberately **locked** root account is never re-enabled
+  ([#884](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/884)).
+
+- **A generated admin credential is marked provisional.** A router whose root
+  password was unset once got a generated credential printed once — easy to
+  miss, and its only other copy went to `/tmp/tollgate-setup.log`, which is
+  tmpfs and is truncated at the start of every full-setup run, so an install or
+  upgrade erased the record. The package now generates nothing at all (see the
+  0.6.0 no-generated-credentials entry), but the
+  `/etc/tollgate/admin-credential-provisional` marker is still written by older
+  installs and still read: it is the signal for the config UI to force a
+  password change at first login and the reason a later run re-states the
+  recovery path (`passwd root` over SSH). A locked root account and an
+  unreadable shadow are deliberately exempt
+  ([#708](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/708)).
+
+- **Generated credentials are never printed.** The private-WiFi key the module
+  once generated when the operator chose none is no longer printed to the
+  install output or the log — the owner sets their own at the board, or with
+  `tollgate network private set-password`. (The package no longer generates or
+  applies a credential at all; see the 0.6.0 no-generated-credentials entry, and
+  the private AP is now left disabled until a passphrase is set.)
+  ([#850](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/850)).
+
+- **The package refuses to install on a router whose root has no password.** The
+  `:8090` admin board's login is checked against root's `/etc/shadow` hash, and
+  rpcd's `session.login` accepts **any** password while that hash is empty — so a
+  password-less install would leave an unauthenticatable board. Rather than
+  install and then withhold the board, the package now refuses **before**
+  unpacking: the `preinst` exits non-zero on an empty root hash, so nothing is
+  half-installed and the operator is told to `passwd root` and install again. A
+  deliberately **locked** root is allowed (a real "password login refused"
+  state), and the check is dependency-free (no `jq`, honouring the jq-less
+  upgrade lesson). Offline/image builds (`IPKG_INSTROOT`) bypass it, as does the
+  documented CI hatch `TOLLGATE_ALLOW_EMPTY_ROOT=1`.
+
+### Changed / Internal
+
+- **The module package build is scheduled for decommission.** A new
+  `packaging/README.md` records that `FreedomTechFeed/packages/net/tollgate-wrt/
+  Makefile` is the single canonical shipping package and that this repository's
+  own `packaging/Makefile` exists only for test/reproducibility lanes. The
+  mechanical removal (the `Package/tollgate-wrt` + `Build/*` targets, the
+  `build-ipk`/`local-build-ipk`/`build-env` helpers and the publish jobs in
+  `build-package.yml`) lands after the `v0.6.0-rc4` release; `packaging/files/`
+  stays — the feed consumes it.
+
+- **Gate cleanup clears an abandoned close streak instead of inheriting one.**
+  The valve's per-gate close-streak state outlives the test that spent it: an
+  abandoned streak blocks every later `CloseGate` of that MAC behind
+  `ErrGateCloseAbandoned`, and plain `CloseGate` cannot clear it — so the
+  unmeterable abandoned-close test passed its first `-count` iteration and
+  failed every later one in milliseconds (9/10 in isolation, 2-of-3 iterations
+  in full-suite runs). `closeGateCleanup` now falls back to
+  `ReconcileGateClose` — the reconciliation path the design names as the only
+  way to un-abandon a gate — and the test lifts its `failDeauth` marker in a
+  LIFO-ordered cleanup so that reconciliation can succeed
+  ([#841](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/841)).
+  ([#842](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/842)).
+
+- **The Receive deadline seam is per merchant, not a package-level var.**
+  `receiveTimeout` was a mutable package global — the same shape the
+  pre-flight probe seam abandoned after its own `-race` catch — so a harness
+  shrinking it raced the deadline read of a `PurchaseSession` goroutine an
+  earlier test had leaked, and the race detector killed
+  `TestLateReceiveOutcomeIsRecordedWhenReceiveCompletesAfterTheDeadline`
+  roughly one targeted run in five (#821). The deadline is now
+  `Merchant.receiveTimeout` with the old 30 s as its zero-value default;
+  harnesses narrow it on their own instance, so no shared state remains to
+  race. A 25-iteration targeted soak of the racing pair runs clean.
+  ([#837](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/837)).
+
+- **The first-reachable once-test now pins the contract the wire actually
+  depends on.** `TestSetOnFirstReachableForDegraded_FiredOnce` asserted "no
+  callback when already reachable from initial probe" — the exact opposite of
+  `TestOnFirstReachable_FiredAfterSetOnFirstReachableForDegradedReset`, and of
+  production: the wallet-failure degraded start registers the trigger while
+  mints are already reachable (the failure was the wallet, not the mints), and
+  the setter's latch reset is what fires the upgrade attempt on the next
+  check. Both tests could only coexist because the once-test read its counter
+  before the callback's goroutine could land — passing ~92% of runs on
+  scheduler luck, flaking the other ~8% (#732). It now waits deterministically
+  and asserts the real contract: exactly one fire, never a second.
+  ([#836](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/836)).
+
+- **AGENTS.md now carries the firewall/naming rules of engagement, the
+  verification-venue map, and the changelog fragment convention.** The
+  0.6.0 stop-ship week surfaced repeated footguns — accept-not-final
+  across nft base chains (a green contract suite hid a dead design),
+  interface literals in generated fragments, the three-namespaces "lan"
+  hazard, direct CHANGELOG edits — each learned more than once by
+  different lanes. The rules, the one-home-per-verification-class map,
+  and the fragment convention are now written where every agent reads
+  first
+  ([#800](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/800)).
+
+- **The gonuts-tollgate pin is one version, everywhere, by fence.** The
++  wallet fork's pin drifted three ways in one release week (#791): a
++  carrier outside the documented four (scripts/token-recovery, pinned three
++  minors behind at v0.10.0) was missed by a hand bump, two open PRs pinned
++  the same lines to a tag and a pseudo-version, and a newer fork tag
++  carrying an open-P2 fix went unnoticed. `packaging/build-inputs.json` now
++  names the pin as `.gonuts.version`; `tests/contract/check-gonuts-pin.py`
++  discovers carriers by glob and refuses any disagreement (pre-commit,
++  offline), `scripts/bump-gonuts.sh` rewrites manifest and every carrier
++  together so a half-update cannot happen, and `release-check` refuses to
++  cut a release while the fork has a newer stable tag than the one pinned.
++  The stale token-recovery pin is raised to the current v0.13.0 in the same
++  change
++  ([#791](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/791)).
+
+- **The build surface is now a checked contract.** `tests/contract/check-build-surface.py`
+  pins the two-path doctrine (#708/#710's two pinned SDK eras, #711's rails): it fails when
+  a script looks like a third build path but is not on the sanctioned list, when the
+  manifest stops carrying both eras, or when `build-sdk-package.sh` stops flowing
+  `TG_PACKAGE_FORMAT` into the era-aware sdk image ref. The one-pass jq matrix split in
+  `.github/workflows/build-package.yml` (`ipk_matrix`/`apk_matrix` from a single
+  `define-package-matrix` job) replaces the duplicated per-era matrix blocks, and
+  `hooks/pre-commit` runs the fence locally alongside the version-sync check. Landing after
+  #738, the fence sanctions `packaging/normalize-ipk-version.sh` (the ipk ordering twin of
+  the apk normalizer) so the list reflects current main, not the pre-#738 surface
+  ([#713](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/713)).
+
+- **The admin-UI URL contract is documented in `docs/access-urls.md`.** The new
+  doc states the canonical access paths (`http://tollgate.lan:8090/` →
+  `https://tollgate.lan:8443/` for the config UI board, `http://tollgate.lan:8080/`
+  → `https://tollgate.lan/` for LuCI), explains the single-port-owner `uhttpd`
+  design that makes `https://<host>:8090` and `https://<host>:8080` impossible,
+  and notes that guests on the open SSID are intentionally dropped on all four
+  admin ports. The release-candidate tester guide (`docs/rc-tester-guide.md`) now
+  references the contract and no longer presents LuCI's URL as the primary
+  "admin UI" entry point
+  ([#698](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/698)).
+
+### Fixed
+
+- **The cloud-lab client image can build from scratch again.** `Dockerfile.client`
+  declared `GO_VERSION` inside the rust-builder stage, where the go-builder
+  stage's `FROM` could not see it — every fresh build of the client/killer image
+  died at parse (`golang:-bookworm`, #724). The declaration is now a global ARG
+  above the first `FROM`, matching `Dockerfile.tollgate`'s placement
+  ([#844](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/844)).
+
+- **The NUT-07 evidence seam now correlates answers by value, and journal renames are directory-durable.** Two audit-hardening findings from the 2026-10-09 Cashu audit closed: `CheckTokenSpent` counted answered states but never checked each response Y against the requested set — a mint answering for other Ys, or padding a short reply with a duplicate, could steer the #502 abandoned-vs-owed reconciliation — and now both shapes are named errors; and the three money journals (receive intents, owed grants, quote store) fsync the temp file but not the directory after rename, leaving the newest write droppable by a power cut on ext4-class filesystems — `syncParentDir` closes the gap after every rename and surfaces a failed directory fsync as a save error, because the newest record is the crash-recovery evidence and must be treated as not-yet-durable until the rename is durable
+  ([#840](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/840)).
+
+- **`upstream connect` refreshes the stored credentials and clears competing STA sections off the target radio.** Reconnecting to a known SSID reused its disabled STA section with whatever key that section was created with — a rotated passphrase was silently dropped, the join failed the WPA 4-way handshake in a WRONG_KEY loop, and the connect flow reported "waiting for DHCP" while the real cause was the stale key (#817). The reuse path now rewrites encryption, key (deleting it for open networks) and `network=wwan` before returning. And because mt76 exposes one STA netdev per radio, any *other* enabled STA section on the target radio kept that netdev — its key, possibly stale or foreign, was the one wpa_supplicant joined with while the freshly written candidate never got an interface (the desk run's `tollgate_uplink` hijack); `SwitchUpstream` now disables every enabled STA on the candidate's radio, not just the section `GetActiveSTA` happened to name. The real-logic tests use an in-memory uci fake (the previous mock-level tests asserted canned returns and never touched this logic) and are planted-drift-verified: all three fail on the pre-fix code
+  ([#817](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/817)).
+
+- **Both package formats now ship the GPL license text.** The SDK-free
+  `.ipk` lanes installed the GPL-3.0 text while the SDK `.apk` lane was
+  metadata-only — the same version shipped different contents per format,
+  and the ~35 KB license file was the lone content delta between the lanes.
+  The `.apk` recipe now installs it at the same payload path
+  (`/usr/share/doc/tollgate-wrt/LICENSE`), requires it at build time (a GPL
+  build that cannot find its license fails loudly), and the artifact checks
+  hard-fail any package missing it
+  ([#787](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/787)).
+
+- **Captive clients can resolve hostnames again.** The nodogsplash pre-auth
+  allow list allowed DNS on tcp/53 only (the feed default), so the UDP query
+  every stub resolver sends first was dropped and hostname resolution from an
+  unpaid client timed out — while the portal itself is reached by name. The
+  setup script now asserts both `allow tcp port 53` and `allow udp port 53`
+  with protocol-aware, idempotent guards, on every install path
+  ([#769](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/769)).
+
+- **The rebrand-literal gutter is green again: the whitelabel prefix now
+  lives in one assembled brand registry.** #682's dual-brand SSID
+  recognition (a whitelabel-branded TollGate must be recognizable as a
+  reseller upstream) spelled the re-brand's name contiguously on seven code
+  surfaces — including the shipped `99-tollgate-setup` comment and the
+  runtime prefix table — which re-tripped the code-surface ban #684/#692
+  had scoped, leaving `make release-check` Packaging RED on main (#722).
+  The recognition set moved to `src/wireless_gateway_manager/brands.go`,
+  where the whitelabel entry is assembled from non-contiguous bytes (the
+  same trick the gutter uses for its own scan pattern) and pinned by a test
+  that re-assembles it independently, so an assembly typo fails CI instead
+  of silently dropping a brand from upstream recognition; comments now
+  reference the registry without spelling the name. Recognition behavior is
+  byte-identical
+  ([#739](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/739)).
+
+- **ipk package versions use Debian pre-release ordering.** The ipk lane
+  shipped the raw tag (`v0.6.0-rc1`) as the package version: opkg's
+  comparator sorts a `-rc1` suffix AFTER the bare release, so a device on
+  rc1 would refuse v0.6.0-final as a downgrade, and the leading `v` has
+  no defined ordering at all. `packaging/normalize-ipk-version.sh` (the
+  ipk twin of the apk normalizer) strips the `v` and re-spells
+  `-alpha/-beta/-rc/-pre` as `~alpha/~beta/~rc/~pre`, which sorts
+  before the release — the upgrade topology alpha < beta < rc < final
+  that the tester fleet needs. rc1's sealed artifacts keep the raw
+  scheme; the rc1→final transition on opkg devices needs
+  `opkg install --force-downgrade` once, which the bench upgrade lane
+  should measure
+  ([#738](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/738)).
+
+- **The discovery advertisement answers as JSON.** `GET /` on the payment API
+  (:2121) served the kind-10021 advertisement without a `Content-Type`, so Go
+  sniffed the body and answered `text/plain; charset=utf-8` — reseller clients
+  that negotiate on content type (r2r upstream session managers, and this
+  repo's own prober) logged a warning on every probe cycle. The header is now
+  exactly `application/json`, with no charset suffix: the prober compares the
+  header as a whole string, so a suffix would have kept the warning alive
+  ([#730](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/730)).
+
+- **The bcm2709 artifact rows build again.** Two arch-naming bugs only
+  this target can hit: `build-sdk-package.sh` defaulted bcm2709 to
+  `EXPECTED_ARCH=arm_cortex-a7`, but the SDK stages packages under
+  `arm_cortex-a7_neon-vfpv4` (the staged-dir check failed on an
+  otherwise-clean cross-compile); and the apk path's post-make gate
+  globbed `/builder/build_dir/target-${EXPECTED_ARCH}_*`, which can
+  never match a `+`-feature arch (build_dir spells them
+  `arm_cortex-a7+neon-vfpv4`) — bcm2709 failed *after* a successful
+  build. Both fixed; the rc1 matrix's two missing rows build (12/12)
+  ([#717](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/717)).
+
+- **The business-transaction record exists: an ambiguous or interrupted payment
+  converges to service or to spendable value, never to silence (#502, the two
+  red conformance rows).** Every money-moving `Receive` is now journalled
+  durably **before** the money moves — `receive-intents.json`, keyed by the
+  customer-quotable reference, carrying the serialized token (root-only 0600,
+  like the drain journal) — and resolves only on evidence: the late answer
+  itself when the mint finally replies, or NUT-07 checkstate (a new
+  `WalletPort.CheckTokenSpent`: any-spent means the atomic swap happened;
+  all-unspent means it never did; PENDING is an error, never a guess) when the
+  process died or the answer is gone. A spent proof-set records the owed
+  entitlement and the existing owed-grant machinery delivers exactly one
+  session — across restarts (pending intents reconcile at boot), across
+  resubmissions (the customer's retry triggers a synchronous reconciliation
+  and answers `payment-received-grant-pending` without a second spend), and
+  across ambiguity. An all-unspent answer abandons the attempt: the note
+  stays spendable and a resubmission proceeds fresh. A definitive mint
+  refusal abandons immediately. Pinned by the journal suite:
+  durable-before-the-money-moves, killed-attempt restart convergence (exactly
+  one grant, zero second Receives), resubmission-without-second-spend, and
+  unspent-abandon-frees-fresh-payment; plus the checkstate semantics trio at
+  the wallet layer.
+
 ### Changed / Internal
 
 - **The duplicate-guard harness installs the ndsctl its grant assertion
@@ -3762,7 +4103,8 @@ Router-to-router autopay
 ([#77](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/77)) and
 earlier work. Not documented in this changelog.
 
-[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-rc1...main
+[Unreleased]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0...main
+[v0.6.0]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-rc1...v0.6.0
 [v0.6.0-rc1]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha4...v0.6.0-rc1
 [v0.6.0-alpha4]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha4
 [v0.6.0-alpha3]: https://github.com/OpenTollGate/tollgate-module-basic-go/compare/v0.6.0-alpha1...v0.6.0-alpha3

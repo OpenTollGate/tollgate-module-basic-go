@@ -1,223 +1,95 @@
-# TollGate v0.6.0-rc1 (tollgate-wrt)
+# TollGate v0.6.0 (tollgate-wrt)
 
-**Released**: 2026-10-05
-**Channel**: `rc` — a feature-frozen release candidate. The feature set is
-frozen; only stop-ship fixes will change before `v0.6.0` stable.
+**Released**: 2026-10-21
+**Channel**: stable
+**Module commit**: `cf7cad34677e87e775e7f16786b1bbf18c4bc8bc`
+**Package**: `tollgate-wrt_0.6.0_<arch>-<target>.{apk,ipk}`
 
 <!-- markdownlint-disable MD013 -->
 
-`v0.6.0-rc1` is the release candidate cut after the fund-safety blockers
-measured by the conformance lane were fixed. Its theme is the same as
-alpha4's — *funds safety and honest failure* — carried to the three
-invariants the Go line must hold before it can call itself a payment
-gateway:
+`v0.6.0` is the rc6 code frozen on 2026-10-14, released with final version
+metadata. The release commit adds `VERSION`, the assembled changelog and this
+document; it does not change the runtime code that was tested as
+`v0.6.0-rc6`.
 
-1. **One economic payment buys at most one economic session grant** — even
-   when the same note is submitted twice concurrently (#639).
+## What this release is
+
+The 0.6 line is about **funds safety and honest failure**, carried to three
+invariants the Go gateway must hold:
+
+1. **One economic payment buys at most one economic session grant** — including
+   concurrent submission of the same note.
 2. **An ambiguous Cashu outcome never re-exposes deterministic derivation
    outputs** — a processed swap whose response was dropped is UNKNOWN, not
-   FAILED, and the same blinded messages are never re-sent (#640, the
-   #257/#266/#480 wallet-brick class).
-3. **A received payment is owed service or a recoverable claim** — a
-   gate-open failure after a successful `Receive` becomes a durable,
-   restart-surviving owed entitlement that converges when NoDogSplash
-   accepts (#403).
+   FAILED, and blinded messages are never re-sent.
+3. **A received payment is owed service or a recoverable claim** — a gate-open
+   failure after a successful `Receive` becomes a durable, restart-surviving
+   entitlement that converges when NoDogSplash accepts.
 
-Everything else in this RC is hardening: test credentials out of the
-public tree, a commit-derived release epoch, config validation that
-refuses dead credentials, and one secret-redaction extension.
+## Release highlights
 
-## Fund-safety fixes (the release blockers)
+- **The admin board is the default face.** The entry pair (`:8080`/`:443`)
+  serves the board; LuCI moves to `:8090`/`:8443` and is one button away. The
+  board's credential gate fails closed: an empty root hash never opens an admin
+  listener, and the package installs the fixed `TollGate` default (provisional,
+  forced change at first login) when the operator sets none.
+- **Bounded mint registration.** A slow or hanging mint can no longer stall
+  boot; registration is bounded, and deferred mints register on first use
+  (#940).
+- **Private-subnet recheck (#926).** A late-DHCP upstream that collides with
+  the derived `br-private` moves the subnet without losing DNS.
+- **Target-qualified release assets.** Asset names are
+  `tollgate-wrt_<version>_<arch>-<target>.<ext>`, so one CPU arch that serves
+  several OpenWrt targets (notably `mips_24kc`) publishes every target without
+  collisions. The matrix covers eight `(arch, target)` pairs; see the feed's
+  `TARGETS.md` for per-device validation status.
+- **CA trust is a declared dependency.** `ca-bundle` is in the package
+  metadata on every lane, so a router that can reach the feed can verify TLS
+  for mints and Lightning.
 
-- **Concurrent duplicate payment refused before the mint (#639).** The
-  conformance lane measured one note POSTed twice in parallel granting
-  **two** sessions (2× allotment). `PurchaseSession` now marks the note
-  in flight from the moment the money-moving call starts until its result
-  is consumed; a concurrent second submission is refused locally
-  (`payment-duplicate-inflight`), before any money moves. Sequential
-  duplicates are still refused by the mint as already-spent, unchanged.
-- **No same-body retry after an ambiguous mint outcome (#640).** The
-  wallet client re-sent an identical money-moving POST body on network
-  errors — so a mint that processed a swap and dropped the response
-  received the same blinded messages again, which a strict mint answers
-  with error 10002 (wallet brick). Fixed in `gonuts-tollgate` v0.12.2
-  (network errors return an ambiguous-outcome error immediately; the 429
-  same-body retry is kept, as a rate-limit answer precedes processing).
-  The customer-facing notice says the outcome is unknown and **not to
-  resend the note** (`payment-outcome-unknown`), and an unanswered
-  request no longer condemns a healthy mint in the health tracker.
-- **Owed entitlements (#403).** A successful `Receive` followed by an
-  `ndsctl auth` failure used to leave the value with the operator and the
-  customer with nothing. The paid purchase is now recorded durably
-  (`owed-grants.json`, atomic + fsync, written before the response),
-  retried with backoff until it succeeds or its window passes, reloaded
-  at startup, and applied exactly once. The customer is told access will
-  start automatically and **not to pay again**
-  (`payment-received-grant-pending`). Refund (returning the value)
-  remains deliberately out of scope: an entitlement that expires ungranted
-  is a loud operator action, recorded and kept for audit.
+## Install
 
-## Release hardening
+Use the **installer wizard**. It installs both `.apk` (OpenWrt 25.12+) and
+`.ipk` (OpenWrt 24.10); on a router already running OpenWrt it skips flashing
+and selects the package by package manager.
 
-- The hardware-fleet tests no longer ship router/Wi-Fi credentials or a
-  hardcoded artifact URL (#509/#528; rotate previously-exposed values).
-- ngit stage 1 stamps `SOURCE_DATE_EPOCH` from the commit, never the
-  runner clock (#529) — reproducibility on the lane that actually
-  publishes.
-- `config set private_key` refuses out-of-bounds passphrases at write
-  time instead of persisting credentials the applier refuses forever
-  (#636).
-- `config get` no longer returns the identities' Nostr private keys:
-  blanked, reported via `secret_set`, preserved on save (#635).
-- `make release-check VERSION=v0.6.0-rc1` orchestrates every pre-release
-  gate (Go battery, contract, packaging, the three invariant groups, the
-  conformance fast subset, release-matrix cross-check, reproducibility,
-  version consistency) into one `READY FOR HARDWARE` verdict.
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/OpenTollGate/tollgate-installer/main/install-and-test.sh) \
+  --installer-tag v0.6.0 --tag v0.6.0
+```
 
-## Config schema changes
+**Manual install is temporarily unsupported in this release.** The procedure
+is withdrawn from the runbook and tracked for restoration at
+[OpenTollGate/tollgate-installer#155](https://github.com/OpenTollGate/tollgate-installer/issues/155).
+The wizard remains the supported path.
 
-None versus alpha4 — schema stays `v0.0.9`. Deployed `config.json` files
-upgrade unchanged. (The `private_key` field gained enforced bounds; a
-valid deployed config was already inside them.)
+## Known issues
 
-## Experimental / unsupported
+- **Loopback rate limiting vs the startup gate.** The API rate limiter runs
+  before the startup gate and has no loopback exemption, so an installer
+  polling from `127.0.0.1` can receive `429` while the merchant initializes.
+  Installer rc33 classifies that as `pending`; the module-side fix is
+  deliberately post-release (#999).
+- **Manual install deferred** for the reasons tracked in installer #155: the
+  fresh-install default-credential write, the first-pass `entry_ui` fallback,
+  the wizard-only `tollgate.lan` alias, and the wizard-only leading-`!` guest
+  SSID.
+- The `tollgate version` string reports the **module** build, not the feed
+  release. Confirm the package with `apk list -I` / `opkg list-installed`.
 
-- The wallet sidecar (`WalletPort` over AF_UNIX) remains scaffolding:
-  unit-tested, not router-validated, not a supported backend.
-- Reseller/two-router mode and Lightning (LNURL-p) sales are shipped as
-  before; hardware acceptance for this RC covers the Cashu path first.
-- **NTP pre-auth** (#648) and the **cold-start reseller bootstrap**
-  (#629, first-proof-whole forwarding) are in the pinned baseline as
-  lab-tested features awaiting router acceptance — treat both as
-  experimental until the campaign says otherwise.
-- `tollgate-clientd` is not part of this release.
+## Verification
 
-## Known limitations
+Validated on the rc6 artifacts on the physical pair:
 
-- No refund path for an expired owed entitlement (operator action; the
-  record and reference are kept).
-- Session metering is still process-memory state: a restart loses
-  in-flight usage accounting (known gap, unchanged).
-- Payout melts and drain ignore mint input fees (#414); expiry of
-  keysets can still strand balances (#417).
-- **The conformance lane measures two `service-or-refund` rows as red,
-  and they are the honest state of the kill/timeout windows**: when the
-  daemon dies between the mint's acceptance and the session grant
-  (`pay-kill-post-receive-pre-session`), or the swap response is dropped
-  after processing (`swap-timeout-retry`), the token is spent at the mint
-  while the customer has no session. The output-re-use and double-count
-  invariants PASS on every row; closing the service arm requires the
-  designed business-transaction record (#502): a new WalletPort
-  checkstate surface, a durable receive-intent journal, and an explicit
-  operator policy for granting against value recoverable only via
-  NUT-09 restore — deliberately not improvised before this release
-  (#497's research-first rule). The late-outcome journal for a `Receive`
-  that outlives its deadline likewise records the outcome for the
-  operator but does not auto-grant (#498/#502).
-- **The min_steps wire default is a live spec question**: TIP-02 carries
-  a tentative `default 0` while this implementation defaults/floors to 1
-  (clients reject 0; a crash-reset router advertising 0 bricks
-  discoverability). Tracked upstream as
-  [OpenTollGate/tollgate#20](https://github.com/OpenTollGate/tollgate/issues/20)
-  with a proposal to de-tentative to 1 — this release matches the field
-  evidence that proposal cites.
-- **Wallets cannot initialize on jffs2-overlay devices** (squashfs NOR
-  targets — ipq40xx, small-NOR ath79, mt76x8 class): bbolt requires a
-  shared mmap jffs2 has never supported, so the wallet stays in degraded
-  mode while everything else appears healthy
-  ([#583](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/583),
-  open). Devices with NAND/UBI overlays (the tested representatives) are
-  unaffected; the fix is wallet-backend work, tracked post-0.6.
-- **The `.apk` lane cannot install on stock OpenWrt 25.12**: nodogsplash's
-  `iptables-*` dependencies are absent from every 25.12.5 feed, so an
-  `apk add` fails unless the operator stages them manually
-  ([#552](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/552),
-  open — an upstream feed gap, not fixable in this tree). OpenWrt 24.10
-  (`.ipk`) is the installable line for this RC.
-- A module restart leaves clients NoDogSplash still holds as
-  Authenticated outside any session (free access until their NDS
-  sessiontimeout); the inverse-drift reconciliation that closes this is
-  written
-  ([#619](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/619))
-  and deliberately deferred past the freeze.
-- nodogsplash on OpenWrt 22.03 has the pre-auth DNAT translation issue
-  (#398); 24.10+ is the tested line.
+| Device | OpenWrt | Lane | Package |
+|---|---|---|---|
+| GL-MT3000 | 25.12.5 | `.apk` | `0.6.0_rc6-r1` |
+| GL-MT6000 | 24.10.8 | `.ipk` | `0.6.0_rc6-r1` |
 
-## Hardware support
+`v0.6.0` is the same runtime code with the version and documentation metadata
+updated, so the rc6 evidence carries forward.
 
-- **TESTED (this RC's acceptance targets)**: `aarch64_cortex-a53`
-  (mediatek-filogic class — Cudy WR3000 v1 with the `upx-ultra-brute`
-  variant on 16 MB flash, COMFAST CF-WR632AX), and `ramips-mt7621`
-  (`mipsel_24kc`) representatives. Acceptance runs use the release
-  artifact by hash through the router-happy-path harness.
-- **BUILDABLE, not yet verified on hardware for this RC**: the remaining
-  matrix legs (`aarch64_cortex-a72`, `arm_cortex-a7`, `mips_24kc`,
-  `x86_64`, apk formats). They are published but must not be called
-  supported until their acceptance passes.
-- Distinguish: **BUILDABLE** = CI produced the package; **TESTED** =
-  the happy-path suite ran on a real representative; **SUPPORTED** =
-  TESTED plus the full acceptance list (install, upgrade, same-version
-  reinstall, downgrade/upgrade round trip, reboot, WAN/mint outage at
-  startup, real payment, second payment, concurrent duplicate,
-  usage exhaustion, forced gate-open failure/recovery).
+## Thanks
 
-## Upgrade notes
-
-- **Back up the wallet directory and `/etc/tollgate/config.json` before
-  upgrading.**
-- Upgrade from `v0.6.0-alpha4` (or any `v0.6.0-alpha*`) is a plain
-  package upgrade: `opkg install` / `apk add` the new artifact; existing
-  configuration, identities and wallet are preserved; expect a setup
-  re-run (`/tmp/tollgate-setup.log`, root-only).
-- Same-version reinstall and downgrade/upgrade round trips are exercised
-  by the acceptance harness (setup-marker ordering protects the
-  operator's SSID on rollback).
-- Do not install artifacts whose kind-1063 event you cannot verify:
-  download from a `url` tag and check the file's sha256 against the `x`
-  tag, for BOTH publisher keys.
-
-## Getting v0.6.0-rc1
-
-- Packages are announced as NIP-94 kind-`1063` events (`n=tollgate-wrt`,
-  `v=v0.6.0-rc1`, `c=rc` — filter by both publisher keys; see
-  [AGENTS.md](AGENTS.md) for the exact `nak` queries).
-
-  ```bash
-  nak req -k 1063 \
-      -a 5075e61f0b048148b60105c1dd72bbeae1957336ae5824087e52efa374f8416a \
-      -a 6cfc53c04bda7d58dd4dd0471d66f6a4ea7d3e123e78006e0e0c1abc1208ac0d \
-      --tag n=tollgate-wrt --tag v=v0.6.0-rc1 --limit 50 \
-      wss://relay.damus.io wss://nos.lol wss://nostr.mom
-  ```
-
-- No events for this version means the release is not published — a
-  failed shard suppresses all announcements by design.
-- **Reporting problems**:
-  [docs/tester-intake.md](docs/tester-intake.md) names the single intake
-  channel and the report template;
-  [docs/rc-tester-guide.md](docs/rc-tester-guide.md) documents
-  install/upgrade/rollback. Any wallet/funds symptom is **S1 =
-  stop-ship**.
-
-## Verification status
-
-- **Internal test baseline (pinned): commit
-  `09ea3af51e527f7b9247123ca9b0599548944c30`.** main is a moving target
-  and no tag is cut, so all internal extensive testing — labgrid VM and
-  router campaigns, artifact installs, evidence — targets this exact
-  hash. Docs-only commits landing after the pin do not move it; only a
-  fresh pin does, with a fresh full gate run. The baseline carries the
-  release train, NTP pre-auth (#648), the cold-start reseller bootstrap
-  (#629), the signet-zoo/rootfs/SSID-pin test lanes, the rebrand-gutter
-  scoping (#684), and the business-transaction record (#502/#700) that
-  turned the last two conformance rows green.
-- Unit/race across all 16 modules, contract, packaging and pipeline
-  suites: green on the pinned baseline (`make release-check`).
-- The three fund-safety invariants: pinned by dedicated regression tests
-  (each reproduced red before its fix) and by the conformance fast
-  subset lane.
-- Hardware acceptance: pending for this RC — that is what the RC cycle
-  is for; see "Hardware support" above for what is claimed and what is
-  not.
-
-The per-PR engineering record is [CHANGELOG.md](CHANGELOG.md).
+Everyone who ran the RC line on real hardware, filed the manual-test fallout,
+and kept the release honest about what was and was not validated.
