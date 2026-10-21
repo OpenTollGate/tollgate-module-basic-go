@@ -1,11 +1,6 @@
 {
-  "config_version": "v0.0.8",
+  "config_version": "v0.0.10",
   "log_level": "debug",
-  "metric": "milliseconds",
-  "step_size": 60000,
-  "margin": 0.1,
-  "show_setup": false,
-  "reseller_mode": false,
   "accepted_mints": [
     {
       "url": "http://mint:8085",
@@ -14,8 +9,8 @@
       "payout_interval_seconds": 999999,
       "min_payout_amount": 999999,
       "price_per_step": 1,
-      "price_unit": "sats",
-      "purchase_min_steps": 0
+      "price_unit": "sat",
+      "purchase_min_steps": 1
     },
     {
       "url": "http://mint-fees:8085",
@@ -24,8 +19,8 @@
       "payout_interval_seconds": 999999,
       "min_payout_amount": 999999,
       "price_per_step": 1,
-      "price_unit": "sats",
-      "purchase_min_steps": 0
+      "price_unit": "sat",
+      "purchase_min_steps": 1
     },
     {
       "url": "http://mint-rotate:8085",
@@ -34,19 +29,29 @@
       "payout_interval_seconds": 999999,
       "min_payout_amount": 999999,
       "price_per_step": 1,
-      "price_unit": "sats",
-      "purchase_min_steps": 0
+      "price_unit": "sat",
+      "purchase_min_steps": 1
     }
   ],
   "profit_share": [
-    { "factor": 1.0, "identity": "owner" }
+    {
+      "factor": 1,
+      "identity": "owner"
+    }
   ],
+  "step_size": 60000,
+  "margin": 0.1,
+  "metric": "milliseconds",
+  "show_setup": false,
+  "reseller_mode": false,
   "upstream_detector": {
     "probe_timeout": 5000000000,
     "probe_retry_count": 1,
     "probe_retry_delay": 1000000000,
     "require_valid_signature": false,
-    "ignore_interfaces": ["lo"],
+    "ignore_interfaces": [
+      "lo"
+    ],
     "only_interfaces": [],
     "discovery_timeout": 10000000000
   },
@@ -81,6 +86,10 @@
     "startup_grace_seconds": 30,
     "post_switch_wait_seconds": 5,
     "dhcp_timeout_seconds": 180,
-    "manual_pause_seconds": 120
-  }
+    "manual_pause_seconds": 120,
+    "vendor_ie_discovery": false
+  },
+  "private_encryption": "psk2+ccmp",
+  "admin_access": "both",
+  "entry_ui": "board"
 }
