@@ -29,6 +29,47 @@ if git diff --cached --name-only | grep -qE '(^|/)go\.mod$|(^|/)go\.sum$|^packag
     python3 tests/contract/check-gonuts-pin.py
 fi
 
+# The cold-sums shadow (the #1036 class): a go.sum gap only fires when the
+# module graph resolves without a warm build cache — release lanes reused
+# built packages and shipped main with two carriers un-buildable cold.
+# `go mod tidy -diff` per AFFECTED module is the precise, seconds-cheap
+# commit-time check: it refuses when go.mod/go.sum are not exactly what the
+# graph needs (missing transitives AND stale drift), without writing files.
+# Network-tolerant like the SDK-Go audit: an unresolvable graph (offline,
+# no module cache) warns and defers to CI's cold leg (release-check
+# run_cold_sums), never blocks on network.
+if git diff --cached --name-only | grep -qE '(^|/)go\.(mod|sum)$'; then
+    echo "🔍 Checking go.sum completeness (tidy -diff, per affected module)..."
+    GO_BIN="$(command -v go || true)"
+    [ -n "$GO_BIN" ] || GO_BIN="${TG_TOOLS:-$HOME/.cache/tollgate-tools}/go/bin/go"
+    if [ ! -x "$GO_BIN" ]; then
+        echo "⚠️  no go toolchain found — tidy check deferred to CI's cold-sums leg."
+    else
+        tidy_failed=0
+        for modfile in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '(^|/)go\.(mod|sum)$'); do
+            dir="$(dirname "$modfile")"
+            if out="$(cd "$dir" && "$GO_BIN" mod tidy -diff 2>&1)"; then
+                continue
+            fi
+            case "$out" in
+                *"dial tcp"*|*"proxy"*|*"no such host"*|*"lookup "*|*"connection refused"*)
+                    echo "⚠️  $dir: module graph unreachable — tidy check deferred to CI's cold-sums leg."
+                    ;;
+                *)
+                    echo "❌ $dir: go.mod/go.sum incomplete or drifted (go mod tidy -diff):"
+                    printf '%s\n' "$out" | sed 's/^/    /' | head -15
+                    tidy_failed=1
+                    ;;
+            esac
+        done
+        if [ "$tidy_failed" -ne 0 ]; then
+            echo ""
+            echo "Cure: go mod tidy in the affected module(s) and re-stage."
+            exit 1
+        fi
+    fi
+fi
+
 # The two-path build surface (manifest, eras, allowlist, agnosticism).
 if git diff --cached --name-only | grep -qE 'build-inputs\.json|scripts/.*\.sh|packaging/.*\.sh|tests/cloud-lab/Dockerfile|\.github/workflows/.*\.yml'; then
     echo "🔍 Checking the two-path build surface (manifest, eras, allowlist, agnosticism)..."
