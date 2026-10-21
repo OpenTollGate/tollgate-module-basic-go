@@ -104,11 +104,31 @@ Source lives under [src/](src/). Go tooling runs from there
 | [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, health, admin-UI links, and SSL/TLS certificates. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
 | [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
 
+## Building from source
+
+For a release build, **checkout the release tag** (`git checkout v0.6.0`) — a
+fresh clone lands on `main`, which is development and may carry dependency
+changes that have not been through the release path. The tested build manual,
+including the cold-cache check that catches missing `go.sum` entries, is
+[docs/build-from-source.md](docs/build-from-source.md). Quick check:
+
+```sh
+make manual-check     # portal + all-module Go battery in a fresh module cache
+```
+
 ## Installation
 
-Build artifacts produced by the CI matrix in
+> **Build setup status (October 2026):** we’re sorry the build setup is messy
+> at the moment. GitHub removed CI from all OpenTollGate repositories; we are
+> rebuilding the pipeline and working on reproducible builds. For a normal
+> install, use the
+> [installer runbook](https://github.com/OpenTollGate/tollgate-installer/blob/main/docs/install-runbook.md).
+
+The build workflow definition in
 [.github/workflows/build-package.yml](.github/workflows/build-package.yml)
-target both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats.
+targets both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats. The
+GitHub Actions lane is currently being rebuilt; use the release assets or the
+installer runbook above until it is restored.
 
 On OpenWrt 25.x:
 ```sh
