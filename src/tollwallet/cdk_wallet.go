@@ -348,7 +348,19 @@ func (w *CdkWallet) RequestMintQuote(amount uint64, mintUrl string) (*MintQuote,
 		return nil, err
 	}
 	amt := cdk_ffi.Amount{Value: amount}
-	quote, err := wallet.MintQuote(cdk_ffi.PaymentMethodBolt11{}, &amt, nil, nil)
+	// The payment method must match the mint's unit. A custom-unit mint (an
+	// operator's "mb"/"min" mint) does NOT serve bolt11 for that unit: asking
+	// for a bolt11 quote against it panics inside the cdk-go FFI with a bare
+	// "panic: EOF", which is unactionable. Measured on the A04E bench: the
+	// router's own mint advertises bolt11/mb, bolt12/mb, onchain/mb, paypal/mb
+	// but only the custom method actually produces a quote for a custom unit.
+	//
+	// So: custom unit -> custom payment method; sat -> bolt11 as before.
+	method := cdk_ffi.PaymentMethod(cdk_ffi.PaymentMethodBolt11{})
+	if u := w.mintUnits[mintUrl]; u != "" && u != "sat" {
+		method = cdk_ffi.PaymentMethodCustom{Method: customUnitPaymentMethod(u)}
+	}
+	quote, err := wallet.MintQuote(method, &amt, nil, nil)
 	if err != nil {
 		return nil, mapCdkError(err)
 	}
@@ -571,4 +583,17 @@ func (w *CdkWallet) AcceptMint(mintURL string) error {
 // treat the outcome as unresolved — never guess.
 func (w *CdkWallet) CheckTokenSpent(token Token) (bool, error) {
 	return false, ErrCheckStateUnsupported
+}
+
+// customUnitPaymentMethod names the payment method to use for a custom unit.
+// The bench mint is configured with the "paypal" teller-style processor, which
+// is the method that produces a quote for a custom unit; "teller" is the name
+// the pecan-derived trade study uses for the same idea. Both are accepted by
+// the mint we measured against, and the environment can override it so a
+// different operator mint is not hard-coded to this one.
+func customUnitPaymentMethod(unit string) string {
+	if m := os.Getenv("TOLLGATE_CDK_PURCHASE_METHOD"); m != "" {
+		return m
+	}
+	return "paypal"
 }
