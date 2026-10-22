@@ -5,6 +5,10 @@
 > contract that three repository changes implement. Acceptance is a maintainer
 > action — the drafting account may not accept its own proposal, and no PR here
 > claims it has been accepted.
+>
+> **Amendment 1 (2026-10-17): the transport shape — proxy-terminated, not
+> advertised-address.** See §A1. It adds D10 and corrects one factual error in
+> D8. The original text is preserved unmodified.
 
 ## Context
 
@@ -229,9 +233,12 @@ follows. Stated here so the split is a decision, not an omission.
   repository itself implements; the merged bonding seam deliberately carries none.
 - Router-side enforcement of the bond (steering only, this stage).
 - MPTCP over FIPS — recorded elsewhere as a bounded internal spike, not a stage.
-- Vendoring any `bondingshouldbefree` component: that stack is GPL-2.0-only and
-  incompatible with this repository's licence. Packaged binaries may be invoked;
-  sources may not be vendored.
+- Vendoring any `bondingshouldbefree` component. **The licence recorded here
+  originally said "GPL-2.0-only"; that is corrected in A1.4** — the published
+  installers are **AGPL-3.0-or-later**, and the no-vendor posture stands for the
+  structural reason given there, not the licence.
+
+  *(text above preserved as originally drafted; see A1.4 for the correction)*
 - "2× bandwidth" and mid-transfer-failover claims (measured ≈1.2–1.3×; failover
   untested).
 - A BPF MPTCP scheduler or goodput maximisation (needs kernel ≥5.19 plus BPF, not
@@ -292,3 +299,145 @@ Recorded so that a green result elsewhere is not mistaken for these being settle
   mutates, and fail closed on an unprovisioned client.
 - Three repositories now share one vocabulary owned by this one. The record is the
   contract; a change to the strings is a change to this record first.
+
+---
+
+## Amendment 1 (2026-10-17) — the transport shape
+
+**Status of this section:** it *proposes a new decision* (D10) and *corrects a
+factual error* in D8. It does not clarify an existing one. Recorded separately
+because D1–D9 were drafted without the hardware result below; they are preserved
+as written.
+
+The bonding seam merged in this repository advertises the router's **own uplink
+addresses** to its peer, and relies on the peer's MPTCP path manager connecting
+back to them. That mechanism was then exercised on a physical router
+(GL-MT6000, OpenWrt 24.10.2 / kernel 6.6.93) against a genuinely multipath peer.
+It does not work behind NAT, and the reason is structural rather than a bug.
+
+### A1.1 — The measured failure: access to the advertising router
+
+MPTCP forms a second subflow by having the **peer connect back** to an address the
+client **advertised** via `ADD_ADDR`. Both uplink addresses on the test router are
+private — one behind house NAT (`192.168.2.x`), one behind Starlink CGNAT
+(`10.2.1.x`) — and **neither is reachable from the peer**. Measured from the peer:
+
+- `MPTcpExtAddAddrTx` never advances across completed transfers on the router.
+- The peer's `MPTcpExtAddAddr` stays **0**: it has never received one.
+- `MPTcpExtMPJoinNoTokenFound` climbs (JOIN attempts with no usable token).
+- The satellite subflow sits at ~1.7 KB — handshake only — indefinitely.
+
+So the peer never learns an address it can dial, and the second subflow never
+forms. **No amount of router-side configuration fixes this**, because the missing
+piece is peer-to-router reachability, which a NAT-ed or CGNAT-ed uplink cannot
+provide.
+
+### A1.2 — D10: the bond is **proxy-terminated**, not advertised-address
+
+**Decision.** The de-aggregation server is the **terminating end of a proxy**, not
+a host that dials back into the client. The client initiates every path; the
+server never needs to reach the client at all.
+
+Consequences to hold:
+
+- **The client needs no routable address.** This is the whole point: it makes the
+  bond work behind CGNAT, carrier NAT and a plain consumer router, with no IPv6
+  prefix, no port-forward and no ISP cooperation. Under D1 the router is already
+  buying from an upstream peer it dials — this makes that explicit in the
+  transport.
+- **`ADD_ADDR` becomes informative, not load-bearing.** Address advertisement may
+  still occur; the bond must not *depend* on the peer acting on it.
+- **`endpoint=<host:port>` in D6 is the only address the client needs.** One
+  client-initiated address replaces N advertised ones. This is consistent with
+  D6's tag already carrying a single `endpoint`.
+- **One client identity, one port, one meter.** A proxy termination point per
+  client is also the natural key for D3's per-client counter and quota — the
+  metering boundary and the transport boundary become the same boundary, which
+  removes a class of mis-attribution rather than adding one.
+- **The multi-hop reading in D1 is unchanged.** The peer is still a TollGate that
+  is paid; only the transport direction is pinned.
+
+**Rejected — "advertise a reachable address instead":** requiring per-uplink
+reachability (a public address, a delegated IPv6 prefix, or a NAT port-forward per
+uplink) is exactly the operator cooperation the protocol exists to avoid, and it
+cannot be satisfied at all behind CGNAT. A per-uplink tunnel to a public endpoint
+was implemented and does restore the reachability the path manager wants
+(measured: both tunnels handshake, both tunnel addresses answer the peer at 0%
+packet loss, and a subflow does establish — `SF_ESTABLISHED` with a tunnel source
+address). It is **retained as a supported fallback**, not the primary shape,
+because it still requires the client to be *addressable on the advertised
+address*, and it adds one tunnel and one address per uplink to the config
+surface for no metering benefit.
+
+**Claim discipline is unaffected:** this section changes the transport, not the
+ceiling. The measured ratio remains **≈1.2–1.3×**, and the honest reading of the
+measurement is unchanged — to a genuine multipath peer, three runs per
+configuration gave within-configuration spread *larger* than the
+between-configuration difference, and the aggregate runs were not the fastest
+(StarGate-only 8.68/8.78/6.19; wired-only 2.48/0.83/5.78; both 3.72/–/3.83 MB per
+10 s). D5's wording rule still governs every user-facing number.
+
+### A1.3 — D11: the server terminates one inbound per client, and must not require a shared port
+
+Siting the de-aggregation proxy on a host that already terminates other services
+must not collide with them. The reference stack this shape is modelled on
+publishes **one inbound per client, keyed by a client identifier, on a
+client-specific port**, so a server can co-exist with whatever else owns the
+conventional web ports.
+
+**Decision.** The per-client inbound is addressed by the client identifier carried
+in D6's `endpoint`, and the server must not require a single shared port across
+clients. On a host already terminating TLS on the standard port, the shared-port
+form is a collision rather than a simplification.
+
+**Consequence to record:** the client's `server_port` is therefore
+**per-client configuration**, not a fleet constant, and it must be published in
+the advertisement alongside `endpoint` — otherwise a client cannot construct the
+address it is being told to dial.
+
+### A1.4 — Correction: the `bondingshouldbefree` licence in D8 is wrong
+
+D8 states the `bondingshouldbefree` stack is **GPL-2.0-only**. That is incorrect.
+Fetched from the three published installers, the actual identifier is:
+
+```
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025-2026 Chester A. Unal <chester.a.unal@arinc9.com>
+```
+
+— **AGPL-3.0-or-later** on `srv.`, `cld.` and `owrt.bondingshouldbefree.org`
+alike. Corrected here rather than silently edited, because a licence claim is what
+a reviewer relies on and an unrecorded change to it is worse than a wrong one.
+
+**The no-vendor conclusion stands, for a structural reason instead of a licence
+one.** That stack is a packaged client (`bsbf-bonding` from the OpenWrt feed) plus
+a server-side systemd component, driven by install scripts. There is no library to
+vendor and nothing for this repository's Go code to import; invocations are
+process-level. Amending D8's bullet to the AGPL identifier plus that reasoning is a
+follow-up edit to this record, not a licence re-evaluation.
+
+Two further facts about that stack, recorded because they will save a repeat
+investigation:
+
+- **It is proxy-terminated in the same shape as A1.2** (Xray at both ends, with
+  the TCP-MPTCP socket option enabled on the inbound), which is corroborating
+  evidence that the shape above is the one that works behind NAT. It is cited as
+  *prior art for the shape*, not as a dependency — and note D8 forbids vendoring
+  it regardless.
+- **It selects endpoints from default routes that carry a metric.** With no
+  metriced default route it flushes all endpoints and does nothing, so any lab
+  comparison against it needs multiple metriced default routes or it will appear
+  to "drop" an interface that is up.
+
+### A1.5 — What this amendment does not change
+
+- D2 (`tollgate-rs` as behavioural reference; no PR there), D4 (pubkey identity),
+  D5 (enforcement, never-block, claim discipline), D6 (tag vocabulary — the
+  existing `endpoint` tag already suffices for A1.2), D7 (config contract) and D9
+  (rollout sequence) are unchanged.
+- A1.2 does not add a rollout step. It constrains step 3's shape (the server
+  repository), which is already the step that owns the de-aggregation endpoint.
+- The router-side enforcement boundary in D5 is untouched: the router still only
+  steers.
+- D8's prohibition on vendoring `bondingshouldbefree` is unchanged (A1.4).
