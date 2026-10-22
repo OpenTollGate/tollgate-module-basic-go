@@ -67,7 +67,13 @@ esac
 [ -n "$VERSION" ] && [ -n "$CHANNEL" ] && [ -n "$RELEASE_RUN" ] && [ -n "$BUILD_ID" ] || { usage; exit 2; }
 
 PLAN=${PLAN:-packaging/ngit-release-matrix.json}
-COORDINATION_RELAYS=${COORDINATION_RELAYS:-"wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech"}
+# Relay set notes (measured 2026-10-20): relay1.orangesync.tech points at a
+# dead IP (66.92.204.38) and adds nothing but publish latency and noise;
+# relay2.orangesync.tech (ours, uncapped) and relay.damus.io carry the history.
+# nos.lol/nostr.mom are flaky from this network but reachable from browsers
+# elsewhere, so they stay. relay.tollgate.me no longer completes a Nostr
+# websocket and is not listed.
+COORDINATION_RELAYS=${COORDINATION_RELAYS:-"wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay2.orangesync.tech"}
 RELAYS=${RELAYS:-"$COORDINATION_RELAYS"}
 PACKAGE_NAME=${PACKAGE_NAME:-tollgate-wrt}
 ROOT=${WT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
@@ -203,6 +209,7 @@ while IFS= read -r content; do
     --tag filename="$filename" \
     --tag A="$arch" --tag v="$VERSION" --tag c="$CHANNEL" \
     --tag n="$PACKAGE_NAME" --tag compression="$comp" --tag format="$fmt" \
+    --tag t="tollgate" \
     $RELAYS < /dev/null 2>&1) || true
   ev=$(printf '%s' "$out" | grep -o '"id":"[0-9a-f]\{64\}"' | head -1 | cut -d'"' -f4)
   if [ -n "$ev" ]; then
