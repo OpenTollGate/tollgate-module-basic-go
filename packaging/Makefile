@@ -57,10 +57,13 @@ include $(INCLUDE_DIR)/package.mk
 #   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
 #     into the control file, where `Replaces` does supersede the named package.
 #
-# So: declare the daemon, never also claim to replace it. Same contract as the
-# shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
-# with FreedomTechFeed/packages#57, the feed-side mirror of this change).
+# So: declare the daemon, never also claim to replace it. The dependency
+# list for this recipe is declared once, in the DEPENDS below; the
+# shipping-path feed definition (net/tollgate-wrt/Makefile in
+# FreedomTechFeed/packages) owns its own list, and
+# tests/packaging/package-nodogsplash-dependency_test.sh fences this
+# module's recipes — and the artifacts they build — against drifting from
+# the contract.
 #
 # ca-bundle is the SAME class of defect, found the same way: on a GL-MT3000
 # (OpenWrt 25.12.5) installing the shipped package by hand, `wget` AND
