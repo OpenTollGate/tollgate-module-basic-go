@@ -28,6 +28,7 @@ replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types => ./merchant_types
 	github.com/OpenTollGate/tollgate-module-basic-go/src/mptcp_bonding => ./mptcp_bonding
+	github.com/OpenTollGate/tollgate-module-basic-go/src/spilman => ./spilman
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol => ./tollgate_protocol
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ./tollwallet
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector => ./upstream_detector
