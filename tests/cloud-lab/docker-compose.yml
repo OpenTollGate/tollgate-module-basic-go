@@ -127,7 +127,7 @@ services:
       context: ../..
       dockerfile: tests/cloud-lab/Dockerfile.tollgate
       args:
-        GO_VERSION: ${TG_GO_VERSION:-1.26.8}
+        GO_VERSION: ${TG_GO_VERSION:-1.26.9}
         PACKAGE_VERSION: ${TG_PACKAGE_VERSION:-0.0.0-r0}
         LDFLAGS: ${TG_LDFLAGS:-}
     container_name: tg-upstream
@@ -167,7 +167,7 @@ services:
       context: ../..
       dockerfile: tests/cloud-lab/Dockerfile.tollgate
       args:
-        GO_VERSION: ${TG_GO_VERSION:-1.26.8}
+        GO_VERSION: ${TG_GO_VERSION:-1.26.9}
         PACKAGE_VERSION: ${TG_PACKAGE_VERSION:-0.0.0-r0}
         LDFLAGS: ${TG_LDFLAGS:-}
     container_name: tg-upstream-ext
@@ -199,7 +199,7 @@ services:
       context: ../..
       dockerfile: tests/cloud-lab/Dockerfile.tollgate
       args:
-        GO_VERSION: ${TG_GO_VERSION:-1.26.8}
+        GO_VERSION: ${TG_GO_VERSION:-1.26.9}
         PACKAGE_VERSION: ${TG_PACKAGE_VERSION:-0.0.0-r0}
         LDFLAGS: ${TG_LDFLAGS:-}
     container_name: tg-reseller
