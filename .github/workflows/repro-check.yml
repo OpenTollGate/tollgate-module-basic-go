@@ -7,6 +7,10 @@ name: Reproducibility check
 # packaging/build-inputs.json at runtime so the manifest stays the single
 # source of truth.
 
+concurrency:
+  group: repro-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
@@ -24,6 +28,7 @@ on:
 
 jobs:
   binaries:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -48,6 +53,7 @@ jobs:
         run: bash scripts/repro-test.sh binaries x86_64
 
   packages:
+    timeout-minutes: 45
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     needs: binaries
