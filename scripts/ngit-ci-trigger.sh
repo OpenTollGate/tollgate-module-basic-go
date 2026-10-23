@@ -93,7 +93,20 @@ NSEC=$(grep -o 'nsec1[0-9a-z]*' "$KEYFILE" 2>/dev/null | head -1 || true)
 
 # Refuse to sign with anything that is not the maintainer key. `nak key public`
 # prints the public half only; never run `nak decode` on a private key.
-SIGNER=$(nak key public "$NSEC" 2>/dev/null || true)
+#
+# nak ≥ v0.16 refuses `nak key public <nsec>` (bech32 in, "invalid nsec
+# code"), which made SIGNER come back empty — the guard then rejected every
+# key against the built-in default and release-check's packaging leg went
+# red on modern hosts. Deriving the private hex first (`nak decode`, stable
+# across versions) and handing `key public` hex keeps both nak generations
+# working. The comment above still holds: `decode` outputs the PRIVATE hex,
+# which never leaves this line — only `key public`'s output is compared.
+PRIV_HEX=$NSEC
+case "$NSEC" in
+    nsec1*) PRIV_HEX=$(nak decode "$NSEC" 2>/dev/null || true) ;;
+esac
+[ -n "$PRIV_HEX" ] || { echo "ERROR: could not derive the key in $KEYFILE (nak decode)" >&2; exit 1; }
+SIGNER=$(nak key public "$PRIV_HEX" 2>/dev/null || true)
 if [ "$SIGNER" != "$MAINT_HEX" ]; then
   echo "ERROR: $KEYFILE is not the maintainer key (signer ${SIGNER:0:16}..., expected ${MAINT_HEX:0:16}...)" >&2
   exit 1
