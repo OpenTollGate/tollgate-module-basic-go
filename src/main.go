@@ -25,7 +25,6 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/identity"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/mptcp_bonding"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
@@ -797,27 +796,13 @@ func initUpstreamDetector() {
 	upstreamDetectorInstance.SetUpstreamSessionManager(usmInstance)
 
 	// MPTCP bond (optional). When the config enables it, the detector's
-	// interface events drive the bond's endpoint reconciliation. Absent or
-	// disabled config changes nothing: no sink is set and the detector behaves
-	// exactly as before.
-	if bondCfg, err := mptcp_bonding.LoadConfig(bondConfigJSON()); err != nil {
-		// A malformed bond section must not take the node down -- the bond is
-		// optional, and a router that boots without it still serves customers.
-		// Log it loudly so the misconfiguration is not invisible.
-		mainLogger.WithError(err).Error("MPTCP bond config invalid; bond disabled")
-	} else if bondCfg.Enabled {
-		applier := func(script string) error {
-			return exec.Command("/bin/sh", "-c", script).Run()
-		}
-		reconciler := mptcp_bonding.NewReconciler(bondCfg, applier)
-		upstreamDetectorInstance.SetBondReconciler(reconciler)
-		// Register what is already up: the detector only reports CHANGES, so
-		// without this an uplink that came up before the daemon started would
-		// never be registered.
-		if err := reconciler.ReconcileCurrent(); err != nil {
-			mainLogger.WithError(err).Error("MPTCP bond initial reconcile failed")
-		}
-	}
+	// interface events drive the bond's endpoint reconciliation. A clean
+	// disable (section absent or enabled=false) flushes any kernel endpoints
+	// a previous enabled boot left behind (#974: disable used to leave
+	// orphans). A malformed section changes nothing and is logged loudly.
+	applyBondConfig(bondConfigJSON(), func(name string, arg ...string) error {
+		return exec.Command(name, arg...).Run()
+	}, upstreamDetectorInstance.SetBondReconciler, logrusBondLogger{mainLogger})
 
 	go func() {
 		err := upstreamDetectorInstance.Start()
