@@ -101,14 +101,34 @@ Source lives under [src/](src/). Go tooling runs from there
 | [config_manager](src/config_manager/) | Schema, loading, migrations, validation, backups of `/etc/tollgate/config.json`. |
 | [tollwallet](src/tollwallet/) | Cashu wallet operations (mint client, balance tracking, melt). |
 | [lightning](src/lightning/) | LNURL-p / Lightning address resolution and invoice fetching for payouts. |
-| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, health, and SSL/TLS certificates. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
+| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, health, admin-UI links, and SSL/TLS certificates. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
 | [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
+
+## Building from source
+
+For a release build, **checkout the release tag** (`git checkout v0.6.0`) — a
+fresh clone lands on `main`, which is development and may carry dependency
+changes that have not been through the release path. The tested build manual,
+including the cold-cache check that catches missing `go.sum` entries, is
+[docs/build-from-source.md](docs/build-from-source.md). Quick check:
+
+```sh
+make manual-check     # portal + all-module Go battery in a fresh module cache
+```
 
 ## Installation
 
-Build artifacts produced by the CI matrix in
+> **Build setup status (October 2026):** we’re sorry the build setup is messy
+> at the moment. GitHub removed CI from all OpenTollGate repositories; we are
+> rebuilding the pipeline and working on reproducible builds. For a normal
+> install, use the
+> [installer runbook](https://github.com/OpenTollGate/tollgate-installer/blob/main/docs/install-runbook.md).
+
+The build workflow definition in
 [.github/workflows/build-package.yml](.github/workflows/build-package.yml)
-target both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats.
+targets both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats. The
+GitHub Actions lane is currently being rebuilt; use the release assets or the
+installer runbook above until it is restored.
 
 On OpenWrt 25.x:
 ```sh
@@ -321,6 +341,87 @@ replaced with results when there are some. There is no persistent-install
 caveat for this device — the only known gap is the compressed-variant
 publication one, which applies to `aarch64_cortex-a53` generally (only default
 builds are released) and is tracked with the packaging feed, not here.
+
+## Command-line interface
+
+The `tollgate` binary ships inside the `tollgate-wrt` package and controls the
+running service over `/var/run/tollgate.sock`. Every command is typed into the
+router shell (SSH or serial console); anything that routes through the socket
+needs the service running (`tollgate start`). Every command also accepts the
+global `--json` (`-j`) flag for machine-readable output.
+
+```text
+# Service control
+tollgate status                                       Service status: uptime, modules, health
+tollgate start                                        Start NoDogSplash + TollGate
+tollgate stop                                         Stop NoDogSplash + TollGate
+tollgate restart                                      Restart NoDogSplash + TollGate
+tollgate health                                       Component health check; non-zero exit when the service is down
+tollgate version                                      Version and build information
+
+# Logs
+tollgate logs [-n N] [-f]                             TollGate log lines (wraps `logread -e tollgate`)
+
+# Wallet
+tollgate wallet balance                               Total balance across every mint (sats)
+tollgate wallet info                                  Per-mint balance breakdown
+tollgate wallet fund [cashu-token]                    Redeem a Cashu token into the wallet
+tollgate wallet drain cashu [--yes]                   Export ALL funds as Cashu tokens, saved to a file
+
+# Private network (the operator's own Wi-Fi)
+tollgate network private status                       SSID, passphrase and enabled state
+tollgate network private enable                       Turn the private AP on (2.4 + 5 GHz)
+tollgate network private disable                      Turn the private AP off
+tollgate network private rename [new-ssid]            Change the private SSID
+tollgate network private set-password [new-password]  Set the passphrase, or generate one when omitted
+tollgate network private set-encryption [mode]        Encryption mode (psk2+ccmp default; legacy TKIP/WPA1 variants available)
+
+# Upstream Wi-Fi (the client side)
+tollgate upstream scan                                Scan all radios for available networks
+tollgate upstream connect <SSID> [passphrase]         Join an upstream network
+tollgate upstream list                                Configured upstream STA interfaces, active and disabled
+tollgate upstream remove <SSID>                       Remove a disabled upstream STA from the config
+tollgate upstream known                               TollGate APs discovered in scan history
+
+# Configuration
+tollgate config get                                   Current config plus identities
+tollgate config set <key> <value>                     Set one value by dot-path key
+tollgate config schema                                Full config schema: every field, type, default and rule
+tollgate config save <json>                           Replace config.json wholesale
+tollgate config save-identities <json>                Replace identities.json wholesale
+tollgate config apply                                 Converge the router onto the settings config.json declares
+
+# Admin UI and HTTPS
+tollgate ui links                                     Which UI owns the entry ports, plus the cross-links
+tollgate ssl status                                   TLS identity, certificate and whether it covers this router
+tollgate ssl apply [<cert-file> [key-file]]           Install a real certificate, or generate a self-signed one
+tollgate ssl remove                                   Revert an apply and record the opt-out
+tollgate ssl covers [<cert-file>]                     Does a certificate cover this router? (exit 0 = yes)
+
+# Shell completion
+tollgate completion bash|zsh|fish|powershell          Print a completion script for that shell
+```
+
+Two commands are worth seeing in full, because they are the ones an operator
+reaches for first:
+
+```sh
+tollgate wallet balance       # Total wallet balance: 1284 sats
+tollgate health               # status: ok, config/wallet flags, uptime
+```
+
+The `ssl` family runs locally against uci and the filesystem, so it works even
+when the service is down. `tollgate help`, or `tollgate <command> --help`,
+lists the same commands from the router itself.
+
+**Full reference:** [docs/operator-guide.md](docs/operator-guide.md) walks
+through each operational family above — service control, wallet, private
+network, upstream Wi-Fi, configuration and SSL/TLS — with exact syntax, a
+worked example and the output to expect, plus a troubleshooting section
+(unreachable service, portal QR scanner browser limits, mint connectivity and
+payouts, private Wi-Fi not visible, upstream DHCP failures). Each command also
+ships a man page (`tollgate-wallet(8)`, `tollgate-config(8)`, …) generated from
+the CLI itself.
 
 ## Configuration
 
