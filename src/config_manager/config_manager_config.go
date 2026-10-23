@@ -545,7 +545,67 @@ func NewDefaultConfig() *Config {
 	}
 }
 
+// acceptedMintsShapeError reports whether data is a syntactically valid JSON
+// object whose accepted_mints key does not unmarshal into []MintConfig — the
+// shape an operator gets writing the intuitive-but-wrong plain string array
+// ("accepted_mints": ["https://mint.example"], #929). It returns nil for
+// every other document: unparseable JSON, a missing accepted_mints key, or
+// entries that parse. The distinction matters because the two failure
+// classes need opposite recoveries: a truncated file is corruption (backup
+// and recreate defaults, the #402 recovery), while a well-formed document
+// with mis-shaped mints is an operator error whose "recovery" must never be
+// a silent swap of the money path to the factory mint list.
+func acceptedMintsShapeError(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil // document itself is unparseable — corrupt-file path
+	}
+	raw, present := fields["accepted_mints"]
+	if !present {
+		return nil
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return fmt.Errorf("accepted_mints must be an array of mint objects, got %s", rawJSONKind(raw))
+	}
+	for i, entry := range entries {
+		var mint MintConfig
+		if err := json.Unmarshal(entry, &mint); err != nil {
+			return fmt.Errorf("accepted_mints[%d] is %s — each entry must be a mint object like {\"url\": \"https://mint.example\", \"price_per_step\": 1} (%v)", i, rawJSONKind(entry), err)
+		}
+	}
+	return nil
+}
+
+// rawJSONKind names the JSON kind of a raw value for operator-facing errors.
+func rawJSONKind(raw json.RawMessage) string {
+	var probe interface{}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return "not valid JSON"
+	}
+	switch probe.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "a boolean"
+	case float64:
+		return "a number"
+	case string:
+		return "a string"
+	case []interface{}:
+		return "an array"
+	case map[string]interface{}:
+		return "an object"
+	}
+	return "an unknown JSON value"
+}
+
 // EnsureDefaultConfig ensures a default config.json exists, loading from file if present.
+// A file whose accepted_mints key holds entries that do not unmarshal into
+// MintConfig is refused with an error (the file is left untouched): booting
+// on factory-default mints instead would silently swap the money path (#929).
+// An unparseable file keeps the historical recovery: back it up and rewrite
+// factory defaults (#402 class — truncated writes).
 func EnsureDefaultConfig(filePath string) (*Config, error) {
 	defaultConfig := NewDefaultConfig()
 	data, err := os.ReadFile(filePath)
@@ -569,6 +629,10 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		profitShareErr = config.ValidateProfitShare()
 	}
 	if unmarshalErr != nil {
+		if shapeErr := acceptedMintsShapeError(data); shapeErr != nil {
+			log.Printf("ERROR: %s: %v — refusing to start; the file was left untouched so the money path is not silently swapped to the factory mint list; fix accepted_mints or restore from the config_backups directory", filePath, shapeErr)
+			return nil, fmt.Errorf("%s: %w — refusing to start on factory-default mints; the file was left untouched (fix accepted_mints or restore from the config_backups directory)", filePath, shapeErr)
+		}
 		log.Printf("WARNING: Invalid config JSON, backing up and recreating: %v", unmarshalErr)
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
 			log.Printf("CRITICAL: Failed to backup invalid config: %v", backupErr)
