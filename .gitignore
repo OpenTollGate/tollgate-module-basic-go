@@ -100,3 +100,7 @@ PR-BODY.md
 PROGRESS.md
 build-review-prompt*.py
 src/cmd/tollgate-cvm/tollgate-cvm
+
+# go workspace files are machine-local (absolute paths)
+src/go.work
+src/go.work.sum

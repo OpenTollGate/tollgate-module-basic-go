@@ -18,6 +18,7 @@ type preflightToken struct{}
 
 func (preflightToken) Mint() string               { return "https://preflight-mint.example.com" }
 func (preflightToken) Amount() uint64             { return 1 }
+func (preflightToken) Unit() string { return "" }
 func (preflightToken) Serialize() (string, error) { return "cashuAstub", nil }
 func (preflightToken) Secrets() []string          { return nil }
 func (preflightToken) Close()                     {}

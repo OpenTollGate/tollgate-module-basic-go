@@ -202,6 +202,13 @@ func (t *sidecarToken) Secrets() []string { return nil }
 // Amount returns the token value in its unit.
 func (t *sidecarToken) Amount() uint64 { return t.amount }
 
+// Unit returns "": the sidecar wire carries the serialized token only, so
+// the unit is not visible to this process. The merchant prices such tokens
+// against the mint's configured price_unit default (see
+// calculateAllotmentForUnit) rather than guessing from the amount.
+func (t *sidecarToken) Unit() string { return "" }
+
+
 // Serialize returns the canonical Cashu token string.
 func (t *sidecarToken) Serialize() (string, error) {
 	if t.serialized == "" {

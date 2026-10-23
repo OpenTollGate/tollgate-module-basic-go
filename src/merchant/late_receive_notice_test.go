@@ -36,6 +36,7 @@ type lateReceiveToken struct{ tollwallet.Token }
 
 func (lateReceiveToken) Mint() string               { return "https://late-receive.example.com" }
 func (lateReceiveToken) Amount() uint64             { return 1 }
+func (lateReceiveToken) Unit() string { return "" }
 func (lateReceiveToken) Serialize() (string, error) { return lateReceiveSerialized, nil }
 func (lateReceiveToken) Close()                     {}
 

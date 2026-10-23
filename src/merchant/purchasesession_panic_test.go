@@ -15,6 +15,7 @@ type panicToken struct{}
 
 func (panicToken) Mint() string               { return "https://panic-mint.example.com" }
 func (panicToken) Amount() uint64             { return 1 }
+func (panicToken) Unit() string { return "" }
 func (panicToken) Serialize() (string, error) { return "cashuAstub", nil }
 func (panicToken) Secrets() []string          { return nil }
 

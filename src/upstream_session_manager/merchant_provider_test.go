@@ -22,6 +22,15 @@ func (m *namedMerchant) Fund(cashuToken string) (uint64, error) {
 	return 0, fmt.Errorf("mock: %s", m.name)
 }
 
+// IssueOnRequest/DefaultIssuanceMint complete the MerchantInterface. A mock
+// cannot issue real ecash, so it reports an empty token; tests that exercise
+// issuance use the merchant package's own fake wallet instead.
+func (m *namedMerchant) IssueOnRequest(string, string, uint64) (string, error) {
+	return "", nil
+}
+
+func (m *namedMerchant) DefaultIssuanceMint(string) string { return "" }
+
 func providerMerchantName(p merchant_types.MerchantProvider) string {
 	m := p.GetMerchant()
 	if m == nil {

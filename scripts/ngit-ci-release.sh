@@ -189,14 +189,18 @@ wait_for_result() { # <shard> <workflow> <ref>
     ev=$(fetch_result "$wf" "$ref")
     if [ -n "$ev" ]; then
       conclusion=$(record_result "$shard" "$wf" "$ref" "$ev")
-      echo "   [$shard] conclusion=$conclusion d=$(($(printf '%s' "$ev" | jq -r '.created_at') - $(tag_of "$ev" started_at)))s"
+      echo "   [$shard] conclusion=$conclusion d=$(($(printf '%s' "$ev" | jq -r '.created_at') - $(tag_of "$ev" started_at)))s" >&2
       printf '%s' "$conclusion"
       return 0
     fi
     sleep 20
     waited=$((waited + 20))
     if [ $((waited % 120)) -eq 0 ]; then
-      echo "   [$shard] still running (${waited}s / ${POLL_TIMEOUT}s)"
+      # Progress goes to STDERR: stdout of this function is the conclusion
+      # string captured by the caller ($(wait_for_result ...)), and progress
+      # on stdout pollutes it ("still running...\nsuccess" != "success"
+      # aborted a green shard as failed, 2026-10-20).
+      echo "   [$shard] still running (${waited}s / ${POLL_TIMEOUT}s)" >&2
     fi
   done
   echo "ERROR: no kind-9842 result for $shard after ${POLL_TIMEOUT}s" >&2

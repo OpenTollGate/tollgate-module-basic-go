@@ -46,6 +46,7 @@ type lateOutcomeNote struct{ tollwallet.Token }
 
 func (lateOutcomeNote) Mint() string               { return "https://late-outcome.example.com" }
 func (lateOutcomeNote) Amount() uint64             { return 1 }
+func (lateOutcomeNote) Unit() string { return "" }
 func (lateOutcomeNote) Serialize() (string, error) { return lateOutcomeSerialized, nil }
 func (lateOutcomeNote) Close()                     {}
 

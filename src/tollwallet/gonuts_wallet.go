@@ -28,7 +28,13 @@ type GonutsWallet struct {
 
 // NewWalletPort creates a WalletPort backed by gonuts-tollgate.
 // This is the default factory; the cdk_wallet build tag provides an alternative.
-func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool) (WalletPort, error) {
+//
+// mintUnits is accepted for signature parity with the cdk backend and ignored
+// here: gonuts represents every amount in satoshis, so there is no per-mint
+// unit to open a wallet in. Callers that need custom units (operator-run
+// mb/min mints) select the cdk backend.
+func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool, mintUnits map[string]string) (WalletPort, error) {
+	_ = mintUnits
 	tw, err := New(walletPath, acceptedMints, allowAndSwapUntrustedMints)
 	if err != nil {
 		return nil, err
@@ -45,6 +51,26 @@ type gonutsToken struct {
 
 func (t *gonutsToken) Mint() string   { return t.inner.Mint() }
 func (t *gonutsToken) Amount() uint64 { return t.inner.Amount() }
+
+// Unit reports the unit carried on the token wire (V4 "u" field, V3 "unit"
+// field). The gonuts cashu.Token interface itself does not expose it, so this
+// asserts the concrete decoded type — the only two DecodeToken products.
+// A token built by other means returns "" (unknown), which the merchant
+// refuses rather than misprices.
+func (t *gonutsToken) Unit() string {
+	switch v := t.inner.(type) {
+	case cashu.TokenV4:
+		return v.Unit
+	case *cashu.TokenV4:
+		return v.Unit
+	case cashu.TokenV3:
+		return v.Unit
+	case *cashu.TokenV3:
+		return v.Unit
+	default:
+		return ""
+	}
+}
 func (t *gonutsToken) Secrets() []string {
 	proofs := t.inner.Proofs()
 	secrets := make([]string, 0, len(proofs))
