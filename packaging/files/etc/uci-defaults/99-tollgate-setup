@@ -453,17 +453,22 @@ brand_token() {
 # from it, so the three names can never disagree:
 #
 #   hostname      tollgate-<code>   (brand prefix lowercased: RFC-1123 shape)
-#   captive SSID  TollGate-<code>   (brand prefix as shipped — reseller-mode
-#                                    upstream discovery in
-#                                    src/wireless_gateway_manager/brands.go
-#                                    matches EVERY brand prefix the writer
-#                                    can emit, case-insensitively
-#                                    (hasTollGateSSID — including the
-#                                    whitelabel re-brand's), as does the
-#                                    Android client; the shipped case is
-#                                    brand presentation, not a discovery
-#                                    constraint)
-#   private SSID  <nym>-<code>      (the operator's nym, see resolve_nym below)
+#   captive SSID  !TollGate-<code>  (brand prefix as shipped, with a leading '!'
+#                                    SORT DECORATION so the guest network sorts
+#                                    first in an alphabetically ordered WiFi
+#                                    list — '!' is 0x21, before digits and
+#                                    letters. The '!' is presentation only:
+#                                    reseller-mode upstream discovery matches
+#                                    EVERY brand prefix the writer can emit,
+#                                    case-insensitively, and treats the '!' as
+#                                    optional — hasTollGateSSID in
+#                                    src/wireless_gateway_manager/brands.go,
+#                                    as does the Android client.
+#                                    Already-deployed routers carry the bare
+#                                    TollGate-<code> form, which readers still
+#                                    accept)
+#   private SSID  <nym>-<code>      (the operator's nym, see resolve_nym below —
+#                                    the PRIVATE SSID never carries the '!')
 #
 # Why the store exists — measured on the bench MT3000 (2026-09-26): TWO writers
 # minted their own code and neither ever read one back. This script re-minted on
@@ -518,14 +523,33 @@ normalize_device_code() {
     esac
 }
 
+# The optional leading '!' on the captive SSID is a SORT DECORATION: the
+# shipped writer emits `!TollGate-<code>` so the guest network sorts first in an
+# alphabetically ordered WiFi list ('!' is 0x21 — before digits and letters). It
+# is PRESENTATION, not part of the name or of the discovery contract: the bare
+# `TollGate-<code>` form is what already-deployed routers and every third-party
+# client matching `TollGate-*` carry, and both forms identify the same gateway.
+# Readers strip AT MOST ONE decoration, so a doubled '!!' is not a TollGate
+# name. The PRIVATE SSID never carries it — this is applied to captive names
+# only, never to private_ssid_for_code.
+strip_ssid_decoration() {
+    case "$1" in
+        '!'*) printf '%s\n' "${1#?}" ;;
+        *)    printf '%s\n' "$1" ;;
+    esac
+}
+
 # The code carried by a machine-written name: "<brand>-<code>", where <brand> is
 # the default 'tollgate' or THIS router's own brand token (brand_token above) —
 # the same prefix the installer and this script write into the name. Any other
 # name — an operator's own hostname or SSID — yields nothing, which is what keeps
 # custom names out of the adoption path. A whitelabel name is recognized because
-# the brand file says so, never because a brand is listed here.
+# the brand file says so, never because a brand is listed here. The captive SSID's
+# optional '!' decoration (strip_ssid_decoration) is removed first, so both the
+# decorated `!TollGate-<code>` and the bare `TollGate-<code>` are machine-shaped.
 code_from_name() {
-    local name="$1" prefix suffix brand
+    local name prefix suffix brand
+    name=$(strip_ssid_decoration "$1")
     prefix=$(printf '%s' "${name%%-*}" | tr 'A-Z' 'a-z')
     suffix=${name#*-}
     brand=$(brand_token)
@@ -583,7 +607,8 @@ mint_device_code() {
 # the same section so both writers agree, and adopted from an existing
 # machine-shaped private SSID so an operator who already runs the module under
 # their own nym keeps it. Used to build the PRIVATE SSID only — never the
-# captive one, which is the brand's (discovery matches "TollGate-*").
+# captive one, which is the brand's (discovery matches the brand prefix with the
+# optional '!' decoration stripped, e.g. "TollGate-*").
 resolve_nym() {
     local stored existing prefix suffix
     stored=$(uci -q get tollgate.device.nym 2>/dev/null)
@@ -627,23 +652,27 @@ private_ssid_for_code() {
 
 # The captive SSID on the verify/repair path. A name this stack wrote — the
 # brand prefix plus four characters, either brand, the legacy lowercase
-# spelling included — converges on the code; a name the OPERATOR chose is
-# preserved, exactly as the hostname (#444) and the private SSID are. This is
-# the behaviour this path had before it derived the SSID from the store (it read
-# the live SSID back), kept deliberately: a reinstall must not rename a network
-# the operator named. The full path still writes the brand's name, which is what
-# it has always done.
+# spelling and the '!' sort decoration included — converges on the code; a name
+# the OPERATOR chose is preserved, exactly as the hostname (#444) and the private
+# SSID are. This is the behaviour this path had before it derived the SSID from
+# the store (it read the live SSID back), kept deliberately: a reinstall must not
+# rename a network the operator named. The full path still writes the brand's
+# name, which is what it has always done.
 captive_ssid_for_code() {
-    local current="$1" prefix suffix brand
+    local current="$1" name prefix suffix brand
     if [ -z "$current" ]; then
         printf '%s\n' "$DEVICE_SSID"
         return 0
     fi
-    prefix=$(printf '%s' "${current%%-*}" | tr 'A-Z' 'a-z')
-    suffix=${current#*-}
+    # The leading '!' is the shipped sort decoration, not part of the name: strip
+    # it before matching so a deployed `TollGate-<code>` and the decorated
+    # `!TollGate-<code>` both converge on the same DEVICE_SSID.
+    name=$(strip_ssid_decoration "$current")
+    prefix=$(printf '%s' "${name%%-*}" | tr 'A-Z' 'a-z')
+    suffix=${name#*-}
     brand=$(brand_token)
     if { [ "$prefix" = "tollgate" ] || [ "$prefix" = "$brand" ]; } &&
-       [ "$suffix" != "$current" ] && is_minted_suffix "$suffix"; then
+       [ "$suffix" != "$name" ] && is_minted_suffix "$suffix"; then
         printf '%s\n' "$DEVICE_SSID"
         return 0
     fi
@@ -697,7 +726,11 @@ setup_device_identity() {
 
     resolve_nym
     DEVICE_HOSTNAME="$(printf '%s' "$BRAND_HOSTNAME" | tr 'A-Z' 'a-z')-${CODE}"
-    DEVICE_SSID="${BRAND_HOSTNAME}-${CODE}"
+    # The captive SSID carries the '!' sort decoration so it sorts first in a
+    # WiFi list; the DISCOVERY contract is the brand prefix underneath it and
+    # every reader treats the '!' as optional (see strip_ssid_decoration). The
+    # private SSID below deliberately does NOT get it.
+    DEVICE_SSID="!${BRAND_HOSTNAME}-${CODE}"
 
     uci -q get tollgate.device >/dev/null 2>&1 || uci set tollgate.device='device'
     uci set tollgate.device.code="$CODE"
