@@ -1,0 +1,10 @@
+  main-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+      - name: Run main package tests
+        working-directory: src
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/go-test-summary.sh" "main package (testenv)" -v -count=1 -race -tags testenv .

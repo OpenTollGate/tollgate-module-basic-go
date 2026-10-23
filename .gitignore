@@ -48,9 +48,11 @@ routers.lock
 
 # AI tooling — shared skills are symlinked, local memory is per-repo
 # (AGENTS.md is committed and shared; CLAUDE.md is a local symlink to it)
+# `agents` is anchored to the root on purpose: docs/agents/ is committed
+# doctrine (#920) and must not be swallowed by this pattern.
 .claude/
 CLAUDE.md
-agents/
+/agents/
 skills
 memory-global
 memory-project/

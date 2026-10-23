@@ -1,3 +1,21 @@
+# ---------------------------------------------------------------------------
+# GENERATED FILE -- DO NOT EDIT BY HAND.
+#
+#   fragments : ci.d/{both,github,ngit}/NN-<slug>.yml  (one job per file)
+#   render    : python3 scripts/assemble-ci.py
+#   check     : python3 scripts/assemble-ci.py --check   (CI, both lanes;
+#               a hand-edit here, or a fragment changed without
+#               re-rendering, fails the build)
+#
+# Adding a CI job means adding a fragment (#920) — lanes never edit this
+# document, so two lanes can never conflict in it. A job identical on both
+# lanes lives in ci.d/both/; a lane-only job lives in ci.d/github/; a job
+# that deliberately differs per lane has one variant file per lane
+# directory carrying the same job id, and assemble-ci.py refuses variants
+# whose strategy.matrix diverges (the matrix is one fact).
+#
+# Rendered target for the 'github' lane: .github/workflows/test.yml
+# ---------------------------------------------------------------------------
 name: Test
 
 on:
@@ -72,6 +90,24 @@ jobs:
         run: |
           python3 scripts/changelog-assemble.py check
           bash tests/contract/changelog-fragments_test.sh
+
+      - name: Fences dispatcher verdicts (fences.d/ + hooks/pre-commit)
+        run: |
+          # hooks/pre-commit dispatches fences.d/*.sh (#920): one file per
+          # fence, lexical order, each a complete if/fi block parsed
+          # standalone. The verdicts plant the shape that broke main — a
+          # merge ate an entire `fi`, and every hook-driven commit was
+          # refused since — and require the refusal.
+          bash tests/contract/fences-dispatch_test.sh
+
+      - name: Agent-docs partition fence (AGENTS.md <-> docs/agents/)
+        run: |
+          # AGENTS.md is a stable core; growing doctrine lives in
+          # docs/agents/<topic>.md behind a fenced index (#920). Every
+          # topic file must be indexed, every listing must resolve, every
+          # entry must carry its load directive — planted drift shapes are
+          # refused by name.
+          bash tests/contract/agents-partition_test.sh
 
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
@@ -355,6 +391,15 @@ jobs:
         run: python3 tests/contract/check-changelog-duplicates.py
       - name: Changelog duplicates check verdicts
         run: bash tests/contract/changelog-duplicates_test.sh
+      - name: CI fragments drift check (assemble → diff)
+        run: |
+          # The Test workflow twins are rendered from ci.d/ by ONE generator
+          # (#920). --check re-renders and diffs the committed copies, so a
+          # hand-edit to a rendered workflow — or a fragment changed without
+          # re-rendering — fails here, not at merge time; the verdicts
+          # harness plants each drift shape and requires the refusal.
+          python3 scripts/assemble-ci.py --check
+          bash tests/contract/ci-fragments_test.sh
 
   # The customer-facing happy path is gated HERE, on every push and every pull
   # request, because this is the workflow that runs on a branch BEFORE anyone
