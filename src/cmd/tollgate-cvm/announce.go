@@ -80,7 +80,7 @@ func BuildAnnouncement(serverSK, maintainerNpub string, relays ...string) (nostr
 // BuildToolsAnnouncement creates the signed kind-11317 tools-list
 // announcement, generated from ToolSurface() so the announced surface and the
 // dispatchable surface can never drift apart.
-func BuildToolsAnnouncement(serverSK string) (nostr.Event, error) {
+func BuildToolsAnnouncement(serverSK, maintainerNpub string) (nostr.Event, error) {
 	tools := make([]map[string]interface{}, 0, len(ToolSurface()))
 	for _, tool := range ToolSurface() {
 		entry := map[string]interface{}{
@@ -98,11 +98,26 @@ func BuildToolsAnnouncement(serverSK string) (nostr.Event, error) {
 		return nostr.Event{}, err
 	}
 
+	// Same p-tag discipline as the 11316 announcement: the tag carries the
+	// maintainer pubkey as HEX (the form a relay indexes for #p), omitted —
+	// never empty — when the router is unclaimed. Without it the maintainer
+	// dashboard's `kinds=11317, #p=<hex>` filter cannot index the tools list
+	// at all (#980 F3, found by the #971 E2E).
+	maintainerHex, err := maintainerHexFromNpub(maintainerNpub)
+	if err != nil {
+		return nostr.Event{}, err
+	}
+
+	tags := nostr.Tags{nostr.Tag{"d", annDSlug}}
+	if maintainerHex != "" {
+		tags = append(tags, nostr.Tag{"p", maintainerHex})
+	}
+
 	evt := nostr.Event{
 		Kind:      annKindTools,
 		Content:   string(contentJSON),
 		CreatedAt: nostr.Now(),
-		Tags:      nostr.Tags{nostr.Tag{"d", annDSlug}},
+		Tags:      tags,
 	}
 	if err := evt.Sign(serverSK); err != nil {
 		return nostr.Event{}, fmt.Errorf("sign tools announcement: %w", err)
@@ -117,7 +132,7 @@ func PublishAnnouncements(pool *nostr.SimplePool, relays []string, serverSK, mai
 	if err != nil {
 		return err
 	}
-	toolsEvt, err := BuildToolsAnnouncement(serverSK)
+	toolsEvt, err := BuildToolsAnnouncement(serverSK, maintainerNpub)
 	if err != nil {
 		return err
 	}
