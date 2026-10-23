@@ -23,8 +23,20 @@
 #   adoption      1. the store  2. a machine-shaped hostname
 #                 3. a machine-shaped captive SSID  4. mint (only here)
 #   identifiers   hostname      tollgate-<code>
-#                 captive SSID  TollGate-<code>   (brand prefix as shipped)
+#                 captive SSID  !TollGate-<code>  (brand prefix as shipped,
+#                                with the #706 leading '!' the installer writes)
 #                 private SSID  <nym>-<code>      (unless the operator renamed it)
+#
+# The leading '!' on the captive SSID is the INSTALLER's writer prefix (#706:
+# 0x21 sorts before digits and letters, so the guest network sorts first in an
+# alphabetically-ordered client scan list). It is decoration, not part of the
+# brand prefix, and it is ONE optional character: this side writes it too now,
+# and both parsers below strip AT MOST one occurrence before the prefix compare
+# — exactly what the Go matcher does (hasTollGateSSID, pinned by
+# tests/contract/ssid-naming-fixtures.txt, whose double-'!' negative is the
+# same rule). Before this, the shell parsers did not strip it, so a router
+# whose only name source was the installer's banged SSID fell through the whole
+# adoption chain and had a SECOND code minted over it.
 #
 # Every function below is the SHIPPED one, sourced from the real script with
 # TOLLGATE_SETUP_LIB_ONLY=1 (the hook the band tests use), run against a fake
@@ -141,12 +153,25 @@ eq "empty stays empty"            "$(normalize_device_code '')"   ""
 echo "== code_from_name (adoption reads machine-shaped names only)"
 eq "installer hostname"           "$(code_from_name tollgate-OQ3Q)" "OQ3Q"
 eq "module SSID, brand case"      "$(code_from_name TollGate-0GLK)" "0GLK"
+# The installer writes !TollGate-<code> (#706), so the banged spelling of a name
+# this stack wrote must resolve to the SAME code as the bare one — the adoption
+# chain (hostname, then captive SSID) reads the installer's name on every
+# already-deployed router, and returning nothing there is what used to fall
+# through to a SECOND mint.
+eq "banged (installer) SSID"      "$(code_from_name '!TollGate-OQ3Q')" "OQ3Q"
+eq "banged lowercase SSID"        "$(code_from_name '!tollgate-0GLK')" "0GLK"
+eq "banged whitelabel SSID"       "$(BRAND=otherbrand code_from_name '!Otherbrand-AB12')" "AB12"
+# Exactly ONE '!' is decoration: a double is not a name this stack wrote, so it
+# adopts nothing (the same rule the Go matcher and the pinned acceptance table
+# carry — tests/contract/ssid-naming-fixtures.txt, 'nomatch !!TollGate-…').
+eq "double bang yields none"      "$(code_from_name '!!TollGate-OQ3Q')" ""
 # A whitelabel build's name is recognized because the BRAND FILE says so, never
 # because a brand is listed in the script: the same name is adopted under that
 # build's brand token and ignored under any other.
 eq "whitelabel brand token"       "$(BRAND=otherbrand code_from_name Otherbrand-AB12)" "AB12"
 eq "a brand that is not configured" "$(code_from_name Otherbrand-AB12)" ""
 eq "custom hostname yields none"  "$(code_from_name myrouter)"      ""
+eq "a bang alone is not a name"   "$(code_from_name '!')"           ""
 eq "short suffix yields none"     "$(code_from_name tollgate-abc)"  ""
 eq "empty yields none"            "$(code_from_name '')"            ""
 
@@ -191,7 +216,9 @@ esac
 eq "the minted code is stored"           "$(state_get tollgate.device.code)" "$CODE"
 eq "the nym is stored"                   "$(state_get tollgate.device.nym)"  "c08r4d0r"
 eq "hostname carries the code"           "$DEVICE_HOSTNAME"                  "tollgate-$CODE"
-eq "captive SSID carries the code"       "$DEVICE_SSID"                      "TollGate-$CODE"
+eq "captive SSID carries the code"       "$DEVICE_SSID"                      "!TollGate-$CODE"
+eq "  ...with the #706 leading '!' (first in a scan list)" \
+   "$(printf '%s' "$DEVICE_SSID" | cut -c1)" "!"
 log_has "Minted device code"             && ok "the mint is logged as a mint" || bad "the mint is logged as a mint"
 grep -q '^commit tollgate$' "$UCI_LOG"   && ok "the store is committed (not left as a session delta)" \
                                          || bad "the store is committed"
@@ -204,7 +231,7 @@ reset_log
 setup_device_identity
 eq "the stored code wins over hostname and SSID" "$CODE" "OQ3Q"
 eq "the hostname is derived from the stored code" "$DEVICE_HOSTNAME" "tollgate-OQ3Q"
-eq "the captive SSID is derived from the stored code" "$DEVICE_SSID" "TollGate-OQ3Q"
+eq "the captive SSID is derived from the stored code" "$DEVICE_SSID" "!TollGate-OQ3Q"
 log_has "Minted device code" && bad "the store was ignored and a code was re-minted" \
                              || ok "no mint happened while a code was stored"
 
@@ -217,11 +244,48 @@ reset_log
 setup_device_identity
 eq "hostname wins over the stale SSID"   "$CODE" "OQ3Q"
 eq "the adopted code is stored"          "$(state_get tollgate.device.code)" "OQ3Q"
-eq "the captive SSID converges on it"    "$DEVICE_SSID" "TollGate-OQ3Q"
+eq "the captive SSID converges on it"    "$DEVICE_SSID" "!TollGate-OQ3Q"
 log_has "adopted from hostname"          && ok "the adoption is logged with its source" \
                                          || bad "the adoption is logged with its source"
 log_has "Minted device code"             && bad "a code was minted instead of adopted" \
                                          || ok "nothing was minted on an already-deployed router"
+
+# The installer-only router: NO store, a hostname the installer wrote (or a
+# custom one), and the captive SSID exactly as the INSTALLER writes it —
+# `!TollGate-<code>` (deploy.go). This is the router the whole change is about:
+# before the parsers stripped the bang, the adoption chain found nothing here
+# and minted a SECOND code, leaving the hostname and the SSID on the old one.
+echo "== an installer-deployed router (banged SSID, no store) adopts its code"
+seed "system.@system[0]=system" "system.@system[0].hostname=OpenWrt" \
+     "wireless.tollgate_2g_open=wifi-iface" "wireless.tollgate_2g_open.ssid=!TollGate-4X2Q"
+reset_log
+setup_device_identity
+eq "the banged SSID donates the code"    "$CODE" "4X2Q"
+eq "the adopted code is stored"          "$(state_get tollgate.device.code)" "4X2Q"
+eq "the captive SSID keeps that code"    "$DEVICE_SSID" "!TollGate-4X2Q"
+log_has "adopted from captive SSID"      && ok "the adoption is logged with its source" \
+                                         || bad "the adoption is logged with its source"
+log_has "Minted device code"             && bad "a SECOND code was minted over the installer's SSID (the drift)" \
+                                         || ok "no second code was minted on an installer-deployed router"
+
+echo "== the default_radio0 fallback reads the bang too (no tollgate_* AP yet)"
+seed "system.@system[0]=system" "system.@system[0].hostname=OpenWrt" \
+     "wireless.default_radio0=wifi-iface" "wireless.default_radio0.ssid=!TollGate-7K3M"
+reset_log
+setup_device_identity
+eq "the adopted code came from the banged default AP" "$CODE" "7K3M"
+log_has "Minted device code"             && bad "a code was minted over the banged default_radio0 SSID" \
+                                         || ok "the default_radio0 fallback adopted the banged SSID"
+
+echo "== a double bang is not this stack's name: the router mints (#706)"
+seed "system.@system[0]=system" "system.@system[0].hostname=OpenWrt" \
+     "wireless.tollgate_2g_open=wifi-iface" "wireless.tollgate_2g_open.ssid=!!TollGate-4X2Q"
+reset_log
+setup_device_identity
+[ "$CODE" != "4X2Q" ] && ok "a double-banged SSID is refused as a code source ($CODE minted)" \
+                      || bad "a double-banged SSID was adopted as a code — the one-'!' rule is gone"
+log_has "Minted device code"             && ok "the mint is logged (nothing was adopted)" \
+                                         || bad "no mint happened on a double-banged name"
 
 echo "== an operator's custom hostname is not a code source (#444)"
 seed "system.@system[0]=system" "system.@system[0].hostname=myrouter" \
@@ -251,13 +315,25 @@ eq "renamed SSID (other nym) is preserved"     "$(private_ssid_for_code 'office-
 eq "renamed SSID (nym + word) is preserved"    "$(private_ssid_for_code 'c08r4d0r-Office')" "c08r4d0r-Office"
 
 echo "== the captive SSID on the repair path keeps an operator's own name"
-DEVICE_SSID="TollGate-OQ3Q"
-eq "a machine-shaped SSID converges"       "$(captive_ssid_for_code 'tollgate-0GLK')" "TollGate-OQ3Q"
-eq "the brand case converges too"          "$(captive_ssid_for_code 'TollGate-0GLK')" "TollGate-OQ3Q"
-eq "a whitelabel brand converges too"     "$(BRAND=otherbrand captive_ssid_for_code 'Otherbrand-AB12')" "TollGate-OQ3Q"
+DEVICE_SSID="!TollGate-OQ3Q"
+eq "a machine-shaped SSID converges"       "$(captive_ssid_for_code 'tollgate-0GLK')" "!TollGate-OQ3Q"
+eq "the brand case converges too"          "$(captive_ssid_for_code 'TollGate-0GLK')" "!TollGate-OQ3Q"
+eq "a whitelabel brand converges too"     "$(BRAND=otherbrand captive_ssid_for_code 'Otherbrand-AB12')" "!TollGate-OQ3Q"
+# The installer's own writer output converges instead of being read as the
+# OPERATOR's name — which is what preserving it would do (a reinstall would
+# then keep the banged name while the code came from the store, and the two
+# spellings would sit on one router).
+eq "the installer's banged SSID converges" "$(captive_ssid_for_code '!TollGate-0GLK')" "!TollGate-OQ3Q"
+eq "a banged lowercase SSID converges"     "$(captive_ssid_for_code '!tollgate-0GLK')" "!TollGate-OQ3Q"
+eq "a banged whitelabel SSID converges"    "$(BRAND=otherbrand captive_ssid_for_code '!Otherbrand-AB12')" "!TollGate-OQ3Q"
+# One '!' only: a double-banged name is not this stack's, so it is the
+# operator's own and is preserved (the #706 rule the Go matcher and the pinned
+# acceptance table carry).
+eq "a double-banged SSID is preserved"     "$(captive_ssid_for_code '!!TollGate-0GLK')" "!!TollGate-0GLK"
 eq "an operator's own name survives"       "$(captive_ssid_for_code 'CafeWiFi')" "CafeWiFi"
+eq "a banged operator name survives"       "$(captive_ssid_for_code '!CafeWiFi')" "!CafeWiFi"
 eq "a brand word without a code survives"  "$(captive_ssid_for_code 'TollGate-CafeNet')" "TollGate-CafeNet"
-eq "a missing SSID is built from the code" "$(captive_ssid_for_code '')" "TollGate-OQ3Q"
+eq "a missing SSID is built from the code" "$(captive_ssid_for_code '')" "!TollGate-OQ3Q"
 
 echo "== the nym is adopted from an existing machine-shaped private SSID"
 seed "tollgate.device=device" "tollgate.device.code=OQ3Q" \
