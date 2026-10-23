@@ -49,6 +49,11 @@ cd tollgate-module-basic-go
 make go-battery
 ```
 
+For a release-oriented build (tag checkout, pinned toolchain, cold-cache
+battery, package artifact), follow
+[docs/build-from-source.md](docs/build-from-source.md) or run
+`make manual-check`.
+
 `make go-battery` is the full gate across all 18 modules; the bare
 `cd src && go build ./...` form covers only the root module. Go tooling
 that targets one module still runs from [src/](src/), not the repo root.
