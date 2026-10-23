@@ -140,7 +140,11 @@ fi
 echo
 echo "== the shipped uci-defaults reference only known uhttpd sections"
 KNOWN='main|portal|trusted|admin|crt|key|cert'
-foreign="$(grep -rhoE 'uhttpd\.[a-zA-Z][a-zA-Z0-9_]*' packaging/files/etc/uci-defaults/ 2>/dev/null |
+# Comment-tolerant: prose in comments legitimately names legacy sections
+# (`uhttpd.luci`-style mentions, #723); only code lines introduce sections.
+foreign="$(grep -rh 'uhttpd\.' packaging/files/etc/uci-defaults/ 2>/dev/null |
+           sed 's/#.*$//' |
+           grep -oE 'uhttpd\.[a-zA-Z][a-zA-Z0-9_]*' |
            sed 's/^uhttpd\.//' | sort -u | grep -v -E "^($KNOWN)$" || true)"
 if [ -z "$foreign" ]; then
     ok "every uhttpd.<name> in packaging/files/etc/uci-defaults/ is a known section (or a cert/key path)"
