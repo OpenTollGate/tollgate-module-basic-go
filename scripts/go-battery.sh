@@ -14,6 +14,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# run_bounded — give a heavy command its own cgroup memory ceiling when
+# systemd is available (the bench host; CI containers skip the wrapper
+# unchanged). A runaway soak then dies ALONE with a plain OOM line in the
+# journal, instead of walking the shared host into earlyoom, which picks
+# victims from every other session (2026-10-11: 24 GiB swap 100% full,
+# earlyoom SIGTERM'd an unrelated session mid-review).
+run_bounded() {
+    if command -v systemd-run >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        systemd-run --quiet --scope -p MemoryMax=8G -p MemorySwapMax=2G "$@"
+    else
+        "$@"
+    fi
+}
+
 mapfile -t mods < <(cd "$ROOT" && find src -name go.mod | xargs -n1 dirname | sort)
 
 for m in "${mods[@]}"; do
@@ -28,7 +42,7 @@ for m in "${mods[@]}"; do
         fi
         go vet ./...
         go build ./...
-        go test -race -count=1 -tags testenv ./...
+        run_bounded go test -race -count=1 -tags testenv ./...
     )
 done
 
