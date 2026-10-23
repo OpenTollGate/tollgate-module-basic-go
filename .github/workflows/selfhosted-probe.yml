@@ -1,0 +1,27 @@
+name: selfhosted-probe
+
+# Proves the ai-legion-tbmg self-hosted runner end-to-end (registration,
+# pickup, docker access, toolchain fetch) before any release-critical job
+# routes to it. Manual-only until proven; then the recurring heavy lanes
+# (path-parity weekly, repro packages on tags) migrate in a follow-up.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: [self-hosted, tbmg]
+    timeout-minutes: 10
+    steps:
+      - name: Runner identity
+        run: |
+          echo "runner: $(hostname) | $(uname -m) | $(nproc) cores"
+          docker version --format 'docker: {{.Server.Version}}'
+      - uses: actions/checkout@v4
+      - name: Manifest toolchain fetch (the parity pattern)
+        run: |
+          GOV=$(jq -r '.go.version' packaging/build-inputs.json)
+          GOURL=$(jq -r '.go.tarball_linux_amd64.url' packaging/build-inputs.json)
+          echo "expected go: $GOV"
+          curl -sSfL --retry 3 -m 120 "$GOURL" -o /tmp/probe-go.tgz && ls -la /tmp/probe-go.tgz
+      - name: Report
+        run: echo "probe OK — self-hosted lane proven $(date -u +%FT%TZ)"
