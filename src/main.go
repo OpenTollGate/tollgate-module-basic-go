@@ -1239,7 +1239,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		mainLogger.WithError(err).Error("Request body read failed")
 		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "invalid-request",
-			"Invalid request", macAddress)
+			"Invalid request", "")
 		return
 	}
 
@@ -1268,7 +1268,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 		if cashuToken == "" {
 			mainLogger.Error("No payment tag found in event")
 			sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "invalid-event",
-				"No payment tag found in event", macAddress)
+				"No payment tag found in event", "")
 			return
 		}
 	} else {
@@ -1284,7 +1284,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		mainLogger.WithError(err).Error("Payment processing failed")
 		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusInternalServerError, "error", "internal-error",
-			"Payment processing failed", macAddress)
+			"Payment processing failed", "")
 		return
 	}
 
