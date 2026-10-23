@@ -125,9 +125,51 @@ func BuildToolsAnnouncement(serverSK, maintainerNpub string) (nostr.Event, error
 	return evt, nil
 }
 
+// relayFailure is one relay's refusal of one announcement event.
+type relayFailure struct {
+	url string
+	err error
+}
+
+// publishReporter publishes one event and reports how many relays accepted
+// it plus the ones that refused. It is the seam that makes the announce
+// policy testable without a relay: production wires publishToRelays, tests
+// inject fakes (#980 F5).
+type publishReporter func(ctx context.Context, relays []string, evt nostr.Event) (accepted int, failed []relayFailure)
+
+// publishToRelays drains PublishMany into the verdict — the drain is where
+// the old code threw the results away (`_ = result`), which turned total
+// publish failure into the "announced 11316/11317" success log (found by
+// the #971 E2E announcing into a dead relay).
+func publishToRelays(pool *nostr.SimplePool) publishReporter {
+	return func(ctx context.Context, relays []string, evt nostr.Event) (int, []relayFailure) {
+		accepted := 0
+		var failed []relayFailure
+		for r := range pool.PublishMany(ctx, relays, evt) {
+			if r.Error != nil {
+				failed = append(failed, relayFailure{url: r.RelayURL, err: r.Error})
+			} else {
+				accepted++
+			}
+		}
+		return accepted, failed
+	}
+}
+
 // PublishAnnouncements signs and publishes both announcements to relays.
 // Replaceable kinds mean republishing replaces, not duplicates.
+//
+// Failure policy (#980 F5): a relay's refusal is LOGGED (lifecycle facts
+// only, as everywhere) — one dead relay among several must not fail the
+// daemon when the announcement still landed elsewhere. Zero acceptance for
+// either event IS an error: for a control plane whose liveness is the
+// product, "announced" must mean a relay accepted it, and the periodic
+// re-announce in serve.go is the retry.
 func PublishAnnouncements(pool *nostr.SimplePool, relays []string, serverSK, maintainerNpub string) error {
+	return publishAnnouncements(publishToRelays(pool), relays, serverSK, maintainerNpub)
+}
+
+func publishAnnouncements(pub publishReporter, relays []string, serverSK, maintainerNpub string) error {
 	evt, err := BuildAnnouncement(serverSK, maintainerNpub, relays...)
 	if err != nil {
 		return err
@@ -138,11 +180,14 @@ func PublishAnnouncements(pool *nostr.SimplePool, relays []string, serverSK, mai
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	for result := range pool.PublishMany(ctx, relays, evt) {
-		_ = result
-	}
-	for result := range pool.PublishMany(ctx, relays, toolsEvt) {
-		_ = result
+	for _, e := range []nostr.Event{evt, toolsEvt} {
+		accepted, failed := pub(ctx, relays, e)
+		for _, f := range failed {
+			logf("announce: relay %s refused kind %d: %v", f.url, e.Kind, f.err)
+		}
+		if accepted == 0 {
+			return fmt.Errorf("announce failed: kind %d accepted by 0 of %d relays (%d refused)", e.Kind, len(relays), len(failed))
+		}
 	}
 	return nil
 }
