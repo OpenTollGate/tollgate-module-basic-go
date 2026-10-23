@@ -351,6 +351,8 @@ jobs:
         run: python3 tests/contract/check-build-surface.py
       - name: Stale import path check
         run: python3 tests/contract/check-import-paths.py
+      - name: go.sum completeness fence (every module builds on its own sums)
+        run: bash tests/contract/check-gosum-completeness.sh
       - name: Changelog duplicate entries check
         run: python3 tests/contract/check-changelog-duplicates.py
       - name: Changelog duplicates check verdicts
