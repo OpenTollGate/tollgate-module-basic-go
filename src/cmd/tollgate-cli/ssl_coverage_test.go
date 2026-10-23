@@ -117,7 +117,7 @@ func TestParseLanIP(t *testing.T) {
 // template with a nil address makes x509.CreateCertificate fail outright, so the
 // router ended up with no identity at all.
 func TestRouterSANsCoverHostnameAndLANIP(t *testing.T) {
-	dnsNames, ipAddrs := routerSANs(testRouterHostname, testRouterLANIPWithPrefix)
+	dnsNames, ipAddrs := routerSANs(testRouterHostname, testRouterLANIPWithPrefix, "")
 
 	wantDNS := []string{testRouterHostname + ".lan", testRouterHostname}
 	if len(dnsNames) != len(wantDNS) {
@@ -140,7 +140,7 @@ func TestRouterSANsCoverHostnameAndLANIP(t *testing.T) {
 	}
 
 	// An unparseable LAN IP must not smuggle a nil address into the template.
-	if _, ips := routerSANs(testRouterHostname, "garbage"); len(ips) != 0 {
+	if _, ips := routerSANs(testRouterHostname, "garbage", ""); len(ips) != 0 {
 		t.Errorf("IPAddresses = %v, want none for an unparseable LAN IP", ips)
 	}
 }
@@ -149,7 +149,7 @@ func TestRouterSANsCoverHostnameAndLANIP(t *testing.T) {
 // sslApplySelfSigned does and asks the question a browser asks: does this
 // identity validate the address it was reached on?
 func TestSelfSignedIdentityCoversTheRouter(t *testing.T) {
-	cert := parseTestCertPEM(t, writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix)))
+	cert := parseTestCertPEM(t, writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix, "")))
 
 	for _, name := range []string{testRouterHostname, testRouterHostname + ".lan", testRouterLANIP} {
 		if err := cert.VerifyHostname(name); err != nil {
@@ -158,6 +158,38 @@ func TestSelfSignedIdentityCoversTheRouter(t *testing.T) {
 	}
 	if err := cert.VerifyHostname("OpenWrt"); err == nil {
 		t.Error("generated identity must not claim to be the OpenWrt placeholder host")
+	}
+}
+
+// TestSelfSignedIdentityCoversTheManagementIP pins the rc4 fix: the board and
+// LuCI live on the br-private management bridge, so the generated identity must
+// ALSO cover the management IP (network.private.ipaddr); otherwise an operator
+// who reaches the UI by its management IP gets a hostname mismatch on top of the
+// (expected) self-signed warning.
+func TestSelfSignedIdentityCoversTheManagementIP(t *testing.T) {
+	const privateIP = "10.46.60.1"
+
+	_, ipAddrs := routerSANs(testRouterHostname, testRouterLANIPWithPrefix, privateIP)
+	if len(ipAddrs) != 2 {
+		t.Fatalf("IPAddresses = %v, want the LAN IP and the management IP", ipAddrs)
+	}
+	if !ipAddrs[0].Equal(net.ParseIP(testRouterLANIP)) || !ipAddrs[1].Equal(net.ParseIP(privateIP)) {
+		t.Errorf("IPAddresses = %v, want [%s %s]", ipAddrs, testRouterLANIP, privateIP)
+	}
+
+	// De-duplicated when the management IP equals the LAN IP.
+	if _, ips := routerSANs(testRouterHostname, testRouterLANIP, testRouterLANIP); len(ips) != 1 {
+		t.Errorf("IPAddresses = %v, want one entry when the management IP == the LAN IP", ips)
+	}
+	// An unset management IP leaves the identity as it was.
+	if _, ips := routerSANs(testRouterHostname, testRouterLANIP, ""); len(ips) != 1 {
+		t.Errorf("IPAddresses = %v, want only the LAN IP when there is no management IP", ips)
+	}
+
+	// And the generated certificate validates the management IP.
+	cert := parseTestCertPEM(t, writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix, privateIP)))
+	if err := cert.VerifyHostname(privateIP); err != nil {
+		t.Errorf("generated identity does not cover the management IP %q: %v", privateIP, err)
 	}
 }
 
@@ -241,7 +273,7 @@ func TestCertCoverageWithoutRouterNames(t *testing.T) {
 // --------------------------------------------------------------- file reading
 
 func TestCertCoversRouterReadsTheCertificateFile(t *testing.T) {
-	good := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIP))
+	good := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIP, ""))
 
 	t.Run("covering certificate", func(t *testing.T) {
 		stubUCI(t, map[string]string{
@@ -293,7 +325,7 @@ func TestCertCoversRouterReadsTheCertificateFile(t *testing.T) {
 // script also computes: redirect_https is '1' only while the certificate
 // uhttpd.main presents covers this router.
 func TestApplyRedirectHTTPSTracksCoverage(t *testing.T) {
-	good := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIP))
+	good := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIP, ""))
 	placeholder := writeTestCertPEM(t, &x509.Certificate{
 		Subject:  pkix.Name{CommonName: "OpenWrt"},
 		DNSNames: []string{"OpenWrt"},
