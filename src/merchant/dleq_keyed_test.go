@@ -86,9 +86,9 @@ func TestPinnedGonutsVerifiesDLEQKeyedByProofID(t *testing.T) {
 	})
 
 	if !found {
-		t.Fatalf("pinned gonuts-tollgate no longer provides VerifyProofsDLEQWithKeysets: "+
-			"after a keyset rotation every pre-rotation token would fail with "+
-			"'invalid DLEQ proof' (issue #1057). Do not merge a dependency bump that drops it.", )
+		t.Fatalf("pinned gonuts-tollgate no longer provides VerifyProofsDLEQWithKeysets: " +
+			"after a keyset rotation every pre-rotation token would fail with " +
+			"'invalid DLEQ proof' (issue #1057). Do not merge a dependency bump that drops it.")
 	}
 
 	// The signature is unexported-typed (keysetFetcher is a private alias in nut12), so
@@ -106,7 +106,7 @@ func TestPinnedGonutsVerifiesDLEQKeyedByProofID(t *testing.T) {
 			"the keyset-rotation fix has regressed (issue #1057). body:\n%s", body)
 	}
 	if !takesFetcher {
-		t.Errorf("VerifyProofsDLEQWithKeysets no longer accepts a keysetFetcher, so it "+
+		t.Errorf("VerifyProofsDLEQWithKeysets no longer accepts a keysetFetcher, so it " +
 			"cannot fetch a historical keyset (issue #1057)")
 	}
 }
