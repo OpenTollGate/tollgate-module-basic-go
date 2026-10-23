@@ -477,6 +477,12 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 			}
 			if deg.onUpgrade != nil {
 				deg.onUpgrade(fullMerchant)
+			} else if s, ok := fullMerchant.(interface{ Shutdown() error }); ok {
+				// An upgraded merchant with nowhere to go must not leak the
+				// background work its construction started: nobody will ever
+				// Shut it down. Production always wires onUpgrade; this is the
+				// defensive seam the upgrade-strand tests exercise.
+				_ = s.Shutdown()
 			}
 		})
 		return deg, nil
@@ -524,6 +530,11 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 			}
 			if deg.onUpgrade != nil {
 				deg.onUpgrade(fullMerchant)
+			} else if s, ok := fullMerchant.(interface{ Shutdown() error }); ok {
+				// An upgraded merchant with nowhere to go must not leak the
+				// background work its construction started: nobody will ever
+				// Shut it down. Production always wires onUpgrade.
+				_ = s.Shutdown()
 			}
 		})
 		return deg, nil
@@ -566,6 +577,14 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 }
 
 func (m *Merchant) Shutdown() error {
+	// A shut-down merchant must not leave its background work running: the
+	// runtime downgrade path (full -> degraded) Shuts the old merchant down,
+	// and before this the usage sweep it started at construction kept
+	// ticking forever — metering stale sessions and running client-list
+	// reconciliations through ndsctl on a router nobody is attending, one
+	// leaked goroutine per downgrade/upgrade cycle (#733's flake family is
+	// the test-visible face of this). Nil-safe when monitoring never ran.
+	m.stopDataUsageMonitoring()
 	return m.tollwallet.Shutdown()
 }
 
