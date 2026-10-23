@@ -105,10 +105,13 @@ env:
     wss://relay.damus.io
     wss://nos.lol
     wss://nostr.mom
-    wss://relay1.orangesync.tech
     wss://relay2.orangesync.tech
-  RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
+  RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay2.orangesync.tech"
 """
+
+# relay1.orangesync.tech dropped from the template 2026-10-20: it resolves to a
+# dead IP (66.92.204.38); every 30078/1063 publish to it stalls. Regenerate
+# shards after merging so the committed copies drop it too.
 
 # The package-job epoch env is a ${{ ... }} workflow expression, so it must
 # never live inside the package-job f-string: f-strings collapse {{ to {,

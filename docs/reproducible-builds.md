@@ -1,5 +1,9 @@
 # Reproducible builds
 
+> For the step-by-step source/release build (including the cold-cache gate
+> and the #1036 troubleshooting), see
+> [build-from-source.md](build-from-source.md).
+
 ## Two paths, one truth (the parallel-build doctrine)
 
 This repo deliberately maintains TWO build paths and gates them against

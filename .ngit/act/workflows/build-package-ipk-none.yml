@@ -65,9 +65,8 @@ env:
     wss://relay.damus.io
     wss://nos.lol
     wss://nostr.mom
-    wss://relay1.orangesync.tech
     wss://relay2.orangesync.tech
-  RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
+  RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay2.orangesync.tech"
 
 jobs:
 
