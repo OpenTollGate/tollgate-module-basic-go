@@ -11,6 +11,49 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 ### Changed / Internal
 
+- **The wired LAN ports move to a bridge of their own, `br-mgmt`: a cabled
+  operator reaches the administration surfaces before paying, and the cable
+  stops being a customer network.** The wired port was a member of the *captive*
+  bridge, so the two administration guards — `:8090`/`:8443` by
+  `31-admin-board-not-guest-reachable.nft`, `:8080`/`:443` by
+  `32-luci-not-guest-reachable.nft` — dropped the operator's own administration
+  surfaces for him exactly as they do for a stranger on the open guest SSID, and
+  the port shared a layer-2 domain with those strangers (the exposure
+  `99-tollgate-setup` records as unclosable by bridge-port isolation). The new
+  `setup_mgmt_bridge` writer in `99-tollgate-setup` now **moves** the port list
+  the base image writes on the captive bridge onto `br-mgmt`; it never names a
+  port (`eth1`/`lan1` differ per board — it moves what it finds, and a bridge
+  with no ports anywhere is refused with an ERROR and **no writes at all**,
+  because a portless `br-mgmt` would report a management bridge the operator has
+  no way into). The bridge gets its own `firewall.mgmt_zone` with **no forwarding
+  to the `wan`** (it does not reuse `firewall.private_zone`, whose `forward
+  ACCEPT` plus `private → wan` forwarding would hand the cable free internet) and
+  `dhcp.mgmt` so the laptop has a lease. `33-mgmt-bridge-scope.nft` scopes it to
+  an allow list — DHCP/DNS, SSH and `:443`/`:8080`/`:8090`/`:8443` — with a
+  catch-all drop, which is what makes **"this bridge cannot transact"
+  structural rather than incidental: `:2050`, `:2051` and `:2121` are
+  deliberately not reachable from the cable**, because with one nodogsplash one
+  bridge has no captive gate, and a client on a bridge this module cannot gate
+  would be sold a session that the single instance's `ndsctl` then refuses
+  (`Client <mac> not found.` — money taken, nothing delivered). A wired client
+  therefore has **no internet at all**; internet is still bought on the wireless
+  network, as before. The writer is re-asserted on the same-version
+  (reinstall/upgrade) path as well as full setup, because the port list is owned
+  by the base image: a factory reset or `sysupgrade -n` puts the wired port back
+  on the captive bridge and this path converges it again. The guest path is
+  untouched: the guest APs stay on the captive bridge, the pre-auth allow list,
+  the portal and both guards keep their scope, and `31-*.nft`/`32-*.nft` are
+  **pinned to the captive bridge** (with `20-nds-enforce.nft` and
+  `30-backend-firewall.nft`'s `:2121` ACL) so neither direction can be extended
+  onto the other bridge without a test failing. What the operator does **not**
+  get yet is a wired *customer* network: a paywalled second bridge needs a real
+  second gate (per-instance nodogsplash chains and control sockets, or a
+  module-owned nft gate), which is the follow-up the decision record names.
+  `docs/rc-tester-guide.md` §7 now tells a tester what a cabled client can and
+  cannot reach
+  ([#601](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/601)).
+### Changed / Internal
+
 - **The duplicate-guard harness installs the ndsctl its grant assertion
   exercises.** `newDuplicateGuardMerchant` ended by asserting a *granted*
   session — the only grant-exercising assertion in its file — but installed no
@@ -179,9 +222,6 @@ and [Semantic Versioning](https://semver.org/).
   in the same action, and keep carried CHANGELOG entries under
   `[Unreleased]` with their PR link.
   ([#693](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/693))
-
-## [v0.6.0-rc1] - 2026-10-05
-### Added
 - **`tollgate-clientd` laptop client.** New
   `scripts/tollgate-clientd.py`: detects a TollGate on the default
   gateway, registers with the captive portal (nodogsplash workaround),
@@ -221,7 +261,6 @@ and [Semantic Versioning](https://semver.org/).
   mints credit `floor((amount − fee)/price)` steps; fresh
   `pip install cashu` needs `marshmallow<4` pinned (environs
   incompatibility with marshmallow 4.x). ([#425](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/425))
-
 
 
 - **The gateway now serves time to its own clients, before authentication
@@ -2783,7 +2822,6 @@ same-version short branch.
   SSIDs, and the NDS gateway name; the brands differ only in
   naming. `tollgate ssl` no longer sets the option either and cleans
   it up on revert. ([#432](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/432), fixes [#428](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/428))
-
 
 
 - **A runtime downgrade can recover again.** When all mints went
