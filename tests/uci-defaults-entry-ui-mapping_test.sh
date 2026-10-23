@@ -294,7 +294,7 @@ done
 # code, run by /bin/sh, with only the absolute live-system paths redirected.
 build_script() { # build_script <source-file>
     sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-        -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
+        -e "s|^LOGFILE=\"\${LOGFILE:-/tmp/tollgate-setup\.log}\"\$|LOGFILE=$LOGFILE|" \
         -e "s|^UHTTPD_INIT=\"/etc/init\.d/uhttpd\"\$|UHTTPD_INIT=\"$UHTTPD_INIT\"|" \
         -e "s|^TOLLGATE_CLI=\"/usr/bin/tollgate\"\$|TOLLGATE_CLI=\"$TOLLGATE_CLI\"|" \
         -e "s|^PROVISIONED_CERT=\"/etc/tollgate/ssl/server\.crt\"\$|PROVISIONED_CERT=\"$PROVISIONED_CERT\"|" \
