@@ -3,7 +3,7 @@
   "comment": "Immutable build inputs for reproducible tollgate-wrt artifacts. Every byte-affecting external input is pinned here. Update intentionally (see docs/reproducible-builds.md); never point portal.commit at a floating ref.",
   "go": {
     "version": "1.26.10",
-    "comment": "The toolchain that compiles the shipped binaries. Must equal the official golang of the pinned OpenWrt SDK release's packages feed (see .openwrt_sdk.go_per_release; scripts/sdk-go-version.sh check enforces it).",
+    "comment": "The toolchain that compiles the shipped binaries. SOURCE OF TRUTH: the official golang of the pinned OpenWrt SDK release's packages feed (see .openwrt_sdk.go_per_release) — the feed defines it, so our binaries are reproducible against the SDK's own toolchain; never a minor of our own choosing (#448). scripts/sdk-go-version.sh check enforces it against the live feeds; update re-derives it.",
     "tarball_linux_amd64": {
       "url": "https://go.dev/dl/go1.26.10.linux-amd64.tar.gz",
       "sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5"
@@ -71,7 +71,7 @@
       },
       "ipk": {
         "release": "24.10.8",
-        "comment": "The ipk/opkg era for the installed base (feed-less 24.10 systems \u2014 fork #93/#110 evidence). Digests are the point-release tags from hub.docker.com/openwrt/sdk. The SDK packages STAGED PREBUILT binaries (the manifest-pinned Go compiles on the host), so the era's older feed Go (1.23.x) never compiles our code \u2014 go_per_release keeps it audited for awareness.",
+        "comment": "The ipk/opkg era for the installed base (feed-less 24.10 systems — fork #93/#110 evidence). Digests are the point-release tags from hub.docker.com/openwrt/sdk. The SDK packages STAGED PREBUILT binaries (the manifest-pinned Go compiles on the host), so the era's older feed Go (1.23.x) never compiles our code — go_per_release keeps it audited for awareness.",
         "targets": {
           "mediatek-filogic": {
             "digest": "sha256:4109260d68a593972d0d0408e6e439472cd02df9a29a3a9383fd52bd97707a4a"
