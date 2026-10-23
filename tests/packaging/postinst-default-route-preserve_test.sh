@@ -59,6 +59,48 @@ fi
 
 # ---- 2: in the Makefile, the restore runs AFTER the recheck block -----------
 
+# ---- 1b: the restore must come after the LAST network restart --------------
+#
+# Claim 1 above was checked as presence-only, and claim 4 as order-only. That
+# left the recipe that actually ships unguarded: adding a second
+# `/etc/init.d/network restart` to packaging/postinst AFTER its restore call
+# re-wipes the routes and the suite still passed (verified). The Makefile's
+# order check would not have caught it either, because it only inspects the
+# Makefile.
+#
+# Generalize: in EVERY recipe that restarts the network, the last restart must
+# precede the restore call. This is the property the comment in each recipe
+# states ("restore after the LAST restart below"), so the test now checks the
+# claim rather than the presence of a line.
+
+# last_restart_before_restore <file>
+#
+# Prints nothing and returns 0 when the final `init.d/network restart` in the
+# file appears before the final restore call, or on a recipe that has no
+# restart at all. Returns 1 (with a message on stdout) otherwise.
+last_restart_before_restore() {
+    _f="$1"
+    _restore=$(grep -n 'restore_default_routes "' "$_f" | tail -1 | cut -d: -f1)
+    [ -n "$_restore" ] || { echo "no restore call"; return 1; }
+    _restart=$(grep -n 'init\.d/network restart' "$_f" | tail -1 | cut -d: -f1)
+    [ -n "$_restart" ] || { return 0; }   # no restart: nothing to order against
+    if [ "$_restart" -lt "$_restore" ]; then
+        return 0
+    fi
+    echo "last network restart (line $_restart) is NOT before the restore call (line $_restore) — the restart re-wipes the routes the restore just added"
+    return 1
+}
+
+for recipe in packaging/postinst packaging/Makefile; do
+    if _why=$(last_restart_before_restore "$REPO/$recipe"); then
+        ok "$recipe: restore sits after the last network restart"
+    else
+        fail "$recipe: $_why"
+    fi
+done
+
+# The Makefile-specific check #926 asked for stays, since it names the recheck
+# block explicitly and gives a more actionable message when that block moves.
 mkline_restore=$(grep -n 'restore_default_routes "\$$_pre_restart_defroutes"' "$REPO/packaging/Makefile" | cut -d: -f1)
 mkline_recheck=$(grep -n 'recheck_private_subnet && /etc/init.d/network restart' "$REPO/packaging/Makefile" | cut -d: -f1)
 if [ -n "$mkline_restore" ] && [ -n "$mkline_recheck" ] && [ "$mkline_restore" -gt "$mkline_recheck" ]; then
