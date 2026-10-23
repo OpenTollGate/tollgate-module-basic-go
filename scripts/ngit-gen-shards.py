@@ -99,7 +99,10 @@ env:
   # unreachable from a job container (25 s connect timeout) while the other four
   # answer, and BLOSSOM_MIN_SUCCESS=1 means the dead mirror only bought ~60 s of
   # retries per uploaded file.
-  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom2.orangesync.tech https://drive.cashu.email"
+  # drive.cashu.email dropped 2026-10-20: it started returning
+  # "402 Payment required for files over 1 MiB" for every artifact upload,
+  # which can never satisfy a mirror-success threshold; keep 3 free mirrors.
+  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom2.orangesync.tech"
   BLOSSOM_MIN_SUCCESS: "1"
   COORDINATION_RELAYS: >-
     wss://relay.damus.io
@@ -192,14 +195,20 @@ RESOLVE_INPUTS = """\
           : ${GITHUB_OUTPUT:=/tmp/github_output}
 
           # Returns the newest event line for the addressable record <d>.
+          # 40 x 30s = ~20 min of patience: stage-1 (build-package-binaries)
+          # takes 12-15 min on the coordinator, and when a release run starts
+          # right after a mirror push the shard can race stage-1 end-to-end.
+          # 20 attempts (~10 min) lost that race live (ipk-none, run
+          # 28d2dfc3-20261020T205550Z: gave up at 10m44s while stage-1's
+          # portal record landed 6 min later).
           fetch_record() {
             local d="$1" out
-            for attempt in $(seq 1 20); do
+            for attempt in $(seq 1 40); do
               out=$(timeout 45 nak req -k 30078 --tag "d=tollgate-build/${BUILD_ID}/${d}" \\
                 --limit 1 $COORDINATION_RELAYS < /dev/null 2>/dev/null \\
                 | grep -m1 '^{' || true)
               if [ -n "$out" ]; then printf '%s' "$out"; return 0; fi
-              echo "  ${d} record not published yet (attempt $attempt/20); waiting 30s" >&2
+              echo "  ${d} record not published yet (attempt $attempt/40); waiting 30s" >&2
               sleep 30
             done
             return 1
@@ -401,7 +410,11 @@ IPK_BUILD = """\
           # is in this job's env, which packaging/build-env.sh requires.
           UPX_DIR=$(bash scripts/fetch-upx.sh)
           echo "PATH=$UPX_DIR:$PATH" >> "${GITHUB_ENV:-/dev/null}"
-          "$UPX_DIR/upx" --version | head -1
+          # `|| true` — NOT `{ pipe; true; }`: under set -euo pipefail the
+          # shell exits at the pipeline's own failure and the trailing true
+          # never runs (proven locally: yes|head in { } form exits 141).
+          # upx SIGPIPE death here killed this shard 3x on 2026-10-20:
+          "$UPX_DIR/upx" --version 2>/dev/null | head -1 || true
 
       - name: Build .ipk
         id: build
@@ -486,10 +499,13 @@ APK_BUILD = """\
         run: |
           set -euo pipefail
           SDK="${{ matrix.sdk }}"
+          INPUTS="packaging/build-inputs.json"
+          [ -f "$INPUTS" ] || INPUTS="src-checkout/packaging/build-inputs.json"
+          [ -f "$INPUTS" ] || { echo "ERROR: packaging/build-inputs.json not found (root or src-checkout)" >&2; exit 1; }
           DIGEST=$(jq -r --arg sdk "$SDK" \\
-            '.openwrt_sdk.targets[$sdk].digest // empty' packaging/build-inputs.json)
-          [ -n "$DIGEST" ] || { echo "ERROR: no SDK digest pinned for target $SDK in packaging/build-inputs.json" >&2; exit 1; }
-          RELEASE=$(jq -r '.openwrt_sdk.release' packaging/build-inputs.json)
+            '.openwrt_sdk.targets[$sdk].digest // empty' "$INPUTS")
+          [ -n "$DIGEST" ] || { echo "ERROR: no SDK digest pinned for target $SDK in $INPUTS" >&2; exit 1; }
+          RELEASE=$(jq -r '.openwrt_sdk.release' "$INPUTS")
           echo "SDK_REF=openwrt/sdk:${SDK}-${RELEASE}@${DIGEST}" >> "${GITHUB_ENV:-/dev/null}"
           echo "resolved SDK_REF=openwrt/sdk:${SDK}-${RELEASE}@${DIGEST}"
 
@@ -544,7 +560,7 @@ APK_BUILD = """\
           if [ "$USE_UPX" = "1" ]; then
             UPX_DIR=$(bash src-checkout/scripts/fetch-upx.sh)
             docker exec -i "$SVC" sh -c 'cat > /usr/local/bin/upx && chmod 0755 /usr/local/bin/upx' < "$UPX_DIR/upx"
-            docker exec "$SVC" upx --version | head -1
+            docker exec "$SVC" upx --version 2>/dev/null | head -1 || true
           fi
 
           docker exec -e PACKAGE_VERSION="${{ needs.resolve-inputs.outputs.package_version }}" \\
