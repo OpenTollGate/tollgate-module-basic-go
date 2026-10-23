@@ -442,6 +442,17 @@ type Merchant struct {
 	monitorDone chan struct{}
 	monitorOn   bool
 
+	// payoutMu guards the payout routine's and the lightning-quote janitor's
+	// stop channels — same lifecycle discipline as the sweep's monitor fields
+	// above: the payout goroutines (one per accepted mint) and the janitor are
+	// started at construction and must die with the merchant, or a shut-down
+	// merchant keeps attempting payouts against its dead wallet and cleaning
+	// quote state nobody reads, one leaked goroutine set per downgrade/upgrade
+	// cycle (#733's family). nil = not running.
+	payoutMu    sync.Mutex
+	payoutStop  chan struct{}
+	janitorStop chan struct{}
+
 	// Session tickets (see session_ticket.go): a per-process signing key and the
 	// handle -> attachment store. Both are memory-only on purpose.
 	ticketMu sync.Mutex
@@ -477,6 +488,12 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 			}
 			if deg.onUpgrade != nil {
 				deg.onUpgrade(fullMerchant)
+			} else if s, ok := fullMerchant.(interface{ Shutdown() error }); ok {
+				// An upgraded merchant with nowhere to go must not leak the
+				// background work its construction started: nobody will ever
+				// Shut it down. Production always wires onUpgrade; this is the
+				// defensive seam the upgrade-strand tests exercise.
+				_ = s.Shutdown()
 			}
 		})
 		return deg, nil
@@ -524,6 +541,11 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 			}
 			if deg.onUpgrade != nil {
 				deg.onUpgrade(fullMerchant)
+			} else if s, ok := fullMerchant.(interface{ Shutdown() error }); ok {
+				// An upgraded merchant with nowhere to go must not leak the
+				// background work its construction started: nobody will ever
+				// Shut it down. Production always wires onUpgrade.
+				_ = s.Shutdown()
 			}
 		})
 		return deg, nil
@@ -566,6 +588,15 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 }
 
 func (m *Merchant) Shutdown() error {
+	// A shut-down merchant must not leave its background work running: the
+	// runtime downgrade path (full -> degraded) Shuts the old merchant down,
+	// and before this the usage sweep it started at construction kept
+	// ticking forever — metering stale sessions and running client-list
+	// reconciliations through ndsctl on a router nobody is attending, one
+	// leaked goroutine per downgrade/upgrade cycle (#733's flake family is
+	// the test-visible face of this). Nil-safe when monitoring never ran.
+	m.stopDataUsageMonitoring()
+	m.stopPayoutAndJanitor()
 	return m.tollwallet.Shutdown()
 }
 
@@ -1326,13 +1357,25 @@ func (m *Merchant) reconcileStaleBinding(macAddress string) {
 func (m *Merchant) StartPayoutRoutine() {
 	log.Printf("Starting payout routine")
 
+	m.payoutMu.Lock()
+	if m.payoutStop == nil {
+		m.payoutStop = make(chan struct{})
+	}
+	payoutStop := m.payoutStop
+	m.payoutMu.Unlock()
+
 	for _, mint := range m.config.AcceptedMints {
 		go func(mintConfig config_manager.MintConfig) {
 			ticker := time.NewTicker(1 * time.Minute)
 			defer ticker.Stop()
 
-			for range ticker.C {
-				m.runPayoutForMint(mintConfig)
+			for {
+				select {
+				case <-payoutStop:
+					return
+				case <-ticker.C:
+					m.runPayoutForMint(mintConfig)
+				}
 			}
 		}(mint)
 	}
@@ -1340,6 +1383,24 @@ func (m *Merchant) StartPayoutRoutine() {
 	m.mintHealthTracker.StartProactiveChecks()
 
 	log.Printf("Payout routine started")
+}
+
+// stopPayoutAndJanitor ends the payout routine's and the lightning-quote
+// janitor's goroutines (one shared stop channel each). Idempotent and nil-safe
+// when neither was started; called from Shutdown so a merchant that is shut
+// down stops attempting payouts against its dead wallet.
+func (m *Merchant) stopPayoutAndJanitor() {
+	m.payoutMu.Lock()
+	payoutStop, janitorStop := m.payoutStop, m.janitorStop
+	m.payoutStop, m.janitorStop = nil, nil
+	m.payoutMu.Unlock()
+
+	if payoutStop != nil {
+		close(payoutStop)
+	}
+	if janitorStop != nil {
+		close(janitorStop)
+	}
 }
 
 // runPayoutForMint runs one payout pass for one mint, or does nothing when the

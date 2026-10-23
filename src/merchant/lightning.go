@@ -441,11 +441,23 @@ func (m *Merchant) getLightningQuoteState(quoteID string) (tollwallet.MintQuoteS
 }
 
 func (m *Merchant) startLightningQuoteJanitor() {
+	m.payoutMu.Lock()
+	if m.janitorStop == nil {
+		m.janitorStop = make(chan struct{})
+	}
+	janitorStop := m.janitorStop
+	m.payoutMu.Unlock()
+
 	ticker := time.NewTicker(lightningQuoteCleanupInterval)
 	go func() {
 		defer ticker.Stop()
-		for range ticker.C {
-			m.cleanupStaleLightningQuotes(time.Now())
+		for {
+			select {
+			case <-janitorStop:
+				return
+			case <-ticker.C:
+				m.cleanupStaleLightningQuotes(time.Now())
+			}
 		}
 	}()
 }
