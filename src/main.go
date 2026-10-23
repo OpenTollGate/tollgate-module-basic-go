@@ -744,7 +744,11 @@ func installMerchant(merchantInstance merchant.MerchantInterface) {
 
 	if deg, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
 		mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
-		deg.OnUpgrade(func(full merchant.MerchantInterface) {
+		// WireStartupDegraded registers the upgrade consumer AND the recovery
+		// trigger as one pair (#10). Doing only the first left the tracker's
+		// onFirstReachable nil, so the service stayed degraded forever even
+		// after the mint returned.
+		deg.WireStartupDegraded(func(full merchant.MerchantInterface) {
 			mainLogger.Info("Upgrading from degraded to full merchant")
 			swapMerchant(full)
 			registerReachableSetChangedCallback(full)
