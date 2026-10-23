@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # go-battery.sh — the canonical pre-PR Go gate across ALL modules.
 #
-# WHY A SCRIPT: src/ is a multi-module tree (16 nested go.mod files with
+# WHY A SCRIPT: src/ is a multi-module tree (18 nested go.mod files with
 # replace directives); `go <cmd> ./...` from src/ covers ONLY the root
 # module. A battery invoked that way silently skips every subpackage while
 # reporting success. AGENTS.md and CONTRIBUTING.md point here, and the
