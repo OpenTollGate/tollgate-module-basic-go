@@ -457,10 +457,16 @@ shell, agree when the flip has landed:
   `uhttpd.admin` on `:8080` + `:443` (the board) and `uhttpd.main` on `:8090` +
   `:8443` (LuCI);
 - the knob: `jq -r '.entry_ui' /etc/tollgate/config.json` (or
-  `tollgate config get entry_ui`) selects the mapping and defaults to `board`.
-  A router whose `entry_ui` reads `board` but whose listeners show the old
-  mapping is the torn-pair state above, not a fresh defect — re-vendor the feed
-  so both halves ship together.
+  `tollgate config get entry_ui`) selects the mapping. A fully-vendored
+  install records the default `board`; an install the captive-portal feed
+  never reached (an ipk-only deployment) records `luci` — the mapping that
+  deployment can actually back — because the daemon populates the marker-gated
+  value when it writes a default (#928), so config and listeners agree from
+  the first boot. A router whose `entry_ui` reads `board` but whose listeners
+  show the old mapping is the torn-pair state above, or a pre-#928 install
+  whose population ran after convergence — either way, not a fresh defect:
+  report both facts (the value and the measured listeners), and re-vendor the
+  feed so both halves ship together.
 
 **Admin cross-links must be HTTPS, and the board's link to LuCI is a router
 answer.** The board's header renders its "OpenWrt LuCI" cross-link only from

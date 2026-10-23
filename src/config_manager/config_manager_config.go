@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -545,6 +546,48 @@ func NewDefaultConfig() *Config {
 	}
 }
 
+// entryUIMarkerPath mirrors 99-tollgate-setup's ENTRY_UI_MARKER (D4 of
+// docs/architecture/default-ui-and-entry-port-decision.md): the file whose
+// presence and content announce that the mode-aware portal writer
+// (92-tollgate-admin-setup, shipped by the captive-portal feed) has applied
+// the board mapping. A package-level var — the same seam as
+// src/cmd/tollgate-cli/ui.go's entryUIMarkerPath — so tests can point it at
+// a fixture instead of a live router. The Go/shell copies are fenced by
+// tests/contract/check-entry-ui-marker-path.sh.
+var entryUIMarkerPath = "/etc/tollgate/entry-ui-mapping"
+
+// entryUIMarkerAnnouncesBoard reports whether this deployment can actually
+// back entry_ui=board: the mode-aware portal writer must have announced the
+// board mapping. An absent, unreadable, or non-board marker means it cannot —
+// the same fail-closed comparison 99-tollgate-setup's ensure_entry_ui and
+// tollgate-cli's entryUIMode apply.
+func entryUIMarkerAnnouncesBoard() bool {
+	data, err := os.ReadFile(entryUIMarkerPath)
+	return err == nil && strings.TrimSpace(string(data)) == "board"
+}
+
+// applyBackedEntryUIDefault rewrites the entry_ui DEFAULT in cfg to the value
+// this deployment can actually back (#928): the declared default (board) only
+// when the D4 marker announces the board mapping, and the legacy luci mapping
+// otherwise. An ipk-only install carries no captive-portal feed, so its
+// 99-tollgate-setup has already converged the legacy port table and no board
+// UI exists at all — recording board there would disagree with the converged
+// listeners by construction, exactly the divergence PRTA's
+// test_entry_ui_port_mapping_contract flags. Populating the backed value makes
+// config.json and the port table agree from the first boot.
+//
+// Called ONLY on paths that write an entry_ui the operator never chose — the
+// fresh-install write, the invalid-JSON rewrite, and the migration's
+// empty-field population. An operator-declared value is never rewritten: D4
+// leaves it recorded for the release that carries both halves.
+func applyBackedEntryUIDefault(cfg *Config) {
+	if cfg == nil || cfg.EntryUI != "board" || entryUIMarkerAnnouncesBoard() {
+		return
+	}
+	log.Printf("WARNING: the entry_ui default (board) is not backed on this deployment — the admin-UI mapping marker %s is absent, so the captive-portal feed's mode-aware writer (92-tollgate-admin-setup) has not run (ipk-only install or pre-switch feed) and no board UI exists to answer the entry pair. Populating entry_ui=luci instead so config.json agrees with the legacy port table 99-tollgate-setup converged (#928). Re-vendor the feed (FreedomTechFeed/packages) so both halves ship together.", entryUIMarkerPath)
+	cfg.EntryUI = "luci"
+}
+
 // EnsureDefaultConfig ensures a default config.json exists, loading from file if present.
 func EnsureDefaultConfig(filePath string) (*Config, error) {
 	defaultConfig := NewDefaultConfig()
@@ -556,6 +599,7 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 			// and here silently reverts the router to factory mints. Say it
 			// loudly so an operator reading the log can restore a backup.
 			log.Printf("WARNING: %s does not exist — writing factory defaults; if this router was configured, restore from config_backups and investigate what removed the file", filePath)
+			applyBackedEntryUIDefault(defaultConfig)
 			return defaultConfig, SaveConfig(filePath, defaultConfig)
 		}
 		return nil, err // Other read error
@@ -574,6 +618,7 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 			log.Printf("CRITICAL: Failed to backup invalid config: %v", backupErr)
 			return nil, backupErr
 		}
+		applyBackedEntryUIDefault(defaultConfig)
 		return defaultConfig, SaveConfig(filePath, defaultConfig)
 	}
 	if profitShareErr != nil {
@@ -585,6 +630,7 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", config.ConfigVersion); backupErr != nil {
 			log.Printf("WARN: Failed to backup config before migration (continuing): %v", backupErr)
 		}
+		applyBackedEntryUIDefault(defaultConfig)
 		migrateConfig(&config, defaultConfig)
 		return &config, SaveConfig(filePath, &config)
 	}
@@ -615,9 +661,11 @@ func migrateConfig(config *Config, defaults *Config) {
 	}
 	// v0.0.10 adds the entry-UI switch. The declared default is the operator's
 	// decision (board), but the effective mapping is release-gated: 99 honours
-	// board only once the mode-aware 92 is installed (the D4 marker). A router
-	// upgraded by a module-only release therefore records the value and keeps
-	// today's mapping — see the ADR's D4.
+	// board only once the mode-aware 92 is installed (the D4 marker). The
+	// defaults passed in therefore already carry the backed value (#928's
+	// applyBackedEntryUIDefault): a router the feed never reached records luci,
+	// the mapping its port table actually converged; a fully-vendored one
+	// records board. An operator-declared value is kept as-is (ADR D4).
 	if config.EntryUI == "" {
 		config.EntryUI = defaults.EntryUI
 		log.Printf("INFO: Populated entry_ui default (%s) on upgrade", defaults.EntryUI)
