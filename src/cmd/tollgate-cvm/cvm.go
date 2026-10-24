@@ -105,22 +105,27 @@ func WrapRequest(req JSONRPCRequest, serverPK, callerSK string) (nostr.Event, st
 }
 
 // UnwrapRequest opens a gift-wrapped request with the server's key and
-// returns the JSON-RPC request plus the caller's identity (from the seal's
-// pubkey — the gift wrap's own pubkey is a nonce and means nothing).
-func UnwrapRequest(gw nostr.Event, serverSK string) (JSONRPCRequest, string, error) {
+// returns the JSON-RPC request, the caller's identity (from the seal's
+// pubkey — the gift wrap's own pubkey is a nonce and means nothing), and the
+// RUMOR's created_at — the request's real clock. The gift wrap's own
+// created_at is deliberately randomized by NIP-59 (nip59.GiftWrap stamps it
+// "up to 6 hours in the past" for timing privacy) and must never be used for
+// freshness decisions (#980 D1: doing so made every relay-delivered request
+// stale by construction and the control plane silently inert).
+func UnwrapRequest(gw nostr.Event, serverSK string) (JSONRPCRequest, string, nostr.Timestamp, error) {
 	var req JSONRPCRequest
 	rumor, err := nip59.GiftUnwrap(gw, decryptWith(serverSK))
 	if err != nil {
-		return req, "", fmt.Errorf("unwrap: %w", err)
+		return req, "", 0, fmt.Errorf("unwrap: %w", err)
 	}
 	// The caller is the seal's author; GiftUnwrap copies it into rumor.PubKey.
 	if rumor.Kind != CVMKind {
-		return req, "", fmt.Errorf("rumor kind %d, want %d — not a CVM message", rumor.Kind, CVMKind)
+		return req, "", 0, fmt.Errorf("rumor kind %d, want %d — not a CVM message", rumor.Kind, CVMKind)
 	}
 	if err := json.Unmarshal([]byte(rumor.Content), &req); err != nil {
-		return req, "", fmt.Errorf("request json: %w", err)
+		return req, "", 0, fmt.Errorf("request json: %w", err)
 	}
-	return req, rumor.PubKey, nil
+	return req, rumor.PubKey, rumor.CreatedAt, nil
 }
 
 // WrapResponse gift-wraps a JSON-RPC response from the server to a client.

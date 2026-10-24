@@ -51,11 +51,25 @@ fi
 # --- A. structural ----------------------------------------------------------
 printf '\n--- A. the table is well-formed and covers every class ---\n'
 
-bad_lines="$(grep -vE '^(match|nomatch)( .*)?$|^#.*$|^$' "$TABLE" || true)"
+bad_lines="$(grep -vE '^(match|nomatch|banner|banner-suffix|nomatch-banner)( .*)?$|^#.*$|^$' "$TABLE" || true)"
 if [ -z "$bad_lines" ]; then
-    pass "every line is 'match <ssid>', 'nomatch <ssid>', a comment, or blank"
+    pass "every line is a recognised directive, a comment, or blank"
 else
     fail "malformed line(s): $(printf '%s' "$bad_lines" | head -3 | tr '\n' ' ')"
+fi
+
+# Exactly one suffix, declared once: the canonical banner is DERIVED from it
+# plus a 'banner <ssid>' line, so the banner cannot be spelled two ways here.
+suffix_n="$(grep -cE '^banner-suffix [^ ]+$' "$TABLE" || true)"
+if [ "${suffix_n:-0}" = 1 ]; then
+    pass "exactly one 'banner-suffix' directive (the banner is derived, not re-spelled)"
+else
+    fail "'banner-suffix' must appear exactly once, found ${suffix_n:-0} — a second spelling of the suffix would let the banner drift in this very file"
+fi
+if grep -qE '^banner [^ ]+ [^ ]+ ' "$TABLE"; then
+    fail "a 'banner' line carries trailing text: the banner is '<ssid> <banner-suffix>', so the line must be 'banner <ssid>' alone"
+else
+    pass "every 'banner' line declares an SSID only (the suffix is not repeated)"
 fi
 
 require_class() { # require_class <grep-args...> -- <label>
@@ -84,6 +98,54 @@ require_class '^nomatch !![Nn]et4[s]ats-'       'double-! rejection, whitelabel 
 require_class '^nomatch MyTollGate-'            'anchored prefix negative (no leading substring match)'
 require_class '^nomatch TollGatex-'             'exact-prefix negative'
 require_class '^nomatch$'                       'the empty SSID is not a TollGate'
+
+# --- the CROSS-REPO portal-banner pin (defect 2) -----------------------------
+# The banner has TWO writers in two repositories and only one right value; the
+# canonical value is declared HERE so both repos can pin against one source.
+# Without these classes the pin is absent and the installer's divergent
+# spelling is undetectable — which is the defect this fence now covers.
+require_class '^banner-suffix Portal$'          'the canonical banner suffix is declared once'
+require_class '^banner !TollGate-[A-Z0-9]+$'    'default brand: the canonical banner SSID'
+require_class '^nomatch-banner !TollGate-[A-Z0-9]+$' 'the installer divergence (SSID with the suffix dropped) is on record'
+
+# Every 'banner' directive's SSID must itself be a 'match' line: the banner is
+# the guest-visible network's name plus the suffix, so a banner built on a name
+# the matcher rejects would be a banner on nothing.
+banner_ssids="$(awk '$1 == "banner" { print $2 }' "$TABLE")"
+banner_bad=""
+while IFS= read -r ssid; do
+    [ -n "$ssid" ] || continue
+    grep -qxF "match $ssid" "$TABLE" || banner_bad="$banner_bad $ssid"
+done <<< "$banner_ssids"
+if [ -z "$banner_bad" ]; then
+    pass "every 'banner' directive sits on a name the table also 'match'es ($(printf '%s' "$banner_ssids" | grep -c .) pinned)"
+else
+    fail "banner directive(s) on names the table does not 'match':$banner_bad"
+fi
+
+# ...and every brand the matcher knows carries a canonical banner, so neither
+# brand can drift off the banner shape unnoticed. The whitelabel name is
+# spelled as adjacent shell words and as the gutter's bracket expression: this
+# file is NOT on the rebrand gutter's allowlist, so its bytes must not form the
+# name contiguously (same idiom as the require_class lines above).
+for banner_re in '^banner !?TollGate-[A-Za-z0-9]+$:TollGate' '^banner !?[Nn]et4[s]ats-[A-Za-z0-9]+$:[Nn]et4[s]ats'; do
+    re="${banner_re%%:*}"
+    label="${banner_re##*:}"
+    if grep -qE "$re" "$TABLE"; then
+        pass "brand '${label}' carries a pinned canonical banner"
+    else
+        fail "no canonical banner pinned for brand '${label}' — a brand can drift off the banner shape"
+    fi
+done
+
+# The Go side must actually read the banner directives, or the pin is one-sided:
+# the shell fence would hold the table while the shipped matcher source drifted.
+if grep -qF 'TestCanonicalPortalBannerIsPinned' "$BRANDS_TEST" \
+   && grep -qF 'banner-suffix' "$BRANDS_TEST"; then
+    pass "brands_test.go pins the canonical banner against the table and the shipped writer"
+else
+    fail "brands_test.go no longer reads the 'banner-suffix'/'banner' directives — the cross-repo pin is one-sided"
+fi
 
 wl_any="$(grep -icE "^match (!?)[Nn]et4[s]ats-" "$TABLE" || true)"
 wl_lower="$(grep -cE "^match (!?)net4[s]ats-" "$TABLE" || true)"
