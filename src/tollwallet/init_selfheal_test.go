@@ -127,29 +127,32 @@ func TestNewSelfHealsRetiredKeysets_Issue818(t *testing.T) {
 // "Unknown Keyset" (broken /v1/keys/{id} AND an /v1/keys response missing
 // the advertised id). The first load fails with the exact #818 signature;
 // the mint is reachable (serves /v1/keysets), so the init hook re-fetches
-// the keyset set and retries ONCE; the mint recovers between the attempts
-// and init proceeds instead of degrading.
+// the keyset set and retries ONCE. The mint heals exactly at the hook's
+// probe — the 2nd /v1/keysets call, i.e. the boundary between the two
+// loads — so the test pins that it is the RETRY that succeeds, not the
+// first attempt healing itself.
 func TestNewInitHookRetriesOnce_Issue818(t *testing.T) {
 	active := newFixtureKeyset(t)
 	stale := newFixtureKeyset(t)
 
-	var listKeysInKeys atomic.Bool // false: /v1/keys omits the active id (the flake)
-	var byIDRefusals atomic.Int32
+	// The mint's keyset list is served from the first call (reachability);
+	// the KEYS become available at the hook's probe — /v1/keysets call #2.
+	var keysetsCalls atomic.Int32
+	var keysServed atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/v1/keysets":
+			if keysetsCalls.Add(1) >= 2 {
+				keysServed.Store(true) // the mint heals at the retry boundary
+			}
 			writeJSON(w, `{"keysets":[{"id":"`+active.id+`","unit":"sat","active":true,"input_fee_ppk":0}]}`)
 		case r.URL.Path == "/v1/keys":
-			if listKeysInKeys.Load() {
+			if keysServed.Load() {
 				writeJSON(w, `{"keysets":[{"id":"`+active.id+`","unit":"sat","keys":`+active.keyJSON+`,"active":true,"input_fee_ppk":0}]}`)
 				return
 			}
 			writeJSON(w, `{"keysets":[]}`) // advertised-but-unserved active id
 		case r.URL.Path == "/v1/keys/"+stale.id || r.URL.Path == "/v1/keys/"+active.id:
-			byIDRefusals.Add(1)
-			if r.URL.Path == "/v1/keys/"+active.id {
-				listKeysInKeys.Store(true) // the mint heals between the attempts
-			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			fmt.Fprint(w, `{"detail":"Unknown Keyset","code":12001}`)
@@ -169,8 +172,11 @@ func TestNewInitHookRetriesOnce_Issue818(t *testing.T) {
 	if got := tw.GetBalance(); got != 0 {
 		t.Fatalf("balance after hook retry: want 0 got %d", got)
 	}
-	if byIDRefusals.Load() == 0 {
-		t.Fatal("test premise broken: the first attempt never hit the unknown-keyset refusal")
+	if got := keysetsCalls.Load(); got < 3 {
+		t.Fatalf("test premise broken: want first load + hook probe + retried load (>=3 /v1/keysets calls), got %d", got)
+	}
+	if !keysServed.Load() {
+		t.Fatal("test premise broken: the mint never healed at the retry boundary")
 	}
 }
 
