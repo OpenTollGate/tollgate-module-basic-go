@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 // The announcement is the discovery mechanism: a dashboard subscribes
@@ -80,15 +81,42 @@ func TestAnnouncementShape(t *testing.T) {
 // Tools announcement (11317): generated from the surface, and the banned
 // tools must be structurally unable to appear.
 func TestToolsAnnouncement(t *testing.T) {
+	const maintainer = "npub1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqksqpew"
 	serverSK := nostr.GeneratePrivateKey()
 
-	evt, err := BuildToolsAnnouncement(serverSK)
+	evt, err := BuildToolsAnnouncement(serverSK, maintainer)
 	if err != nil {
 		t.Fatalf("BuildToolsAnnouncement: %v", err)
 	}
 	if evt.Kind != 11317 {
 		t.Fatalf("kind %d, want 11317", evt.Kind)
 	}
+
+	// The maintainer dashboard indexes the tools list with #p = maintainer
+	// HEX, exactly like the 11316 announcement — a missing p tag made 11317
+	// invisible to that filter (#980 F3).
+	_, decodedNpub, err := nip19.Decode(maintainer)
+	if err != nil {
+		t.Fatalf("fixture npub: %v", err)
+	}
+	wantHex, ok := decodedNpub.(string)
+	if !ok {
+		t.Fatalf("fixture npub did not decode to a string pubkey")
+	}
+	p := evt.Tags.GetFirst([]string{"p"})
+	if p == nil {
+		t.Fatalf("tools announcement carries no p tag — the dashboard #p filter cannot index it")
+	}
+	if p.Value() != wantHex {
+		t.Fatalf("p tag %q, want the maintainer pubkey hex %q (relays index hex, not bech32)", p.Value(), wantHex)
+	}
+	if d := evt.Tags.GetFirst([]string{"d"}); d == nil || d.Value() != "tollgate-control-plane" {
+		t.Fatalf("d tag lost: %v", evt.Tags)
+	}
+	if ok, err := evt.CheckSignature(); !ok || err != nil {
+		t.Fatalf("signature must verify after the tag change: ok=%v err=%v", ok, err)
+	}
+
 	var tools struct {
 		Tools []struct {
 			Name string `json:"name"`
@@ -104,6 +132,20 @@ func TestToolsAnnouncement(t *testing.T) {
 		if tool.Name == "drain" || tool.Name == "fund" {
 			t.Fatalf("banned tool %q announced", tool.Name)
 		}
+	}
+}
+
+// An unclaimed router must NOT announce a maintainer p tag on the tools list
+// either — an empty p tag would be a wildcard a dashboard could match on
+// some relays (same rule as TestAnnouncementUnclaimed).
+func TestToolsAnnouncementUnclaimedOmitsPTag(t *testing.T) {
+	serverSK := nostr.GeneratePrivateKey()
+	evt, err := BuildToolsAnnouncement(serverSK, "")
+	if err != nil {
+		t.Fatalf("BuildToolsAnnouncement unclaimed: %v", err)
+	}
+	if p := evt.Tags.GetFirst([]string{"p"}); p != nil {
+		t.Fatalf("unclaimed router announced p tag %q — this puts it in someone's fleet view", p.Value())
 	}
 }
 
