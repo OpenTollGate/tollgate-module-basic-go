@@ -32,6 +32,14 @@ var (
 	// ErrChannelExists means a channel with that ID is already registered.
 	ErrChannelExists = errors.New("channel already registered")
 
+	// ErrChannelConflict means a channel with that ID is registered with a
+	// DIFFERENT funding record. This is the case that must not be treated as a
+	// harmless re-registration: the funding record anchors every later payment
+	// signature, so accepting a second, different one would re-point the channel
+	// at funding the payee never agreed to serve against. It wraps
+	// ErrChannelExists, because it is still a refusal to register.
+	ErrChannelConflict = fmt.Errorf("%w: with a different funding record", ErrChannelExists)
+
 	// ErrInvalidChannel means a channel request is malformed (missing ID, zero
 	// capacity, bad expiry). Never register a channel you cannot price.
 	ErrInvalidChannel = errors.New("invalid channel request")

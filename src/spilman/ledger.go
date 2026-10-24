@@ -500,7 +500,7 @@ func (l *ChannelLedger) SetFundingRecord(ctx context.Context, rec FundingRecord)
 		if sameFundingRecord(*existing, rec) {
 			return nil
 		}
-		return fmt.Errorf("%w: %q already has a different funding record", ErrChannelExists, rec.ChannelID)
+		return fmt.Errorf("%w: %q already has a different funding record", ErrChannelConflict, rec.ChannelID)
 	}
 
 	res, err := l.db.ExecContext(ctx,
@@ -530,7 +530,7 @@ func (l *ChannelLedger) SetFundingRecord(ctx context.Context, rec FundingRecord)
 		if sameFundingRecord(*existing, rec) {
 			return nil
 		}
-		return fmt.Errorf("%w: %q already has a different funding record", ErrChannelExists, rec.ChannelID)
+		return fmt.Errorf("%w: %q already has a different funding record", ErrChannelConflict, rec.ChannelID)
 	}
 	return nil
 }
@@ -582,7 +582,7 @@ func (l *ChannelLedger) RegisterChannel(ctx context.Context, rec ChannelRecord) 
 			return err
 		}
 		if existing != nil && existing.Complete() && !sameFundingRecord(*existing, fundingRecordOf(rec)) {
-			return fmt.Errorf("%w: %q is registered with a different funding record", ErrChannelExists, rec.ChannelID)
+			return fmt.Errorf("%w: %q is registered with a different funding record", ErrChannelConflict, rec.ChannelID)
 		}
 		return fmt.Errorf("%w: %q", ErrChannelExists, rec.ChannelID)
 	}
