@@ -253,8 +253,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/999-tollgate-admin-setup $(1)/etc/uci-defaults/
 
 
-	$(INSTALL_DIR) $(1)/usr/local/bin
-	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-first-login-setup $(1)/usr/bin/
 
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
@@ -274,7 +273,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_CONF) $(PKG_MAKEFILE_DIR)files/usr/share/rpcd/acl.d/tollgate.json $(1)/usr/share/rpcd/acl.d/
 
-	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/check_package_path $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-check-package-path $(1)/usr/bin/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-apply-ssl $(1)/usr/bin/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-remove-ssl $(1)/usr/bin/
 
@@ -309,7 +308,8 @@ FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate-apply-ssl \
 	/usr/bin/tollgate-remove-ssl \
 	/etc/init.d/tollgate-wrt \
-	/usr/local/bin/first-login-setup \
+	/usr/bin/tollgate-first-login-setup \
+	/usr/bin/tollgate-check-package-path \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/uci-defaults/99-tollgate-setup \
 	/etc/uci-defaults/999-tollgate-admin-setup \
