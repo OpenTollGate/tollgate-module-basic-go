@@ -8,6 +8,35 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+// unwrapFresh is the relay loop's per-event gate: unwrap the gift wrap, then
+// decide freshness on the request's REAL clock — the rumor's created_at.
+//
+// It is deliberately NOT the gift wrap's created_at. NIP-59 randomizes the wrap
+// (and the seal) up to hours into the past for timing privacy —
+// nip59.GiftWrap stamps `nostr.Now() - 60*rand.Int63n(600)`, i.e. up to 10
+// hours backdated — so deciding freshness on the wrap rejects legitimate
+// requests by construction. That was #980 D1: the relay-delivered control plane
+// was silently inert, with no error to observe (#982 fixed it).
+//
+// Both steps live in one function so the loop cannot pair an unwrap with the
+// wrong clock. That pairing is exactly what #982 fixed and what nothing pinned:
+// reverting the loop to the wrap clock left the whole suite green, because the
+// test re-implemented this sequence instead of calling it. With the gate named,
+// TestUnwrapFreshUsesTheRumorClockNotTheWrap fails when the clock is wrong.
+//
+// One decryption, not two: the rumor timestamp comes from the same unwrap that
+// yields the request and caller.
+func unwrapFresh(gw nostr.Event, serverSK string, now time.Time) (JSONRPCRequest, string, error) {
+	req, caller, rumorTS, err := UnwrapRequest(gw, serverSK)
+	if err != nil {
+		return req, caller, err
+	}
+	if err := CheckFreshness(int64(rumorTS), now); err != nil {
+		return req, caller, err
+	}
+	return req, caller, nil
+}
+
 // claimPollInterval is how often the daemon re-reads maintainer_npub. It is
 // short enough that a handover takes effect while an operator is watching,
 // and long enough that polling a local unix socket costs nothing.
@@ -142,19 +171,22 @@ func Serve(ctx context.Context, cfg *ServerConfig, bridge Bridge) error {
 				continue
 			}
 
-			// Freshness before decryption: a stale event is a replay attempt
-			// and refusing it costs nothing (audit Q1).
-			if err := CheckFreshness(int64(evt.CreatedAt), time.Now()); err != nil {
-				continue
-			}
-
 			// Duplicate delivery of the same event id executes once.
 			if seen.Seen(evt.ID, time.Now()) {
 				continue
 			}
 
 			// Unwrap + dispatch; an unwrap failure is someone else's traffic.
-			req, caller, err := UnwrapRequest(*evt, sk)
+			//
+			// Freshness is decided on the RUMOR's created_at — the request's
+			// real clock — never on the gift wrap's: NIP-59 randomizes the
+			// wrap's timestamp (up to hours into the past) for timing
+			// privacy, so a freshness check on the wrap rejects legitimate
+			// requests by construction (#980 D1 — the relay-delivered control
+			// plane was silently inert for exactly this reason).
+			// Unwrap + freshness in one gate, so the loop cannot pair the
+			// unwrap with the wrap's clock (#980 D1 / #982).
+			req, caller, err := unwrapFresh(*evt, sk, time.Now())
 			if err != nil {
 				continue
 			}
