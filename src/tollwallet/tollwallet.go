@@ -77,7 +77,24 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	cashuWallet, err := wallet.LoadWallet(config)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to create wallet: %w", err)
+		// #818 self-heal: init tripped over keyset(s) the mint retired
+		// (NUT-19 "Unknown Keyset"). gonuts-tollgate already tolerates
+		// retired records on load (the fix this branch pins); this hook
+		// covers the residual class — a REACHABLE mint whose current
+		// active-keyset fetch refuses unknown-keyset (e.g. /v1/keysets
+		// lists an id neither /v1/keys nor /v1/keys/{id} will serve) —
+		// where one bounded re-fetch of the keyset set (the same NUT-02
+		// probe registerMint uses) and ONE retry of the load is enough to
+		// proceed instead of degrading. Anything else (storage errors,
+		// unreachable mint, real refusals) degrades exactly as before —
+		// the storage-degraded family (#583/#1035) is a separate slice.
+		if wallet.IsUnknownKeysetError(err) && mintServesKeysets(normalizeMintURL(acceptedMints[0]), registerMintKeysetTimeout) {
+			log.Printf("TollWallet.New: init failed on a keyset the mint no longer knows (%v) — mint reachable, re-fetching keyset set and retrying once", err)
+			cashuWallet, err = wallet.LoadWallet(config)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to create wallet: %w", err)
+		}
 	}
 
 	tw := &TollWallet{
