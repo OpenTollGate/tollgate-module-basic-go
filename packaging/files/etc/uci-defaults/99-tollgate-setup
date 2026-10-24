@@ -1883,16 +1883,6 @@ setup_nodogsplash() {
     assert_nodogsplash_allow_entries
     uci set nodogsplash.@nodogsplash[0].enabled='1'
     uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
-    # COMMITTED HERE, in the step that writes it — not left to the trailing commit_all.
-    # gatewayname is a USER-VISIBLE string (the pre-auth banner). Deferring it to
-    # commit_all makes that one function a single point of failure: every uci set above
-    # lives in the uncommitted /tmp/.uci session until commit_all runs, so a reboot, OOM
-    # kill or power loss anywhere between here and the end of the script silently
-    # discards the banner — and uci-defaults are one-shot, so it never retries. The
-    # router then presents a stale/default banner with nothing logged. This is the same
-    # rule the verify/repair path already follows and documents at its own write; the
-    # FULL path was the one place missing it.
-    uci commit nodogsplash
     uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
     # gatewaydomainname deliberately NOT set — and actively deleted on
     # upgrade: nodogsplash 5.0.2 redirects every splash request carrying
@@ -1910,6 +1900,19 @@ setup_nodogsplash() {
     # sole authority on when a session ends.
     uci set nodogsplash.@nodogsplash[0].sessiontimeout='86400'
     uci set nodogsplash.@nodogsplash[0].authidletimeout='3600'
+
+    # COMMITTED HERE — after the section's own writes, and NOT left to the trailing
+    # commit_all. Everything above sits in the uncommitted /tmp/.uci session until
+    # commit_all runs, so a reboot, OOM kill or power loss anywhere between here and the
+    # end of the script discards the whole section — including gatewayname, the string the
+    # captive portal shows pre-auth. uci-defaults are one-shot, so nothing retries: the
+    # router comes up with a stale/default banner and nothing logged. The commit is placed
+    # AFTER the section's scalar writes (not between them) so a crash cannot commit a
+    # half-configured section; the allow-list rules above are committed by their own
+    # repair path, and the remaining writes below are additive. This is the same rule the
+    # verify/repair path already follows and documents at its own write — the FULL path
+    # was the one place missing it.
+    uci commit nodogsplash
 
     # Defense-in-depth: block authenticated WiFi clients from reaching
     # RFC1918 addresses (complements the fw4 DROP rules in firewall-tollgate).
