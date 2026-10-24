@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
@@ -29,6 +31,126 @@ type MerchantDegraded struct {
 	wallet            Wallet
 	walletLoaded      bool
 	walletPath        string
+
+	// degradeReason is WHY this merchant is degraded — the honest answer
+	// the API surfaces owe the operator. The two classes are different
+	// failures with the same symptom: "no reachable mints" (the wallet
+	// waits for connectivity) vs "wallet initialization failed: …" (the
+	// mints may be perfectly reachable and the WALLET is broken — the
+	// #583/#1035 storage family answered "no reachable mints" for days
+	// while every mint probed 200 OK). Empty means the legacy default
+	// text.
+	degradeReason string
+	reasonMu      sync.RWMutex
+
+	// The first-reachable trigger is a ONE-SHOT latch on the tracker
+	// (hadReachableMint): after the first upgrade attempt fails — say the
+	// wallet error is persistent, like the #583/#1035 storage class —
+	// nothing ever fires again and the service stays degraded for life.
+	// The wallet retry loop below is the repeating half: while at least
+	// one mint is reachable, it re-attempts the upgrade on a bounded,
+	// backing-off cadence, independent of the latch. It is armed
+	// idempotently (WireWalletRetry) wherever the trigger is wired.
+	retryStop     chan struct{}
+	retryStopOnce sync.Once
+	upgradeMu     sync.Mutex
+	upgraded      bool
+
+	// onUpgradeMu guards onUpgrade: the retry loop armed by New() can be
+	// mid-AttemptUpgrade (reading the callback) while the caller —
+	// installMerchant, a test, main.go's downgrade path — is still
+	// attaching it.
+	onUpgradeMu sync.RWMutex
+}
+
+// Retry cadence for the degraded wallet-init loop. First retry soon (an
+// operator fixing wallet.db should not wait a proactive cycle), then
+// back off to the proactive cadence so a permanent failure costs one
+// bounded attempt per interval, not a spin. Package vars so tests can
+// shrink them.
+var (
+	degradedWalletRetryInitial = 30 * time.Second
+	degradedWalletRetryMax     = 5 * time.Minute
+)
+
+// SetDegradeReason records why the merchant degraded; the degraded API
+// stubs surface it verbatim.
+func (m *MerchantDegraded) SetDegradeReason(reason string) {
+	m.reasonMu.Lock()
+	m.degradeReason = reason
+	m.reasonMu.Unlock()
+}
+
+// DegradeReason returns the recorded reason, or the legacy default.
+func (m *MerchantDegraded) DegradeReason() string {
+	m.reasonMu.RLock()
+	defer m.reasonMu.RUnlock()
+	if m.degradeReason == "" {
+		return "no reachable mints"
+	}
+	return m.degradeReason
+}
+
+// notInitializedError is the single honest answer every degraded stub
+// returns: the reason the wallet is down, not a hardcoded connectivity
+// claim.
+func (m *MerchantDegraded) notInitializedError() error {
+	return fmt.Errorf("wallet not initialized: %s", m.DegradeReason())
+}
+
+// WireWalletRetry arms the repeating wallet-init retry. Idempotent: the
+// second call (e.g. New() wiring followed by installMerchant's
+// WireStartupDegraded) must not spawn a second loop. The loop skips its
+// tick while no mint is reachable — that class belongs to the
+// first-reachable trigger — and stops on successful upgrade or Shutdown.
+func (m *MerchantDegraded) WireWalletRetry() {
+	m.retryStopOnce.Do(func() {
+		// Snapshot the cadence ONCE, here: the loop must not read the
+		// package vars after arming (tests rewrite them in Cleanup while
+		// an earlier loop may still be draining its last tick).
+		initial, max := degradedWalletRetryInitial, degradedWalletRetryMax
+		m.retryStop = make(chan struct{})
+		go func() {
+			interval := initial
+			for {
+				timer := time.NewTimer(interval)
+				select {
+				case <-m.retryStop:
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+				if len(m.mintHealthTracker.GetReachableMintConfigs()) == 0 {
+					continue // unreachable-class: the trigger owns recovery
+				}
+				log.Printf("Degraded wallet retry: mints reachable, re-attempting wallet initialization (every %s while it fails)", interval)
+				m.AttemptUpgrade()
+				if m.isUpgraded() {
+					return
+				}
+				interval *= 2
+				if interval > max {
+					interval = max
+				}
+			}
+		}()
+	})
+}
+
+func (m *MerchantDegraded) isUpgraded() bool {
+	m.upgradeMu.Lock()
+	defer m.upgradeMu.Unlock()
+	return m.upgraded
+}
+
+func (m *MerchantDegraded) stopWalletRetry() {
+	if m.retryStop != nil {
+		select {
+		case <-m.retryStop:
+		default:
+			close(m.retryStop)
+		}
+	}
 }
 
 func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, mintHealthTracker *MintHealthTracker, walletFactory WalletFactory, walletPath string) *MerchantDegraded {
@@ -82,10 +204,21 @@ func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, 
 func (m *MerchantDegraded) WireStartupDegraded(onUpgrade func(MerchantInterface)) {
 	m.OnUpgrade(onUpgrade)
 	m.WireRecoveryTrigger()
+	m.WireWalletRetry()
 }
 
 func (m *MerchantDegraded) OnUpgrade(callback func(MerchantInterface)) {
+	m.onUpgradeMu.Lock()
 	m.onUpgrade = callback
+	m.onUpgradeMu.Unlock()
+}
+
+// getOnUpgrade snapshots the callback under the lock so AttemptUpgrade
+// can invoke it outside the critical section.
+func (m *MerchantDegraded) getOnUpgrade() func(MerchantInterface) {
+	m.onUpgradeMu.RLock()
+	defer m.onUpgradeMu.RUnlock()
+	return m.onUpgrade
 }
 
 // WireRecoveryTrigger registers the tracker's first-reachable callback so a
@@ -93,27 +226,42 @@ func (m *MerchantDegraded) OnUpgrade(callback func(MerchantInterface)) {
 // back once a mint recovers. The startup degraded paths register the same
 // sequence inline; without this, a runtime downgrade wires the onUpgrade
 // consumer but nothing ever fires it (#400) and the service stays degraded
-// until manually restarted.
+// until manually restarted. Also arms the wallet retry loop: the trigger is
+// a one-shot latch, and a persistent wallet failure after the first
+// attempt would otherwise strand the downgrade forever.
 func (m *MerchantDegraded) WireRecoveryTrigger() {
 	m.mintHealthTracker.SetOnFirstReachableForDegraded(func() {
 		m.AttemptUpgrade()
 	})
+	m.WireWalletRetry()
 }
 
 // AttemptUpgrade shuts down the degraded wallet, rebuilds a full merchant on
 // the tracker's current reachable set, and fires onUpgrade with it.
+// Single-flight: the first-reachable trigger and the wallet retry loop can
+// both schedule it around the same mint recovery. On failure the degrade
+// reason is updated to the attempt's error — the operator-facing surface
+// must never claim a cause older than the last attempt.
 func (m *MerchantDegraded) AttemptUpgrade() {
-	log.Printf("Mint became reachable — attempting upgrade from degraded mode")
+	m.upgradeMu.Lock()
+	defer m.upgradeMu.Unlock()
+	if m.upgraded {
+		return
+	}
+	log.Printf("Attempting upgrade from degraded mode (degraded because: %s)", m.DegradeReason())
 	if err := m.Shutdown(); err != nil {
 		log.Printf("ERROR: Failed to shutdown degraded wallet before upgrade: %v", err)
 	}
 	fullMerchant, err := newFullMerchant(m.configManager, m.mintHealthTracker)
 	if err != nil {
+		m.SetDegradeReason(fmt.Sprintf("wallet initialization failed: %v", err))
 		log.Printf("ERROR: Failed to upgrade from degraded mode: %v", err)
 		return
 	}
-	if m.onUpgrade != nil {
-		m.onUpgrade(fullMerchant)
+	m.upgraded = true
+	m.stopWalletRetry()
+	if cb := m.getOnUpgrade(); cb != nil {
+		cb(fullMerchant)
 	}
 }
 
@@ -123,6 +271,7 @@ func NewMerchantDegradedFromFull(configManager *config_manager.ConfigManager, tr
 }
 
 func (m *MerchantDegraded) Shutdown() error {
+	m.stopWalletRetry()
 	if m.wallet != nil {
 		err := m.wallet.Shutdown()
 		m.wallet = nil
@@ -143,28 +292,28 @@ func (m *MerchantDegraded) GetMintHealthTracker() *MintHealthTracker {
 
 func (m *MerchantDegraded) CreatePaymentToken(mintURL string, amount uint64) (string, error) {
 	if !m.walletLoaded {
-		return "", fmt.Errorf("wallet not initialized: no reachable mints")
+		return "", m.notInitializedError()
 	}
 	return "", fmt.Errorf("CreatePaymentToken not supported in degraded mode; use CreatePaymentTokenWithOverpayment")
 }
 
 func (m *MerchantDegraded) CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
 	if !m.walletLoaded {
-		return "", fmt.Errorf("wallet not initialized: no reachable mints")
+		return "", m.notInitializedError()
 	}
 	return m.wallet.SendWithOverpayment(amount, mintURL, maxOverpaymentPercent, maxOverpaymentAbsolute)
 }
 
 func (m *MerchantDegraded) DrainMint(mintURL string) (string, uint64, error) {
-	return "", 0, fmt.Errorf("wallet not initialized: no reachable mints")
+	return "", 0, m.notInitializedError()
 }
 
 func (m *MerchantDegraded) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*LightningInvoice, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.notInitializedError()
 }
 
 func (m *MerchantDegraded) GetLightningInvoiceStatus(quoteID, macAddress string) (*LightningQuoteStatus, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.notInitializedError()
 }
 
 func (m *MerchantDegraded) GetAcceptedMints() []config_manager.MintConfig {
@@ -227,7 +376,7 @@ func (m *MerchantDegraded) CreateNoticeEvent(level, code, message, customerPubke
 }
 
 func (m *MerchantDegraded) GetSession(macAddress string) (*CustomerSession, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.notInitializedError()
 }
 
 // GetSessionState answers "none" in degraded mode: without a wallet no session
@@ -237,7 +386,7 @@ func (m *MerchantDegraded) GetSessionState(macAddress string) (SessionState, err
 }
 
 func (m *MerchantDegraded) AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.notInitializedError()
 }
 
 func (m *MerchantDegraded) GetUsage(macAddress string) (string, error) {
@@ -248,15 +397,15 @@ func (m *MerchantDegraded) GetUsage(macAddress string) (string, error) {
 // AddAllotment is: there is no wallet, so there is no session to name and
 // nothing a ticket could hand over.
 func (m *MerchantDegraded) IssueSessionTicket(macAddress string) (string, int64, error) {
-	return "", 0, fmt.Errorf("wallet not initialized: no reachable mints")
+	return "", 0, m.notInitializedError()
 }
 
 func (m *MerchantDegraded) RebindSession(ticket, macAddress string) (*CustomerSession, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.notInitializedError()
 }
 
 func (m *MerchantDegraded) Fund(cashuToken string) (uint64, error) {
-	return 0, fmt.Errorf("wallet not initialized: no reachable mints")
+	return 0, m.notInitializedError()
 }
 
 func (m *MerchantDegraded) WalletLoaded() bool {
