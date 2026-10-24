@@ -101,14 +101,34 @@ Source lives under [src/](src/). Go tooling runs from there
 | [config_manager](src/config_manager/) | Schema, loading, migrations, validation, backups of `/etc/tollgate/config.json`. |
 | [tollwallet](src/tollwallet/) | Cashu wallet operations (mint client, balance tracking, melt). |
 | [lightning](src/lightning/) | LNURL-p / Lightning address resolution and invoice fetching for payouts. |
-| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, health, and SSL/TLS certificates. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
+| [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, health, admin-UI links, and SSL/TLS certificates. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
 | [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
+
+## Building from source
+
+For a release build, **checkout the release tag** (`git checkout v0.6.0`) — a
+fresh clone lands on `main`, which is development and may carry dependency
+changes that have not been through the release path. The tested build manual,
+including the cold-cache check that catches missing `go.sum` entries, is
+[docs/build-from-source.md](docs/build-from-source.md). Quick check:
+
+```sh
+make manual-check     # portal + all-module Go battery in a fresh module cache
+```
 
 ## Installation
 
-Build artifacts produced by the CI matrix in
+> **Build setup status (October 2026):** we’re sorry the build setup is messy
+> at the moment. GitHub removed CI from all OpenTollGate repositories; we are
+> rebuilding the pipeline and working on reproducible builds. For a normal
+> install, use the
+> [installer runbook](https://github.com/OpenTollGate/tollgate-installer/blob/main/docs/install-runbook.md).
+
+The build workflow definition in
 [.github/workflows/build-package.yml](.github/workflows/build-package.yml)
-target both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats.
+targets both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats. The
+GitHub Actions lane is currently being rebuilt; use the release assets or the
+installer runbook above until it is restored.
 
 On OpenWrt 25.x:
 ```sh
@@ -118,6 +138,118 @@ On OpenWrt 24.10.x and earlier:
 ```sh
 opkg install /tmp/tollgate-wrt_<version>_<arch>.ipk
 ```
+
+### Setting the admin password (no installer required)
+
+Installing the package alone is enough to get a working gateway — the
+installer is a convenience, not a dependency. The package does **not** set a
+password on your behalf: a credential you did not choose is one you cannot
+know, and that is how a router gets locked out. Set root's password yourself
+**before** installing, so the gateway comes up with the board already
+reachable:
+
+```sh
+passwd root
+apk add --allow-untrusted /tmp/tollgate-wrt-<version>.apk
+```
+
+The `:8090` admin board's login is checked against root's shadow hash, so the
+password you set with `passwd` — or later in LuCI — is what opens it. If root
+has **no** password when the package runs, it fails closed: it drops the admin
+listeners rather than serving a board that rpcd would open to **any** password
+against the empty hash. Set a password with `passwd root` (or the LuCI
+password page) and re-run `/etc/uci-defaults/99-tollgate-setup` to bring the
+board back.
+
+The package never accepts a credential from the install environment or a file
+either: an earlier design did, and an operator who pasted the run-book's
+**example** value verbatim ended up with a password they never chose. A
+provisional marker (`/etc/tollgate/admin-credential-provisional`) carried over
+from an older install is still honoured — it tells the board the root password
+was generated rather than chosen. A deliberately **locked** root account is
+never re-enabled by any of this.
+
+### Verifying a manual install (the signed manifest)
+
+Installing the package by hand skips the installer, and with it the installer's
+verification. The release carries what you need to do that check yourself: a
+SHA256SUMS listing every asset, and a SHA256SUMS.sig that is an OpenSSH ed25519
+signature of that listing. The signing key's public half is committed to
+FreedomTechFeed/packages, and the file the verifier consumes is the
+allowed-signers entry at .github/release-keys/allowed_signers — NOT the bare key
+beside it at .github/release-keys/release-signing.pub. Both carry the same key,
+but only the allowed-signers file supplies the principal that the verifier's
+identity argument is matched against, so that is the one to fetch.
+
+Verify the signature, then the bytes — in that order:
+
+```sh
+# Run this on a machine you trust; ssh-keygen is not on a stock router.
+BASE=https://github.com/FreedomTechFeed/packages/releases/download/v0.6.0-rc1-pre26
+# Pin the key file to a commit, not the moving master branch:
+KEYS=https://raw.githubusercontent.com/FreedomTechFeed/packages/1f16dae9c67d528dea57b76d89257d32745a50cd
+# A stock OpenWrt router ships wget (BusyBox) or uclient-fetch, not curl; use
+# whichever this machine has. curl -fsSLO "$URL" works too.
+wget -qO SHA256SUMS      "$BASE/SHA256SUMS"
+wget -qO SHA256SUMS.sig  "$BASE/SHA256SUMS.sig"
+wget -qO allowed_signers "$KEYS/.github/release-keys/allowed_signers"
+ssh-keygen -Y verify -f allowed_signers -I release-signing@freedomtechfeed \
+  -n freedomtechfeed-release-manifest -s SHA256SUMS.sig < SHA256SUMS
+sha256sum --check --strict SHA256SUMS
+```
+
+Two honest notes. First, the artifact itself carries no apk-level signature, so
+apk refuses it as UNTRUSTED unless it is told otherwise; the provenance comes
+from the signed manifest above, not from the package, which is exactly why the
+manifest is verified first and the hash checked second. Second, a stock router
+is a thin userspace: it ships dropbear rather than ssh-keygen, and wget or
+uclient-fetch rather than curl. Verify the manifest on a machine you trust,
+then check the downloaded file's sha256 on the router, and only then install it.
+
+#### Installing on a box that cannot verify TLS
+
+The declared dependency fixes a package install on a box that can still reach
+the feed: apk resolves the closure, pulls ca-bundle with it, and the box ends up
+with a trust store. It does not — and cannot — bootstrap a box that has no trust
+anchors at all. There, apk's first HTTPS fetch already fails with an SSL verify
+error, and no dependency can repair a fetch that must itself be verified. If the
+box reports that error while updating, bring the package files to it by other
+means instead of over the network, then install them locally in one apk call
+with a single explicit trust override:
+
+```sh
+# 1. On a machine you trust, obtain BOTH files and verify each against its own
+#    published hash. The tollgate asset is covered by the release's signed
+#    SHA256SUMS (above). ca-bundle is an OpenWrt feed package, so verify it
+#    against the sha256sums the feed publishes beside it, e.g.
+#      wget -qO - FEED/sha256sums | grep 'ca-bundle-.*\.apk$'
+#    Do not skip this: ca-bundle IS the trust anchor, so installing it
+#    unverified and then asking apk to trust it is circular.
+scp ca-bundle-*.apk tollgate-wrt_*.apk root@ROUTER:/tmp/
+
+# 2. On the router (OpenWrt 25.12 ships apk-tools 3), install both in one call.
+#    --allow-untrusted is the ONE deliberate override in this document, and it
+#    is safe only because step 1 verified both files before they were copied.
+cd /tmp
+set -- ./ca-bundle-*.apk ./tollgate-wrt_*.apk
+for f in "$@"; do
+  [ -e "$f" ] || { echo "missing staged file: $f"; exit 1; }
+done
+apk add --allow-untrusted "$@"
+
+# On the older opkg lane (OpenWrt 24.10) the equivalent needs no signature
+# override for local files:
+#   opkg install ./ca-bundle_*.ipk ./tollgate-wrt_*.ipk
+```
+
+Set the clock before any of this: a router whose clock is far off still fails
+certificate validity checks even once it has a trust store.
+
+The same applies to any other package the install needs — the module's runtime
+dependencies (nodogsplash, jq) must either already be installed or be brought as
+local files the same way, because a box in this state cannot fetch them from
+the feed either.
+
 
 For local packaging experiments use
 [scripts/build-sdk-package.sh](scripts/build-sdk-package.sh). It cross-compiles
@@ -209,6 +341,87 @@ replaced with results when there are some. There is no persistent-install
 caveat for this device — the only known gap is the compressed-variant
 publication one, which applies to `aarch64_cortex-a53` generally (only default
 builds are released) and is tracked with the packaging feed, not here.
+
+## Command-line interface
+
+The `tollgate` binary ships inside the `tollgate-wrt` package and controls the
+running service over `/var/run/tollgate.sock`. Every command is typed into the
+router shell (SSH or serial console); anything that routes through the socket
+needs the service running (`tollgate start`). Every command also accepts the
+global `--json` (`-j`) flag for machine-readable output.
+
+```text
+# Service control
+tollgate status                                       Service status: uptime, modules, health
+tollgate start                                        Start NoDogSplash + TollGate
+tollgate stop                                         Stop NoDogSplash + TollGate
+tollgate restart                                      Restart NoDogSplash + TollGate
+tollgate health                                       Component health check; non-zero exit when the service is down
+tollgate version                                      Version and build information
+
+# Logs
+tollgate logs [-n N] [-f]                             TollGate log lines (wraps `logread -e tollgate`)
+
+# Wallet
+tollgate wallet balance                               Total balance across every mint (sats)
+tollgate wallet info                                  Per-mint balance breakdown
+tollgate wallet fund [cashu-token]                    Redeem a Cashu token into the wallet
+tollgate wallet drain cashu [--yes]                   Export ALL funds as Cashu tokens, saved to a file
+
+# Private network (the operator's own Wi-Fi)
+tollgate network private status                       SSID, passphrase and enabled state
+tollgate network private enable                       Turn the private AP on (2.4 + 5 GHz)
+tollgate network private disable                      Turn the private AP off
+tollgate network private rename [new-ssid]            Change the private SSID
+tollgate network private set-password [new-password]  Set the passphrase, or generate one when omitted
+tollgate network private set-encryption [mode]        Encryption mode (psk2+ccmp default; legacy TKIP/WPA1 variants available)
+
+# Upstream Wi-Fi (the client side)
+tollgate upstream scan                                Scan all radios for available networks
+tollgate upstream connect <SSID> [passphrase]         Join an upstream network
+tollgate upstream list                                Configured upstream STA interfaces, active and disabled
+tollgate upstream remove <SSID>                       Remove a disabled upstream STA from the config
+tollgate upstream known                               TollGate APs discovered in scan history
+
+# Configuration
+tollgate config get                                   Current config plus identities
+tollgate config set <key> <value>                     Set one value by dot-path key
+tollgate config schema                                Full config schema: every field, type, default and rule
+tollgate config save <json>                           Replace config.json wholesale
+tollgate config save-identities <json>                Replace identities.json wholesale
+tollgate config apply                                 Converge the router onto the settings config.json declares
+
+# Admin UI and HTTPS
+tollgate ui links                                     Which UI owns the entry ports, plus the cross-links
+tollgate ssl status                                   TLS identity, certificate and whether it covers this router
+tollgate ssl apply [<cert-file> [key-file]]           Install a real certificate, or generate a self-signed one
+tollgate ssl remove                                   Revert an apply and record the opt-out
+tollgate ssl covers [<cert-file>]                     Does a certificate cover this router? (exit 0 = yes)
+
+# Shell completion
+tollgate completion bash|zsh|fish|powershell          Print a completion script for that shell
+```
+
+Two commands are worth seeing in full, because they are the ones an operator
+reaches for first:
+
+```sh
+tollgate wallet balance       # Total wallet balance: 1284 sats
+tollgate health               # status: ok, config/wallet flags, uptime
+```
+
+The `ssl` family runs locally against uci and the filesystem, so it works even
+when the service is down. `tollgate help`, or `tollgate <command> --help`,
+lists the same commands from the router itself.
+
+**Full reference:** [docs/operator-guide.md](docs/operator-guide.md) walks
+through each operational family above — service control, wallet, private
+network, upstream Wi-Fi, configuration and SSL/TLS — with exact syntax, a
+worked example and the output to expect, plus a troubleshooting section
+(unreachable service, portal QR scanner browser limits, mint connectivity and
+payouts, private Wi-Fi not visible, upstream DHCP failures). Each command also
+ships a man page (`tollgate-wallet(8)`, `tollgate-config(8)`, …) generated from
+the CLI itself.
 
 ## Configuration
 
@@ -302,7 +515,7 @@ at service start. All four are also on the admin board's Settings page.
 | `private_ssid` | any SSID, ≤ 32 bytes | Name of the private (management) network, on both private radios. **Empty keeps the SSID the router minted at setup** — `<nym>-<code>`, built from your nym and the router's one stored device code, the same code that names the hostname and the captive SSID. |
 | `private_key` | 8-63 characters | WPA passphrase of the private network. **Empty keeps the passphrase the router has.** Write-only: no read path ever returns it. |
 | `private_encryption` | `psk2+ccmp` (default), `psk2+tkip+ccmp`, `psk-mixed+ccmp` | Encryption mode of the private network. WPA3-SAE is not offered: the shipped `wpad` has no SAE support and selecting it would leave the management network unable to start. |
-| `admin_access` | `both` (default), `br-private`, `br-mgmt`, `loopback-only` | Which network may reach the administration surfaces — the board (`:8090`, `:8443`) and LuCI (`:8080`, `:443`). Since the physical LAN ports moved onto it, `br-private` is the private SSID **and the cable**. The guest network the customers pay on is **never** an administration path, whatever this says. |
+| `admin_access` | `both` (default), `br-private`, `br-mgmt`, `loopback-only` | Which network may reach the administration surfaces — the board and LuCI, on whichever port pair `entry_ui` assigns (default `board`: the board on `:8080`/`:443`, LuCI on `:8090`/`:8443`). Since the physical LAN ports moved onto it, `br-private` is the private SSID **and the cable**. The guest network the customers pay on is **never** an administration path, whatever this says. |
 
 Notes that matter when you change them:
 

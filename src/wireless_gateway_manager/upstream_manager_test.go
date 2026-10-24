@@ -190,9 +190,9 @@ func TestUpstreamManager_RunScanCycle_NoActiveUpstream(t *testing.T) {
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
-	connector.On("SwitchUpstream", "", "upstream_mynet", "MyNet").Return(nil)
+	connector.On("SwitchUpstream", "", "upstream_mynet", "MyNet", "").Return(nil)
 
-	um.runScanCycle("", "", 0, "no-active-upstream", false)
+	um.runScanCycle("", "", "", 0, "no-active-upstream", false)
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
@@ -213,9 +213,9 @@ func TestUpstreamManager_RunScanCycle_BelowHysteresis_NoSwitch(t *testing.T) {
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
 
-	um.runScanCycle("upstream_othernet", "OtherNet", -60, "scheduled", false)
+	um.runScanCycle("upstream_othernet", "OtherNet", "", -60, "scheduled", false)
 
-	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything)
+	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUpstreamManager_RunScanCycle_AboveHysteresis_Switches(t *testing.T) {
@@ -232,9 +232,9 @@ func TestUpstreamManager_RunScanCycle_AboveHysteresis_Switches(t *testing.T) {
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
-	connector.On("SwitchUpstream", "upstream_othernet", "upstream_mynet", "MyNet").Return(nil)
+	connector.On("SwitchUpstream", "upstream_othernet", "upstream_mynet", "MyNet", "").Return(nil)
 
-	um.runScanCycle("upstream_othernet", "OtherNet", -60, "scheduled", false)
+	um.runScanCycle("upstream_othernet", "OtherNet", "", -60, "scheduled", false)
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
@@ -254,9 +254,9 @@ func TestUpstreamManager_RunScanCycle_BelowSignalFloor(t *testing.T) {
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
-	connector.On("SwitchUpstream", "upstream_othernet", "upstream_mynet", "MyNet").Return(nil)
+	connector.On("SwitchUpstream", "upstream_othernet", "upstream_mynet", "MyNet", "").Return(nil)
 
-	um.runScanCycle("upstream_othernet", "OtherNet", -90, "scheduled", false)
+	um.runScanCycle("upstream_othernet", "OtherNet", "", -90, "scheduled", false)
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
@@ -272,10 +272,10 @@ func TestUpstreamManager_RunScanCycle_ScanFails(t *testing.T) {
 
 	scanner.On("ScanAllRadios").Return([]NetworkInfo{}, assert.AnError)
 
-	um.runScanCycle("", "", 0, "scheduled", false)
+	um.runScanCycle("", "", "", 0, "scheduled", false)
 
 	scanner.AssertExpectations(t)
-	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything)
+	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUpstreamManager_ResellerFallbackToDisabledSTA(t *testing.T) {
@@ -286,7 +286,7 @@ func TestUpstreamManager_ResellerFallbackToDisabledSTA(t *testing.T) {
 
 	um := NewUpstreamManager(connector, scanner, reseller, config)
 
-	um.blacklistSSID("TollGate-XYZ")
+	um.blacklistUpstream("TollGate-XYZ", "")
 
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_homewifi", SSID: "HomeWiFi", Device: "radio0", Disabled: true},
@@ -430,11 +430,11 @@ func TestUpstreamManager_BlacklistSSID(t *testing.T) {
 
 	um := NewUpstreamManager(connector, scanner, reseller, config)
 
-	assert.False(t, um.isBlacklisted("TestNet"), "should not be blacklisted initially")
+	assert.False(t, um.isBlacklisted("TestNet", ""), "should not be blacklisted initially")
 
-	um.blacklistSSID("TestNet")
-	assert.True(t, um.isBlacklisted("TestNet"), "should be blacklisted after adding")
-	assert.False(t, um.isBlacklisted("OtherNet"), "other SSIDs should not be affected")
+	um.blacklistUpstream("TestNet", "")
+	assert.True(t, um.isBlacklisted("TestNet", ""), "should be blacklisted after adding")
+	assert.False(t, um.isBlacklisted("OtherNet", ""), "other SSIDs should not be affected")
 }
 
 func TestUpstreamManager_BlacklistTTLExpiry(t *testing.T) {
@@ -446,11 +446,11 @@ func TestUpstreamManager_BlacklistTTLExpiry(t *testing.T) {
 
 	um := NewUpstreamManager(connector, scanner, reseller, config)
 
-	um.blacklistSSID("TestNet")
-	assert.True(t, um.isBlacklisted("TestNet"), "should be blacklisted immediately")
+	um.blacklistUpstream("TestNet", "")
+	assert.True(t, um.isBlacklisted("TestNet", ""), "should be blacklisted immediately")
 
 	time.Sleep(150 * time.Millisecond)
-	assert.False(t, um.isBlacklisted("TestNet"), "should expire after TTL")
+	assert.False(t, um.isBlacklisted("TestNet", ""), "should expire after TTL")
 }
 
 func TestUpstreamManager_PurgeBlacklist(t *testing.T) {
@@ -462,8 +462,8 @@ func TestUpstreamManager_PurgeBlacklist(t *testing.T) {
 
 	um := NewUpstreamManager(connector, scanner, reseller, config)
 
-	um.blacklistSSID("OldNet")
-	um.blacklistSSID("RecentNet")
+	um.blacklistUpstream("OldNet", "")
+	um.blacklistUpstream("RecentNet", "")
 
 	um.blacklistMu.Lock()
 	um.blacklist["OldNet"] = time.Now().Add(-200 * time.Millisecond)
@@ -472,8 +472,8 @@ func TestUpstreamManager_PurgeBlacklist(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	um.purgeBlacklist()
 
-	assert.False(t, um.isBlacklisted("OldNet"), "expired entry should be purged")
-	assert.True(t, um.isBlacklisted("RecentNet"), "fresh entry should remain")
+	assert.False(t, um.isBlacklisted("OldNet", ""), "expired entry should be purged")
+	assert.True(t, um.isBlacklisted("RecentNet", ""), "fresh entry should remain")
 }
 
 func TestUpstreamManager_CircuitBreaker_BlocksScanAfterFailures(t *testing.T) {
@@ -507,10 +507,10 @@ func TestUpstreamManager_CircuitBreaker_SkipsScanCycleWhenInCooldown(t *testing.
 	um.recordSwitchFailure()
 	um.recordSwitchFailure()
 
-	um.runScanCycle("upstream_old", "OldNet", -60, "emergency", false)
+	um.runScanCycle("upstream_old", "OldNet", "", -60, "emergency", false)
 
 	scanner.AssertNotCalled(t, "ScanAllRadios")
-	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything)
+	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUpstreamManager_CircuitBreaker_ResetOnSuccess(t *testing.T) {
@@ -544,15 +544,15 @@ func TestUpstreamManager_SwitchFailure_CountsAndCooldowns(t *testing.T) {
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
-	connector.On("SwitchUpstream", "upstream_old", "upstream_mynet", "MyNet").Return(fmt.Errorf("switch failed"))
+	connector.On("SwitchUpstream", "upstream_old", "upstream_mynet", "MyNet", "").Return(fmt.Errorf("switch failed"))
 
-	um.runScanCycle("upstream_old", "OldNet", -90, "emergency", false)
+	um.runScanCycle("upstream_old", "OldNet", "", -90, "emergency", false)
 	assert.Equal(t, 1, um.consecutiveFails)
 
-	um.runScanCycle("upstream_old", "OldNet", -90, "emergency", false)
+	um.runScanCycle("upstream_old", "OldNet", "", -90, "emergency", false)
 	assert.Equal(t, 2, um.consecutiveFails)
 
-	um.runScanCycle("upstream_old", "OldNet", -90, "emergency", false)
+	um.runScanCycle("upstream_old", "OldNet", "", -90, "emergency", false)
 	assert.Equal(t, 3, um.consecutiveFails)
 	assert.True(t, um.isInCooldown())
 }
@@ -571,12 +571,12 @@ func TestUpstreamManager_PostSwitch_NoBlacklistWhenConnectivityOK(t *testing.T) 
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
-	connector.On("SwitchUpstream", "upstream_old", "upstream_mynet", "MyNet").Return(nil)
+	connector.On("SwitchUpstream", "upstream_old", "upstream_mynet", "MyNet", "").Return(nil)
 
-	um.runScanCycle("upstream_old", "OldNet", -90, "emergency", false)
+	um.runScanCycle("upstream_old", "OldNet", "", -90, "emergency", false)
 
-	assert.False(t, um.isBlacklisted("MyNet"), "SSID should NOT be blacklisted when post-switch ping succeeds")
-	assert.True(t, um.isBlacklisted("OldNet"), "Old SSID should be blacklisted (emergency switch)")
+	assert.False(t, um.isBlacklisted("MyNet", ""), "SSID should NOT be blacklisted when post-switch ping succeeds")
+	assert.True(t, um.isBlacklisted("OldNet", ""), "Old SSID should be blacklisted (emergency switch)")
 	connector.AssertExpectations(t)
 }
 
@@ -718,14 +718,14 @@ func TestUpstreamManager_StartupCheck_NoInternet_SwitchesToCandidate(t *testing.
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
 	}, nil)
-	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(nil)
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet", "").Return(nil)
 
 	um.startupConnectivityCheck()
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
-	assert.True(t, um.isBlacklisted("BadNet"), "non-internet SSID should be blacklisted after successful switch")
-	assert.False(t, um.isBlacklisted("GoodNet"), "working candidate should not be blacklisted")
+	assert.True(t, um.isBlacklisted("BadNet", ""), "non-internet SSID should be blacklisted after successful switch")
+	assert.False(t, um.isBlacklisted("GoodNet", ""), "working candidate should not be blacklisted")
 }
 
 func TestUpstreamManager_StartupCheck_NoInternet_NoCandidateAvailable(t *testing.T) {
@@ -754,8 +754,8 @@ func TestUpstreamManager_StartupCheck_NoInternet_NoCandidateAvailable(t *testing
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
-	assert.False(t, um.isBlacklisted("BadNet"), "SSID should NOT be blacklisted when no candidate found — deferred to main loop")
-	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything)
+	assert.False(t, um.isBlacklisted("BadNet", ""), "SSID should NOT be blacklisted when no candidate found — deferred to main loop")
+	connector.AssertNotCalled(t, "SwitchUpstream", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUpstreamManager_StartupCheck_NoInternet_SwitchFails(t *testing.T) {
@@ -781,13 +781,13 @@ func TestUpstreamManager_StartupCheck_NoInternet_SwitchFails(t *testing.T) {
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
 	}, nil)
-	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(fmt.Errorf("wifi reload failed"))
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet", "").Return(fmt.Errorf("wifi reload failed"))
 
 	um.startupConnectivityCheck()
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
-	assert.False(t, um.isBlacklisted("BadNet"), "SSID should NOT be blacklisted when switch fails — deferred to main loop")
+	assert.False(t, um.isBlacklisted("BadNet", ""), "SSID should NOT be blacklisted when switch fails — deferred to main loop")
 	assert.Equal(t, 3, um.consecutiveFails, "switch failures should be recorded for each retry")
 }
 
@@ -814,14 +814,14 @@ func TestUpstreamManager_StartupCheck_ResellerMode(t *testing.T) {
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_homewifi", SSID: "HomeWiFi", Device: "radio0", Disabled: true},
 	}, nil)
-	connector.On("SwitchUpstream", "upstream_badnet", "upstream_homewifi", "HomeWiFi").Return(nil)
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_homewifi", "HomeWiFi", "").Return(nil)
 
 	um.startupConnectivityCheck()
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
 	reseller.AssertExpectations(t)
-	assert.True(t, um.isBlacklisted("BadNet"))
+	assert.True(t, um.isBlacklisted("BadNet", ""))
 }
 
 func TestUpstreamManager_ConfigOverride_ZeroValues_Default(t *testing.T) {
@@ -865,14 +865,14 @@ func TestUpstreamManager_StartupCheck_ScanFailsThenSucceedsOnRetry(t *testing.T)
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
 	}, nil)
-	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(nil)
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet", "").Return(nil)
 
 	um.startupConnectivityCheck()
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
-	assert.True(t, um.isBlacklisted("BadNet"), "should be blacklisted after successful switch on retry")
-	assert.False(t, um.isBlacklisted("GoodNet"))
+	assert.True(t, um.isBlacklisted("BadNet", ""), "should be blacklisted after successful switch on retry")
+	assert.False(t, um.isBlacklisted("GoodNet", ""))
 }
 
 func TestUpstreamManager_StartupCheck_CandidateNotFoundFirstScan(t *testing.T) {
@@ -901,13 +901,13 @@ func TestUpstreamManager_StartupCheck_CandidateNotFoundFirstScan(t *testing.T) {
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
 	}, nil)
-	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(nil)
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet", "").Return(nil)
 
 	um.startupConnectivityCheck()
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
-	assert.True(t, um.isBlacklisted("BadNet"))
+	assert.True(t, um.isBlacklisted("BadNet", ""))
 }
 
 func TestUpstreamManager_StartupCheck_SwitchFailsThenSucceedsOnRetry(t *testing.T) {
@@ -933,14 +933,14 @@ func TestUpstreamManager_StartupCheck_SwitchFailsThenSucceedsOnRetry(t *testing.
 	connector.On("GetSTASections").Return([]STASection{
 		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
 	}, nil)
-	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(fmt.Errorf("failed")).Once()
-	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet").Return(nil).Once()
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet", "").Return(fmt.Errorf("failed")).Once()
+	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet", "").Return(nil).Once()
 
 	um.startupConnectivityCheck()
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
-	assert.True(t, um.isBlacklisted("BadNet"), "should be blacklisted after successful switch on retry")
+	assert.True(t, um.isBlacklisted("BadNet", ""), "should be blacklisted after successful switch on retry")
 }
 
 func TestUpstreamManager_StartupCheck_AllScanRetriesFail_NoBlacklist(t *testing.T) {
@@ -966,5 +966,85 @@ func TestUpstreamManager_StartupCheck_AllScanRetriesFail_NoBlacklist(t *testing.
 
 	connector.AssertExpectations(t)
 	scanner.AssertExpectations(t)
-	assert.False(t, um.isBlacklisted("BadNet"), "should NOT be blacklisted when all scan retries fail — deferred to main loop")
+	assert.False(t, um.isBlacklisted("BadNet", ""), "should NOT be blacklisted when all scan retries fail — deferred to main loop")
+}
+
+// The regression this change exists for: one SSID served by two BSSIDs on
+// different upstream networks. Blacklisting the dead BSSID must NOT blacklist
+// the working sibling, or the manager can never recover.
+func TestUpstreamManager_BlacklistIsBSSIDScoped(t *testing.T) {
+	um := NewUpstreamManager(&MockConnector{}, &MockScanner{}, &MockResellerChecker{}, DefaultUpstreamManagerConfig())
+
+	um.blacklistUpstream("MyNet", "AA:BB:CC:DD:EE:01")
+
+	assert.True(t, um.isBlacklisted("MyNet", "AA:BB:CC:DD:EE:01"), "the failed BSSID is blacklisted")
+	assert.False(t, um.isBlacklisted("MyNet", "AA:BB:CC:DD:EE:02"),
+		"a sibling BSSID of the same SSID must stay eligible")
+	assert.False(t, um.isBlacklisted("MyNet", ""),
+		"an SSID-level lookup is not blacklisted when only a BSSID was")
+}
+
+func TestUpstreamManager_FindKnownCandidates_BlacklistedBSSID_SiblingEligible(t *testing.T) {
+	connector := &MockConnector{}
+	um := NewUpstreamManager(connector, &MockScanner{}, &MockResellerChecker{}, DefaultUpstreamManagerConfig())
+
+	connector.On("GetSTASections").Return([]STASection{
+		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
+	}, nil)
+	um.blacklistUpstream("MyNet", "AA:BB:CC:DD:EE:01")
+
+	networks := []NetworkInfo{
+		{SSID: "MyNet", BSSID: "AA:BB:CC:DD:EE:01", Signal: -30, Radio: "radio0"},
+		{SSID: "MyNet", BSSID: "AA:BB:CC:DD:EE:02", Signal: -50, Radio: "radio0"},
+	}
+
+	candidate, err := um.findCandidates(networks, false, false)
+	assert.NoError(t, err)
+	assert.NotNil(t, candidate)
+	assert.Equal(t, "AA:BB:CC:DD:EE:02", candidate.BSSID,
+		"the blacklisted BSSID is skipped; the working sibling is selected")
+}
+
+// The layered probe must tell a network with no route, no DNS, and a captive
+// portal apart — a bare ICMP ping cannot, which is how a dead "EnterSSID"
+// upstream (gateway pingable, no internet) gets treated as up.
+func TestProbeUpstreamInternet_Layered(t *testing.T) {
+	origRoute, origDNS, origHTTP := defaultRouteFn, resolveHostFn, httpStatusFn
+	defer func() { defaultRouteFn, resolveHostFn, httpStatusFn = origRoute, origDNS, origHTTP }()
+
+	// happy path
+	defaultRouteFn = func() (string, error) { return "default via 10.0.0.1 dev wlan0", nil }
+	resolveHostFn = func(string) error { return nil }
+	httpStatusFn = func(string) (int, error) { return 204, nil }
+	assert.Equal(t, ConnectivityResult{OK: true, Reason: "ok"}, probeUpstreamInternet())
+
+	// no default route
+	defaultRouteFn = func() (string, error) { return "", nil }
+	assert.Equal(t, "no-route", probeUpstreamInternet().Reason)
+
+	// route but DNS does not resolve
+	defaultRouteFn = func() (string, error) { return "default via 10.0.0.1 dev wlan0", nil }
+	resolveHostFn = func(string) error { return fmt.Errorf("no dns") }
+	assert.Equal(t, "no-dns", probeUpstreamInternet().Reason)
+
+	// DNS works but the 204 probe returns a portal page
+	resolveHostFn = func(string) error { return nil }
+	httpStatusFn = func(string) (int, error) { return 200, nil }
+	r := probeUpstreamInternet()
+	assert.False(t, r.OK)
+	assert.Equal(t, "captive", r.Reason)
+
+	// DNS works but HTTP is blocked entirely
+	httpStatusFn = func(string) (int, error) { return 0, fmt.Errorf("blocked") }
+	assert.Equal(t, "no-http", probeUpstreamInternet().Reason)
+}
+
+func TestProbeConnectivity_UsesInjectedProbe(t *testing.T) {
+	um := NewUpstreamManager(&MockConnector{}, &MockScanner{}, &MockResellerChecker{}, DefaultUpstreamManagerConfig())
+	um.connectivityProbeFn = func() ConnectivityResult {
+		return ConnectivityResult{OK: false, Reason: "captive"}
+	}
+	got := um.probeConnectivity("phy0-sta0")
+	assert.False(t, got.OK)
+	assert.Equal(t, "captive", got.Reason, "the injected probe overrides the real one")
 }

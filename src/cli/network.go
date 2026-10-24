@@ -269,6 +269,20 @@ func (s *CLIServer) handlePrivateNetworkSetPassword(newPassword string) CLIRespo
 		}
 	}
 
+	// Setting a passphrase implies the operator wants the private network up:
+	// 99-tollgate-setup leaves a credential-less private AP DISABLED, so a
+	// set-password that did not also enable it would write a key into a radio
+	// that stays down. Already-enabled radios are a no-op here.
+	enabled, err := setPrivateRadioOption("disabled", "0")
+	if err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Failed to enable the private network: %v", err),
+			Timestamp: time.Now(),
+		}
+	}
+	changed = append(changed, enabled...)
+
 	if err := finishPrivateRadioWrite(changed); err != nil {
 		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
 	}
