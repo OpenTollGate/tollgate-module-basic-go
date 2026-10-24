@@ -1,6 +1,7 @@
 package spilman
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -9,16 +10,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRecordPaymentAcceptsTheExactNextBalance(t *testing.T) {
+// The tests below exercise the durable CAS arithmetic in isolation, through the
+// unexported helper that only RecordPayment may call after authenticating. They
+// deliberately use a fake signature ("sig-N"): they are about the WRITE, not
+// about authenticity, which forgery_test.go and (tagged) payment_auth_cgo_test.go
+// cover against the real validator.
+//
+// A channel row is still required, because the helper does not invent one and
+// because the real path only ever writes for a registered channel.
+func openCASLedger(t *testing.T) *ChannelLedger {
+	t.Helper()
 	ledger, err := OpenLedgerInMemory()
 	require.NoError(t, err)
-	defer func() { require.NoError(t, ledger.Close()) }()
+	t.Cleanup(func() { require.NoError(t, ledger.Close()) })
+	require.NoError(t, ledger.RegisterChannel(context.Background(), ChannelRecord{
+		ChannelID: "chan-1",
+		Unit:      UnitSat,
+		State:     ChannelStateOpen,
+		Capacity:  1000,
+		Expiry:    1_900_000_000,
+		OpenedAt:  1_700_000_000,
+	}))
+	return ledger
+}
 
-	outcome, err := ledger.RecordPayment("chan-1", 1, "sig-1")
+func TestRecordPaymentAcceptsTheExactNextBalance(t *testing.T) {
+	ledger := openCASLedger(t)
+
+	outcome, err := ledger.recordAuthenticatedPayment("chan-1", 1, "sig-1")
 	require.NoError(t, err)
 	require.Equal(t, LedgerOutcomeAccepted, outcome)
 
-	outcome, err = ledger.RecordPayment("chan-1", 2, "sig-2")
+	outcome, err = ledger.recordAuthenticatedPayment("chan-1", 2, "sig-2")
 	require.NoError(t, err)
 	require.Equal(t, LedgerOutcomeAccepted, outcome)
 
@@ -33,14 +56,12 @@ func TestRecordPaymentAcceptsTheExactNextBalance(t *testing.T) {
 // A stale (lower) balance must be refused: honouring it would roll back credit
 // the payee already served bytes for.
 func TestRecordPaymentRejectsStaleBalance(t *testing.T) {
-	ledger, err := OpenLedgerInMemory()
-	require.NoError(t, err)
-	defer func() { require.NoError(t, ledger.Close()) }()
+	ledger := openCASLedger(t)
 
-	_, err = ledger.RecordPayment("chan-1", 5, "sig-5")
+	_, err := ledger.recordAuthenticatedPayment("chan-1", 5, "sig-5")
 	require.NoError(t, err)
 
-	_, err = ledger.RecordPayment("chan-1", 4, "sig-4")
+	_, err = ledger.recordAuthenticatedPayment("chan-1", 4, "sig-4")
 	require.ErrorIs(t, err, ErrBalanceNotAdvanced)
 
 	var notAdvanced *BalanceNotAdvancedError
@@ -57,13 +78,11 @@ func TestRecordPaymentRejectsStaleBalance(t *testing.T) {
 
 // Replay of the identical payment: same balance, same signature.
 func TestRecordPaymentRejectsReplay(t *testing.T) {
-	ledger, err := OpenLedgerInMemory()
-	require.NoError(t, err)
-	defer func() { require.NoError(t, ledger.Close()) }()
+	ledger := openCASLedger(t)
 
-	_, err = ledger.RecordPayment("chan-1", 7, "sig-7")
+	_, err := ledger.recordAuthenticatedPayment("chan-1", 7, "sig-7")
 	require.NoError(t, err)
-	_, err = ledger.RecordPayment("chan-1", 7, "sig-7")
+	_, err = ledger.recordAuthenticatedPayment("chan-1", 7, "sig-7")
 	require.ErrorIs(t, err, ErrBalanceNotAdvanced)
 }
 
@@ -71,13 +90,11 @@ func TestRecordPaymentRejectsReplay(t *testing.T) {
 // (WHERE balance < ?) gets wrong in the other direction: a *different* payment
 // carrying the same balance must not be credited twice.
 func TestRecordPaymentRejectsReplayedBalanceWithDifferentSignature(t *testing.T) {
-	ledger, err := OpenLedgerInMemory()
-	require.NoError(t, err)
-	defer func() { require.NoError(t, ledger.Close()) }()
+	ledger := openCASLedger(t)
 
-	_, err = ledger.RecordPayment("chan-1", 9, "sig-a")
+	_, err := ledger.recordAuthenticatedPayment("chan-1", 9, "sig-a")
 	require.NoError(t, err)
-	_, err = ledger.RecordPayment("chan-1", 9, "sig-b")
+	_, err = ledger.recordAuthenticatedPayment("chan-1", 9, "sig-b")
 	require.ErrorIs(t, err, ErrBalanceNotAdvanced)
 
 	latest, err := ledger.LatestPayment("chan-1")
@@ -87,11 +104,9 @@ func TestRecordPaymentRejectsReplayedBalanceWithDifferentSignature(t *testing.T)
 }
 
 func TestZeroBalanceIsNeverRecorded(t *testing.T) {
-	ledger, err := OpenLedgerInMemory()
-	require.NoError(t, err)
-	defer func() { require.NoError(t, ledger.Close()) }()
+	ledger := openCASLedger(t)
 
-	_, err = ledger.RecordPayment("chan-1", 0, "sig-0")
+	_, err := ledger.recordAuthenticatedPayment("chan-1", 0, "sig-0")
 	require.ErrorIs(t, err, ErrBalanceNotAdvanced)
 
 	_, known, err := ledger.Balance("chan-1")
@@ -101,11 +116,9 @@ func TestZeroBalanceIsNeverRecorded(t *testing.T) {
 
 // Exactly one of two racing writers may advance from the same previous balance.
 func TestConcurrentWritersCannotBothAdvance(t *testing.T) {
-	ledger, err := OpenLedgerInMemory()
-	require.NoError(t, err)
-	defer func() { require.NoError(t, ledger.Close()) }()
+	ledger := openCASLedger(t)
 
-	_, err = ledger.RecordPayment("chan-1", 1, "sig-1")
+	_, err := ledger.recordAuthenticatedPayment("chan-1", 1, "sig-1")
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -114,7 +127,7 @@ func TestConcurrentWritersCannotBothAdvance(t *testing.T) {
 		wg.Add(1)
 		go func(i int, sig string) {
 			defer wg.Done()
-			_, errs[i] = ledger.RecordPayment("chan-1", 2, sig)
+			_, errs[i] = ledger.recordAuthenticatedPayment("chan-1", 2, sig)
 		}(i, sig)
 	}
 	wg.Wait()
@@ -140,15 +153,19 @@ func TestConcurrentWritersCannotBothAdvance(t *testing.T) {
 func TestLedgerIsDurableAcrossReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "spilman-ledger.db")
 
-	ledger, err := OpenLedger(path)
+	ledger, err := OpenLedgerWithValidator(path, newProtocolValidator())
 	require.NoError(t, err)
-	_, err = ledger.RecordPayment("chan-1", 21, "sig-21")
+	require.NoError(t, ledger.RegisterChannel(context.Background(), ChannelRecord{
+		ChannelID: "chan-1", Unit: UnitSat, State: ChannelStateOpen,
+		Capacity: 1000, Expiry: 1_900_000_000, OpenedAt: 1_700_000_000,
+	}))
+	_, err = ledger.recordAuthenticatedPayment("chan-1", 21, "sig-21")
 	require.NoError(t, err)
-	_, err = ledger.RecordPayment("chan-1", 42, "sig-42")
+	_, err = ledger.recordAuthenticatedPayment("chan-1", 42, "sig-42")
 	require.NoError(t, err)
 	require.NoError(t, ledger.Close())
 
-	reopened, err := OpenLedger(path)
+	reopened, err := OpenLedgerWithValidator(path, newProtocolValidator())
 	require.NoError(t, err)
 	defer func() { require.NoError(t, reopened.Close()) }()
 
@@ -160,23 +177,21 @@ func TestLedgerIsDurableAcrossReopen(t *testing.T) {
 	require.Equal(t, uint64(2), latest.PaymentCount)
 
 	// The CAS must still be anchored to the persisted previous balance.
-	_, err = reopened.RecordPayment("chan-1", 42, "sig-42-replay")
+	_, err = reopened.recordAuthenticatedPayment("chan-1", 42, "sig-42-replay")
 	require.ErrorIs(t, err, ErrBalanceNotAdvanced)
 
-	_, err = reopened.RecordPayment("chan-1", 43, "sig-43")
+	_, err = reopened.recordAuthenticatedPayment("chan-1", 43, "sig-43")
 	require.NoError(t, err)
 }
 
 func TestAmountDueReadsTheStoredBalance(t *testing.T) {
-	ledger, err := OpenLedgerInMemory()
-	require.NoError(t, err)
-	defer func() { require.NoError(t, ledger.Close()) }()
+	ledger := openCASLedger(t)
 
 	due, err := ledger.AmountDue("chan-unknown")
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), due)
 
-	_, err = ledger.RecordPayment("chan-1", 3, "sig-3")
+	_, err = ledger.recordAuthenticatedPayment("chan-1", 3, "sig-3")
 	require.NoError(t, err)
 	due, err = ledger.AmountDue("chan-1")
 	require.NoError(t, err)

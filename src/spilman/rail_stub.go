@@ -29,6 +29,12 @@ func (notCompiledBridge) ExecuteCooperativeClose(_ context.Context, req ChannelS
 	return ChannelSettleResult{}, fmt.Errorf("%w: cooperative close of channel %q", ErrNotCompiled, req.ChannelID)
 }
 
+// newProtocolValidator is the default-build validator: it REFUSES every payment,
+// because the verification primitive lives in the Rust core and this binary does
+// not link it. The error names the build tag, so an operator sees "build with
+// -tags spilman" rather than a confusing signature failure.
+func newProtocolValidator() PaymentValidator { return refusingErrValidator(ErrNotCompiled) }
+
 // The seller-side primitives below are the same names the `spilman`-tagged build
 // implements against libcdk_spilman_go.so. In the default build they refuse.
 

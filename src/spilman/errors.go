@@ -41,6 +41,19 @@ var (
 	// than the funding proofs can ever cover.
 	ErrCapacityExceeded = errors.New("offered balance exceeds channel capacity")
 
+	// ErrPaymentNotAuthentic means the payment's signature did not verify
+	// against the channel's persisted funding record, so the balance is a
+	// forgery until proven otherwise. Nothing was written. This is the guard
+	// that monotonicity alone does not provide: a higher balance is not
+	// evidence that the payer authorised it.
+	ErrPaymentNotAuthentic = errors.New("payment signature does not authenticate against the channel's funding record")
+
+	// ErrFundingRecordMissing means the channel has no persisted funding record
+	// (params, funding proofs, channel secret, keyset info) to verify a payment
+	// against. Refusing is the only safe answer: an unverifiable balance must
+	// never become credit.
+	ErrFundingRecordMissing = errors.New("channel has no persisted funding record")
+
 	// ErrNotCompiled means the operation needs the cgo protocol binding and this
 	// binary was built without the `spilman` build tag (the default
 	// CGO_ENABLED=0 build). The rail refuses to pretend it performed the work.

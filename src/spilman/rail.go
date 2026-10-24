@@ -32,6 +32,11 @@ type ChannelStatus struct {
 // ChannelOpenRequest registers a channel the payee will accept payments on.
 // This is the seller-side direction: the *buyer* funded the channel and the
 // payee records what it is willing to serve.
+//
+// ParamsJSON, FundingProofsJSON, ChannelSecretHex and KeysetInfoJSON are the
+// channel's funding record. They are what every later payment signature is
+// verified against, so a channel opened without them can never accept a
+// payment (RecordPayment refuses it as unverifiable). See Open.
 type ChannelOpenRequest struct {
 	ChannelID      string
 	Unit           string
@@ -41,6 +46,11 @@ type ChannelOpenRequest struct {
 	MintURL        string
 	KeysetID       string
 	FundingTxID    string
+
+	ParamsJSON        string
+	FundingProofsJSON string
+	ChannelSecretHex  string
+	KeysetInfoJSON    string
 }
 
 // ChannelPayment is a signed balance update offered by the payer.
@@ -153,8 +163,21 @@ type SellerRail struct {
 }
 
 // NewSellerRail builds the payee-side rail over a durable ledger.
+//
+// The ledger must have been opened with a validator: payment authentication
+// happens inside ChannelLedger.RecordPayment, before the durable write, so there
+// is no rail shape that records an unverified balance.
 func NewSellerRail(ledger *ChannelLedger) *SellerRail {
 	return &SellerRail{ledger: ledger, bridge: newProtocolBridge()}
+}
+
+// Validator names the payment validator this build authenticates with. The
+// default CGO_ENABLED=0 build reports "not-compiled" and refuses every payment.
+func (r *SellerRail) Validator() string {
+	if r == nil || r.ledger == nil || r.ledger.validator == nil {
+		return "none"
+	}
+	return r.ledger.validator.Name()
 }
 
 func (r *SellerRail) Name() string { return "spilman-seller" }
@@ -172,16 +195,20 @@ func (r *SellerRail) Open(ctx context.Context, req ChannelOpenRequest) (ChannelS
 	}
 
 	rec := ChannelRecord{
-		ChannelID:      req.ChannelID,
-		Unit:           req.Unit,
-		State:          ChannelStateOpen,
-		Capacity:       req.Capacity,
-		Expiry:         req.Expiry,
-		OpenedAt:       nowSeconds(),
-		ReceiverPubkey: req.ReceiverPubkey,
-		MintURL:        req.MintURL,
-		KeysetID:       req.KeysetID,
-		FundingTxID:    req.FundingTxID,
+		ChannelID:         req.ChannelID,
+		Unit:              req.Unit,
+		State:             ChannelStateOpen,
+		Capacity:          req.Capacity,
+		Expiry:            req.Expiry,
+		OpenedAt:          nowSeconds(),
+		ReceiverPubkey:    req.ReceiverPubkey,
+		MintURL:           req.MintURL,
+		KeysetID:          req.KeysetID,
+		FundingTxID:       req.FundingTxID,
+		ParamsJSON:        req.ParamsJSON,
+		FundingProofsJSON: req.FundingProofsJSON,
+		ChannelSecretHex:  req.ChannelSecretHex,
+		KeysetInfoJSON:    req.KeysetInfoJSON,
 	}
 	if err := r.ledger.RegisterChannel(ctx, rec); err != nil {
 		return ChannelStatus{}, err
@@ -238,7 +265,7 @@ func (r *SellerRail) AcceptPayment(ctx context.Context, payment ChannelPayment) 
 		return "", fmt.Errorf("%w: channel %q capacity %d, offered %d",
 			ErrCapacityExceeded, payment.ChannelID, rec.Capacity, payment.Balance)
 	}
-	return r.ledger.RecordPayment(payment.ChannelID, payment.Balance, payment.Signature)
+	return r.ledger.RecordPayment(ctx, payment.ChannelID, payment.Balance, payment.Signature)
 }
 
 // Settle closes the channel for value, paying the payee its latest durable

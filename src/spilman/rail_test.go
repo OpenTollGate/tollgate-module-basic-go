@@ -9,6 +9,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// registerTestFunding attaches a funding record to a channel opened by
+// openTestChannel, so the channel is verifiable. Rail tests use a fake validator
+// (the real one needs the Rust core); the funding content only has to be
+// non-empty and stable for those.
+func registerTestFunding(t *testing.T, ledger *ChannelLedger, channelID string) {
+	t.Helper()
+	require.NoError(t, ledger.SetFundingRecord(context.Background(), FundingRecord{
+		ChannelID:         channelID,
+		ParamsJSON:        `{"capacity":100}`,
+		FundingProofsJSON: `[{"amount":100}]`,
+		ChannelSecretHex:  "1122",
+		KeysetInfoJSON:    `{"keysetId":"00aa"}`,
+	}))
+}
+
 func openTestChannel(t *testing.T, rail *SellerRail) {
 	t.Helper()
 	status, err := rail.Open(context.Background(), ChannelOpenRequest{
@@ -64,15 +79,17 @@ func TestSellerRailRefusesDuplicateAndUnsupportedUnitOpens(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidChannel)
 }
 
-// The payee may only serve bytes for a balance it durably recorded, and only in
-// the exact-next order.
+// The payee may only serve bytes for a balance it durably recorded, only in the
+// exact-next order, and only once the payment authenticated.
 func TestSellerRailAcceptPaymentIsCASOrdered(t *testing.T) {
-	ledger, err := OpenLedgerInMemory()
+	validator := genuineLooking("sig-1", "sig-5", "sig-5-other", "sig-4")
+	ledger, err := OpenLedgerInMemoryWithValidator(validator)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, ledger.Close()) }()
 	rail := NewSellerRail(ledger)
 	openTestChannel(t, rail)
 	ctx := context.Background()
+	registerTestFunding(t, ledger, "chan-1")
 
 	outcome, err := rail.AcceptPayment(ctx, ChannelPayment{ChannelID: "chan-1", Balance: 1, Signature: "sig-1"})
 	require.NoError(t, err)
@@ -82,7 +99,9 @@ func TestSellerRailAcceptPaymentIsCASOrdered(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, LedgerOutcomeAccepted, outcome)
 
-	// Replay of the same balance with a different signature.
+	// Replay of the same balance with a different signature. It AUTHENTICATES
+	// (the validator accepts the signature) and is still refused, because it does
+	// not advance the stored balance.
 	_, err = rail.AcceptPayment(ctx, ChannelPayment{ChannelID: "chan-1", Balance: 5, Signature: "sig-5-other"})
 	require.ErrorIs(t, err, ErrBalanceNotAdvanced)
 
@@ -101,11 +120,13 @@ func TestSellerRailAcceptPaymentIsCASOrdered(t *testing.T) {
 }
 
 func TestSellerRailRejectsPaymentsBeyondCapacity(t *testing.T) {
-	ledger, err := OpenLedgerInMemory()
+	validator := genuineLooking("sig")
+	ledger, err := OpenLedgerInMemoryWithValidator(validator)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, ledger.Close()) }()
 	rail := NewSellerRail(ledger)
 	openTestChannel(t, rail)
+	registerTestFunding(t, ledger, "chan-1")
 	ctx := context.Background()
 
 	_, err = rail.AcceptPayment(ctx, ChannelPayment{ChannelID: "chan-1", Balance: 101, Signature: "sig"})
