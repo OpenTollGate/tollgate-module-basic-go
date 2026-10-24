@@ -1888,6 +1888,10 @@ func registerAPIHandlers(mux *http.ServeMux) {
 	})
 
 	registerIdentityRoutes(mux)
+
+	// The Spilman channel surface, mounted ONLY when the rail is enabled. With it
+	// off nothing is registered and every /spilman path 404s from the mux itself.
+	registerSpilmanRoutes(mux)
 }
 
 // registerIdentityRoutes is the optional identity block, unchanged by the boot

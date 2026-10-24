@@ -51,6 +51,15 @@ type Config struct {
 	// The Password field is a SECRET and must be redacted on every read path,
 	// like PrivateKey above.
 	MPTCPBonding MPTCPBondingConfig `json:"mptcp_bonding,omitempty"`
+	// Spilman is the wholesale payment-channel rail. DISABLED by default: a router
+	// that has not opted in must not expose a payment surface at all, and with
+	// `enabled: false` the /spilman routes are not registered, so every path under
+	// them 404s from the mux without any handler running.
+	//
+	// ChannelDBPath is REQUIRED when enabled. The rail refuses to start without it
+	// rather than running with an in-memory ledger: a payee that forgets what it was
+	// paid will serve bytes it can never collect for.
+	Spilman SpilmanConfig `json:"spilman,omitempty"`
 	// Operator-settable network settings. Declared intent: nothing reads these
 	// fields directly. The applier in src/cli/operator_settings.go converges
 	// them onto the router (UCI wireless + the admin-access nft fragment) on
@@ -629,4 +638,22 @@ func migrateConfig(config *Config, defaults *Config) {
 			log.Printf("INFO: Migrated price_unit sats to sat for mint %s", config.AcceptedMints[i].URL)
 		}
 	}
+}
+
+// SpilmanConfig configures the wholesale Spilman payment-channel rail.
+//
+// Zero value is OFF, which is the correct default: the rail adds an HTTP payment
+// surface and a durable ledger, and neither belongs on a router that did not ask
+// for them.
+type SpilmanConfig struct {
+	// Enabled mounts the /spilman channel surface. Default false.
+	Enabled bool `json:"enabled"`
+	// ChannelDBPath is the durable channel ledger. Required when Enabled; the rail
+	// refuses to start without it rather than losing credit on a restart.
+	ChannelDBPath string `json:"channel_db_path,omitempty"`
+	// InBytesPerMillisat is the billed rate. Zero means "use the parity rate"
+	// (TollgateParityInBytesPerMillisat), which is the rate that bills one 21 MiB
+	// step at exactly 1000 msat == 1 sat. A different value is an operator choice
+	// and is advertised over GET /spilman/params so both sides price identically.
+	InBytesPerMillisat uint64 `json:"in_bytes_per_millisat,omitempty"`
 }
