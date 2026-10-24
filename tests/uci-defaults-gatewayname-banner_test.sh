@@ -333,6 +333,30 @@ run_case() { # run_case <case-name> <flag-version-or-empty> <drift|>
     return $?
 }
 
+# run_case_killed_before_commit <case-name> <flag-version>
+# Runs the SAME shipped driver on the FULL path, but stops it immediately BEFORE the
+# final commit_all — the exact instant a reboot, OOM kill or power loss truncates a
+# one-shot uci-defaults run. Nothing is simulated about the writers: the same script
+# performs every uci set in the same order; only the final flush is skipped.
+#
+# What must hold: a write the run made must not depend on a LATER line to become
+# durable. `uci set` alone lands in the uncommitted /tmp/.uci session, so any option
+# whose only commit is the trailing commit_all is LOST here — and uci-defaults are
+# consumed, so it never retries.
+run_case_killed_before_commit() { # <case-name> <flag-version>
+    local d="$TMP/$1" flag="$2"
+    mkdir -p "$d"
+    seed_deployed "$d/uci.state" ""
+    printf '%s\n' "$flag" > "$TMP/tollgate-setup-done"
+    : > "$TMP/setup.log"
+    # Truncate the driver at the commit_all invocation: same shebang, same body up to
+    # that line, nothing after it. awk keeps line-for-line fidelity of everything above.
+    awk '/^commit_all$/ { exit } { print }' "$SRC" > "$TMP/$1/99-truncated"
+    UCI_STATE="$d/uci.state" DEVICE_CODE_STORE="$d/config-tollgate" \
+        sh "$TMP/$1/99-truncated" >"$d/run.out" 2>"$d/run.err"
+    return 0
+}
+
 seed_deployed "$TMP/ctrl.state"
 fixture_gw="$(state_opt "$TMP/ctrl.state" 'nodogsplash.@nodogsplash[0].gatewayname')"
 
@@ -402,6 +426,16 @@ eq "the FULL path leaves no pending gatewayname delta" "$(pending_gw "$TMP/full/
 eq "the FULL path's banner carries the SSID's #706 decoration" \
    "$(printf '%s' "$full_gw" | cut -c1)" "!"
 eq "the FULL path's banner IS the canonical one from the shared table" "$full_gw" "$WANT"
+
+# ------------------------- FULL path truncated before commit_all (power loss)
+# Criterion #3's read-back on a real board surfaced a router whose gatewayname was
+# never written at all — the FULL path had run (uci-defaults consumed) but the value
+# was absent. The trailing commit_all is a single point of failure for a user-visible
+# string; this case pins the write's durability to the step that makes it.
+run_case_killed_before_commit killed "$OLDER"
+killed_gw="$(state_opt "$TMP/killed/uci.state" 'nodogsplash.@nodogsplash[0].gatewayname')"
+eq "a FULL run killed before commit_all still has the banner committed" "$killed_gw" "$WANT"
+eq "  ...and leaves no pending gatewayname delta behind" "$(pending_gw "$TMP/killed/uci.state")" "0"
 
 # ------------------------------------------------ REPAIR path, settled router
 # The normal case: the router has already been set up under this version, so the

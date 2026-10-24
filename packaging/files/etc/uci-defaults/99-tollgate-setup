@@ -1883,6 +1883,16 @@ setup_nodogsplash() {
     assert_nodogsplash_allow_entries
     uci set nodogsplash.@nodogsplash[0].enabled='1'
     uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
+    # COMMITTED HERE, in the step that writes it — not left to the trailing commit_all.
+    # gatewayname is a USER-VISIBLE string (the pre-auth banner). Deferring it to
+    # commit_all makes that one function a single point of failure: every uci set above
+    # lives in the uncommitted /tmp/.uci session until commit_all runs, so a reboot, OOM
+    # kill or power loss anywhere between here and the end of the script silently
+    # discards the banner — and uci-defaults are one-shot, so it never retries. The
+    # router then presents a stale/default banner with nothing logged. This is the same
+    # rule the verify/repair path already follows and documents at its own write; the
+    # FULL path was the one place missing it.
+    uci commit nodogsplash
     uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
     # gatewaydomainname deliberately NOT set — and actively deleted on
     # upgrade: nodogsplash 5.0.2 redirects every splash request carrying
