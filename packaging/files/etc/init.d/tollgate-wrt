@@ -11,6 +11,16 @@ API_PORT=2121
 API_SOCKET=/var/run/tollgate.sock
 
 start_service() {
+    # Wallet storage (every boot): re-attach the ext4 loop image when the
+    # wallet dir sits on an mmap-incapable overlay (#583/#1035). The ONE
+    # declaration of the policy lives in the shared lib; this is only its
+    # boot-time consumer. Before the backend starts, so bbolt never opens
+    # a wallet.db on jffs2.
+    if [ -f /usr/lib/tollgate/wallet-storage.sh ]; then
+        . /usr/lib/tollgate/wallet-storage.sh
+        ensure_wallet_storage 2>&1 | logger -t tollgate-wrt -p daemon.warn || true
+    fi
+
     # Start cron daemon
     /etc/init.d/cron start
     

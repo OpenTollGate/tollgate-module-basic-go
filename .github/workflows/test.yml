@@ -203,6 +203,21 @@ jobs:
           # both setup paths re-assert it.
           bash tests/uci-defaults-trusted-entry-80_test.sh
 
+      - name: Wallet storage moves to an ext4 loop image on jffs2 overlays
+        run: |
+          # Offline (no router, no daemon, no network): bbolt requires
+          # mmap(PROT_READ, MAP_SHARED) and jffs2 — the overlay of every
+          # squashfs NOR target — has no shared mappings (#583/#1035; the
+          # failing syscall is pinned in evidence/jffs2-mmap). The suite
+          # pins the predicate (direct jffs2; overlayfs whose upperdir is
+          # jffs2; ext4 and overlay-with-ext4-upper are left alone), the
+          # bring-up (image creation, husk preserved, losetup+mount,
+          # already-mounted no-op), the D3 fail-at-install refusal on
+          # insufficient flash, BOTH consumers sourcing the one shared
+          # lib — and a planted-drift verdict that sabotages the predicate
+          # and requires the bring-up to stop.
+          bash tests/uci-defaults-wallet-storage_test.sh
+
       - name: Pre-auth DNS is allowed on UDP, not only TCP
         run: |
           # Offline (no router, no daemon, no network): issue #749 - the

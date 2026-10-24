@@ -156,6 +156,17 @@ board_http_port()        { [ "$ENTRY_UI_MODE" = board ] && printf 8080 || printf
 board_https_port()       { [ "$ENTRY_UI_MODE" = board ] && printf 443  || printf 8443; }
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
 
+# Wallet storage policy — ONE declaration, sourced from the shared lib both
+# this script and the init script consume (see the lib's header). Bring-up is
+# idempotent and runs on BOTH branches below: an mmap-incapable overlay must
+# gain the ext4 loop image at first install AND at the first upgrade onto it
+# (#583/#1035; docs/architecture/
+# wallet-storage-mmap-incapable-overlay-decision.md).
+WALLET_STORAGE_LIB=/usr/lib/tollgate/wallet-storage.sh
+if [ -f "$WALLET_STORAGE_LIB" ]; then
+    . "$WALLET_STORAGE_LIB"
+fi
+
 # -- setup-marker ordering ---------------------------------------------------
 #
 # /etc/tollgate-setup-done records the version whose FULL setup last ran, and
@@ -2660,6 +2671,17 @@ chmod 600 "$LOGFILE"  # may contain the WiFi password — keep it root-only
 ensure_entry_ui
 
 log "Setup branch $BRANCH — $REASON"
+
+# Both branches: the wallet's ext4 loop image must exist before anything
+# wallet-adjacent runs (the service starts after setup; the repair path can
+# be an upgrade onto an mmap-incapable overlay for the first time).
+if command -v ensure_wallet_storage >/dev/null 2>&1; then
+    if ensure_wallet_storage 2>>"$LOGFILE"; then
+        log "wallet storage ensured (see lib log lines for the decision)"
+    else
+        log "wallet storage ensure FAILED — the wallet cannot run on this filesystem; see ADR wallet-storage-mmap-incapable-overlay (D3 fail-at-install)"
+    fi
+fi
 
 # Everything that is not FULL is the verify/repair path. The offline test
 # tests/uci-defaults-setup-marker-order_test.sh replaces the decision call just

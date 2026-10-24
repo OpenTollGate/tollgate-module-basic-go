@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
@@ -118,7 +117,7 @@ func (m *MerchantDegraded) AttemptUpgrade() {
 }
 
 func NewMerchantDegradedFromFull(configManager *config_manager.ConfigManager, tracker *MintHealthTracker) *MerchantDegraded {
-	walletDirPath := filepath.Dir(configManager.ConfigFilePath)
+	walletDirPath := walletDirFor(configManager)
 	return NewMerchantDegradedWithWallet(configManager, tracker, DefaultWalletFactory, walletDirPath)
 }
 
