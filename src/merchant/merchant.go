@@ -211,14 +211,14 @@ const preflightProbeAttempts = 5
 // probes. It is the zero-value default of Merchant.clientProbeDelay.
 const preflightRetryDelayDefault = 400 * time.Millisecond
 
-// receiveTimeout bounds how long PurchaseSession waits for the mint's answer to
-// a money-moving `Receive` before it answers the customer with "outcome
-// unknown". It is a var so a test can shrink the window instead of waiting it
-// out; nothing in production reassigns it, and — unlike the pre-flight's delay
-// (Merchant.clientProbeDelay, which is per merchant because the usage monitor
-// reads it from its own goroutine) — every reader of this one is on the
-// goroutine that called PurchaseSession.
-var receiveTimeout = 30 * time.Second
+// defaultReceiveTimeout bounds how long PurchaseSession waits for the mint's
+// answer to a money-moving `Receive` before it answers the customer with
+// "outcome unknown". It is the zero-value default of Merchant.receiveTimeout —
+// per merchant, like the pre-flight's seam above, because this one was a
+// package-level var once too, and a test shrinking it raced the deadline read
+// of a PurchaseSession goroutine an earlier test had leaked; the full-suite
+// `-race` gate caught it (#821).
+const defaultReceiveTimeout = 30 * time.Second
 
 // receiveResult is the answer of one money-moving `Receive` call.
 type receiveResult struct {
@@ -425,6 +425,10 @@ type Merchant struct {
 	clientProbeMu    sync.RWMutex
 	clientProbe      func(string) (valve.ClientState, error)
 	clientProbeDelay time.Duration
+	// receiveTimeout overrides defaultReceiveTimeout for this merchant's
+	// money-moving Receive deadline; zero keeps the default. Per merchant for
+	// the same -race reason as the probe seam above (#821).
+	receiveTimeout time.Duration
 	// monitorMu guards the usage sweep's stop/done channels. They are created by
 	// startUsageSweep and closed by stopDataUsageMonitoring, which exists so a
 	// test that drives the real startup path can end the sweep it started: the
@@ -1639,6 +1643,10 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	var amountAfterSwap uint64
 	err = nil
+	receiveTimeout := m.receiveTimeout
+	if receiveTimeout <= 0 {
+		receiveTimeout = defaultReceiveTimeout
+	}
 	select {
 	case res := <-ch:
 		amountAfterSwap = res.amount
@@ -1803,7 +1811,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	m.resolveReceiveIntent(reference, intentStateGranted, "session granted")
 
 	// Create a success session event (using MAC address as identifier in logs)
-	sessionEvent, err := m.createSessionEvent(session, macAddress)
+	sessionEvent, err := m.createSessionEvent(session)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session event: %w", err)
 	}
@@ -2102,8 +2110,13 @@ func (m *Merchant) calculateAllotmentBytes(steps uint64) (uint64, error) {
 	return totalBytes, nil
 }
 
-// createSessionEvent creates a session event from the MAC-address based session
-func (m *Merchant) createSessionEvent(session *CustomerSession, customerPubkey string) (*nostr.Event, error) {
+// createSessionEvent creates a session event from the MAC-address based session.
+//
+// The event carries NO `p` tag: in the raw-token flow the customer has no
+// Nostr identity, and `p` is defined as a Nostr pubkey (spec PR tollgate#26
+// makes it conditional and forbids non-pubkey values). The MAC already lives
+// in `device-identifier`, where it belongs (#949).
+func (m *Merchant) createSessionEvent(session *CustomerSession) (*nostr.Event, error) {
 	deviceIdentifier := session.MacAddress
 
 	identities := m.configManager.GetIdentities()
@@ -2126,7 +2139,6 @@ func (m *Merchant) createSessionEvent(session *CustomerSession, customerPubkey s
 		PubKey:    tollgatePubkey,
 		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
-			{"p", customerPubkey},
 			{"device-identifier", "mac", deviceIdentifier},
 			{"allotment", fmt.Sprintf("%d", session.Allotment)},
 			{"metric", session.Metric},
@@ -2178,21 +2190,20 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAl
 	// Calculate new total allotment
 	newTotalAllotment := existingAllotment + additionalAllotment
 
-	// Extract customer and device info from existing session
-	customerPubkey := ""
+	// Extract device info from the existing session. The `p` tag is NOT
+	// extracted or re-emitted: raw-token session events carry no customer
+	// pubkey (#949), and a legacy event's `p` is a MAC that must not be
+	// propagated into a field whose contract says pubkey.
 	deviceIdentifier := ""
 
 	for _, tag := range existingSession.Tags {
-		if len(tag) >= 2 && tag[0] == "p" {
-			customerPubkey = tag[1]
-		}
 		if len(tag) >= 3 && tag[0] == "device-identifier" {
 			deviceIdentifier = tag[2]
 		}
 	}
 
-	if customerPubkey == "" || deviceIdentifier == "" {
-		return nil, fmt.Errorf("failed to extract customer or device info from existing session")
+	if deviceIdentifier == "" {
+		return nil, fmt.Errorf("failed to extract device info from existing session")
 	}
 
 	identities := m.configManager.GetIdentities()
@@ -2215,7 +2226,6 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAl
 		PubKey:    tollgatePubkey,
 		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
-			{"p", customerPubkey},
 			{"device-identifier", "mac", deviceIdentifier},
 			{"allotment", fmt.Sprintf("%d", newTotalAllotment)},
 			{"metric", "milliseconds"},
