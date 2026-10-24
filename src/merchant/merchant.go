@@ -464,21 +464,9 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 		log.Printf("WARNING: No reachable mints detected. Starting in degraded mode.")
 		walletDirPath := filepath.Dir(configManager.ConfigFilePath)
 		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		deg.SetDegradeReason("no reachable mints")
 		mintHealthTracker.StartProactiveChecks()
-		mintHealthTracker.SetOnFirstReachableForDegraded(func() {
-			log.Printf("Mint became reachable — attempting to upgrade from degraded mode")
-			if err := deg.Shutdown(); err != nil {
-				log.Printf("ERROR: Failed to shutdown degraded wallet before upgrade: %v", err)
-			}
-			fullMerchant, err := newFullMerchant(configManager, mintHealthTracker)
-			if err != nil {
-				log.Printf("ERROR: Failed to upgrade from degraded mode: %v", err)
-				return
-			}
-			if deg.onUpgrade != nil {
-				deg.onUpgrade(fullMerchant)
-			}
-		})
+		deg.WireRecoveryTrigger()
 		return deg, nil
 	}
 
@@ -511,21 +499,17 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	if walletErr != nil {
 		log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
 		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		// Honest reason: the mints may all be reachable — this is the
+		// #583/#1035 class where "no reachable mints" pointed triage at
+		// the network for days while the wallet was the broken half.
+		deg.SetDegradeReason(fmt.Sprintf("wallet initialization failed: %v", walletErr))
 		mintHealthTracker.StartProactiveChecks()
-		mintHealthTracker.SetOnFirstReachableForDegraded(func() {
-			log.Printf("Mint became reachable — attempting to upgrade from degraded mode")
-			if err := deg.Shutdown(); err != nil {
-				log.Printf("ERROR: Failed to shutdown degraded wallet before upgrade: %v", err)
-			}
-			fullMerchant, err := newFullMerchant(configManager, mintHealthTracker)
-			if err != nil {
-				log.Printf("ERROR: Failed to upgrade from degraded mode: %v", err)
-				return
-			}
-			if deg.onUpgrade != nil {
-				deg.onUpgrade(fullMerchant)
-			}
-		})
+		// The first-reachable trigger alone is a one-shot latch: it fires
+		// once, and when the wallet error is persistent the attempt fails
+		// and nothing ever fires again. WireRecoveryTrigger also arms the
+		// bounded wallet retry loop, which re-attempts while mints are
+		// reachable.
+		deg.WireRecoveryTrigger()
 		return deg, nil
 	}
 	balance := tw.GetBalance()
