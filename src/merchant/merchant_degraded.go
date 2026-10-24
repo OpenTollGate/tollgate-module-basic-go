@@ -223,6 +223,13 @@ func (m *MerchantDegraded) GetUsage(macAddress string) (string, error) {
 	return "-1/-1", nil
 }
 
+// BindChannel is unavailable in degraded mode for the same reason the rest of the
+// money path is: there are no sessions to bind, because the merchant never came up.
+// It reports "no live session" rather than inventing one.
+func (m *MerchantDegraded) BindChannel(macAddress, channelID string) (uint64, bool) {
+	return 0, false
+}
+
 // IssueSessionTicket is unavailable in degraded mode for the same reason
 // AddAllotment is: there is no wallet, so there is no session to name and
 // nothing a ticket could hand over.

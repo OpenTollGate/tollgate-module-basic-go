@@ -237,6 +237,13 @@ func (startingMerchant) GetUsage(string) (string, error) {
 	return "", errMerchantStarting
 }
 
+// BindChannel cannot bind while the merchant is still starting: there are no
+// sessions yet. Reporting "no live session" is the honest answer; inventing one
+// would grant access that nothing is metering.
+func (startingMerchant) BindChannel(string, string) (uint64, bool) {
+	return 0, false
+}
+
 func (startingMerchant) Fund(string) (uint64, error) {
 	return 0, errMerchantStarting
 }

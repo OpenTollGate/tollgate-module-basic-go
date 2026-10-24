@@ -17,6 +17,7 @@ import (
 	gonutsclient "github.com/OpenTollGate/gonuts-tollgate/wallet/client"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/spilman"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/valve"
@@ -37,6 +38,24 @@ type CustomerSession struct {
 	// (sessionBytesUsage), which is why the per-MAC baseline stays a measurement
 	// detail rather than the ledger.
 	Consumed uint64
+
+	// RetailAllotment is what the customer bought with TOKENS. `Allotment` is the
+	// EFFECTIVE ceiling: this number plus whatever a bound Spilman channel has
+	// verifiably paid for. With no channel bound the two are equal, which is what
+	// makes the rail-off path behave exactly as it did before channels existed.
+	//
+	// Zero-initialised on an older session means "never migrated"; treat it as
+	// Allotment rather than as 0, because reading it as 0 would revoke access a
+	// customer already paid for.
+	RetailAllotment uint64
+
+	// ChannelID binds this session to a Spilman channel. Empty is the retail path
+	// and the overwhelmingly common case.
+	//
+	// The binding is a POINTER, not a payment: it grants nothing on its own. The
+	// 2-second sweep recomputes the effective ceiling from the channel's VERIFIED
+	// balance on every tick.
+	ChannelID string
 
 	// attachmentUsage is the highest usage seen for the CURRENT attachment since
 	// its own baseline. It is what a rebind carries when the attachment's counters
@@ -352,6 +371,9 @@ type MerchantInterface interface {
 	GetSessionState(macAddress string) (SessionState, error)
 	AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error)
 	GetUsage(macAddress string) (string, error)
+	// BindChannel binds a live session to a Spilman channel. ok=false means no
+	// session exists for that MAC — a binding never creates access.
+	BindChannel(macAddress, channelID string) (uint64, bool)
 	Fund(cashuToken string) (uint64, error)
 	SetOnReachableSetChanged(callback func())
 	IssueSessionTicket(macAddress string) (string, int64, error)
@@ -364,9 +386,13 @@ type Merchant struct {
 	configManager     *config_manager.ConfigManager
 	tollwallet        tollwallet.WalletPort
 	mintHealthTracker *MintHealthTracker
-	customerSessions  map[string]*CustomerSession
-	expiredSessions   map[string]int64
-	sessionMu         sync.RWMutex
+	// channelRail is the Spilman payee rail, or nil when the rail is off. Injected
+	// through SetChannelRail so this package does not import package main, and nil is
+	// a meaningful state rather than an oversight.
+	channelRail      *spilman.SellerRail
+	customerSessions map[string]*CustomerSession
+	expiredSessions  map[string]int64
+	sessionMu        sync.RWMutex
 	// receiveInFlight holds the receiveReference of every PurchaseSession
 	// whose money-moving Receive has started and whose outcome has not been
 	// consumed yet (including the outcome-unknown window past the deadline,
@@ -899,6 +925,18 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 	// Remember this attachment's highest reading: it is what a rebind carries
 	// when the attachment's counters are already gone by the time it happens.
 	m.noteAttachmentUsage(macAddress, attachmentUsage)
+
+	// Refresh the EFFECTIVE ceiling from the session's channel before judging it.
+	//
+	// `Allotment` is retail plus whatever a bound channel has VERIFIABLY paid for.
+	// Recomputing every tick is the point: a payment that landed since the last tick
+	// extends access WITHOUT a new grant, and an exhausted channel stops granting.
+	// With no channel bound this is the identity, so the retail path is unchanged.
+	//
+	// A channel that cannot be READ adds nothing (see channelCreditBytes): a failure
+	// to read a payment is not evidence of payment, and the retail half survives
+	// because that money was really spent.
+	refreshEffectiveAllotment(session, m.spilmanRail())
 
 	// Check if allotment is reached
 	if usage < session.Allotment {

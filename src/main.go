@@ -654,6 +654,10 @@ func bootSequence(addr string, construct merchantConstructor) error {
 		return fmt.Errorf("create merchant: %w", err)
 	}
 	installMerchant(merchantInstance)
+	// Hand the Spilman rail to the merchant so the usage sweep can recompute a
+	// session's effective ceiling from a bound channel's VERIFIED balance. No-op when
+	// the rail is off, which is the default.
+	installSpilmanRailOnMerchant()
 
 	initUpstreamDetector()
 

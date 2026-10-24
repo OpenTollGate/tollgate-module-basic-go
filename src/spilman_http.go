@@ -366,6 +366,80 @@ func isSpilmanUnknownChannel(err error) bool {
 }
 
 // ---------------------------------------------------------------------------
+// POST /spilman/access
+// ---------------------------------------------------------------------------
+
+type spilmanAccessRequest struct {
+	Mac       string `json:"mac"`
+	ChannelID string `json:"channel_id"`
+}
+
+// handleSpilmanAccess binds a client MAC to a channel.
+//
+// # Why this route exists
+//
+// Without it `session.ChannelID` has no production writer, so the access path is
+// correct and unreachable — the exact defect a cold review found on the Rust side.
+// This is the Go equivalent of `POST /spilman/access`.
+//
+// # What it does NOT do
+//
+// It grants nothing and opens no gate. It records WHICH CHANNEL PAYS for this client;
+// whether the client is served is decided by the 2-second sweep, which recomputes the
+// effective ceiling from the channel's VERIFIED balance. A binding to a channel with
+// no credit buys nothing, which is correct: the binding is a pointer, not a payment.
+func handleSpilmanAccess(w http.ResponseWriter, r *http.Request) {
+	rail := railOrRefuse(w)
+	if rail == nil {
+		return
+	}
+	var req spilmanAccessRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeSpilmanJSON(w, http.StatusBadRequest, map[string]any{
+			"status": 0, "error": "malformed access request"})
+		return
+	}
+	if strings.TrimSpace(req.Mac) == "" || strings.TrimSpace(req.ChannelID) == "" {
+		writeSpilmanJSON(w, http.StatusBadRequest, map[string]any{
+			"status": 0, "error": "mac and channel_id are required"})
+		return
+	}
+	// The channel must already be registered. Binding to a typo would create a
+	// session that can never be credited, with a refusal indistinguishable from a bug.
+	if _, err := rail.Status(r.Context(), req.ChannelID); err != nil {
+		if isSpilmanUnknownChannel(err) {
+			writeSpilmanJSON(w, http.StatusNotFound, map[string]any{
+				"status": 0, "error": "unknown channel", "channel_id": req.ChannelID})
+			return
+		}
+		writeSpilmanJSON(w, http.StatusInternalServerError, map[string]any{
+			"status": 0, "error": "channel ledger unreadable"})
+		return
+	}
+	m := merchantProvider.inner.GetMerchant()
+	if m == nil {
+		writeSpilmanJSON(w, http.StatusNotFound, map[string]any{
+			"status": 0, "error": "merchant not ready"})
+		return
+	}
+	effective, ok := m.BindChannel(req.Mac, req.ChannelID)
+	if !ok {
+		// A binding attaches to an EXISTING session. If it created one, anyone able
+		// to reach this route could conjure access.
+		writeSpilmanJSON(w, http.StatusNotFound, map[string]any{
+			"status": 0, "error": "no live session for this mac; a binding attaches " +
+				"to an existing session and does not create access"})
+		return
+	}
+	writeSpilmanJSON(w, http.StatusOK, map[string]any{
+		"status":              1,
+		"mac":                 req.Mac,
+		"channel_id":          req.ChannelID,
+		"effective_allotment": effective,
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Mounting
 // ---------------------------------------------------------------------------
 
@@ -385,6 +459,30 @@ func isSpilmanUnknownChannel(err error) bool {
 // worse than a wrong status code — it tells a payer the surface exists. So the
 // disabled case now registers an EXPLICIT 404 over the whole `/spilman/` subtree,
 // which the catch-all cannot override.
+// installSpilmanRailOnMerchant hands the rail to the merchant so the 2-second sweep
+// can recompute a session's effective ceiling from the channel's verified balance.
+//
+// Called after the merchant is constructed. Harmless when the rail is off: it clears
+// whatever was there, and a nil rail makes refreshEffectiveAllotment the identity.
+func installSpilmanRailOnMerchant() {
+	rail, err := getSpilmanRail()
+	if err != nil {
+		mainLogger.WithError(err).Error("spilman rail unavailable; access path will not draw on channels")
+		return
+	}
+	if rail == nil {
+		return
+	}
+	if m := merchantProvider.inner.GetMerchant(); m != nil {
+		if setter, ok := m.(interface {
+			SetChannelRail(rail *spilman.SellerRail)
+		}); ok {
+			setter.SetChannelRail(rail)
+			mainLogger.Info("spilman rail installed on the merchant access path")
+		}
+	}
+}
+
 func registerSpilmanRoutes(mux *http.ServeMux) {
 	if !spilmanEnabled() {
 		mainLogger.Debug("spilman rail disabled; /spilman/* pinned to 404")
@@ -401,6 +499,9 @@ func registerSpilmanRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/spilman/channel", CorsMiddleware(handleSpilmanChannel))
 	mux.HandleFunc("/spilman/payment", CorsMiddleware(handleSpilmanPayment))
 	mux.HandleFunc("/spilman/status", CorsMiddleware(handleSpilmanStatus))
+	// The ONE production writer of session.ChannelID. Without it the access path is
+	// wired and unreachable.
+	mux.HandleFunc("/spilman/access", CorsMiddleware(handleSpilmanAccess))
 }
 
 // compile-time guard: the rail must satisfy what this file assumes of it.
