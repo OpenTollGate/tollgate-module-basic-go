@@ -55,7 +55,7 @@ func TestE2ERequestResponse(t *testing.T) {
 		return CLIResponse{Success: true, Data: map[string]interface{}{"running": true}, Timestamp: time.Now()}, nil
 	}}
 	authz := NewAuthorizer("") // reads open
-	dispatcher := NewDispatcher(authz, bridge, serverPK)
+	dispatcher := NewDispatcher(authz, bridge)
 
 	// Server loop in a goroutine (mirrors Serve, but in-test for assertions).
 	type outcome struct {
@@ -78,8 +78,13 @@ func TestE2ERequestResponse(t *testing.T) {
 				if pTag == nil || pTag.Value() != serverPK {
 					continue
 				}
-				req, caller, err := UnwrapRequest(*evt, serverSK)
+				req, caller, rumorTS, err := UnwrapRequest(*evt, serverSK)
 				if err != nil {
+					continue
+				}
+				// Mirrors Serve: freshness on the RUMOR clock, never the
+				// NIP-59-randomized wrap clock (the D1 bug).
+				if err := CheckFreshness(int64(rumorTS), time.Now()); err != nil {
 					continue
 				}
 				resp := dispatcher.Dispatch(caller, req)

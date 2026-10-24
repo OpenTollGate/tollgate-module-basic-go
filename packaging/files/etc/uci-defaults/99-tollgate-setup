@@ -453,17 +453,33 @@ brand_token() {
 # from it, so the three names can never disagree:
 #
 #   hostname      tollgate-<code>   (brand prefix lowercased: RFC-1123 shape)
-#   captive SSID  TollGate-<code>   (brand prefix as shipped — reseller-mode
-#                                    upstream discovery in
+#   captive SSID  !TollGate-<code>  (the #706 leading '!' — 0x21 sorts before
+#                                    every digit and letter, so the guest
+#                                    network sorts first in an
+#                                    alphabetically-ordered client scan list —
+#                                    then the brand prefix as shipped.
+#                                    Reseller-mode upstream discovery in
 #                                    src/wireless_gateway_manager/brands.go
-#                                    matches EVERY brand prefix the writer
-#                                    can emit, case-insensitively
-#                                    (hasTollGateSSID — including the
-#                                    whitelabel re-brand's), as does the
-#                                    Android client; the shipped case is
-#                                    brand presentation, not a discovery
-#                                    constraint)
+#                                    matches EVERY brand prefix the writer can
+#                                    emit, case-insensitively, AFTER trimming
+#                                    at most one '!' (hasTollGateSSID /
+#                                    ssidDecoration — including the whitelabel
+#                                    re-brand's), as does the Android client;
+#                                    the shipped case is brand presentation,
+#                                    not a discovery constraint)
 #   private SSID  <nym>-<code>      (the operator's nym, see resolve_nym below)
+#
+# The '!' is the INSTALLER's writer prefix too (deploy.go: SSID =
+# "!TollGate-$CODE"), and before this the two writers published DIFFERENT SSIDs
+# for the same router: this script wrote the bare form and its shell parsers did
+# not strip the bang, so on a router whose store was empty and whose only name
+# source was the installer's SSID (every router deployed before the store
+# existed) the adoption chain below found nothing and minted a SECOND code —
+# the hostname and the SSID kept the old one. The writer now emits the same
+# string the installer does, and both shell parsers strip at most ONE '!' before
+# the prefix compare, exactly as the Go matcher does (the accepted/rejected
+# spellings are pinned in tests/contract/ssid-naming-fixtures.txt, whose
+# double-'!' negative is the same one-'!' rule).
 #
 # Why the store exists — measured on the bench MT3000 (2026-09-26): TWO writers
 # minted their own code and neither ever read one back. This script re-minted on
@@ -518,14 +534,37 @@ normalize_device_code() {
     esac
 }
 
-# The code carried by a machine-written name: "<brand>-<code>", where <brand> is
-# the default 'tollgate' or THIS router's own brand token (brand_token above) —
-# the same prefix the installer and this script write into the name. Any other
+# The optional #706 decoration in front of a machine-written name, stripped
+# EXACTLY ONCE. The guest SSID carries it (0x21 sorts before every digit and
+# letter, so the network sorts first in an alphabetically-ordered client scan
+# list) and it is decoration, never part of a brand: `${1#!}` is POSIX parameter
+# expansion, i.e. the BusyBox-ash spelling of the Go matcher's
+# `strings.TrimPrefix(ssid, ssidDecoration)` — the same one-'!' rule, so a
+# double-'!' name ('!!TollGate-…', a pinned no-match fixture) is nothing this
+# stack wrote and yields nothing below. The shared place: every reader of a
+# machine-written NAME goes through here.
+strip_ssid_decoration() {
+    printf '%s\n' "${1#!}"
+}
+
+# The code carried by a machine-written name: "[!]<brand>-<code>", where <brand>
+# is the default 'tollgate' or THIS router's own brand token (brand_token above)
+# — the same prefix the installer and this script write into the name — and the
+# leading '!' is the optional #706 decoration the INSTALLER writes today
+# (deploy.go: SSID = "!TollGate-$CODE") and this script writes as well. Any other
 # name — an operator's own hostname or SSID — yields nothing, which is what keeps
 # custom names out of the adoption path. A whitelabel name is recognized because
 # the brand file says so, never because a brand is listed here.
+#
+# The strip is load-bearing, not cosmetic: the adoption chain in
+# setup_device_identity reads the INSTALLER's hostname and SSID, and a router
+# deployed before the store existed has no code anywhere else. Without the strip
+# the prefix compare sees '!tollgate' here, this returns nothing, and the chain
+# falls through to mint_device_code() — a SECOND code over a router whose
+# hostname and SSID still carry the first one (docs/architecture/one-device-code.md).
 code_from_name() {
-    local name="$1" prefix suffix brand
+    local name prefix suffix brand
+    name=$(strip_ssid_decoration "$1")
     prefix=$(printf '%s' "${name%%-*}" | tr 'A-Z' 'a-z')
     suffix=${name#*-}
     brand=$(brand_token)
@@ -626,24 +665,38 @@ private_ssid_for_code() {
 }
 
 # The captive SSID on the verify/repair path. A name this stack wrote — the
-# brand prefix plus four characters, either brand, the legacy lowercase
-# spelling included — converges on the code; a name the OPERATOR chose is
-# preserved, exactly as the hostname (#444) and the private SSID are. This is
-# the behaviour this path had before it derived the SSID from the store (it read
-# the live SSID back), kept deliberately: a reinstall must not rename a network
-# the operator named. The full path still writes the brand's name, which is what
-# it has always done.
+# optional #706 '!' (the installer writes it, this script writes it, and a
+# router deployed before #706 carries the bare spelling), the brand prefix, and
+# four characters; either brand, the legacy lowercase spelling included —
+# converges on the code. A name the OPERATOR chose is preserved, exactly as the
+# hostname (#444) and the private SSID are. This is the behaviour this path had
+# before it derived the SSID from the store (it read the live SSID back), kept
+# deliberately: a reinstall must not rename a network the operator named. The
+# full path still writes the brand's name, which is what it has always done.
+#
+# The decoration strip is the SAME one code_from_name uses (one '!' at most), so
+# the installer's output converges here instead of being read as the OPERATOR's
+# own name — which is what preserving it would do: the store would donate the
+# code while the SSID kept the old spelling, and the two writers' strings would
+# sit on one router. A DOUBLE-banged name ('!!TollGate-…') is not this stack's
+# (the pinned #706 rule) and is preserved as the operator's own.
+#
+# The strip applies to the DECISION only (`probe`), never to what is printed
+# back: a name this stack did not write — an operator's `!CafeWiFi`, or the
+# double-banged form — must be preserved byte-for-byte (#444's rule for the
+# hostname and the private SSID, applied to the open one).
 captive_ssid_for_code() {
-    local current="$1" prefix suffix brand
+    local current="$1" probe prefix suffix brand
     if [ -z "$current" ]; then
         printf '%s\n' "$DEVICE_SSID"
         return 0
     fi
-    prefix=$(printf '%s' "${current%%-*}" | tr 'A-Z' 'a-z')
-    suffix=${current#*-}
+    probe=$(strip_ssid_decoration "$current")
+    prefix=$(printf '%s' "${probe%%-*}" | tr 'A-Z' 'a-z')
+    suffix=${probe#*-}
     brand=$(brand_token)
     if { [ "$prefix" = "tollgate" ] || [ "$prefix" = "$brand" ]; } &&
-       [ "$suffix" != "$current" ] && is_minted_suffix "$suffix"; then
+       [ "$suffix" != "$probe" ] && is_minted_suffix "$suffix"; then
         printf '%s\n' "$DEVICE_SSID"
         return 0
     fi
@@ -697,7 +750,13 @@ setup_device_identity() {
 
     resolve_nym
     DEVICE_HOSTNAME="$(printf '%s' "$BRAND_HOSTNAME" | tr 'A-Z' 'a-z')-${CODE}"
-    DEVICE_SSID="${BRAND_HOSTNAME}-${CODE}"
+    # The #706 decoration, then the brand prefix and the code — the SAME string
+    # the installer writes (deploy.go: SSID="!TollGate-$CODE"), so the two
+    # writers publish ONE name for one router. The '!' is deliberately part of
+    # the emitted SSID (the writer's shape is pinned as ^!<brand>-[A-Z0-9]{4}$
+    # in tests/contract/check-ssid-format.sh); readers trim at most one of them
+    # (strip_ssid_decoration above, and the Go matcher).
+    DEVICE_SSID="!${BRAND_HOSTNAME}-${CODE}"
 
     uci -q get tollgate.device >/dev/null 2>&1 || uci set tollgate.device='device'
     uci set tollgate.device.code="$CODE"
