@@ -4,7 +4,7 @@
   "version": "v0.6.0-rc4",
   "go": {
     "minimum": "1.26.0",
-    "pin": "1.26.9"
+    "pin": "1.26.10"
   },
   "portal_commit": "6c25834c835cb9981bcd0fcbd9ecded464478a19",
   "binaries": [
