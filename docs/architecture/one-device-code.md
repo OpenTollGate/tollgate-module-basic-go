@@ -170,6 +170,51 @@ brand literal, and the acceptance table both the Go matcher and the shell
 checker consume), `tests/contract/check-ssid-format.sh`, and
 `tests/uci-defaults-device-code_test.sh`.
 
+### The leading `!` on the captive SSID
+
+The guest SSID is `!<brand>-<code>` — for example `!TollGate-OQ3Q`. The leading
+`!` is deliberate (**#706**): `0x21` sorts before every digit and letter, so the
+guest network appears **first** in an alphabetically-ordered client scan list
+(the one screen a visitor actually looks at). It is **decoration, never part of
+the brand**: recognition strips at most **one** occurrence, so `!!TollGate-…` is
+a pinned *no-match* fixture rather than an accidental match.
+
+**The rule is one `!`, and both sides must apply it on both ends:**
+
+| Side | Writes the `!`? | Strips one before the prefix compare? |
+|---|---|---|
+| installer `brandingCommands` | yes — `"!TollGate-" + code` | yes — `p=${p#\!}` in its `code_from_name` |
+| module `setup_public_wifi` (`DEVICE_SSID`) | yes | — (it is the writer) |
+| module `code_from_name` / `captive_ssid_for_code` | — | yes — `strip_ssid_decoration()` (`${1#!}`) |
+| Go matcher `hasTollGateSSID` (`src/wireless_gateway_manager/brands.go`) | — | yes — `strings.TrimPrefix(ssid, ssidDecoration)` |
+
+`strip_ssid_decoration()` is the single shared place every reader of a
+machine-written *name* passes through, and `${1#!}` is simply the POSIX-ash
+spelling of the Go `TrimPrefix` — one rule, two languages.
+
+**Why the strip is load-bearing, not cosmetic.** The adoption chain in
+`setup_device_identity` is:
+
+> store → machine-shaped hostname → machine-shaped captive SSID → **mint**
+
+On a router whose store is empty (every router deployed before the store existed)
+whose only machine-written name is the installer's **banged** SSID, a parser that
+did not strip the `!` matched no brand prefix — the prefix compared was
+`!tollgate`, not `tollgate`. The chain then fell through and **minted a second
+code** while the hostname and SSID kept the old one: the exact drift this
+decision exists to prevent, and already observed as three names on one bench
+router.
+
+**The strip applies to the prefix decision only, never to the retained output** —
+an adopted name is not silently rewritten. And `GATEWAY_NAME` is reconciled on
+both module paths (full setup and verify/repair), so the nodogsplash banner base
+name is the decorated SSID everywhere.
+
+Pinned by `tests/contract/ssid-naming-fixtures.txt` (the sanctioned home for the
+brand literal, and the acceptance table both the Go matcher and the shell
+checker consume), `tests/contract/check-ssid-format.sh`, and
+`tests/uci-defaults-device-code_test.sh`.
+
 ### What each path does
 
 | Path | Device code | hostname | captive SSID | private SSID |
