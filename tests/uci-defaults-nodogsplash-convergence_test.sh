@@ -62,7 +62,7 @@ mkdir -p "$TMP/bin" "$TMP/init.d"
 # configured list must not".
 KEY="nodogsplash.@nodogsplash[0].users_to_router"
 # Entries are `proto/port` pairs, the shape the convergence step compares.
-CORE_ENTRIES="tcp/2121 tcp/2050 tcp/2051 udp/123"
+CORE_ENTRIES="tcp/53 udp/53 tcp/2121 tcp/2050 tcp/2051 udp/123"
 STALE_ENTRY="tcp/8090"
 
 # ---------------------------------------------------------------- fake apk

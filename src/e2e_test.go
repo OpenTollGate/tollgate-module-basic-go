@@ -20,6 +20,38 @@ func TestE2E_HandleDetails(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "kind")
 }
 
+// TestE2E_HandleDetails_ServesApplicationJSON pins the discovery response's
+// content negotiation (#628): the kind-10021 advertisement IS a JSON document,
+// and reseller clients (our own tollgate_prober, and stricter r2r ones) warn
+// per probe cycle when it arrives as anything else. Without an explicit header
+// Go sniffs the body and answers `text/plain; charset=utf-8`. The exact value
+// matters: tollgate_prober compares Content-Type against "application/json"
+// as a whole string, so a charset suffix would keep the warning alive.
+func TestE2E_HandleDetails_ServesApplicationJSON(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+
+	handleDetails(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+	assert.True(t, json.Valid(w.Body.Bytes()),
+		"the advertisement must be a JSON document to carry the header")
+}
+
+// TestE2E_HandleRoot_RoutesGetAsJSON proves the same contract one layer up,
+// through the method router the mux actually binds at "/" — a fix that only
+// styled handleDetails would not survive this indirection.
+func TestE2E_HandleRoot_RoutesGetAsJSON(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+
+	HandleRoot(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+}
+
 func TestE2E_HandleRootPost_InvalidBody(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()

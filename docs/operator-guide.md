@@ -32,6 +32,7 @@ tollgate network private enable           Turn private Wi-Fi on (2.4 + 5 GHz)
 tollgate network private disable          Turn private Wi-Fi off
 tollgate network private rename <ssid>    Change the private SSID
 tollgate network private set-password [pw] Change the private password
+tollgate network private set-encryption <mode>  Change the private Wi-Fi cipher
 
 tollgate upstream scan                    Scan all radios for networks
 tollgate upstream connect <SSID> [pass]   Connect to an upstream network
@@ -41,6 +42,7 @@ tollgate upstream known                   Show discovered TollGate APs
 
 tollgate config get                       Print current config + identities
 tollgate config set <key> <value>         Set one value by dot-path
+tollgate config apply                     Re-converge the router onto config.json
 tollgate config schema                    Print the full config schema
 tollgate config save <json>               Replace config.json wholesale
 tollgate config save-identities <json>    Replace identities.json wholesale
@@ -49,6 +51,8 @@ tollgate ssl status                       Admin HTTPS identity and coverage
 tollgate ssl apply [<cert> [key]]         Install a real cert, or self-signed
 tollgate ssl remove                       Revert an apply (records an opt-out)
 tollgate ssl covers [<cert-file>]         Does the certificate cover this router?
+
+tollgate ui links                         Which admin UI answers which port
 ```
 
 Every command accepts the global `--json` (`-j`) flag for
@@ -372,11 +376,10 @@ WPA3-SAE is deliberately not offered: the `wpad` the router ships with has no
 SAE support, so selecting it would leave the private network unable to start —
 a lockout, not a feature. An open (unencrypted) mode is refused for the same
 class of reason: the private network is how you reach the admin board, whose
-login is a root-capable login over plain HTTP on `:8090` — or on `:8080`, once
-`entry_ui` selects the mapping that puts the board on the entry pair (see the
-README's "Which UI answers the entry ports"; every release shipped so far
-answers on `:8090`, and the switch is applied only by a build whose feed carries
-both halves of the change).
+login is a root-capable login over plain HTTP on `:8080` (the entry pair the
+board owns under the default `entry_ui=board`; on `:8090` under `entry_ui=luci`,
+the pre-flip mapping — see the README's "Which UI answers the entry ports" for
+the switch and the marker that confirms which one is live).
 
 The three private-network commands above (rename, set-password, set-encryption)
 also record the new value in `/etc/tollgate/config.json`, which is the file the
@@ -612,12 +615,13 @@ is still needed for the change to take full effect.
 
 ## SSL / HTTPS management
 
-These commands manage the HTTPS identity of the **admin path** — the
-LuCI interface uhttpd serves on the management network. The captive
-portal itself keeps its HTTP interception and is not affected. The
-`ssl` commands run locally (they talk to uci and the filesystem), so
-unlike most of the CLI they do not need the TollGate service to be
-running.
+These commands manage the HTTPS identity the module provisions for this
+router — the self-signed certificate both admin listeners arm their TLS
+port from (the board's `:443` and LuCI's `:8443` under the default
+`entry_ui=board`; the pairs swap under `entry_ui=luci`). The captive
+portal itself keeps its HTTP interception and is not affected. The `ssl`
+commands run locally (they talk to uci and the filesystem), so unlike
+most of the CLI they do not need the TollGate service to be running.
 
 ### Check status
 
@@ -695,6 +699,82 @@ not, with the reason printed either way, so a shell can branch on it;
 the setup path derives `redirect_https` from exactly this verdict.
 Under `--json` the verdict is one object whose `success` mirrors the
 exit status, so a caller parsing stdout cannot read a "no" as green.
+
+## Admin UI mapping and cross-links
+
+### Which UI answers which port
+
+```sh
+tollgate ui links
+```
+
+TollGate has two admin UIs — the board SPA and LuCI — and exactly one of
+them answers the *entry* pair (`:8080` / `:443`). Which one is the live
+`entry_ui` mapping, not a build-time constant, so this command reads the
+router and answers instead of guessing. It runs locally (uci + filesystem,
+like the `ssl` family) and does not need the TollGate service running.
+
+On a router that has no TLS listener yet, every link reports why there is
+none rather than printing a URL that would not work. This is a host with no
+TLS listener at all, so both rows are empty:
+
+```
+entry_ui: luci
+
+board:
+  ports: http 8090 / https 8443
+  url:   (none) — no HTTPS listener on 8443
+
+luci:
+  ports: http 8080 / https 443
+  url:   (none) — no HTTPS listener on 443
+```
+
+Once `tollgate ssl apply` has installed a certificate that covers the
+router, every UI whose TLS listener actually answers prints its URL
+instead — `https://<hostname>.lan/` for the entry port `:443` (implicit),
+`https://<hostname>.lan:8443/` for the secondary TLS port.
+
+Under `entry_ui=luci` the pairs swap: LuCI takes `:8080` / `:443` and the
+board moves to `:8090` / `:8443`. See the README's "Which UI answers the
+entry ports" for the switch itself and the marker file that records which
+mapping is actually applied.
+
+The headline reflects the **live** mapping, which is not always the
+configured intent: `entry_ui` is honoured only once the marker file
+`/etc/tollgate/entry-ui-mapping` records that the board mapping has actually
+been written. A router whose `config.json` says `board` but whose setup path
+never applied it reports `entry_ui: luci` — the command fails toward a bound
+listener rather than toward no admin UI at all. If the headline disagrees with
+`config.json`, the mapping was not applied; re-running setup (or the setup
+path's convergence step) writes the marker.
+
+A link is printed only when that UI has a live TLS listener **and** a
+certificate that covers this router — the same fail-closed predicate
+`ssl covers` uses. Otherwise `reason` names the failing step: `no HTTPS
+listener on <port>`, `no certificate configured on <section>`, the
+coverage verdict itself (expired, wrong SANs, unreadable PEM), or
+`cannot determine the router's hostname or LAN IP` when uci has neither a
+hostname nor a LAN address. Admin cross-links are HTTPS-only: a plain
+`:8080` link is never printed, because the board SPA must not send an
+admin session over plain HTTP.
+
+`--json` returns the contract the admin board's own SPA consumes:
+
+```json
+{
+  "entry_ui": "board",
+  "links": {
+    "board": {"url": "https://tollgate.lan/", "port": "8080", "tls_port": "443", "reason": ""},
+    "luci":  {"url": "", "port": "8090", "tls_port": "8443", "reason": "no HTTPS listener on 8443"}
+  }
+}
+```
+
+`url` is `""` — never `null` — when a UI has no usable link, so a parser
+can distinguish "no link" from "field absent". `port` and `tls_port` are
+always present, so a caller can tell which UI owns the entry pair without
+re-deriving the mapping.
 
 ## JSON output
 
