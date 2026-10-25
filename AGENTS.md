@@ -243,6 +243,67 @@ this module's `99-tollgate-setup` AND the feed's
 (the WARNING-named re-vendor contract in the README). A cross-repo
 contract without a named decision record is a bug.
 
+The feed ecosystem, explicitly, so agents file things in the right
+brain: this module owns the Go source and the generated **build
+contract** (`packaging/build-contract.json`, fenced by
+`tests/contract/check-build-contract.py`); `FreedomTechFeed/packages`
+`net/tollgate-wrt` owns the **canonical** OpenWrt feed recipe (its
+`test-build-contract.sh` consumes the contract from the pinned tarball);
+`FreedomTechFeed/feed` is a **wrapper mirror** of that recipe (synced by
+`scripts/sync-from-canonical.sh` — never hand-edit it). Bug routing: Go
+code and packaging payloads → here; recipe/pins/portal vendoring → the
+canonical feed; anything found in the wrapper → fixed by re-sync, not by
+editing the wrapper. When a contract-governed fact changes here (binary
+set, go minimum), say so in the PR body — the feed's fences go red on
+its next repin until it catches up, and that is the intended signal, not
+an accident.
+
+### The two lanes and the contract (the operating picture)
+
+Learned on the 2026-10 SDK-Go lane; follow even when a local shortcut
+looks easier.
+
+- **The fast lane is the release pipeline.** Manifest-pinned host
+  compile, staged into the digest-pinned SDK — pinned end-to-end, so it
+  reproduces months later (measured: ~20 s warm, ~32 s per cold clean
+  root, byte-identical). The OpenWrt-SDK way is the **compatibility
+  canary**: it exists to notice drift from OpenWrt's own toolchain, not
+  to produce artifacts. A red canary is cured by re-tracking the pin
+  intentionally (sdk-go-version.sh update + the .go.version bump), NEVER
+  by unpinning the fast lane to follow the feed.
+- **The build contract is generated, and it owns the shipped set.** To
+  ship a new binary: add the `PREBUILT_*` line in `packaging/Makefile`,
+  run `scripts/gen-build-contract.sh`, and let
+  `tests/contract/check-build-contract.py` go red until every carrier
+  and feed catches up — that red is the fence doing its job (#1020 was
+  a carrier missing a binary the authority already declared; #1021 is
+  the fence that makes it impossible). Never hand-edit
+  `packaging/build-contract.json`. A harness script that builds Go but
+  is not a carrier carries a reasoned `# contract-exempt:` line, not
+  silence.
+- **Toolchains come from `TG_TOOLS`, not from whatever is on PATH.**
+  Install the manifest Go into `~/.cache/tollgate-tools` (the manifest
+  tarball, sha256-verified). A stale install there is how
+  "works here, differs there" starts — the lane found 1.25.8 installed
+  against a 1.26.9 pin. `portal-build.sh` and `repro-test.sh` both
+  default `TG_TOOLS`; do not add a third way.
+- **CI economy: seconds vs half-hours.** Fences, contract checks and
+  host cross-compiles cost seconds and may run on every push; SDK
+  builds cost half-hours and belong on tags, nightly schedules, or
+  explicit labels — never per-push, and never for diffs that cannot
+  affect a build (the downstream feed once burned 8 × ~31 min of
+  runners on a README-only PR; path hygiene is a fence too). Never add
+  a lane-local toolchain literal — lanes derive from the manifest or
+  the contract (`check-version-sync.sh` refuses literals; that guard
+  exists because a lane once built 1.25.0 binaries against a 1.25.8
+  pin).
+- **The pre-commit hook is load-bearing and was once dead.** It was
+  syntactically unparseable on `main` for an unknown stretch — every
+  opt-in check (gofmt, gonuts pin, version sync, SSID fences) silently
+  not running (#1018). When a hook-dependent check surprises you,
+  verify the hook actually executes (`bash -n hooks/pre-commit`; `git
+  config core.hooksPath hooks`) before debugging the check.
+
 ## Firewall, nftables, and topology-naming rules of engagement
 
 Every rule here was learned from a bench-verified failure on the 0.6.0
@@ -411,7 +472,7 @@ get wrong:
 
   It runs `gofmt` (must print nothing), `go vet`, `go build` and
   `go test -race -count=1 -tags testenv` in **every** Go module —
-  [src/](src/) is a multi-module tree (16 nested `go.mod` files), so
+  [src/](src/) is a multi-module tree (18 nested `go.mod` files), so
   running those commands from `src/` alone covers only the root module
   and silently skips all subpackages. One implementation:
   [scripts/go-battery.sh](scripts/go-battery.sh).

@@ -119,6 +119,27 @@ including the cold-cache check that catches missing `go.sum` entries, is
 make manual-check     # portal + all-module Go battery in a fresh module cache
 ```
 
+## Packaging downstream (OpenWrt feeds)
+
+This repository is the module; OpenWrt distribution happens through a
+feed ecosystem that consumes it. One authority per fact, pointing both
+ways:
+
+| Repo | Owns | File bugs there for |
+| --- | --- | --- |
+| **this repo** | the Go source, the release tarball, the [build contract](packaging/build-contract.json) (generated: binary set, module map, go minimum, pinned toolchain) | anything in `src/`, packaging payloads under `packaging/files/`, contract contents |
+| [`FreedomTechFeed/packages`](https://github.com/FreedomTechFeed/packages) (`net/tollgate-wrt`) | the **canonical** OpenWrt feed recipe: builds the pinned tarball via `golang-package.mk`, vendors the portal under `vendor.lock.json`, publishes per-arch | the recipe, pin bumps, portal vendoring, feed CI |
+| [`FreedomTechFeed/feed`](https://github.com/FreedomTechFeed/feed) | a **wrapper mirror** of the canonical recipe for standalone `src-git` consumers (synced by `scripts/sync-from-canonical.sh`; do not hand-edit) | nothing — re-sync from canonical |
+
+The contract is the interface between the halves: it ships inside every
+release tarball (tags and SHA pins alike), the feed's
+`test-build-contract.sh` enforces recipe↔contract parity and the feed's
+own golang against the contract's language minimum, and this repo's
+`tests/contract/check-build-contract.py` fences every carrier here to the
+same set. A bug found on either side is fixed at its owner and every
+consumer inherits — single source of truth, single source of authority,
+single source of bugs and fixes.
+
 ## Installation
 
 > **Build setup status (October 2026):** we’re sorry the build setup is messy
@@ -567,18 +588,63 @@ vendors both halves applies it. The alternative — binding 443 on both instance
 deliberate. See the entry-port decision record in docs/architecture for the
 mapping table, the invariants and the release boundary.
 
+### Wallet storage requirements (shared mmap)
+
+The wallet database (`/etc/tollgate/wallet.db`) is a bbolt file, and bbolt
+maps it with a **shared `mmap`** — the mapped pages *are* the database. The
+filesystem holding `wallet.db` must therefore support shared mappings:
+
+| Overlay/filesystem | Wallet works | Typical targets |
+| --- | --- | --- |
+| ext4 / f2fs / ubifs | yes | bcm27xx (SD), mediatek-filogic (NAND/UBI), x86 |
+| tmpfs | yes, but **loses funds on reboot** | never for a funded wallet |
+| **jffs2** | **no — `mmap` returns `EINVAL`** | squashfs NOR-flash combo images (ipq40xx, ath79, ramips mt76x8 class) |
+
+On a jffs2-overlay device the service still boots — config, portal, SSIDs and
+mint probes all work — but the wallet can **never** initialize, and older
+releases reported this as `no reachable mints` even while every mint answered
+200 OK ([#583](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/583)).
+Current releases say so explicitly (`wallet storage does not support shared
+mmap`) at startup and on every wallet operation.
+
+**Workaround for jffs2-only devices**: keep `wallet.db` on a small ext4 image
+mounted via loop device, with `/etc/tollgate/wallet.db` symlinked into it
+(bbolt follows symlinks; the mapping lands on the ext4 inode). Sketch:
+
+```sh
+opkg install kmod-loop e2fsprogs
+truncate -s 16M /mnt/data/wallet.img        # any mmap-capable backing location
+mkfs.ext4 -F /mnt/data/wallet.img
+losetup /dev/loop0 /mnt/data/wallet.img
+mkdir -p /mnt/wallet && mount -t ext4 /dev/loop0 /mnt/wallet
+mv /etc/tollgate/wallet.db /mnt/wallet/ 2>/dev/null || true
+ln -s /mnt/wallet/wallet.db /etc/tollgate/wallet.db
+```
+
+Make the `losetup`/`mount` pair part of the boot (e.g. a hotplug or rc.local
+script) **before** the tollgate service starts. Do not point the wallet at
+tmpfs on a funded device — a reboot would destroy the proofs and the funds
+with them. The long-term fix is the CDK/sqlite wallet lane (no shared-mmap
+dependency).
+
 ## SSID conventions
 
 On first boot the router derives its Wi-Fi names from a single generated
 device code (see [#605](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/605)
 and `docs/architecture/one-device-code.md`).
 
-- **Public open AP** — `TollGate-XXXX`, e.g. `TollGate-9C3F`. The `XXXX` is
-  the four-character device code of `[A-Z0-9]`, minted once on first boot.
-  Both the 2.4 GHz and 5 GHz radios advertise the **same** SSID (band
+- **Public open AP** — the brand name behind a **leading exclamation mark**
+  (a sort decoration, so the guest network appears first in an alphabetically
+  ordered WiFi list), a hyphen, then the four-character device code of uppercase
+  letters and digits, minted once on first boot. The decoration is not part of
+  the name: readers treat it as optional, so already-deployed routers
+  broadcasting the bare brand-and-code form (and third-party clients matching
+  the bare brand prefix) keep working. Both the
+  2.4 GHz and 5 GHz radios advertise the **same** SSID (band
   steering), so clients are handed off between radios seamlessly.
-- **Private management AP** — `c08r4d0r-XXXX` (same `XXXX` device code as
-  the public AP), WPA2/PSK. Both radios share it. The passphrase is a
+- **Private management AP** — the same four-character device code behind the
+  default nym prefix, **no** leading exclamation mark — guests never see it, WPA2/PSK. Both
+  radios share it. The passphrase is a
   memorable `Word-Word-Word-NN` string set on first boot and preserved on
   upgrade. The `c08r4d0r` prefix is the project's generic default nym —
   every installation shares it, so it names the product rather than any
@@ -586,8 +652,8 @@ and `docs/architecture/one-device-code.md`).
   choice. [#531](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/531)
   proposed renaming this default and was closed as superseded by that
   decision.
-- **nodogsplash name** — the captive-portal gate shows
-  `TollGate-XXXX Portal` as its `gatewayname`.
+- **nodogsplash name** — the captive-portal gate shows the public SSID followed
+  by a space and `Portal` as its `gatewayname`.
 
 Branding: a whitelabel installer can pin `/etc/tollgate/brand` to `net4sats`,
 which swaps the `TollGate` prefix for that brand's name everywhere. The

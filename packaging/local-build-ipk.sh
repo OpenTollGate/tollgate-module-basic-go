@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Local .ipk builder — replicates CI pipeline for one architecture.
-# Usage: [ARCH=… PKG_VERSION=…] bash packaging/local-build-ipk.sh
+# Usage: [ARCH=… TG_VERSION=… PKG_VERSION=…] bash packaging/local-build-ipk.sh
 # Deterministic given the inputs pinned in packaging/build-inputs.json.
 set -euo pipefail
 
@@ -13,10 +13,13 @@ cd "$REPO_ROOT"
 . "$REPO_ROOT/packaging/build-env.sh"
 
 PKG_NAME="tollgate-wrt"
-# The release version comes from the repository-root VERSION file, the single
-# source of truth (see CONTRIBUTING.md). CI ignores this script and derives the same
-# string from the git tag; set PKG_VERSION to override for a one-off build.
-PKG_VERSION="${PKG_VERSION:-$(cat "$REPO_ROOT/VERSION")}"
+# One version knob (#941): TG_VERSION overrides the ldflags stamp, the
+# package version and the __TOLLGATE_VERSION__ marker together; the
+# repository-root VERSION file is the fallback (build-env.sh tg_version).
+# PKG_VERSION stays as the package-only legacy override and feeds the
+# ldflags too, so stamp and package cannot diverge in this script —
+# the post-build fence below asserts it.
+PKG_VERSION="${PKG_VERSION:-$(tg_version)}"
 ARCH="${ARCH:-aarch64_cortex-a53}"
 
 case "$ARCH" in
@@ -94,6 +97,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
   "$GO_BIN" build -C src/cmd/tollgate-cvm -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-cvm" \
   -trimpath -buildvcs=false
+
+# #941: the rc5 package shipped a binary stamped from a lagged VERSION
+# file. Assert the stamp landed before any UPX pass hides the strings.
+tg_assert_version_consistency "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-wrt" "$PKG_VERSION"
+tg_assert_version_consistency "$REPO_ROOT/bin/$COMPILE_KEY/tollgate" "$PKG_VERSION"
 
 ls -lh "bin/$COMPILE_KEY/"
 

@@ -118,6 +118,17 @@ jobs:
           # was never wired into CI, so nothing ran it automatically.
           bash tests/packaging/package-nodogsplash-dependency_test.sh
 
+      - name: Version-stamp override and consistency fence
+        run: |
+          # Offline (no SDK, no router, no go build): #941 — the rc5 feed
+          # package carried a binary stamped from a lagged VERSION file (rc4)
+          # while the tag and the package said rc5. TG_VERSION must be the one
+          # override knob, resolved once (build-env.sh tg_version) and
+          # consumed by both packaging scripts and the release workflow, and
+          # the post-build fence must warn by default and refuse the planted
+          # drift under TG_REQUIRE_VERSION_CONSISTENCY=1.
+          bash tests/packaging/version-stamp_test.sh
+
       - name: GPL license ships in both release lanes
         run: |
           # Offline (no SDK, no router, no network): issue #751 — the SDK

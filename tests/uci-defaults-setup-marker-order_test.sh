@@ -391,6 +391,9 @@ export LOGFILE
 # "the machine-shaped SSID was ADOPTED, not re-minted" assertions below
 # meaningful: the parsers have to strip the '!' to read the code out of it, and
 # returning nothing there is exactly how a SECOND code used to be minted.
+# A router already in the field may still carry the bare TollGate-… form; the
+# reader (code_from_name) strips at most one leading '!' either way, and the
+# full path converges on the decorated DEVICE_SSID.
 GUEST_SSID="!TollGate-SEED"
 GUEST_SSID_5G="!TollGate-SEED"
 OPERATOR_KEY="Operator-Chosen-Key-01"
