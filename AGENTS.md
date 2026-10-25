@@ -18,7 +18,10 @@ TollGates (reseller mode). Read [README.md](README.md) for the module
 map and configuration reference.
 
 - Go code lives under [src/](src/); run all Go tooling from there,
-  not the repo root.
+  not the repo root. `make test` (scripts/go-test.sh) is the root-safe
+  way to run every module's tests from any directory or worktree; the
+  repo root carries a guard package so a root-level `go test ./...`
+  fails with the remedy instead of false-greening (#961).
 - Much of the behavior only exists on a real router (captive portal,
   firewall, Wi-Fi, `ndsctl`). Unit tests passing does not mean a
   router-visible change works — say so honestly in PR descriptions.
