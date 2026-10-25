@@ -27,24 +27,58 @@ opkg update && opkg install ip-full
 > feeds if you need them. `mptcpize` is only required to make a *normal* binary
 > use MPTCP; a binary built against `IPPROTO_MPTCP` does not need it.
 
-## The three rules that bite
+## The four rules that bite
 
 These are the failures found in the lab, each of which is **silent** — the bond
 looks configured and carries everything on one path.
 
-### 1. An endpoint must be `signal subflow`, not `subflow`
+### 1. `signal` or not depends on WHICH TRANSPORT SHAPE you chose
+
+This is the rule that is easiest to get backwards, because both directions are
+defensible and only one applies to your network. It is decided by
+`Config.Transport` (see the architecture decision record's D10).
+
+| `transport` | endpoint flags | who forms the 2nd subflow | needs a peer-reachable client address? |
+|---|---|---|---|
+| `advertised-address` (default) | `signal subflow` | the **peer** connects back to the advertised address | **YES** |
+| `proxy-terminated` | `subflow` only | the **client** opens it over an uplink it already has | **NO** |
+
+**`advertised-address`** — the historic shape. Without `signal` the kernel never
+sends `ADD_ADDR`, so the peer never learns an address to dial, and no second
+subflow can ever form:
 
 ```sh
-# WRONG - looks configured, never advertises, no subflow can ever form
+# WRONG for this shape - looks configured, never advertises
 ip mptcp endpoint add 192.168.2.15 dev lan1 subflow
 
-# RIGHT
+# RIGHT for this shape
 ip mptcp endpoint add 192.168.2.15 dev lan1 signal subflow
 ```
 
-Without `signal` the kernel never sends `ADD_ADDR`, so the peer never learns the
-address. Symptom: `MPTcpExtMPJoinSynRx` stays at **0** forever while everything
-else looks fine.
+**`proxy-terminated`** — the NAT-safe shape. Here `signal` is actively harmful:
+it asks the peer to connect back to an address it cannot reach, so the JOIN fails
+and the bond stays single-path while every counter looks plausible:
+
+```sh
+# RIGHT for this shape - nothing is advertised, the client initiates
+ip mptcp endpoint add 192.168.2.15 dev lan1 subflow
+```
+
+Symptom of getting it wrong in the `advertised-address` direction:
+`MPTcpExtMPJoinSynRx` stays at **0** forever while everything else looks fine.
+
+Symptom of getting it wrong in the `proxy-terminated` direction (i.e. still
+signalling behind NAT): the peer's `MPTcpExtAddAddr` stays **0** — it never
+receives an advertisement, because the client's own path manager has no reachable
+address to offer — while `MPJoinNoTokenFound` climbs and the subflow sits at
+handshake size (~1.7 KB) indefinitely. **Measured on this bench** with both
+uplinks private (house NAT + Starlink CGNAT).
+
+> Which counters move also depends on the shape, so pick the right ones:
+> with `signal` the **peer** joins → watch the *responder* counters
+> (`MPJoinSynRx` / `MPJoinAckRx`). With `subflow` only the **client** joins →
+> watch the *initiator* counters (`MPJoinSynTx` / `MPJoinSynAckRx`). Watching the
+> wrong side reads as "no subflow" on a working bond.
 
 ### 2. Raise the subflow ceiling above the kernel default
 
@@ -56,13 +90,18 @@ The kernel default is **2** subflows. A multi-WAN box with three uplinks will
 register the third and never use it. `add_addr_accepted` must cover the peer's
 address count or the peer's `ADD_ADDR` is refused.
 
+**Re-assert the limits after any endpoint flush.** `ip mptcp endpoint flush`
+silently resets `add_addr_accepted` to **0** (measured `4 → 0`), after which the
+router refuses the peer's `ADD_ADDR` and peer-initiated subflows break with no
+error anywhere.
+
 ### 3. Two addresses on one L2 is not two paths
 
 MPTCP forms a subflow only between **disjoint** paths. If both local addresses
 sit on the same segment and gateway, the kernel correctly refuses a second
 subflow — there is nothing to gain.
 
-```
+```sh
 ip route get <peer-address>     # every address must NOT resolve to one interface
 ```
 
@@ -73,6 +112,41 @@ ip route get <peer-address>     # every address must NOT resolve to one interfac
 | Two addresses, one L2, one gateway | No | No |
 | Two disjoint L2s, **one upstream** | **Yes** | **No** — converges at the shared upstream |
 | Two disjoint L2s, **two upstreams** | Yes | Yes (1.2–1.3×) |
+
+### 4. Binding a socket to an uplink's address does NOT route it over that uplink
+
+This is the one that makes "two uplinks" behave like one, and it is invisible
+unless you look at the route lookup rather than the interface list.
+
+```sh
+# both interfaces up, both with addresses - and yet:
+ip route get 23.182.128.51 from 192.168.2.15
+#   23.182.128.51 via 10.2.0.1 dev phy0-sta0 src 10.2.1.122    <-- the OTHER uplink
+```
+
+The source address does **not** influence route selection. A socket bound to the
+wired address still egresses whichever uplink owns the default route, carrying a
+source address that does not belong to that interface — and the packets die.
+**With two interfaces up there is still only one usable path**, no matter how the
+endpoints are configured.
+
+Per-uplink policy routing is therefore mandatory, and it is the same mechanism
+the module installs (a rule + table per uplink):
+
+```sh
+ip rule add from 192.168.2.15 lookup 201 priority 100
+ip route replace default via 192.168.2.1 dev lan1 table 201
+ip rule add from 10.2.1.122 lookup 202 priority 101
+ip route replace default via 10.2.0.1 dev phy0-sta0 table 202
+```
+
+Verify by reading the lookup back, not the interface list:
+
+```sh
+ip route get <peer> from 192.168.2.15   # must now say dev lan1
+ip route get <peer> from 10.2.1.122     # must now say dev phy0-sta0
+```
+
 
 ## Apply
 
@@ -95,9 +169,47 @@ in the transport's own configuration, not a generated file at a predictable path
 
 ```sh
 ip mptcp limits                  # ceilings must cover your uplink count
-ip mptcp endpoint show           # every uplink address, marked `signal subflow`
+ip mptcp endpoint show           # flags must MATCH your transport shape (rule 1)
 cat /proc/sys/net/mptcp/enabled  # must be 1
 ```
+
+The endpoint listing tells you which shape is actually live, so read it against
+rule 1 rather than assuming:
+
+```sh
+# advertised-address shape -> every line carries `signal`
+192.168.2.15 id 1 dev lan1 signal subflow
+10.2.1.122   id 2 dev phy0-sta0 signal subflow
+
+# proxy-terminated shape -> no line carries `signal`
+192.168.2.15 id 1 dev lan1 subflow
+10.2.1.122   id 2 dev phy0-sta0 subflow
+```
+
+Then confirm the paths are genuinely separate:
+
+```sh
+ip rule show                     # a from-address rule per uplink (rule 4)
+ip route get <peer> from <uplink-addr>   # must resolve to THAT uplink's dev
+```
+
+### Reading the counters: which side you watch depends on the shape
+
+| shape | who issues the MP_JOIN | counters that must advance |
+|---|---|---|
+| `advertised-address` (has `signal`) | the **peer** | *responder* side: `MPJoinSynRx`, `MPJoinAckRx` |
+| `proxy-terminated` (no `signal`) | the **client** | *initiator* side: `MPJoinSynTx`, `MPJoinSynAckRx` |
+
+Watching the wrong side reads as "no subflow" on a bond that is working. And
+before trusting any of it, prove the connection is MPTCP at all rather than a
+silent fallback — a plain-TCP peer listener makes MPTCP fall back, and a fallback
+connection has **no path manager**, so nothing downstream can ever work:
+
+```sh
+# on the PEER: the listener must be MPTCP, not plain TCP
+ss -Mltn | grep <port>        # expect: mptcp LISTEN ... *:<port>
+```
+
 
 Then, during a transfer, these counters must **move**:
 
@@ -126,11 +238,21 @@ sh /etc/tollgate/read_mptcp_counter.sh MPJoinSynRx
 
 **Reading the verdict:**
 
-- `MPJoinSynRx > 0` → a real second subflow exists and completed its handshake.
+- `MPJoinSynRx > 0` → a real second subflow exists and completed its handshake
+  (**advertised-address shape**). For the **proxy-terminated** shape read
+  `MPJoinSynTx > 0` on the client instead — the peer never sees a JOIN there.
 - Subflow exists but throughput is unchanged → the paths converge upstream
-  (shared bottleneck). This is the topology, not a misconfiguration.
-- `MPJoinSynRx == 0` while endpoints look right → you almost certainly omitted
-  `signal` (rule 1), or both addresses share one L2 (rule 3).
+  (shared bottleneck), or one path is simply faster and the default scheduler is
+  correctly preferring it. This is the topology, not a misconfiguration.
+- `MPJoinSynRx == 0` while endpoints look right → either you omitted `signal` on
+  an **advertised-address** bond (rule 1), both addresses share one L2 (rule 3),
+  or the peer cannot reach your advertised address because it is NAT-ed/CGNAT-ed —
+  in which case switch to the proxy-terminated shape rather than adding `signal`
+  to a private address.
+- Nothing moves at all → check the peer's listener is MPTCP (`ss -Mltn`). A
+  plain-TCP listener causes a silent fallback, and a fallback connection has no
+  path manager at all.
+
 
 ### Checking for disjoint paths (rule 3)
 

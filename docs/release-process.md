@@ -14,6 +14,11 @@ stops there:
 Everything before those gates can be prepared and verified by any
 contributor.
 
+The tested source-build sequence (tag checkout, pinned toolchains, cold-cache
+battery, package artifact) is in
+[build-from-source.md](build-from-source.md). Use `make manual-check`
+before treating a tree as buildable.
+
 ## Version single source of truth
 
 The release version is written down in exactly one place: the
