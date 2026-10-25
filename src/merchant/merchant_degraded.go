@@ -63,6 +63,27 @@ func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, 
 	return deg
 }
 
+// WireStartupDegraded performs the full startup wiring for a merchant that
+// booted degraded: register the upgrade consumer, then wire the recovery
+// trigger so the tracker can actually fire it.
+//
+// Both steps belong together. #400 added WireRecoveryTrigger to the runtime
+// downgrade path, and the startup path (installMerchant in main.go) was missed
+// — it registered the onUpgrade consumer but left the tracker's
+// onFirstReachable nil, so the service stayed degraded forever even after the
+// mint returned (#10).
+//
+// This exists as one method because the two steps are only correct as a pair,
+// and because main.go's startup path and its test must call the same code. The
+// previous test re-implemented the sequence inline, so deleting
+// WireRecoveryTrigger() from installMerchant left the suite green: the test
+// still called the library directly. With the sequence named, main.go calls
+// this and the test calls this.
+func (m *MerchantDegraded) WireStartupDegraded(onUpgrade func(MerchantInterface)) {
+	m.OnUpgrade(onUpgrade)
+	m.WireRecoveryTrigger()
+}
+
 func (m *MerchantDegraded) OnUpgrade(callback func(MerchantInterface)) {
 	m.onUpgrade = callback
 }
