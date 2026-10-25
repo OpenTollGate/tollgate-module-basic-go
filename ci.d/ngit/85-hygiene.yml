@@ -1,0 +1,14 @@
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: No unresolved conflict markers in the tracked tree
+        run: |
+          # Would have caught the #663 residue (markers committed through a
+          # rebase) before merge. Anchored to the marker-plus-space shape so
+          # prose and base64 never trip it.
+          if git grep -nE '^(<{7} |>{7} )' -- .; then
+            echo "ERROR: unresolved conflict markers are committed" >&2
+            exit 1
+          fi
+          echo "ok: no conflict markers"

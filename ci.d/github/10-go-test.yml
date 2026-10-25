@@ -1,0 +1,37 @@
+  go-test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Fail fast: one red module lane stops the run instead of burning the
+      # remaining lanes. The PR-gate happy path (`happy-path` job below) is a
+      # separate job, NOT a member of this matrix, so it is never cancelled by a
+      # red module lane - a PR that breaks the happy path still goes red on the
+      # happy path itself. Cost of the flip: a PR that breaks two modules reports
+      # the first one and cancels the other; the author re-runs after fixing it.
+      fail-fast: true
+      matrix:
+        module:
+          - src/config_manager
+          - src/utils
+          - src/cmd/tollgate-cli
+          - src/lightning
+          - src/merchant
+          - src/tollgate_protocol
+          - src/tollwallet
+          - src/valve
+          - src/wireless_gateway_manager
+          # NOTE: src/cli, src/upstream_detector and
+          # src/upstream_session_manager are intentionally omitted. They
+          # transitively pull in the lnd -> ltcsuite/ltcd chain, which only
+          # builds standalone after an invasive go.mod rewrite (an `exclude`
+          # directive plus a full re-tidy). They still build/test as part of
+          # the root module's build; adding them here is tracked separately.
+          # src/merchant was added once its go.mod gained the ltcsuite/ltcd
+          # `exclude` directive and a full re-tidy (PR #361).
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+      - name: Run tests
+        working-directory: ${{ matrix.module }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/go-test-summary.sh" "${{ matrix.module }}" ./... -v -count=1 -race
