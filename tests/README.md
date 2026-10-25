@@ -7,7 +7,7 @@ very different worlds — pick the right one for the job:
 |---|---|---|
 | **cloud-lab** | Docker-compose integration lab: the real tollgate binary + self-hosted cdk-mintd FakeWallet mints, pytest driver, no routers needed. Payment/fee/rotation/failure lanes, the run-scoped `lab.sh` runner and the shared-host runbook. | [cloud-lab/](cloud-lab/), start with its [README](cloud-lab/README.md) |
 | **hardware fleet** | The pytest suite in this directory, against real routers over SSH/Wi-Fi (flashing, install, e2e payment, teardown). Credentials are env-only — see [`.env.example`](.env.example). | this directory + [flash_routers.py](flash_routers.py) |
-| **contract** | Offline invariants: schema lint, build purity, dependency/import checks, mirror sync. | [contract/](contract/) |
+| **contract** | Offline invariants: schema lint, build purity, dependency/import checks, mirror sync, changelog-fragment identity, toolchain ceiling, SSID matcher table. | [contract/](contract/) |
 | **packaging** | Asserts over built artifacts: portal-bundle contract, artifact contents, nodogsplash dependency. | [packaging/](packaging/) |
 | **sim** | Offline renewal-policy simulation with committed results. | [sim/](sim/) |
 | **happy-path** | Published-artifact happy-path regression suite. | [happy-path/](happy-path/) |
