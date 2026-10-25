@@ -123,12 +123,13 @@
 #   in the shipped bytes.
 #
 # CHECK F - the pinned portal derives the ADMIN board's redirect from COVERAGE
-#   packaging/files/etc/uci-defaults/92-tollgate-admin-setup is NOT in this
-#   repository: the module ships only 90-tollgate-captive-portal-symlink and
-#   99-tollgate-setup, and 92 is staged from the pinned portal tree by
-#   packaging/portal-build.sh into packaging/files/ (a build product, gitignored;
-#   packaging/Makefile installs it into every package). So this check cannot be
-#   asserted against a tracked file - it resolves 92 FROM THE PIN with the
+#   The pinned portal's 92-tollgate-admin-setup is NOT in this repository: the
+#   module ships only 90-tollgate-captive-portal-symlink and 99-tollgate-setup,
+#   and the portal's 92 is staged from the pinned tree by packaging/portal-build.sh
+#   into packaging/files/ as 999-tollgate-admin-setup (a build product, gitignored;
+#   packaging/Makefile installs it into every package, where it runs LAST so the
+#   credential 99 creates exists before this fail-closed gate looks for it). So
+#   this check cannot be asserted against a tracked file - it resolves 92 FROM THE PIN with the
 #   pin_file helper above, exactly like the other pinned sources, and the
 #   revision it resolves to is the one the package will ship.
 #
@@ -267,16 +268,17 @@ app_js="$(pin_file src/App.jsx)"
 admin_setup_sh="$(pin_file packaging/files/etc/uci-defaults/92-tollgate-admin-setup)"
 PIN_SOURCE_ORIGIN="$(cat "$pin_origin_file" 2>/dev/null)"
 
-# 92 is not in this repository - the module ships 90 and 99, and 92 is staged
-# from the pinned portal tree at build time (packaging/portal-build.sh into the
-# gitignored packaging/files/, which packaging/Makefile then installs). A pin we
+# The portal's 92 is not in this repository - the module ships 90 and 99, and the
+# portal's 92 is staged from the pinned tree at build time (packaging/portal-build.sh
+# into the gitignored packaging/files/ as 999-tollgate-admin-setup, which
+# packaging/Makefile then installs). A pin we
 # cannot read it from therefore leaves the redirect rule the package ships
 # entirely unverified, so this is a FAILURE in every environment - deliberately
 # NOT the pin_unavailable() helper the other checks use, which degrades to a
 # skip outside CI. It is evaluated HERE, before the early exit below can reduce
 # an unreachable pin to "not verified".
 if [ -z "$admin_setup_sh" ]; then
-  fail "check F: packaging/files/etc/uci-defaults/92-tollgate-admin-setup is not readable at $pin"
+  fail "check F: the pinned portal's 92-tollgate-admin-setup (installed as 999-tollgate-admin-setup) is not readable at $pin"
   echo "        This file is not tracked here (the module ships 90 and 99 only); it is"
   echo "        staged from the pinned portal commit. With the pin unreadable the rule"
   echo "        that decides the admin board's redirect is unverified, which is a"
@@ -501,7 +503,7 @@ fi
 # ---------------------------------------------------------------- CHECK F ---
 echo
 echo "--- check F: pinned portal derives the admin redirect from COVERAGE ---"
-echo "            (92-tollgate-admin-setup, resolved from the pin - not tracked here)"
+echo "            (the portal's 92-tollgate-admin-setup, installed as 999-, resolved from the pin)"
 
 if [ -z "$admin_setup_sh" ]; then
   # Already FAILED above, before the early exit; assert nothing on an unreadable
@@ -563,7 +565,8 @@ else
     echo "check F: PASS - the board's redirect is derived from the CLI's coverage predicate"
   else
     fail "check F: pinned $pin decides the admin board's redirect without a coverage check"
-    echo "        92-tollgate-admin-setup must derive uhttpd.admin.redirect_https from the"
+    echo "        the portal's 92-tollgate-admin-setup (installed as 999-) must derive"
+    echo "        uhttpd.admin.redirect_https from the"
     echo "        module CLI's own x509 predicate -"
     echo "          \"\$TOLLGATE_CLI\" ssl covers \"\$admin_cert\"   (src/cmd/tollgate-cli/ssl.go)"
     echo "        - write an explicit value in BOTH directions on uhttpd.admin, and must"
