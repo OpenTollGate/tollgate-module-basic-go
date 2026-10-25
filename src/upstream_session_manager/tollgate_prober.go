@@ -69,7 +69,7 @@ func (tp *tollGateProber) ProbeGatewayWithContext(ctx context.Context, interface
 		tp.probesMutex.Unlock()
 	}()
 
-	url := fmt.Sprintf("http://%s:2121/", gatewayIP)
+	url := gatewayURL(gatewayIP, "2121", "")
 	logger.WithFields(logrus.Fields{
 		"gateway": gatewayIP,
 		"url":     url,
@@ -234,7 +234,7 @@ func (tp *tollGateProber) TriggerCaptivePortalSession(ctx context.Context, gatew
 	}
 
 	// Make HTTP GET request to port 80 (standard captive portal)
-	url := fmt.Sprintf("http://%s:80/", gatewayIP)
+	url := gatewayURL(gatewayIP, "80", "")
 
 	logger.WithFields(logrus.Fields{
 		"gateway_ip":    gatewayIP,
