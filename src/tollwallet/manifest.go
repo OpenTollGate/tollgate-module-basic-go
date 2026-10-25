@@ -31,7 +31,7 @@ type ContractInfo struct {
 
 // Manifest is a wallet backend's capability descriptor.
 type Manifest struct {
-	Backend   string            `json:"backend"` // gonuts | cdk | nucula
+	Backend   string            `json:"backend"` // gonuts | cdk
 	Kind      string            `json:"kind"`    // in_process | sidecar
 	Version   string            `json:"version"`
 	Arches    []string          `json:"arches"`

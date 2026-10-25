@@ -22,11 +22,13 @@ def _load_env():
 _load_env()
 
 LOCAL_MINT_URL = "https://nofees.testnut.cashu.space"
-# Reader for the hardware-fleet scan: the shipped captive SSID is now
-# !TollGate-<code> (a leading '!' sorts it first in a WiFi list), while
-# already-deployed routers still broadcast the bare TollGate-<code> form. Both
-# are TollGate networks, so both prefixes are matched.
-TOLLGATE_NETWORK_PREFIXES = ["TollGate-", "!TollGate-"]
+# The guest SSID carries the #706 leading '!' (0x21 sorts first in a scan list),
+# so the prefix match below has to strip at most ONE of them before comparing —
+# exactly what the Go matcher (hasTollGateSSID) and the shell parsers in
+# 99-tollgate-setup do. Matching the bare prefix only would make every live
+# router invisible to this harness.
+TOLLGATE_NETWORK_PREFIXES = ["TollGate-"]
+SSID_DECORATION = "!"
 INTERFACE = "wlp59s0"
 BLOSSOM_URL = os.environ.get("BLOSSOM_URL")
 ROUTER_PASSWORD = os.environ.get("ROUTER_PASSWORD")
@@ -133,7 +135,8 @@ def get_current_wifi_connection():
     return ""
 
 def find_tollgate_networks():
-    """Find all available WiFi networks with SSID starting with 'TollGate-'."""
+    """Find all available WiFi networks with an SSID starting with 'TollGate-'
+    or the #706-decorated '!TollGate-'."""
     try:
         # Get list of available WiFi SSIDs
         result = subprocess.run(
@@ -148,8 +151,12 @@ def find_tollgate_networks():
         tollgate_networks = []
         for ssid in all_ssids:
             ssid = ssid.strip()
+            # At most ONE leading '!' is the #706 decoration, never part of the
+            # brand prefix: strip it before the compare so the decorated and
+            # bare spellings of one router are found alike.
+            probe = ssid[1:] if ssid.startswith(SSID_DECORATION) else ssid
             for prefix in TOLLGATE_NETWORK_PREFIXES:
-                if ssid.startswith(prefix):
+                if probe.startswith(prefix):
                     tollgate_networks.append(ssid)
                     break  # Found a match for this ssid, check next one.
 

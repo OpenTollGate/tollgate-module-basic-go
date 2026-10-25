@@ -11,9 +11,13 @@ func TestPolicySelect(t *testing.T) {
 		t.Fatalf("LoadPolicy: %v", err)
 	}
 
-	// 16 MB mipsel -> in-process gonuts (first rule).
-	if b, _, ok := p.SelectBackend("mipsel_24kc", 16); !ok || b != "gonuts" {
-		t.Errorf("mipsel/16MB = %q, %v; want gonuts", b, ok)
+	// 16 MB mipsel -> cdk sidecar (first rule). The policy moved off gonuts
+	// because elnosh/gonuts is archived upstream (2025-08-16) and the fork can
+	// never merge back; this tier only fits because the sidecar is a separately
+	// packaged daemon. On-device `df` must confirm the fit (see the note in
+	// wallet-policy.json).
+	if b, s, ok := p.SelectBackend("mipsel_24kc", 16); !ok || b != "cdk" || s == "" {
+		t.Errorf("mipsel/16MB = %q/%q, %v; want cdk + socket", b, s, ok)
 	}
 	// roomier mipsel -> cdk sidecar.
 	if b, s, ok := p.SelectBackend("mipsel_24kc", 64); !ok || b != "cdk" || s == "" {

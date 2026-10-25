@@ -88,6 +88,13 @@ CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
   "$GO_BIN" build -C src/cmd/tollgate-cli -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate" \
   -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 
+# The CVM control-plane daemon is likewise its own module. No version
+# ldflags: its build identity travels in the CEP-6 announcement's pubkey, and
+# no caller authenticates on a version string.
+CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
+  "$GO_BIN" build -C src/cmd/tollgate-cvm -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-cvm" \
+  -trimpath -buildvcs=false
+
 ls -lh "bin/$COMPILE_KEY/"
 
 if [ "${USE_UPX:-0}" = "1" ]; then
