@@ -1470,6 +1470,41 @@ setup_dns_dnsmasq() {
     uci set dhcp.@dnsmasq[0].expandhosts='1'
 }
 
+# Point the fixed name `tollgate.lan` (and `tollgate.local`) at the router's
+# MANAGEMENT address so the board and LuCI are reachable BY NAME on every
+# install path — the wizard used to be the only writer, so a manual install had
+# no `tollgate.lan` at all. It resolves to br-private (network.private.ipaddr),
+# where the admin surfaces live, never the guest LAN.
+#
+# Deliberately NOT `nodogsplash.@nodogsplash[0].gatewaydomainname`: setting that
+# makes nodogsplash 5.0.2 redirect-loop pre-auth clients (issue #428, deleted a
+# few lines up). A plain /etc/hosts + dnsmasq alias carries the name without it.
+#
+# Idempotent: any prior /tollgate.lan* dnsmasq entry is purged before the fresh
+# one is added, and the /etc/hosts lines this script owns are dropped then
+# rewritten, never appended to.
+setup_management_alias() {
+    local ip a hosts
+    ip=$(uci -q get network.private.ipaddr)
+    if [ -z "$ip" ]; then
+        log "Management alias: no network.private.ipaddr — skipping tollgate.lan"
+        return 0
+    fi
+    ip="${ip%%/*}"
+
+    hosts="${HOSTS_FILE:-/etc/hosts}"
+    if [ -f "$hosts" ]; then
+        sed -i '/tollgate\.lan/d; /tollgate\.local/d' "$hosts" 2>/dev/null || true
+        printf '%s tollgate.lan tollgate.local\n' "$ip" >> "$hosts"
+    fi
+
+    for a in $(uci -q get dhcp.@dnsmasq[0].address); do
+        case "$a" in /tollgate.lan*) uci -q del_list dhcp.@dnsmasq[0].address="$a" ;; esac
+    done
+    uci -q add_list dhcp.@dnsmasq[0].address="/tollgate.lan/$ip"
+    log "Management alias: tollgate.lan -> $ip (dnsmasq address + /etc/hosts)"
+}
+
 # -- radio band detection ----------------------------------------------------
 #
 # OpenWrt numbers radio sections by detection order, not by band: radio0 is
@@ -2810,6 +2845,16 @@ if [ "$BRANCH" != "FULL" ]; then
         uci commit nodogsplash
         log "Deleted stale nodogsplash gatewaydomainname (same-version path)"
     fi
+
+    # The management alias is re-asserted here too: a router whose br-private
+    # address changed (or that predates the alias) must get `tollgate.lan`
+    # without a version bump. Committed only when the dhcp export differs.
+    _dhcp_before=$(uci export dhcp)
+    setup_management_alias
+    if [ "$_dhcp_before" != "$(uci export dhcp)" ]; then
+        uci commit dhcp
+        log "Management alias re-asserted on the same-version path"
+    fi
     # The TLS identity is re-asserted on this path too, and this is the path that
     # matters most for it: a router being REINSTALLED or upgraded is the one
     # carrying the image's own placeholder certificate — the identity covers
@@ -2864,6 +2909,7 @@ setup_profile_hook
 setup_disable_ipv6_lan
 enable_modems
 setup_private_network        # consumes CODE/NYM, R2G/R5G
+setup_management_alias       # tollgate.lan -> the management IP (reads network.private.ipaddr)
 setup_lan_ports_private      # moves the wired LAN ports onto br-private
 commit_all
 
