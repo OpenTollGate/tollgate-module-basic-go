@@ -14,9 +14,14 @@ the router is built from it, so the three names can never disagree:
 | Identifier | Value | Writer |
 |---|---|---|
 | hostname | `tollgate-<code>` | module `setup_hostname`, installer `brandingCommands` |
-| captive SSID | `TollGate-<code>` | module `setup_public_wifi`, installer `brandingCommands` |
+| captive SSID | `!TollGate-<code>` | module `setup_public_wifi`, installer `brandingCommands` |
 | private SSID | `<nym>-<code>` | module `setup_private_network`, installer `brandingCommands` |
 | portal banner (`nodogsplash.gatewayname`) | `<captive SSID> Portal` | module `setup_nodogsplash` **and** the verify/repair convergence in `99-tollgate-setup`; installer `brandingCommands` writes `<captive SSID>` with **no** ` Portal` suffix — see "The portal banner is written by three places" below |
+
+The captive SSID carries a **leading `!`** (the #706 decoration — see "The
+leading `!` on the captive SSID" below). The hostname and the private SSID do
+**not**: `!` is not valid in an RFC-1123 hostname label, and the private SSID is
+the operator's network, not the guest-facing sorted-first one.
 
 The store is `/etc/config/tollgate`:
 
@@ -104,6 +109,51 @@ reseller-mode
 upstream discovery in `src/wireless_gateway_manager` matches `"TollGate-*"`
 **case-sensitively** (`discovery_log.go`, `vendor_element_manager.go`,
 `upstream_manager.go`).
+
+### The leading `!` on the captive SSID
+
+The guest SSID is `!<brand>-<code>` — for example `!TollGate-OQ3Q`. The leading
+`!` is deliberate (**#706**): `0x21` sorts before every digit and letter, so the
+guest network appears **first** in an alphabetically-ordered client scan list
+(the one screen a visitor actually looks at). It is **decoration, never part of
+the brand**: recognition strips at most **one** occurrence, so `!!TollGate-…` is
+a pinned *no-match* fixture rather than an accidental match.
+
+**The rule is one `!`, and both sides must apply it on both ends:**
+
+| Side | Writes the `!`? | Strips one before the prefix compare? |
+|---|---|---|
+| installer `brandingCommands` | yes — `"!TollGate-" + code` | yes — `p=${p#\!}` in its `code_from_name` |
+| module `setup_public_wifi` (`DEVICE_SSID`) | yes | — (it is the writer) |
+| module `code_from_name` / `captive_ssid_for_code` | — | yes — `strip_ssid_decoration()` (`${1#!}`) |
+| Go matcher `hasTollGateSSID` (`src/wireless_gateway_manager/brands.go`) | — | yes — `strings.TrimPrefix(ssid, ssidDecoration)` |
+
+`strip_ssid_decoration()` is the single shared place every reader of a
+machine-written *name* passes through, and `${1#!}` is simply the POSIX-ash
+spelling of the Go `TrimPrefix` — one rule, two languages.
+
+**Why the strip is load-bearing, not cosmetic.** The adoption chain in
+`setup_device_identity` is:
+
+> store → machine-shaped hostname → machine-shaped captive SSID → **mint**
+
+On a router whose store is empty (every router deployed before the store existed)
+whose only machine-written name is the installer's **banged** SSID, a parser that
+did not strip the `!` matched no brand prefix — the prefix compared was
+`!tollgate`, not `tollgate`. The chain then fell through and **minted a second
+code** while the hostname and SSID kept the old one: the exact drift this
+decision exists to prevent, and already observed as three names on one bench
+router.
+
+**The strip applies to the prefix decision only, never to the retained output** —
+an adopted name is not silently rewritten. And `GATEWAY_NAME` is reconciled on
+both module paths (full setup and verify/repair), so the nodogsplash banner base
+name is the decorated SSID everywhere.
+
+Pinned by `tests/contract/ssid-naming-fixtures.txt` (the sanctioned home for the
+brand literal, and the acceptance table both the Go matcher and the shell
+checker consume), `tests/contract/check-ssid-format.sh`, and
+`tests/uci-defaults-device-code_test.sh`.
 
 ### What each path does
 
@@ -225,15 +275,25 @@ delta on top of the file. That is guarded by
 a delta-aware `uci` (committed state + a pending-delta file) and pins the same
 committed value from each plus an empty gatewayname delta.
 
-The installer's spelling is the remaining cross-repo divergence: it writes the
+The installer's spelling was the remaining cross-repo divergence: it wrote the
 banner **without** the ` Portal` suffix, and it is the writer that runs last on a
-deployed router, so a deploy after a setup flips the banner back. Reconciling it
-means adding the same suffix in `brandingCommands` (`OpenTollGate/tollgate-installer`)
-— a one-line change in that repo, listed here as a follow-up rather than claimed
-as done. The banner keeps its ` Portal` suffix on this side because that is the
-string every deployed router already shows (the full setup has written it since
-before this decision), so changing it would be a user-visible rename with no
-driver.
+deployed router, so a deploy after a setup flipped the banner back. Reconciling
+it means adding the same suffix in `brandingCommands`
+(`OpenTollGate/tollgate-installer`) — a one-line change in that repo. The banner
+keeps its ` Portal` suffix on this side because that is the string every deployed
+router already shows (the full setup has written it since before this decision),
+so changing it would be a user-visible rename with no driver.
+
+**This section is now enforced, not merely documented.** The cross-repo gap was
+invisible to both repos' CI, because this script's
+"exactly one gatewayname value across every writer" pin is *script-local* — it
+cannot see a second repository. The banner's shape is therefore now pinned to the
+canonical captive SSID **plus its suffix**, declared once and asserted from the
+same contract data on both sides (the shell banner suite here and
+`src/wireless_gateway_manager`'s Go tests), so a third spelling fails CI instead
+of shipping. Deriving the banner by composition from the canonical SSID value —
+rather than spelling it independently — is what makes drift *detectable* rather
+than merely different.
 
 ## Consequences
 
@@ -286,3 +346,22 @@ driver.
   deployed router.
 * To reach a router both halves travel the feed: the module change lands first,
   then the feed re-pin ships it.
+
+### Which half owns which rule
+
+Both repos write a router's names, so a rule stated in only one of them is a
+rule that can drift. The split:
+
+| Rule | Owner | Enforced by |
+|---|---|---|
+| one device code, stored and never re-minted | module | `tests/uci-defaults-device-code_test.sh` |
+| the one-`!` decoration (write **and** strip) | module + installer | `tests/contract/ssid-naming-fixtures.txt` (shared data), `check-ssid-format.sh`, the installer's `branding_test.go` |
+| the portal banner is `<captive SSID> Portal` | module + installer | `tests/uci-defaults-gatewayname-banner_test.sh` + `src/wireless_gateway_manager` Go tests |
+| `gatewaydomainname` is **not** set (it redirect-loops pre-auth clients, #428) | module **deletes** it; the installer must **not** set it | `tests/uci-defaults-gatewayname-banner_test.sh` (module), `branding_test.go` (installer) |
+| the brand is a build **input**, never a literal | both | `tests/packaging/rebrand-literal-gutter_test.sh` (module), `tests/shell/test-rebrand-literal-gutter.sh` (installer) |
+
+The gutter deserves its own note: it is the enforcement mechanism for "the brand
+is an input". It lives in **both** repos now — a repo without it carries a
+literal that the other repo's CI would reject, which is exactly how the
+asymmetry sat unnoticed. The sanctioned carrier for the literal is
+`tests/contract/ssid-naming-fixtures.txt`; everywhere else it is a violation.
