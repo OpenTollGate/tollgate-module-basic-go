@@ -457,7 +457,13 @@ brand_token() {
 #                                    every digit and letter, so the guest
 #                                    network sorts first in an
 #                                    alphabetically-ordered client scan list —
-#                                    then the brand prefix as shipped.
+#                                    then the brand prefix as shipped. It is
+#                                    SORT DECORATION, presentation only, never
+#                                    part of the discovery contract: the bare
+#                                    TollGate-<code> form is what
+#                                    already-deployed routers and third-party
+#                                    clients matching the brand prefix carry,
+#                                    and readers still accept it.
 #                                    Reseller-mode upstream discovery in
 #                                    src/wireless_gateway_manager/brands.go
 #                                    matches EVERY brand prefix the writer can
@@ -467,7 +473,10 @@ brand_token() {
 #                                    re-brand's), as does the Android client;
 #                                    the shipped case is brand presentation,
 #                                    not a discovery constraint)
-#   private SSID  <nym>-<code>      (the operator's nym, see resolve_nym below)
+#   private SSID  <nym>-<code>      (the operator's nym, see resolve_nym below —
+#                                    the PRIVATE SSID never carries the '!':
+#                                    guests never see it, so it has no sort
+#                                    order to influence)
 #
 # The '!' is the INSTALLER's writer prefix too (deploy.go: SSID =
 # "!TollGate-$CODE"), and before this the two writers published DIFFERENT SSIDs
@@ -534,15 +543,20 @@ normalize_device_code() {
     esac
 }
 
-# The optional #706 decoration in front of a machine-written name, stripped
-# EXACTLY ONCE. The guest SSID carries it (0x21 sorts before every digit and
-# letter, so the network sorts first in an alphabetically-ordered client scan
-# list) and it is decoration, never part of a brand: `${1#!}` is POSIX parameter
-# expansion, i.e. the BusyBox-ash spelling of the Go matcher's
+# The optional leading '!' on a machine-written name, stripped EXACTLY ONCE.
+# The guest SSID carries it as a SORT DECORATION (0x21 sorts before every digit
+# and letter, so the guest network sorts first in an alphabetically-ordered
+# client scan list) and it is PRESENTATION, never part of a brand or of the
+# discovery contract: the bare `TollGate-<code>` form is what already-deployed
+# routers and every third-party client matching the brand prefix carry, and both
+# forms identify the same gateway. `${1#!}` is POSIX parameter expansion, i.e.
+# the BusyBox-ash spelling of the Go matcher's
 # `strings.TrimPrefix(ssid, ssidDecoration)` — the same one-'!' rule, so a
 # double-'!' name ('!!TollGate-…', a pinned no-match fixture) is nothing this
 # stack wrote and yields nothing below. The shared place: every reader of a
-# machine-written NAME goes through here.
+# machine-written NAME goes through here. It applies to CAPTIVE names only,
+# never to private_ssid_for_code: the PRIVATE SSID never carries the '!' —
+# guests never see it, so it has no scan order to influence.
 strip_ssid_decoration() {
     printf '%s\n' "${1#!}"
 }
@@ -622,7 +636,8 @@ mint_device_code() {
 # the same section so both writers agree, and adopted from an existing
 # machine-shaped private SSID so an operator who already runs the module under
 # their own nym keeps it. Used to build the PRIVATE SSID only — never the
-# captive one, which is the brand's (discovery matches "TollGate-*").
+# captive one, which is the brand's (discovery matches the brand prefix with the
+# optional '!' decoration stripped, e.g. "TollGate-*").
 resolve_nym() {
     local stored existing prefix suffix
     stored=$(uci -q get tollgate.device.nym 2>/dev/null)
@@ -667,12 +682,13 @@ private_ssid_for_code() {
 # The captive SSID on the verify/repair path. A name this stack wrote — the
 # optional #706 '!' (the installer writes it, this script writes it, and a
 # router deployed before #706 carries the bare spelling), the brand prefix, and
-# four characters; either brand, the legacy lowercase spelling included —
-# converges on the code. A name the OPERATOR chose is preserved, exactly as the
-# hostname (#444) and the private SSID are. This is the behaviour this path had
-# before it derived the SSID from the store (it read the live SSID back), kept
-# deliberately: a reinstall must not rename a network the operator named. The
-# full path still writes the brand's name, which is what it has always done.
+# four characters; either brand, the legacy lowercase spelling included, with
+# the '!' sort decoration treated as optional — converges on the code. A name
+# the OPERATOR chose is preserved, exactly as the hostname (#444) and the
+# private SSID are. This is the behaviour this path had before it derived the
+# SSID from the store (it read the live SSID back), kept deliberately: a
+# reinstall must not rename a network the operator named. The full path still
+# writes the brand's name, which is what it has always done.
 #
 # The decoration strip is the SAME one code_from_name uses (one '!' at most), so
 # the installer's output converges here instead of being read as the OPERATOR's
@@ -755,7 +771,9 @@ setup_device_identity() {
     # writers publish ONE name for one router. The '!' is deliberately part of
     # the emitted SSID (the writer's shape is pinned as ^!<brand>-[A-Z0-9]{4}$
     # in tests/contract/check-ssid-format.sh); readers trim at most one of them
-    # (strip_ssid_decoration above, and the Go matcher).
+    # (strip_ssid_decoration above, and the Go matcher). It is SORT DECORATION,
+    # presentation only: the DISCOVERY contract is the brand prefix underneath
+    # it. The private SSID below deliberately does NOT get it.
     DEVICE_SSID="!${BRAND_HOSTNAME}-${CODE}"
 
     uci -q get tollgate.device >/dev/null 2>&1 || uci set tollgate.device='device'
