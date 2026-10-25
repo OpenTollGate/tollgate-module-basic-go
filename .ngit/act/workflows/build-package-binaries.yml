@@ -49,13 +49,12 @@ env:
   # primal.net, psbt.me, blossom2 and drive.cashu.email did, and with
   # BLOSSOM_MIN_SUCCESS=1 the dead mirror only added ~60 s of retries per
   # uploaded file. See .ngit/README.md.
-  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom2.orangesync.tech https://drive.cashu.email"
+  BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom2.orangesync.tech"
   BLOSSOM_MIN_SUCCESS: "1"
   COORDINATION_RELAYS: >-
     wss://relay.damus.io
     wss://nos.lol
     wss://nostr.mom
-    wss://relay1.orangesync.tech
     wss://relay2.orangesync.tech
 
 jobs:
