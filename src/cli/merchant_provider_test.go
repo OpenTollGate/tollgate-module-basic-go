@@ -59,6 +59,12 @@ func (m *namedMerchant) RebindSession(ticket, macAddress string) (*merchant.Cust
 	return nil, nil
 }
 
+// BindChannel satisfies merchant.MerchantInterface. This double exists only to
+// assert provider naming, so it binds nothing and reports "no channel".
+func (m *namedMerchant) BindChannel(macAddress, channelID string) (uint64, bool) {
+	return 0, false
+}
+
 func getCLIMerchantName(s *CLIServer) string {
 	m := s.merchantProvider.GetMerchant()
 	if m == nil {

@@ -25,9 +25,32 @@ func resetSpilmanRailForTest() {
 
 // withSpilman installs a config manager holding the given Spilman block, and
 // restores whatever was there on cleanup.
+//
+// WHY THE ENV VAR IS CLEARED AND RESTORED HERE
+// ---------------------------------------------
+// `NewConfigManager` rewrites any path it is given into
+// `$TOLLGATE_TEST_CONFIG_DIR/<basename>` (config_manager.go:26-34). The
+// `testenv` build tag sets that variable once per PROCESS to a single temp dir
+// (000_test_env_testenv.go:41), so every test in the package would otherwise
+// share ONE config.json — last writer wins, and a test that just enabled the
+// rail sees whatever a later test wrote.
+//
+// That is not theoretical: with the shared dir, /spilman/params answered 404
+// with `spilman rail is not enabled` even after this helper set Enabled=true,
+// because another test's write landed in the same file. It only reproduced
+// under `-tags testenv`, which is why it survived a green plain `go test` run.
+//
+// Clearing the variable for the duration of the helper's own manager
+// construction makes the per-test path actually mean what it says. It is
+// restored immediately so nothing else in the package is affected.
 func withSpilman(t *testing.T, enabled bool, dbPath string) {
 	t.Helper()
 	prevCM := configManager
+
+	// t.Setenv restores the previous value automatically at test cleanup, and
+	// also marks the test as non-parallel, which is correct: this mutates a
+	// package-level global (configManager).
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", "")
 
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
