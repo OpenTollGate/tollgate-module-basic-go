@@ -29,11 +29,31 @@ func (notCompiledBridge) ExecuteCooperativeClose(_ context.Context, req ChannelS
 	return ChannelSettleResult{}, fmt.Errorf("%w: cooperative close of channel %q", ErrNotCompiled, req.ChannelID)
 }
 
-// newProtocolValidator is the default-build validator: it REFUSES every payment,
-// because the verification primitive lives in the Rust core and this binary does
-// not link it. The error names the build tag, so an operator sees "build with
-// -tags spilman" rather than a confusing signature failure.
-func newProtocolValidator() PaymentValidator { return refusingErrValidator(ErrNotCompiled) }
+// newProtocolValidator is the default-build validator. It verifies balance-update
+// signatures with the pure-Go implementation in verify_purego.go, so the shipped
+// CGO_ENABLED=0 binary can AFFIRM a genuine payment instead of refusing
+// everything.
+//
+// The contract is unchanged and must stay unchanged: a validator is required,
+// never optional, and every error is a refusal. `pureGoValidator` returns a
+// non-nil error for every failure mode — unparseable record, wrong channel id,
+// balance out of range, malformed signature, BIP-340 failure — and there is no
+// path through it that returns nil without a verified signature.
+func newProtocolValidator() PaymentValidator { return pureGoValidator{} }
+
+// pureGoValidator is the CGO_ENABLED=0 PaymentValidator. It exists so the
+// OpenWrt/shipped build never links the Rust core to authenticate a payment.
+//
+// It is a VERIFIER only: it holds no secret and can produce no signature. That
+// asymmetry is the whole security argument for shipping this path — a payee that
+// could sign balance updates could mint itself credit.
+type pureGoValidator struct{}
+
+func (pureGoValidator) Name() string { return "pure-go" }
+
+func (pureGoValidator) ValidatePayment(_ context.Context, funding FundingRecord, balance uint64, signature string) error {
+	return VerifyBalanceUpdate(funding, balance, signature)
+}
 
 // The seller-side primitives below are the same names the `spilman`-tagged build
 // implements against libcdk_spilman_go.so. In the default build they refuse.

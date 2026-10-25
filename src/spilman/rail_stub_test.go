@@ -39,8 +39,10 @@ func TestDefaultBuildRefusesProtocolOperations(t *testing.T) {
 	_, err = rail.AcceptPayment(ctx, ChannelPayment{ChannelID: "chan-1", Balance: 1, Signature: "sig-1"})
 	require.ErrorIs(t, err, ErrFundingRecordMissing)
 
-	// Give the channel a funding record and the refusal becomes the validator's:
-	// without the Rust core there is no way to check the signature.
+	// The default build now HAS a payment validator: the pure-Go verifier. So a
+	// garbage signature is refused because the signature is bad — not because the
+	// build cannot check signatures at all. This is the behavioural change the
+	// pure-Go verifier makes, asserted here so it cannot silently regress.
 	require.NoError(t, ledger.SetFundingRecord(ctx, FundingRecord{
 		ChannelID:         "chan-1",
 		ParamsJSON:        `{"capacity":100}`,
@@ -50,13 +52,20 @@ func TestDefaultBuildRefusesProtocolOperations(t *testing.T) {
 	}))
 	_, err = rail.AcceptPayment(ctx, ChannelPayment{ChannelID: "chan-1", Balance: 1, Signature: "sig-1"})
 	require.ErrorIs(t, err, ErrPaymentNotAuthentic)
-	require.ErrorIs(t, err, ErrNotCompiled)
+
+	// The refusal is a VERIFICATION refusal, not "not compiled". A malformed record
+	// is refused before the signature is even looked at, which is the fail-closed
+	// ordering; the important part is that it is NOT ErrNotCompiled.
+	require.NotErrorIs(t, err, ErrNotCompiled,
+		"the default build must now verify signatures itself, so a bad record must fail "+
+			"verification rather than naming a missing build tag")
+	require.Equal(t, "pure-go", rail.Validator(),
+		"the default build's validator must be the pure-Go verifier")
 
 	status, err = rail.Status(ctx, "chan-1")
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), status.Balance, "no balance may be recorded without authentication")
 	require.Equal(t, uint64(0), status.PaymentCount)
-	require.Equal(t, "not-compiled", rail.Validator())
 }
 
 // The protocol primitives must refuse in the default build rather than

@@ -529,6 +529,11 @@ const (
 	// stage1SenderContext is the stage-1 context used for the key that verifies
 	// balance updates (params.rs:715, "sender_stage1").
 	stage1SenderContext = "sender_stage1"
+	// stage1ReceiverContext is the receiver's stage-1 context. The verifier never
+	// uses it — its whole point is that the receiver's key must NOT authenticate a
+	// balance — but the tamper table needs it to build the strongest form of the
+	// wrong-signer case: a genuine signature by the receiver's blinded key.
+	stage1ReceiverContext = "receiver_stage1"
 )
 
 // stage1BlindingScalar is params.rs:624 derive_blinding_scalar:
