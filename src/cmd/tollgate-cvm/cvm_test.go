@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip59"
 )
 
 // rpcFixture mirrors the JSON-RPC 2.0 shapes CVM carries in kind 25910.
@@ -58,7 +59,7 @@ func TestGiftWrapRoundTrip(t *testing.T) {
 	}
 
 	// Server side: unwrap with the server key, recover caller + request.
-	gotReq, gotCaller, err := UnwrapRequest(gw, serverSK)
+	gotReq, gotCaller, _, err := UnwrapRequest(gw, serverSK)
 	if err != nil {
 		t.Fatalf("UnwrapRequest: %v", err)
 	}
@@ -116,7 +117,7 @@ func TestUnwrapWrongRecipientFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WrapRequest to stranger: %v", err)
 	}
-	if _, _, err := UnwrapRequest(gw, serverSK); err == nil {
+	if _, _, _, err := UnwrapRequest(gw, serverSK); err == nil {
 		t.Fatal("server unwrapped a gift wrap addressed to a stranger — NIP-44 must refuse")
 	}
 }
@@ -144,7 +145,7 @@ func TestAuthorizeEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WrapRequest: %v", err)
 	}
-	_, caller, err := UnwrapRequest(gw, serverSK)
+	_, caller, _, err := UnwrapRequest(gw, serverSK)
 	if err != nil {
 		t.Fatalf("UnwrapRequest: %v", err)
 	}
@@ -153,4 +154,69 @@ func TestAuthorizeEndToEnd(t *testing.T) {
 	}
 	_ = maintainerSK
 	_ = time.Now
+}
+
+// The D1 regression (#980): NIP-59 gift wraps carry a deliberately randomized
+// created_at (nip59.GiftWrap: "up to 6 hours in the past"), so freshness must
+// be decided on the RUMOR's timestamp — the request's real clock. Checking
+// the wrap's timestamp made every relay-delivered request stale by
+// construction and the control plane silently inert.
+func testKeys(t *testing.T) (string, string) {
+	t.Helper()
+	serverSK := nostr.GeneratePrivateKey()
+	clientSK := nostr.GeneratePrivateKey()
+	return serverSK, clientSK
+}
+
+func TestRumorTimestampIsTheRealClockNotTheWrap(t *testing.T) {
+	serverSK, clientSK := testKeys(t)
+	serverPK, _ := nostr.GetPublicKey(serverSK)
+
+	gw, _, err := WrapRequest(JSONRPCRequest{JSONRPC: "2.0", ID: float64(1), Method: "status"}, serverPK, clientSK)
+	if err != nil {
+		t.Fatalf("wrap: %v", err)
+	}
+
+	_, _, rumorTS, err := UnwrapRequest(gw, serverSK)
+	if err != nil {
+		t.Fatalf("unwrap: %v", err)
+	}
+	// The rumor clock is fresh (WrapRequest stamps it now).
+	if err := CheckFreshness(int64(rumorTS), time.Now()); err != nil {
+		t.Errorf("fresh rumor rejected: %v", err)
+	}
+	// The wrap clock is NOT a valid freshness input: it is randomized into
+	// the past by design. Pin that the two clocks differ for at least one
+	// seed... they can coincide by chance (1/3600), so assert on semantics:
+	// the unwrap-exposed timestamp must be within the freshness window even
+	// when the wrap's own timestamp is not.
+	if gw.CreatedAt > rumorTS {
+		t.Logf("wrap ts %d older-or-equal than rumor ts %d (randomized, expected shape)", gw.CreatedAt, rumorTS)
+	}
+}
+
+// A genuinely stale request (old RUMOR timestamp) must still be refused —
+// the replay defense survives the clock change.
+func TestStaleRumorStillRejected(t *testing.T) {
+	serverSK, clientSK := testKeys(t)
+	serverPK, _ := nostr.GetPublicKey(serverSK)
+
+	payload, _ := json.Marshal(JSONRPCRequest{JSONRPC: "2.0", ID: float64(1), Method: "status"})
+	rumor := nostr.Event{
+		Kind:      CVMKind,
+		Content:   string(payload),
+		CreatedAt: nostr.Now() - 3600, // one hour old
+		Tags:      nostr.Tags{nostr.Tag{"p", serverPK}},
+	}
+	gw, err := nip59.GiftWrap(rumor, serverPK, encryptTo(clientSK, serverPK), signWith(clientSK), nil)
+	if err != nil {
+		t.Fatalf("giftwrap: %v", err)
+	}
+	_, _, rumorTS, err := UnwrapRequest(gw, serverSK)
+	if err != nil {
+		t.Fatalf("unwrap: %v", err)
+	}
+	if err := CheckFreshness(int64(rumorTS), time.Now()); err == nil {
+		t.Error("stale rumor must be rejected by CheckFreshness")
+	}
 }
