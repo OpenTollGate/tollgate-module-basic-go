@@ -2,8 +2,9 @@ package tollwallet
 
 // Wallet selection: turn a policy + config into a concrete WalletPort. This is
 // the consumer that lets the router "choose the wallet best suited to the
-// target" — an in-process backend (gonuts, default) or a separate daemon
-// (sidecar: CDK, nucula) — without the rest of the module knowing which.
+// target" — an in-process backend (gonuts) or a separate daemon speaking the
+// sidecar protocol (currently CDK) — without the rest of the module knowing
+// which.
 
 import (
 	"fmt"
@@ -12,7 +13,7 @@ import (
 // WalletConfig is the runtime configuration for opening a wallet backend.
 type WalletConfig struct {
 	// Backend selects the implementation: "" or "gonuts" (in-process default),
-	// or "cdk"/"nucula"/"sidecar" (start/connect to a daemon).
+	// or "cdk"/"sidecar" (connect to a daemon speaking the sidecar protocol).
 	Backend string
 	// Path is the in-process wallet directory.
 	Path string
@@ -30,7 +31,7 @@ func OpenWallet(cfg WalletConfig) (WalletPort, *Manifest, error) {
 	case "", "gonuts", "default", "in_process":
 		p, err := NewWalletPort(cfg.Path, cfg.AcceptedMints, cfg.AllowAndSwapUntrustedMints)
 		return p, nil, err
-	case "cdk", "nucula", "sidecar":
+	case "cdk", "sidecar":
 		if cfg.Socket == "" {
 			return nil, nil, fmt.Errorf("tollwallet: backend %q needs a socket", cfg.Backend)
 		}

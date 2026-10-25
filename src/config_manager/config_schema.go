@@ -180,6 +180,42 @@ func GetConfigSchema() []FieldSchema {
 			Default:     "board", Required: true, Editable: true,
 			Enum: []string{"board", "luci"},
 		},
+		{
+			Name: "MPTCPBonding", JSONKey: "mptcp_bonding", Type: "object",
+			Description: "Optional MPTCP multi-WAN bond. Disabled by default; " +
+				"enabling it registers uplink addresses as MPTCP subflow endpoints.",
+			Required: false, Editable: true,
+			Children: []FieldSchema{
+				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Enable the MPTCP bond on this node", Default: false, Required: true, Editable: true},
+				{Name: "Policy", JSONKey: "policy", Type: "string", Description: "When the bond is used", Default: "guest_only", Required: false, Editable: true, Enum: []string{"guest_only", "always"}},
+				{Name: "Server", JSONKey: "server", Type: "string", Description: "Peer endpoint host:port", Default: "", Required: false, Editable: true},
+				{Name: "Method", JSONKey: "method", Type: "string", Description: "Cipher suite", Default: "chacha20-ietf-poly1305", Required: false, Editable: true},
+				{Name: "Password", JSONKey: "password", Type: "string", Description: "Shared secret for the bond (sensitive)", Default: "", Required: false, Editable: true, Secret: true},
+				{
+					Name: "Uplinks", JSONKey: "uplinks", Type: "array",
+					Description: "Uplink interfaces to register as subflow endpoints", Required: false, Editable: true,
+					Children: []FieldSchema{
+						{Name: "Interface", JSONKey: "interface", Type: "string", Description: "Interface name", Default: "", Required: true, Editable: true},
+						{Name: "Address", JSONKey: "address", Type: "string", Description: "Address to advertise (optional; learned at runtime if empty)", Required: false, Editable: true},
+					},
+				},
+				{Name: "Subflows", JSONKey: "subflows", Type: "int", Description: "Subflow ceiling; must cover the uplink count", Default: 8, Required: false, Editable: true, Min: 1, Max: 64},
+				{Name: "SteeringCIDR", JSONKey: "steering_cidr", Type: "string", Description: "Client networks whose traffic is steered over the bond", Default: "", Required: false, Editable: true},
+				{Name: "SocksPort", JSONKey: "socks_port", Type: "int", Description: "Local SOCKS port", Default: 1081, Required: false, Editable: true, Min: 1, Max: 65535},
+				{Name: "TproxyPort", JSONKey: "tproxy_port", Type: "int", Description: "Transparent proxy port", Default: 1082, Required: false, Editable: true, Min: 1, Max: 65535},
+				{Name: "FwMark", JSONKey: "fwmark", Type: "string", Description: "Firewall mark for policy routing", Default: "0x1", Required: false, Editable: true},
+				{Name: "FwMarkTable", JSONKey: "fwmark_table", Type: "int", Description: "Routing table for marked traffic", Default: 100, Required: false, Editable: true, Min: 1, Max: 9999},
+			},
+		},
+		{
+			Name: "MaintainerNpub", JSONKey: "maintainer_npub", Type: "string",
+			Description: "The maintainer's Nostr public key (bech32 npub1…). Authorizes CVM control-plane write tools and is the discovery key the maintainer dashboard subscribes to, so one npub finds every tollgate it owns. Empty = unclaimed: the router still serves customers but cannot be managed remotely and appears in no fleet view.",
+			Default:     "", Required: false, Editable: true,
+			// An npub1 key is 63 characters. The bound is a cheap shape gate
+			// ahead of the bech32 decode so a pasted blob is refused with a
+			// length message rather than a decode error.
+			MaxLength: 80,
+		},
 	}
 }
 

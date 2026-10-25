@@ -26,6 +26,10 @@ PKG_FLAGS:=overwrite
 # as tollgate-wrt (service) and tollgate (CLI). The SDK only packages them.
 PREBUILT_BIN:=$(PKG_MAKEFILE_DIR)tollgate-wrt
 PREBUILT_CLI:=$(PKG_MAKEFILE_DIR)tollgate
+# The CVM control-plane daemon (src/cmd/tollgate-cvm): exposes the CLI over
+# ContextVM on Nostr. Installed but inert until an operator claims the router
+# with a maintainer_npub — it refuses to serve unclaimed (claim gate).
+PREBUILT_CVM:=$(PKG_MAKEFILE_DIR)tollgate-cvm
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
@@ -144,6 +148,21 @@ for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
 done
 
 echo "Restarting network..."
+# A full netifd restart re-applies UCI-backed routes only. Default routes that
+# were added by hand (statically-routed bench/CI seats: no DHCP WAN, no uci
+# gateway) are silently wiped, which kills egress right after the install.
+# Snapshot them here; restore after the LAST restart below (the recheck block
+# may restart again). The restore is idempotent: a route netifd re-installed
+# identically is not re-added. Pinned by tests/packaging/postinst-default-route-preserve_test.sh.
+_pre_restart_defroutes="$$(ip route show default 2>/dev/null)"
+restore_default_routes() {
+    [ -n "$$1" ] || return 0
+    echo "$$1" | while IFS= read -r route; do
+        [ -n "$$route" ] || continue
+        ip route show default 2>/dev/null | grep -qxF "$$route" || \
+            ip route add $$route 2>/dev/null || true
+    done
+}
 /etc/init.d/network restart 2>/dev/null || true
 wait_for_iface br-lan
 wait_for_iface br-private || echo "Note: br-private not found — this is expected on devices without a private network configured."
@@ -158,6 +177,7 @@ if [ -x /etc/uci-defaults/99-tollgate-setup ]; then
           recheck_private_subnet && /etc/init.d/network restart 2>/dev/null || true
       fi )
 fi
+restore_default_routes "$$_pre_restart_defroutes"
 
 echo "Reloading remaining services..."
 wifi reload 2>/dev/null || true
@@ -182,8 +202,10 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	[ -f "$(PREBUILT_BIN)" ] || { echo "ERROR: prebuilt binary not found at $(PREBUILT_BIN). CI should stage it before invoking the SDK." >&2; exit 1; }
 	[ -f "$(PREBUILT_CLI)" ] || { echo "ERROR: prebuilt CLI not found at $(PREBUILT_CLI)." >&2; exit 1; }
+	[ -f "$(PREBUILT_CVM)" ] || { echo "ERROR: prebuilt CVM daemon not found at $(PREBUILT_CVM)." >&2; exit 1; }
 	$(CP) $(PREBUILT_BIN) $(PKG_BUILD_DIR)/tollgate-wrt
 	$(CP) $(PREBUILT_CLI) $(PKG_BUILD_DIR)/tollgate
+	$(CP) $(PREBUILT_CVM) $(PKG_BUILD_DIR)/tollgate-cvm
 	# Required, not best-effort (#751): the license text ships with the
 	# binary (see Package/install), so a build that cannot find it fails
 	# loudly instead of silently shipping a GPL binary without its license.
@@ -212,9 +234,11 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/tollgate-wrt $(1)/usr/bin/tollgate-wrt
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/tollgate $(1)/usr/bin/tollgate
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/tollgate-cvm $(1)/usr/bin/tollgate-cvm
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/init.d/tollgate-wrt $(1)/etc/init.d/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/init.d/tollgate-cvm $(1)/etc/init.d/
 
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
