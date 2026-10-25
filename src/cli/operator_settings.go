@@ -618,6 +618,11 @@ func redactSecretFields(cfg *config_manager.Config) *config_manager.Config {
 	}
 	redacted := *cfg
 	redacted.PrivateKey = ""
+	// Nested secrets must be blanked too. Without this, a secret that lives one
+	// level down (mptcp_bonding.password) survives into the `config get`
+	// payload even though the schema marks it Secret.
+	redacted.MPTCPBonding = cfg.MPTCPBonding
+	redacted.MPTCPBonding.Password = ""
 	return &redacted
 }
 
@@ -631,7 +636,10 @@ func secretFieldValues(cfg *config_manager.Config) map[string]string {
 	if cfg == nil {
 		return map[string]string{}
 	}
-	return map[string]string{"private_key": cfg.PrivateKey}
+	return map[string]string{
+		"private_key": cfg.PrivateKey,
+		"password":    cfg.MPTCPBonding.Password,
+	}
 }
 
 // secretFieldState reports, per secret schema field, whether a value is stored.
@@ -647,13 +655,26 @@ func secretFieldState(cfg *config_manager.Config) map[string]bool {
 }
 
 // secretJSONKeys returns the json keys of the schema's secret fields.
+//
+// It descends into Children. It did not, and that was a real leak: a field
+// marked Secret one level down (mptcp_bonding.password) was never reported, so
+// redactSecretFields never blanked it and `config get` handed the bond's shared
+// secret to any authenticated board session. Nested secrets are how the schema
+// grows, so the walk must be recursive.
 func secretJSONKeys() []string {
 	var keys []string
-	for _, field := range config_manager.GetConfigSchema() {
-		if field.Secret {
-			keys = append(keys, field.JSONKey)
+	var walk func([]config_manager.FieldSchema)
+	walk = func(fields []config_manager.FieldSchema) {
+		for _, field := range fields {
+			if field.Secret {
+				keys = append(keys, field.JSONKey)
+			}
+			if len(field.Children) > 0 {
+				walk(field.Children)
+			}
 		}
 	}
+	walk(config_manager.GetConfigSchema())
 	return keys
 }
 
