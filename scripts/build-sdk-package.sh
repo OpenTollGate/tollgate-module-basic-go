@@ -150,6 +150,18 @@ printf '%s\n' 'Building target binaries locally before invoking the OpenWrt SDK.
         "$GO_BIN" build -o "$STAGE_DIR/tollgate" -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 )
 
+# The CVM control-plane daemon is its own module. Build it when the pinned
+# tree carries it (main does; older tags predate it), matching the feed's
+# presence-conditional CVM stanza. No version ldflags: the daemon's identity
+# travels in its CEP-6 announcement pubkey, and packaging/Makefile stages it
+# the same way as packaging/local-build-ipk.sh.
+if [ -d "$REPO_ROOT/src/cmd/tollgate-cvm" ]; then
+    (
+        cd "$REPO_ROOT/src/cmd/tollgate-cvm"
+        env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
+            "$GO_BIN" build -o "$STAGE_DIR/tollgate-cvm" -trimpath -buildvcs=false .
+    )
+fi
 # #941: the rc5 package shipped a binary stamped from a lagged VERSION
 # file. Assert the stamp landed — the binaries are cross-compiled, so
 # the fence reads the embedded string rather than executing them.

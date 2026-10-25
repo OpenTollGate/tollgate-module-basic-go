@@ -1,7 +1,7 @@
 {
   "backend": "gonuts",
   "kind": "in_process",
-  "version": "OpenTollGate/gonuts-tollgate v0.11.2 (fork of elnosh/gonuts)",
+  "version": "OpenTollGate/gonuts-tollgate v0.13.0 (fork of elnosh/gonuts; upstream ARCHIVED 2025-08-16)",
   "arches": ["aarch64_cortex-a53", "mipsel_24kc"],
   "size_bytes": {},
   "storage": {
