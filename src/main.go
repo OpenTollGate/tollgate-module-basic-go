@@ -892,8 +892,11 @@ func initCLIServer() {
 // the body a paying customer gets — is only reachable in a unit test through
 // this seam (see TestBalanceEndpointLiveSessionReportsUsage).
 var (
-	dhcpLeasePath = "/tmp/dhcp.leases"
-	arpTablePath  = "/proc/net/arp"
+	dhcpLeasePath     = "/tmp/dhcp.leases"
+	arpTablePath      = "/proc/net/arp"
+	neighborTablePath = "/proc/net/icmp6_neighbors"
+	// neighborSource is overridable in tests; production shells out to ip -6 neigh.
+	neighborSource func() ([]byte, error)
 )
 
 // sentinelMACAddress is the all-zero address dnsmasq and the kernel ARP table
@@ -1064,7 +1067,39 @@ func getMacAddress(ipAddress string) (string, error) {
 		}
 	}
 
+	// Fallback for IPv6 payers: the kernel neighbor table. /proc/net/arp is
+	// IPv4-only, so an IPv6 source address (FIPS-mesh ULA, dual-stack LAN
+	// clients) could NEVER resolve a MAC here — the request was refused with
+	// device-unresolved even though the kernel knew the peer perfectly well.
+	// Read via `ip -6 neigh show` for portability; the procfs neighbor file
+	// name differs across kernels.
+	nsrc := neighborSource
+	if nsrc == nil {
+		nsrc = func() ([]byte, error) { return exec.Command("ip", "-6", "neigh", "show").Output() }
+	}
+	if out, err := nsrc(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			fields := strings.Fields(line)
+			// <addr> dev <dev> lladdr <mac> <state>
+			if len(fields) >= 4 && strings.ToLower(fields[0]) == ipLower {
+				if i := indexOf(fields, "lladdr"); i >= 0 && i+1 < len(fields) && fields[i+1] != sentinelMACAddress {
+					return strings.TrimSpace(fields[i+1]), nil
+				}
+			}
+		}
+	}
+
 	return "", fmt.Errorf("no MAC found for %s in DHCP leases or ARP table", ipAddress)
+}
+
+// indexOf returns the position of s in fields, or -1.
+func indexOf(fields []string, s string) int {
+	for i, f := range fields {
+		if f == s {
+			return i
+		}
+	}
+	return -1
 }
 
 // CORS middleware to handle Cross-Origin Resource Sharing
