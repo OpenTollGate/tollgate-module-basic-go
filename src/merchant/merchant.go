@@ -448,6 +448,27 @@ type Merchant struct {
 	// handle -> attachment store. Both are memory-only on purpose.
 	ticketMu sync.Mutex
 	tickets  *ticketState
+
+	// The rest of the merchant's own background work, so Shutdown can retire
+	// every goroutine a constructed merchant started (#733 follow-up): the
+	// usage sweep's handles above, the payout routine (one goroutine per
+	// accepted mint, started by StartPayoutRoutine) and the lightning-quote
+	// janitor. Before this, both were `for range ticker.C` loops that nothing
+	// could ever stop — a shut-down (runtime-downgraded) merchant kept them
+	// for the life of the process, and in the test binary they outlived the
+	// suite (leak census 2026-10-20: 7 payout + 1 janitor live at exit on
+	// #887's head, 21 + 3 on main). The mint health tracker is deliberately
+	// NOT here: it is shared with the degraded merchant that survives a
+	// runtime downgrade, and its proactive checks are what upgrade back.
+	payoutMu   sync.Mutex
+	payoutStop chan struct{}
+	payoutWG   sync.WaitGroup
+	payoutOn   bool
+
+	janitorMu   sync.Mutex
+	janitorStop chan struct{}
+	janitorDone chan struct{}
+	janitorOn   bool
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -586,7 +607,13 @@ func (m *Merchant) Shutdown() error {
 	// reconciliations through ndsctl on a router nobody is attending, one
 	// leaked goroutine per downgrade/upgrade cycle (#733's flake family is
 	// the test-visible face of this). Nil-safe when monitoring never ran.
+	// The payout routine and the quote janitor are the same class of
+	// merchant-scoped work (they move wallet money and hold merchant state);
+	// both stop BEFORE the wallet so nothing of this merchant touches a
+	// wallet that is already closing.
 	m.stopDataUsageMonitoring()
+	m.stopPayoutRoutine()
+	m.stopLightningQuoteJanitor()
 	return m.tollwallet.Shutdown()
 }
 
@@ -1375,13 +1402,33 @@ func (m *Merchant) reconcileStaleBinding(macAddress string) {
 func (m *Merchant) StartPayoutRoutine() {
 	log.Printf("Starting payout routine")
 
-	for _, mint := range m.config.AcceptedMints {
+	m.payoutMu.Lock()
+	if m.payoutOn {
+		// One payout routine per merchant: a second set of goroutines would
+		// be unstoppable.
+		m.payoutMu.Unlock()
+		return
+	}
+	stop := make(chan struct{})
+	m.payoutStop, m.payoutOn = stop, true
+	mints := m.config.AcceptedMints
+	m.payoutWG.Add(len(mints))
+	m.payoutMu.Unlock()
+
+	for _, mint := range mints {
 		go func(mintConfig config_manager.MintConfig) {
+			payoutLive.Add(1)
+			defer func() { payoutLive.Add(-1); m.payoutWG.Done() }()
 			ticker := time.NewTicker(1 * time.Minute)
 			defer ticker.Stop()
 
-			for range ticker.C {
-				m.runPayoutForMint(mintConfig)
+			for {
+				select {
+				case <-stop:
+					return
+				case <-ticker.C:
+					m.runPayoutForMint(mintConfig)
+				}
 			}
 		}(mint)
 	}
@@ -1389,6 +1436,25 @@ func (m *Merchant) StartPayoutRoutine() {
 	m.mintHealthTracker.StartProactiveChecks()
 
 	log.Printf("Payout routine started")
+}
+
+// stopPayoutRoutine retires the per-mint payout goroutines StartPayoutRoutine
+// started and waits for the pass that is in flight to return, so that after
+// it returns nothing of this merchant touches the wallet with a payout again.
+// A payout in progress when the wallet begins to close underneath it is
+// exactly the race the stop-before-wallet ordering of Shutdown exists to keep
+// shut. Safe to call before the routine ever started, and safe to call twice.
+func (m *Merchant) stopPayoutRoutine() {
+	m.payoutMu.Lock()
+	stop := m.payoutStop
+	m.payoutStop, m.payoutOn = nil, false
+	m.payoutMu.Unlock()
+
+	if stop == nil {
+		return
+	}
+	close(stop)
+	m.payoutWG.Wait()
 }
 
 // runPayoutForMint runs one payout pass for one mint, or does nothing when the
