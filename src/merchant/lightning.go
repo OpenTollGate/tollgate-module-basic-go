@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
@@ -441,14 +442,60 @@ func (m *Merchant) getLightningQuoteState(quoteID string) (tollwallet.MintQuoteS
 }
 
 func (m *Merchant) startLightningQuoteJanitor() {
+	m.janitorMu.Lock()
+	if m.janitorOn {
+		// One janitor per merchant: a second goroutine would be unstoppable.
+		m.janitorMu.Unlock()
+		return
+	}
+	stop, done := make(chan struct{}), make(chan struct{})
+	m.janitorStop, m.janitorDone, m.janitorOn = stop, done, true
+	m.janitorMu.Unlock()
+
 	ticker := time.NewTicker(lightningQuoteCleanupInterval)
 	go func() {
+		janitorLive.Add(1)
+		defer janitorLive.Add(-1)
 		defer ticker.Stop()
-		for range ticker.C {
-			m.cleanupStaleLightningQuotes(time.Now())
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				m.cleanupStaleLightningQuotes(time.Now())
+			}
 		}
 	}()
 }
+
+// stopLightningQuoteJanitor retires the janitor startLightningQuoteJanitor
+// started and waits for the pass that is in flight to return. Safe to call
+// before the janitor ever started, and safe to call twice. Same #733
+// follow-up class as stopPayoutRoutine: nothing of a shut-down merchant may
+// keep running on a timer.
+func (m *Merchant) stopLightningQuoteJanitor() {
+	m.janitorMu.Lock()
+	stop, done := m.janitorStop, m.janitorDone
+	m.janitorStop, m.janitorDone, m.janitorOn = nil, nil, false
+	m.janitorMu.Unlock()
+
+	if stop == nil {
+		return
+	}
+	close(stop)
+	<-done
+}
+
+// The leak guard's state for the payout routine and the quote janitor
+// (#733 follow-up): same purpose as the usage-sweep counters in merchant.go —
+// the test binary fails at exit (TestMain, sweep_leak_guard_test.go) if any
+// of these outlive their merchant. Leak census 2026-10-20: on main, 21 payout
+// + 3 janitor goroutines were still live at suite exit; 7 + 1 even with #887.
+var (
+	payoutLive  atomic.Int32
+	janitorLive atomic.Int32
+)
 
 func (m *Merchant) monitorLightningQuote(quoteID string) {
 	backoff := lightningQuoteMonitorInterval
