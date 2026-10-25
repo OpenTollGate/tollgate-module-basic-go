@@ -177,6 +177,19 @@ if [ -d "$REPO_ROOT/src/cmd/tollgate-cvm" ]; then
     )
 fi
 
+# The CVM control-plane daemon is its own module. Build it when the pinned
+# tree carries it (main does; older tags predate it), matching the feed's
+# presence-conditional CVM stanza. No version ldflags: the daemon's identity
+# travels in its CEP-6 announcement pubkey, and packaging/Makefile stages it
+# the same way as packaging/local-build-ipk.sh.
+if [ -d "$REPO_ROOT/src/cmd/tollgate-cvm" ]; then
+    (
+        cd "$REPO_ROOT/src/cmd/tollgate-cvm"
+        env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
+            "$GO_BIN" build -o "$STAGE_DIR/tollgate-cvm" -trimpath -buildvcs=false .
+    )
+fi
+
 cp -r "$REPO_ROOT/packaging/." "$STAGE_DIR/"
 cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/LICENSE"
 
