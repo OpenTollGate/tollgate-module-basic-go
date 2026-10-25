@@ -72,16 +72,16 @@ type PrivateNetworkInfo struct {
 }
 
 type UpstreamNetwork struct {
-	SSID         string `json:"ssid"`
-	Signal       int    `json:"signal"`
-	Channel      string `json:"channel"`
-	Encryption   string `json:"encryption"`
-	BSSID        string `json:"bssid"`
-	Radio        string `json:"radio"`
-	Band         string `json:"band"` // "2g"/"5g", or "unknown"
-	IsTollGate   bool   `json:"is_tollgate"`
-	PricePerStep int    `json:"price_per_step,omitempty"`
-	StepSize     int    `json:"step_size,omitempty"`
+	SSID                   string `json:"ssid"`
+	Signal                 int    `json:"signal"`
+	Channel                string `json:"channel"`
+	Encryption             string `json:"encryption"`
+	BSSID                  string `json:"bssid"`
+	Radio                  string `json:"radio"`
+	Band                   string `json:"band"` // "2g"/"5g", or "unknown"
+	IsTollGate             bool   `json:"is_tollgate"`
+	AdvertisedPricePerStep int    `json:"price_per_step,omitempty"` // scan-side hint; not authoritative
+	AdvertisedStepSize     int    `json:"step_size,omitempty"`
 }
 
 type UpstreamSTA struct {
