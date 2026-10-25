@@ -74,6 +74,18 @@ export UHTTPD_CALLS="$TMP/uhttpd-calls"
 export FAKE_COVERAGE="$TMP/coverage"
 export UHTTPD_RUNNING="$TMP/uhttpd-running"
 export TOLLGATE_ENTRY_UI_MARKER="$ENTRY_UI_MARKER"
+# The shipped script resolves BOTH the entry_ui config and the marker through an
+# env override (`${TOLLGATE_ENTRY_UI_CONFIG:-/etc/tollgate/config.json}`), so the
+# harness must pin the CONFIG seam too — a `sed` of a hard-coded line no longer
+# matches, and without this the copied script reads the HOST's live
+# /etc/tollgate/config.json (measured 2026-10-13: a `board` marker on the build
+# host flipped every luci-mode expectation in this suite).
+export TOLLGATE_ENTRY_UI_CONFIG="$ENTRY_UI_CONFIG"
+# The credential markers are written to absolute paths by default; keep them in
+# the sandbox, exactly like TOLLGATE_ENTRY_UI_MARKER, so a source run cannot
+# touch the build host's /etc/tollgate.
+export ADMIN_PROVISIONAL_MARKER="$TMP/etc/tollgate/admin-credential-provisional"
+export PRIVATE_WIFI_PROVISIONAL_MARKER="$TMP/etc/tollgate/private-wifi-credential-provisional"
 export ENTRY_UI_JQ_BIN="$TMP/bin/jq"
 export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd"
@@ -290,7 +302,6 @@ build_script() { # build_script <source-file>
         -e "s|^UHTTPD_IMAGE_CERT=\"/etc/uhttpd\.crt\"\$|UHTTPD_IMAGE_CERT=\"$UHTTPD_IMAGE_CERT\"|" \
         -e "s|^UHTTPD_IMAGE_KEY=\"/etc/uhttpd\.key\"\$|UHTTPD_IMAGE_KEY=\"$UHTTPD_IMAGE_KEY\"|" \
         -e "s|^TLS_IDENTITY_OPTOUT=\"/etc/tollgate/ssl/tls-identity-removed\"\$|TLS_IDENTITY_OPTOUT=\"$OPTOUT_FILE\"|" \
-        -e "s|^ENTRY_UI_CONFIG=\"/etc/tollgate/config\.json\"\$|ENTRY_UI_CONFIG=\"$ENTRY_UI_CONFIG\"|" \
         -e "s|^NDS_INIT=\"/etc/init\.d/nodogsplash\"\$|NDS_INIT=\"$NDS_INIT\"|" \
         -e "s|> */proc/sys/kernel/hostname|> $TMP/kernel-hostname|" \
         -e "s|/etc/profile|$TMP/profile|g" \
@@ -302,10 +313,10 @@ build_script() { # build_script <source-file>
 }
 
 build_script "$ROOT/$SCRIPT" || bad "harness could not build the script under test"
-if grep -q "^ENTRY_UI_CONFIG=\"$ENTRY_UI_CONFIG\"\$" "$SCRIPT_UNDER_TEST" &&
+if grep -q "^ENTRY_UI_CONFIG=\"\${TOLLGATE_ENTRY_UI_CONFIG" "$SCRIPT_UNDER_TEST" &&
    grep -q "^ENTRY_UI_MARKER=\"\${TOLLGATE_ENTRY_UI_MARKER" "$SCRIPT_UNDER_TEST" &&
    grep -q "^TOLLGATE_CLI=\"$TOLLGATE_CLI\"\$" "$SCRIPT_UNDER_TEST"; then
-    ok "harness redirected the config.json path, kept the marker env override and redirected the CLI"
+    ok "harness pinned the config + marker env seams and redirected the CLI"
 else
     bad "harness could not redirect the entry_ui config path in the copied script"
 fi
