@@ -50,6 +50,24 @@ run_go_battery() {
     fi
 }
 
+# The cold-sums leg (the #1036 class): go.sum gaps only surface when the
+# module graph resolves without a warm build cache — every green lane that
+# reused built packages missed the v0.6.0-era main-branch gap for exactly
+# that reason. A scratch GOMODCACHE+GOCACHE rebuild of every module is the
+# only lane-shaped way to prove the sums complete; `go mod tidy -diff` in
+# the pre-commit hook is the cheap commit-time shadow of the same fence.
+run_cold_sums() {
+    local scratch
+    scratch="$(mktemp -d -t tg-coldsums.XXXXXX)" || { record "Cold sums" FAIL "mktemp"; return; }
+    if env GOMODCACHE="$scratch/mod" GOCACHE="$scratch/cache" make go-battery \
+        >"$tmpdir/coldsums.log" 2>&1; then
+        record "Cold sums" PASS "18-module battery, scratch module+build caches"
+    else
+        record "Cold sums" FAIL "see $tmpdir/coldsums.log (cold go.sum gap — run 'go mod tidy' in the named module)"
+    fi
+    rm -rf "$scratch"
+}
+
 run_deps_imports() {
     local ok=0
     python3 tests/contract/check-deps-sync.py >"$tmpdir/deps.log" 2>&1 || ok=1
@@ -198,6 +216,7 @@ echo "== logs in $tmpdir"
 echo
 
 run_go_battery
+run_cold_sums
 run_deps_imports
 run_contract
 run_packaging
