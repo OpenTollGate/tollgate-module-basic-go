@@ -1811,7 +1811,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	m.resolveReceiveIntent(reference, intentStateGranted, "session granted")
 
 	// Create a success session event (using MAC address as identifier in logs)
-	sessionEvent, err := m.createSessionEvent(session, macAddress)
+	sessionEvent, err := m.createSessionEvent(session)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session event: %w", err)
 	}
@@ -2110,8 +2110,13 @@ func (m *Merchant) calculateAllotmentBytes(steps uint64) (uint64, error) {
 	return totalBytes, nil
 }
 
-// createSessionEvent creates a session event from the MAC-address based session
-func (m *Merchant) createSessionEvent(session *CustomerSession, customerPubkey string) (*nostr.Event, error) {
+// createSessionEvent creates a session event from the MAC-address based session.
+//
+// The event carries NO `p` tag: in the raw-token flow the customer has no
+// Nostr identity, and `p` is defined as a Nostr pubkey (spec PR tollgate#26
+// makes it conditional and forbids non-pubkey values). The MAC already lives
+// in `device-identifier`, where it belongs (#949).
+func (m *Merchant) createSessionEvent(session *CustomerSession) (*nostr.Event, error) {
 	deviceIdentifier := session.MacAddress
 
 	identities := m.configManager.GetIdentities()
@@ -2134,7 +2139,6 @@ func (m *Merchant) createSessionEvent(session *CustomerSession, customerPubkey s
 		PubKey:    tollgatePubkey,
 		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
-			{"p", customerPubkey},
 			{"device-identifier", "mac", deviceIdentifier},
 			{"allotment", fmt.Sprintf("%d", session.Allotment)},
 			{"metric", session.Metric},
@@ -2186,21 +2190,20 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAl
 	// Calculate new total allotment
 	newTotalAllotment := existingAllotment + additionalAllotment
 
-	// Extract customer and device info from existing session
-	customerPubkey := ""
+	// Extract device info from the existing session. The `p` tag is NOT
+	// extracted or re-emitted: raw-token session events carry no customer
+	// pubkey (#949), and a legacy event's `p` is a MAC that must not be
+	// propagated into a field whose contract says pubkey.
 	deviceIdentifier := ""
 
 	for _, tag := range existingSession.Tags {
-		if len(tag) >= 2 && tag[0] == "p" {
-			customerPubkey = tag[1]
-		}
 		if len(tag) >= 3 && tag[0] == "device-identifier" {
 			deviceIdentifier = tag[2]
 		}
 	}
 
-	if customerPubkey == "" || deviceIdentifier == "" {
-		return nil, fmt.Errorf("failed to extract customer or device info from existing session")
+	if deviceIdentifier == "" {
+		return nil, fmt.Errorf("failed to extract device info from existing session")
 	}
 
 	identities := m.configManager.GetIdentities()
@@ -2223,7 +2226,6 @@ func (m *Merchant) extendSessionEvent(existingSession *nostr.Event, additionalAl
 		PubKey:    tollgatePubkey,
 		CreatedAt: nostr.Now(),
 		Tags: nostr.Tags{
-			{"p", customerPubkey},
 			{"device-identifier", "mac", deviceIdentifier},
 			{"allotment", fmt.Sprintf("%d", newTotalAllotment)},
 			{"metric", "milliseconds"},
