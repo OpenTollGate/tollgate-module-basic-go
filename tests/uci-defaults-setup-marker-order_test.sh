@@ -384,11 +384,13 @@ NDS_CONFIG="$TMP/nodogsplash.config"
 SCRIPT_UNDER_TEST="$TMP/99-tollgate-setup"
 export LOGFILE
 
-# The seeded guest SSID carries the shipped sort decoration ('!TollGate-…', so
-# the guest network sorts first in a WiFi list). A router already in the field
-# may still carry the bare TollGate-… form; the reader (code_from_name) strips
-# at most one leading '!' either way, and the full path converges on the
-# decorated DEVICE_SSID.
+# The seeded guest SSID is the decorated spelling the #706 WRITER emits — the
+# installer's `!TollGate-<code>` (deploy.go) and, since the bang asymmetry was
+# fixed, this script's output too (DEVICE_SSID = "!${BRAND_HOSTNAME}-${CODE}").
+# It is the shape a deployed router actually carries, and it is what makes the
+# "the machine-shaped SSID was ADOPTED, not re-minted" assertions below
+# meaningful: the parsers have to strip the '!' to read the code out of it, and
+# returning nothing there is exactly how a SECOND code used to be minted.
 GUEST_SSID="!TollGate-SEED"
 GUEST_SSID_5G="!TollGate-SEED"
 OPERATOR_KEY="Operator-Chosen-Key-01"

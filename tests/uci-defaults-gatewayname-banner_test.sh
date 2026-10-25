@@ -2,6 +2,20 @@
 # Offline tests for the PORTAL BANNER (nodogsplash.gatewayname) on BOTH setup
 # paths of packaging/files/etc/uci-defaults/99-tollgate-setup.
 #
+# TWO invariants live here, and the second one spans repositories:
+#
+#   1. WITHIN this script, both writers emit ONE committed value and the repair
+#      path commits it where it writes it (the #605 review findings F1/F2).
+#   2. ACROSS repos, that value is the canonical banner derived from the
+#      canonical captive SSID — `<captive SSID> Portal`, where the SSID comes
+#      from the pinned table tests/contract/ssid-naming-fixtures.txt (a
+#      'banner' directive) rather than being spelled here. The INSTALLER is a
+#      SECOND writer of this same UCI option and writes the SSID with NO
+#      " Portal" suffix, so it publishes a FOURTH spelling that runs LAST and
+#      wins. That divergence was undetectable because the invariant was only
+#      asserted inside this file; it is now pinned against the shared table, so
+#      a fourth spelling in either repo fails CI in this one.
+#
 # The defect this guards — found by the cold, execution-backed review of PR #605
 # (verdict artifact: reports/reviews/tollgate-module-basic-go-t_eb753cb5-PR605-
 # deepseek-flash.md, findings F1 and F2):
@@ -51,7 +65,46 @@ eq()  { # eq <label> <got> <want>
 SCRIPT="packaging/files/etc/uci-defaults/99-tollgate-setup"
 SHIPPED="v0.6.0-alpha5"
 OLDER="v0.6.0-alpha4"
-WANT="!TollGate-OQ3Q Portal"
+# The canonical banner is NOT spelled here. It is declared once, in the shared
+# pinned table the Go matcher's unit test reads too
+# (tests/contract/ssid-naming-fixtures.txt, the 'banner'/'banner-suffix'
+# directives), and derived below: `<canonical captive SSID> <suffix>`. The
+# captive SSID carries the #706 leading '!' (the installer has always written
+# it; this script writes it as of the bang-asymmetry fix, DEVICE_SSID
+# ="!${BRAND_HOSTNAME}-${CODE}"), so the canonical name is the decorated one —
+# the same shape the guest sees in their scan list.
+#
+# Why the pin lives in the shared table and not in this file: the INSTALLER is a
+# SECOND writer of `nodogsplash.@nodogsplash[0].gatewayname` (deploy.go
+# brandingCommands writes `gatewayname=<SSID>` with NO suffix), and it runs LAST
+# on a deployed router, so its spelling wins on the splash page. An invariant
+# asserted only inside this script could not see that; asserted against the
+# shared table it can, and the table is the file an installer-side test can read
+# from the well-known path. Do NOT relax this by re-spelling the banner here.
+CANON_TABLE="$ROOT/tests/contract/ssid-naming-fixtures.txt"
+# The bench/device code the fixtures below are seeded with; the canonical
+# banner is looked up for the decorated name built from it.
+FIXTURE_CODE="OQ3Q"
+
+canon_banner_suffix() { # the banner suffix, declared ONCE in the shared table
+    awk '$1 == "banner-suffix" { print $2; exit }' "$CANON_TABLE" 2>/dev/null
+}
+canon_banner_ssid() { # canon_banner_ssid <ssid> -> 1 if it is the pinned banner SSID
+    awk -v want="$1" '$1 == "banner" && $2 == want { found = 1 } END { exit !found }' \
+        "$CANON_TABLE" 2>/dev/null
+}
+# The canonical banner: the declared SSID plus the once-declared suffix. The
+# table stores the SSID and the suffix SEPARATELY so the banner cannot be
+# spelled two ways in one file.
+canon_banner_for() { # canon_banner_for <captive SSID> -> its pinned banner
+    canon_banner_ssid "$1" || return 0
+    printf '%s %s\n' "$1" "$(canon_banner_suffix)"
+}
+WANT="$(canon_banner_for "!TollGate-${FIXTURE_CODE}")"
+# The bare-spelling banner a pre-#706 router carries — still recognized, and the
+# control fixture below starts on the bare 'tollgate-0GLK Portal' spelling, so
+# the assertions have content.
+PRE_WANT="TollGate-${FIXTURE_CODE} $(canon_banner_suffix)"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -215,9 +268,11 @@ fi
 
 # ------------------------------------------------------------- fixtures
 # The bench box as the review modelled it: deployed under a code, on the name the
-# INSTALLER wrote (hostname), with a captive SSID a later deploy had re-minted and
-# a banner carrying the pre-convergence name. No store: every already-deployed
-# router is in exactly this state.
+# INSTALLER wrote (hostname), with a captive SSID in the INSTALLER's decorated
+# spelling (!tollgate-0GLK, deploy.go) and a banner carrying the pre-#706,
+# pre-convergence spelling (bare, no '!'). No store: every already-deployed
+# router is in exactly this state, and the banner has to converge on the
+# decorated name it now shares with the SSID.
 seed_deployed() { # <state-file> ; a complete allow list unless $2 is "drift"
     local extra
     : > "$1"
@@ -232,7 +287,7 @@ seed_deployed() { # <state-file> ; a complete allow list unless $2 is "drift"
             'wireless.tollgate_2g_open=wifi-iface' \
             'wireless.tollgate_2g_open.device=radio0' \
             'wireless.tollgate_2g_open.mode=ap' \
-            'wireless.tollgate_2g_open.ssid=tollgate-0GLK' \
+            'wireless.tollgate_2g_open.ssid=!tollgate-0GLK' \
             'wireless.private_radio0=wifi-iface' \
             'wireless.private_radio0.device=radio0' \
             'wireless.private_radio0.mode=ap' \
@@ -299,9 +354,44 @@ else
 fi
 
 echo "== control: the fixture starts on a DIFFERENT banner, so the assertions have content"
-eq "the seeded fixture banner is the pre-convergence one" "$fixture_gw" "tollgate-0GLK Portal"
+eq "the seeded fixture banner is the pre-#706 spelling" "$fixture_gw" "tollgate-0GLK Portal"
 [ "$fixture_gw" != "$WANT" ] && ok "the fixture banner differs from the value under test" \
                              || bad "the fixture already holds the expected value — the assertion is vacuous"
+# ...and the bare (undecorated) banner is a DIFFERENT string from the pinned one,
+# so a pre-#706 router is visibly converged rather than already-matching.
+[ "$PRE_WANT" != "$WANT" ] && ok "the bare-spelling banner differs from the decorated one (the '!' is load-bearing)" \
+                           || bad "the bare and decorated banners are the same string — the decoration assertion is vacuous"
+
+# ------------------------------------- the canonical banner, pinned cross-repo
+# The banner string is declared ONCE, in tests/contract/ssid-naming-fixtures.txt
+# (the same table the Go matcher's unit test and tests/contract/check-ssid-naming.sh
+# consume). This block is what makes a FOURTH spelling fail CI: it derives the
+# expected banner from that table and refuses to guess, so if the table loses the
+# directive, or a writer drifts off the derived value, this suite is red.
+echo "== canonical banner: declared in the shared table, derived here (cross-repo pin)"
+if [ -n "$WANT" ]; then
+    ok "the shared table declares the canonical banner for '!TollGate-${FIXTURE_CODE}' ('${WANT}')"
+else
+    bad "tests/contract/ssid-naming-fixtures.txt carries no 'banner !TollGate-${FIXTURE_CODE} <text>' directive — the cross-repo banner pin is gone (the installer's divergent spelling would go unnoticed again)"
+fi
+suffix="$(canon_banner_suffix)"
+if [ -n "$suffix" ] && [ "$WANT" = "!TollGate-${FIXTURE_CODE} ${suffix}" ]; then
+    ok "the canonical banner is exactly the canonical captive SSID plus '${suffix}' (shape pinned once)"
+else
+    bad "the canonical banner '${WANT}' is not '<captive SSID> <banner-suffix>' with suffix '${suffix}'"
+fi
+# The installer's spelling — the SSID with NO suffix — is a DIFFERENT string, and
+# it is the spelling that runs LAST on a deployed router. Pinned as an explicit
+# negative so the divergence is named in the suite rather than implied.
+INSTALLER_SPELLING="!TollGate-${FIXTURE_CODE}"
+[ "$INSTALLER_SPELLING" != "$WANT" ] \
+    && ok "the installer's suffix-less spelling ('${INSTALLER_SPELLING}') is a DIFFERENT string and is NOT the canonical banner" \
+    || bad "the installer's spelling equals the canonical banner — the cross-repo divergence would be invisible"
+if grep -qE "^nomatch-banner|^banner-negative" "$CANON_TABLE" 2>/dev/null; then
+    ok "the shared table names the divergent spelling as a negative (the installer's is on record)"
+else
+    bad "the shared table does not name the installer's suffix-less spelling as a negative — a future reader will not know the invariant spans two repos"
+fi
 
 # ---------------------------------------------------------- FULL path
 if run_case full "$OLDER"; then ok "full-setup run exits 0"; else bad "full-setup run exited $?"; fi
@@ -309,6 +399,9 @@ eq "the full path took the FULL branch" "$(branch_of "$TMP/setup.log")" "FULL"
 full_gw="$(state_opt "$TMP/full/uci.state" 'nodogsplash.@nodogsplash[0].gatewayname')"
 eq "the FULL path commits the banner '${WANT}' (mutation M8 fails here)" "$full_gw" "$WANT"
 eq "the FULL path leaves no pending gatewayname delta" "$(pending_gw "$TMP/full/uci.state")" "0"
+eq "the FULL path's banner carries the SSID's #706 decoration" \
+   "$(printf '%s' "$full_gw" | cut -c1)" "!"
+eq "the FULL path's banner IS the canonical one from the shared table" "$full_gw" "$WANT"
 
 # ------------------------------------------------ REPAIR path, settled router
 # The normal case: the router has already been set up under this version, so the
@@ -323,6 +416,13 @@ eq "no gatewayname op is left pending in the /tmp/.uci-style delta" \
    "$(pending_gw "$TMP/repair/uci.state")" "0"
 eq "the repair path's captive SSID converged on the same code" \
    "$(state_opt "$TMP/repair/uci.state" 'wireless.tollgate_2g_open.ssid')" "!TollGate-OQ3Q"
+# The banner and the SSID are the SAME name: strip the banner's " Portal"
+# suffix and it must be byte-identical to the configured captive SSID. This is
+# the invariant the installer's spelling breaks, and pinning it from BOTH live
+# runs is what makes a fourth spelling here a CI failure (defect 2).
+repair_ssid="$(state_opt "$TMP/repair/uci.state" 'wireless.tollgate_2g_open.ssid')"
+eq "the banner is exactly '<captive SSID> Portal'" \
+   "$(printf '%s' "$repair_gw" | sed -E 's/ Portal$//')" "$repair_ssid"
 eq "the operator's PSK is untouched" \
    "$(state_opt "$TMP/repair/uci.state" 'wireless.private_radio0.key')" "Alpha-Bravo-Charlie-11"
 

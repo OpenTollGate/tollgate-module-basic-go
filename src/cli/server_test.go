@@ -51,8 +51,8 @@ func (m *MockCLIConnector) FindOrCreateSTAForSSID(ssid, passphrase, encryption, 
 func (m *MockCLIConnector) RemoveDisabledSTA(ssid string) error {
 	return m.Called(ssid).Error(0)
 }
-func (m *MockCLIConnector) SwitchUpstream(activeIface, candidateIface, candidateSSID string) error {
-	return m.Called(activeIface, candidateIface, candidateSSID).Error(0)
+func (m *MockCLIConnector) SwitchUpstream(activeIface, candidateIface, candidateSSID, candidateBSSID string) error {
+	return m.Called(activeIface, candidateIface, candidateSSID, candidateBSSID).Error(0)
 }
 func (m *MockCLIConnector) GetSTADevice(ifaceName string) (string, error) {
 	args := m.Called(ifaceName)

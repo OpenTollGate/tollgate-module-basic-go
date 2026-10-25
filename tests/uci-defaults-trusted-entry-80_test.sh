@@ -167,6 +167,10 @@ export PASSWD_FILE="$TMP/passwd.db"
 printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
 : > "$PASSWD_FILE"
 export ROUTER_HOME_DIR="$TMP/router-home"
+# The credential markers default to absolute paths; pin them into the sandbox so
+# the private-WiFi default does not try to write the build host's /etc/tollgate.
+export ADMIN_PROVISIONAL_MARKER="$TMP/etc/tollgate/admin-credential-provisional"
+export PRIVATE_WIFI_PROVISIONAL_MARKER="$TMP/etc/tollgate/private-wifi-credential-provisional"
 
 seed_stock() { # a stock-router seed: LAN address, radio bands, guest/private APs
     : > "$UCI_STATE"
