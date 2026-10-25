@@ -177,10 +177,7 @@ func lateOutcomeCase(t *testing.T, amount uint64, receiveErr error) (*Merchant, 
 	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
-
-	prevTimeout := receiveTimeout
-	receiveTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { receiveTimeout = prevTimeout })
+	m.receiveTimeout = 150 * time.Millisecond
 
 	return m, wallet, release, captureSyncLogs(t)
 }
@@ -203,6 +200,13 @@ func lateOutcomeRecord(lines []string) string {
 	for _, line := range lines {
 		if strings.Contains(line, "token_amount=") || strings.Contains(line, "outcome unknown") {
 			continue
+		}
+		// The late-success path logs the COMPLETED record and then,
+		// unconditionally, the owed-grant ERROR (owed_grant.go). Sampling
+		// "the last line" raced that second line: the pass depended on
+		// snapshotting between the two. Pick the outcome record by name.
+		if strings.Contains(line, "late Receive COMPLETED") {
+			return line
 		}
 		record = line
 	}

@@ -62,8 +62,8 @@ func (m *MockConnector) RemoveDisabledSTA(ssid string) error {
 	return args.Error(0)
 }
 
-func (m *MockConnector) SwitchUpstream(activeIface, candidateIface, candidateSSID string) error {
-	args := m.Called(activeIface, candidateIface, candidateSSID)
+func (m *MockConnector) SwitchUpstream(activeIface, candidateIface, candidateSSID, candidateBSSID string) error {
+	args := m.Called(activeIface, candidateIface, candidateSSID, candidateBSSID)
 	return args.Error(0)
 }
 

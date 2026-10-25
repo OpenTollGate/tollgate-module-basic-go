@@ -102,6 +102,11 @@ export COMMITTED="$TMP/committed-nodogsplash"
 export PROVISIONED_CERT PROVISIONED_KEY OPTOUT_FILE OPERATOR_CERT OPERATOR_KEY
 export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd"
+# The credential markers default to absolute paths; keep them in the sandbox so a
+# run neither touches the build host's /etc/tollgate nor trips over the sandbox's
+# missing one when the private-WiFi default is applied.
+export ADMIN_PROVISIONAL_MARKER="$TMP/etc/tollgate/admin-credential-provisional"
+export PRIVATE_WIFI_PROVISIONAL_MARKER="$TMP/etc/tollgate/private-wifi-credential-provisional"
 
 # ---------------------------------------------------------------- fake uci
 # Flat-file stand-in: one "key=value" line per option, list options stored as one
