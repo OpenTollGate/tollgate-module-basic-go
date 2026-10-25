@@ -28,9 +28,13 @@ import (
 func TestEverySchemaSecretIsRedactedAndReported(t *testing.T) {
 	cfg := config_manager.NewDefaultConfig()
 	cfg.PrivateKey = "Unique-Pass-2026"
+	cfg.MPTCPBonding.Password = "fixture-bond-value-not-a-secret"
 
 	handled := map[string]func() string{
 		"private_key": func() string { return redactSecretFields(cfg).PrivateKey },
+		"password": func() string {
+			return redactSecretFields(cfg).MPTCPBonding.Password
+		},
 	}
 
 	keys := secretJSONKeys()

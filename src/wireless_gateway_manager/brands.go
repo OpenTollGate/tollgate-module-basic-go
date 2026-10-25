@@ -33,11 +33,24 @@ const whitelabelCaptivePrefix = "Net4" + "sats" + "-"
 // agreement.
 var tollGateBrandPrefixes = []string{"TollGate-", whitelabelCaptivePrefix}
 
+// ssidDecoration is the optional leading '!' the captive-SSID writer may
+// emit (#706: the guest SSID sorts first in alphabetically-ordered client
+// lists). It is decoration, never a new brand prefix: recognition strips at
+// most ONE occurrence, so a double '!!TollGate-…' is explicitly not a
+// TollGate name (a fixture class, not an accident).
+const ssidDecoration = "!"
+
 // hasTollGateSSID reports whether ssid starts with any brand prefix the
-// captive-SSID writer can emit, case-insensitively.
+// captive-SSID writer can emit, case-insensitively, with at most one
+// leading '!' decoration stripped first. The acceptance table both this
+// helper and the contract check run against is pinned in
+// tests/contract/ssid-naming-fixtures.txt (#618: the matcher was once
+// brand-blind; #706: the decoration arrived) — keep table and prefixes in
+// agreement.
 func hasTollGateSSID(ssid string) bool {
+	name := strings.TrimPrefix(ssid, ssidDecoration)
 	for _, prefix := range tollGateBrandPrefixes {
-		if len(ssid) >= len(prefix) && strings.EqualFold(ssid[:len(prefix)], prefix) {
+		if len(name) >= len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) {
 			return true
 		}
 	}

@@ -5,7 +5,7 @@
 #
 #   * exactly ONE uhttpd section listens on :8090, and it is the portal-staged
 #     admin board — uhttpd.admin, home=/www/tollgate, written by
-#     92-tollgate-admin-setup (staged by packaging/portal-build.sh from the
+#     999-tollgate-admin-setup (staged by packaging/portal-build.sh from the
 #     pinned portal tree, installed by packaging/Makefile). A second section
 #     claiming :8090 is a bind fight in which one of the two admin UIs
 #     disappears;
@@ -27,7 +27,7 @@
 #
 # Offline: no router, no SDK, no network. The shipped driver runs against a fake
 # uci/apk/passwd and a sandboxed /etc, on BOTH setup paths — the same seam
-# tests/packaging/admin-board-requires-credential_test.sh and
+# tests/packaging/admin-board-defaults-to-tollgate_test.sh and
 # tests/uci-defaults-trusted-entry-80_test.sh use.
 #
 # The legacy section name is never spelled out in this repo (see
@@ -216,7 +216,7 @@ export DEVICE_CODE_STORE="$TMP/config/tollgate"
 BRAND_FILE="$TMP/etc/tollgate/brand"
 mkdir -p "$TMP/config" "$TMP/etc/tollgate"
 # A credential EXISTS: the gate then leaves the board standing (its own
-# fail-closed behaviour is pinned by tests/packaging/admin-board-requires-credential_test.sh).
+# credential behaviour is pinned by tests/packaging/admin-board-defaults-to-tollgate_test.sh).
 printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
 : > "$PASSWD_FILE"
 rm -f "$BRAND_FILE"

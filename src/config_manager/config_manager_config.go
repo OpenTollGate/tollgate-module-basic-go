@@ -28,6 +28,29 @@ type Config struct {
 	UpstreamDetector       UpstreamDetectorConfig       `json:"upstream_detector"`
 	UpstreamSessionManager UpstreamSessionManagerConfig `json:"upstream_session_manager"`
 	UpstreamWifi           UpstreamWifiConfig           `json:"upstream_wifi"`
+	// MaintainerNpub names the Nostr identity that owns this tollgate. It is
+	// the authorization boundary of the CVM control plane: only this npub may
+	// call a state-changing tool over Nostr (see
+	// docs/architecture/cvm-control-plane-decision.md, D3). It is ALSO the
+	// discovery key — the router publishes it in the `p` tag of its kind-11316
+	// announcement, which is how a dashboard finds every tollgate one
+	// maintainer owns without any registry (D4).
+	//
+	// Empty is the "unclaimed" sentinel and is legal: a router that has not
+	// been claimed still serves customers, it just cannot be managed remotely
+	// and does not appear in anyone's fleet view. Anything non-empty must be a
+	// bech32 npub1… key — see ValidateMaintainerNpub for why a raw hex pubkey
+	// is refused rather than normalized.
+	MaintainerNpub string `json:"maintainer_npub,omitempty"`
+	// MPTCPBonding is an OPTIONAL multi-WAN bond. It is off by default and
+	// nothing in this package acts on it: the mptcp_bonding module reads it and
+	// renders the kernel state. Declared here so the schema entry is not an
+	// orphan (TestSchemaHasNoOrphanEntries), and so an operator can set it
+	// through the normal `tollgate config` path.
+	//
+	// The Password field is a SECRET and must be redacted on every read path,
+	// like PrivateKey above.
+	MPTCPBonding MPTCPBondingConfig `json:"mptcp_bonding,omitempty"`
 	// Operator-settable network settings. Declared intent: nothing reads these
 	// fields directly. The applier in src/cli/operator_settings.go converges
 	// them onto the router (UCI wireless + the admin-access nft fragment) on
@@ -70,6 +93,35 @@ type UpstreamWifiConfig struct {
 	DHCPTimeoutSeconds     int  `json:"dhcp_timeout_seconds"`
 	ManualPauseSeconds     int  `json:"manual_pause_seconds"`
 	VendorIEDiscovery      bool `json:"vendor_ie_discovery"`
+}
+
+// MPTCPBondingConfig describes an optional MPTCP multi-WAN bond.
+//
+// Every field is optional and the whole section is absent on a node that has
+// not opted in: LoadConfig in the mptcp_bonding module treats an absent section
+// as a disabled bond rather than an error, so an upgrade never fails on it.
+//
+// Password is a SECRET and must be redacted on read paths.
+type MPTCPBondingConfig struct {
+	Enabled      bool                `json:"enabled"`
+	Policy       string              `json:"policy,omitempty"`
+	Server       string              `json:"server,omitempty"`
+	Method       string              `json:"method,omitempty"`
+	Password     string              `json:"password,omitempty"`
+	Uplinks      []MPTCPUplinkConfig `json:"uplinks,omitempty"`
+	Subflows     int                 `json:"subflows,omitempty"`
+	SteeringCIDR string              `json:"steering_cidr,omitempty"`
+	SocksPort    int                 `json:"socks_port,omitempty"`
+	TproxyPort   int                 `json:"tproxy_port,omitempty"`
+	FwMark       string              `json:"fwmark,omitempty"`
+	FwMarkTable  int                 `json:"fwmark_table,omitempty"`
+}
+
+// MPTCPUplinkConfig is one member of the bond. Address may be empty, in which
+// case it is learned at runtime when the interface acquires a lease.
+type MPTCPUplinkConfig struct {
+	Interface string `json:"interface"`
+	Address   string `json:"address,omitempty"`
 }
 
 // MintConfig holds configuration for a specific mint.
@@ -476,6 +528,20 @@ func NewDefaultConfig() *Config {
 		PrivateEncryption: "psk2+ccmp",
 		AdminAccess:       "both",
 		EntryUI:           "board",
+		// MPTCP bonding is OPT-IN: Enabled is false, and the remaining fields
+		// carry the schema's declared defaults so defaults_parity_test.go
+		// keeps schema and code in step. An operator who never touches this
+		// section gets a disabled bond and no behaviour change.
+		MPTCPBonding: MPTCPBondingConfig{
+			Enabled:     false,
+			Policy:      "guest_only",
+			Method:      "chacha20-ietf-poly1305",
+			Subflows:    8,
+			SocksPort:   1081,
+			TproxyPort:  1082,
+			FwMark:      "0x1",
+			FwMarkTable: 100,
+		},
 	}
 }
 
