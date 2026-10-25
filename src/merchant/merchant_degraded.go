@@ -194,7 +194,7 @@ func (m *MerchantDegraded) GetAllMintBalances() map[string]uint64 {
 
 func (m *MerchantDegraded) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
 	noticeEvent, err := m.CreateNoticeEvent("error", "service-unavailable",
-		"TollGate is initializing. No reachable mints. Please try again in a few minutes.", macAddress)
+		"TollGate is initializing. No reachable mints. Please try again in a few minutes.", "")
 	if err != nil {
 		return nil, fmt.Errorf("wallet not initialized and failed to create notice: %w", err)
 	}
