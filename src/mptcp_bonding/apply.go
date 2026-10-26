@@ -86,6 +86,7 @@ fi
 	// corrected.
 	b.WriteString("\n# Uplink endpoints. Already-correct endpoints are left ALONE: removing\n")
 	b.WriteString("# and re-adding would churn the id and interrupt a live subflow.\n")
+	b.WriteString("FAILED=0\n")
 	for _, cmd := range c.EndpointPlan() {
 		addr, dev, ok := endpointParts(cmd)
 		if !ok {
@@ -96,10 +97,38 @@ fi
 		fmt.Fprintf(&b, "  cur_dev=$(ip mptcp endpoint show | awk -v a=\"%s\" '$1==a {for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1)}'); \\\n", addr)
 		fmt.Fprintf(&b, "  if [ -n \"$cur_id\" ] && [ \"$cur_dev\" = \"%s\" ]; then :; else \\\n", dev)
 		fmt.Fprintf(&b, "    [ -n \"$cur_id\" ] && ip mptcp endpoint delete id \"$cur_id\" 2>/dev/null || true; \\\n")
-		fmt.Fprintf(&b, "    %s || true; \\\n", cmd)
+		// A failed add must be LOUD (tollgate #974: `|| true` here produced a
+		// silently unbonded router on the vlab), but one bad uplink must not
+		// block the others under `set -e` either (the device-learned reason
+		// the guard existed). Track the failure per uplink, fail the whole
+		// script at the end so the reconcile surfaces it in the log.
+		fmt.Fprintf(&b, "    if ! %s; then echo \"mptcp_bonding: endpoint add failed for %s dev %s\" >&2; FAILED=1; fi; \\\n", cmd, addr, dev)
 		fmt.Fprintf(&b, "  fi\n")
 	}
+	b.WriteString("if [ \"$FAILED\" = 1 ]; then\n")
+	b.WriteString("    echo \"mptcp_bonding: one or more endpoint adds failed\" >&2\n")
+	b.WriteString("    exit 1\n")
+	b.WriteString("fi\n")
 
+	return b.String()
+}
+
+// FlushScript renders the disable-path teardown: remove every kernel MPTCP
+// endpoint this bond may have registered. Flushing an MPTCP-less kernel is
+// definitionally done, so unlike ApplyScript the availability preconditions
+// exit 0 ("nothing to flush") rather than 1 — a stock node without MPTCP
+// must not log a warning on every boot (#974: disable left orphan endpoints).
+func FlushScript() string {
+	var b strings.Builder
+	b.WriteString(applyPrologue)
+	b.WriteString(`
+# Nothing to flush when the kernel has no MPTCP or this ip cannot speak to it.
+if [ "$(cat /proc/sys/net/mptcp/enabled 2>/dev/null || echo 0)" != "1" ] || \
+   ! ip mptcp endpoint show >/dev/null 2>&1; then
+    exit 0
+fi
+ip mptcp endpoint flush
+`)
 	return b.String()
 }
 

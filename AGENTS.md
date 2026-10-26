@@ -18,7 +18,10 @@ TollGates (reseller mode). Read [README.md](README.md) for the module
 map and configuration reference.
 
 - Go code lives under [src/](src/); run all Go tooling from there,
-  not the repo root.
+  not the repo root. `make test` (scripts/go-test.sh) is the root-safe
+  way to run every module's tests from any directory or worktree; the
+  repo root carries a guard package so a root-level `go test ./...`
+  fails with the remedy instead of false-greening (#961).
 - Much of the behavior only exists on a real router (captive portal,
   firewall, Wi-Fi, `ndsctl`). Unit tests passing does not mean a
   router-visible change works — say so honestly in PR descriptions.
@@ -240,6 +243,67 @@ this module's `99-tollgate-setup` AND the feed's
 (the WARNING-named re-vendor contract in the README). A cross-repo
 contract without a named decision record is a bug.
 
+The feed ecosystem, explicitly, so agents file things in the right
+brain: this module owns the Go source and the generated **build
+contract** (`packaging/build-contract.json`, fenced by
+`tests/contract/check-build-contract.py`); `FreedomTechFeed/packages`
+`net/tollgate-wrt` owns the **canonical** OpenWrt feed recipe (its
+`test-build-contract.sh` consumes the contract from the pinned tarball);
+`FreedomTechFeed/feed` is a **wrapper mirror** of that recipe (synced by
+`scripts/sync-from-canonical.sh` — never hand-edit it). Bug routing: Go
+code and packaging payloads → here; recipe/pins/portal vendoring → the
+canonical feed; anything found in the wrapper → fixed by re-sync, not by
+editing the wrapper. When a contract-governed fact changes here (binary
+set, go minimum), say so in the PR body — the feed's fences go red on
+its next repin until it catches up, and that is the intended signal, not
+an accident.
+
+### The two lanes and the contract (the operating picture)
+
+Learned on the 2026-10 SDK-Go lane; follow even when a local shortcut
+looks easier.
+
+- **The fast lane is the release pipeline.** Manifest-pinned host
+  compile, staged into the digest-pinned SDK — pinned end-to-end, so it
+  reproduces months later (measured: ~20 s warm, ~32 s per cold clean
+  root, byte-identical). The OpenWrt-SDK way is the **compatibility
+  canary**: it exists to notice drift from OpenWrt's own toolchain, not
+  to produce artifacts. A red canary is cured by re-tracking the pin
+  intentionally (sdk-go-version.sh update + the .go.version bump), NEVER
+  by unpinning the fast lane to follow the feed.
+- **The build contract is generated, and it owns the shipped set.** To
+  ship a new binary: add the `PREBUILT_*` line in `packaging/Makefile`,
+  run `scripts/gen-build-contract.sh`, and let
+  `tests/contract/check-build-contract.py` go red until every carrier
+  and feed catches up — that red is the fence doing its job (#1020 was
+  a carrier missing a binary the authority already declared; #1021 is
+  the fence that makes it impossible). Never hand-edit
+  `packaging/build-contract.json`. A harness script that builds Go but
+  is not a carrier carries a reasoned `# contract-exempt:` line, not
+  silence.
+- **Toolchains come from `TG_TOOLS`, not from whatever is on PATH.**
+  Install the manifest Go into `~/.cache/tollgate-tools` (the manifest
+  tarball, sha256-verified). A stale install there is how
+  "works here, differs there" starts — the lane found 1.25.8 installed
+  against a 1.26.9 pin. `portal-build.sh` and `repro-test.sh` both
+  default `TG_TOOLS`; do not add a third way.
+- **CI economy: seconds vs half-hours.** Fences, contract checks and
+  host cross-compiles cost seconds and may run on every push; SDK
+  builds cost half-hours and belong on tags, nightly schedules, or
+  explicit labels — never per-push, and never for diffs that cannot
+  affect a build (the downstream feed once burned 8 × ~31 min of
+  runners on a README-only PR; path hygiene is a fence too). Never add
+  a lane-local toolchain literal — lanes derive from the manifest or
+  the contract (`check-version-sync.sh` refuses literals; that guard
+  exists because a lane once built 1.25.0 binaries against a 1.25.8
+  pin).
+- **The pre-commit hook is load-bearing and was once dead.** It was
+  syntactically unparseable on `main` for an unknown stretch — every
+  opt-in check (gofmt, gonuts pin, version sync, SSID fences) silently
+  not running (#1018). When a hook-dependent check surprises you,
+  verify the hook actually executes (`bash -n hooks/pre-commit`; `git
+  config core.hooksPath hooks`) before debugging the check.
+
 ## Firewall, nftables, and topology-naming rules of engagement
 
 Every rule here was learned from a bench-verified failure on the 0.6.0
@@ -386,6 +450,21 @@ home, and a change is verified where its failure class is observable:
   docker (ai-legion has it).
 - **Labgrid physical tier**: real RF, real client devices, power-pull
   windows, era-specific kernels (e.g. mt7621 bridge-teardown behavior).
+VM-lane pitfalls earned on the 2026-10-08 rc1 bench-verify (evidence:
+`ai-legion:~/tollgate-vm/bench-verify/`):
+
+- Under QEMU user networking the guest's `10.0.2.2` IS the host's
+  loopback — a pristine VM's "upstream" can be another lane's service
+  (the mockgate incident). Never assume rig network isolation, and never
+  modify or kill a host service a guest probe happens to reach.
+- A radio-less VM still exercises NDS enforcement fully with a synthetic
+  pre-auth client: `apk add ip-full kmod-veth`, a netns with a veth
+  slaved into the captive bridge. BusyBox `nc` has no `-w`/`-z` — probe
+  with `wget` and read the errno ("Operation not permitted" is the nft
+  reject signature; a timeout means the packet passed the gate).
+- `fw4 reload` procd-restarts nodogsplash, so runtime trust/auth state
+  is wiped on every firewall reload — re-trust inside any test that
+  depends on it, and suspect it whenever counters "reset themselves".
 
 ## Contributing process
 
@@ -408,7 +487,7 @@ get wrong:
 
   It runs `gofmt` (must print nothing), `go vet`, `go build` and
   `go test -race -count=1 -tags testenv` in **every** Go module —
-  [src/](src/) is a multi-module tree (16 nested `go.mod` files), so
+  [src/](src/) is a multi-module tree (18 nested `go.mod` files), so
   running those commands from `src/` alone covers only the root module
   and silently skips all subpackages. One implementation:
   [scripts/go-battery.sh](scripts/go-battery.sh).
@@ -417,6 +496,11 @@ get wrong:
   or a shipped default, also run `node tests/contract/js-schema-lint.mjs`,
   `bash tests/contract/build-purity.sh` and
   `bash tests/contract/check-ssid-format.sh` from the repo root.
+- `src/merchant` payment-timing tests (the purchase-session guard and the
+  late-receive outcome windows) are the repo's known flake class — if one
+  fails under your change, first reproduce it on pristine `origin/main`
+  in a throwaway worktree before assuming you broke it (2026-10-08: both
+  named windows failed on a clean checkout mid-battery).
 - PRs are squash-merged; the maintainer rewrites the final commit
   message.
 
@@ -444,6 +528,31 @@ times on the 0.6.0 train (#524, #531), which is why fragments exist; a
 `--ours` conflict resolution twice resurrected already-moved entries.
 (`tests/contract/check-changelog-duplicates.py` guards the fold; do not
 bypass it by hand-editing.)
+Every user-visible change lands with an entry in
+[CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`:
+
+- Categories: `Added`, `Fixed`, `Changed / Internal` (CI, tests,
+  refactors, and docs go in the last one).
+- One bullet per change, bold lead-in phrase, linking the PR as
+  `([#N](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/N))`.
+  Match the existing entries' wrapped style.
+- Doc-only or purely internal one-liners may be batched, but don't
+  skip the entry — the changelog is finalized into release notes at
+  release time (`[Unreleased]` becomes `[vX.Y.Z] - date`, and
+  [RELEASE-NOTES.md](RELEASE-NOTES.md) is rewritten per release).
+- **Temporary workarounds are registered debt, never silent markers.** Any
+  `TEMPORARY WORKAROUND` comment in `src/` must carry a row in
+  [docs/temporary-workarounds.md](docs/temporary-workarounds.md) — id,
+  owning issue, added-in, invocation contract, review-by — and
+  `tests/contract/temporary-workarounds_test.sh` fails the build otherwise,
+  including when a workaround grows a call site outside its registered
+  contract (#768: the port-80 poke shipped ungated and untracked through a
+  whole release train before a bench rig read its log line).
+- **Probe/detect code stays side-effect-free.** Out-of-protocol requests to
+  third parties (the browser-mimic port-80 class) fire only from the
+  session-adoption layer, after validation, never per poll tick — a probe
+  hit is not evidence of a TollGate, and a 30 s ticker turns any per-probe
+  side effect into a poke loop against gateways already rejected (#768).
 
 ## Builds and releases on Nostr
 

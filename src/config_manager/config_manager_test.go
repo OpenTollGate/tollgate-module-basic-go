@@ -282,3 +282,43 @@ func TestDefaultSessionRenewalOffsetsCoherent(t *testing.T) {
 		)
 	}
 }
+
+func TestEnsureDefaultConfigRefusesSchemaShapeMismatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	bad := `{"config_version":"v0.0.10","accepted_mints":["http://mint.example"]}`
+	if err := os.WriteFile(path, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureDefaultConfig(path); err == nil {
+		t.Fatal("expected a shape mismatch (accepted_mints as string array) to be refused, got defaults")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != bad {
+		t.Fatalf("operator config was rewritten after refusal:\n%s", after)
+	}
+}
+
+func TestEnsureDefaultConfigRecoversTruncatedConfig(t *testing.T) {
+	probe := "/etc/tollgate/config_backups/.probe"
+	if err := os.WriteFile(probe, nil, 0o600); err != nil {
+		t.Skipf("backup dir not writable here (recovery path needs it): %v", err)
+	}
+	_ = os.Remove(probe)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{"accepted_mints": [`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := EnsureDefaultConfig(path)
+	if err != nil {
+		t.Fatalf("truncated config should recover with defaults: %v", err)
+	}
+	if len(cfg.AcceptedMints) == 0 {
+		t.Fatal("expected factory default mints after truncation recovery")
+	}
+}
