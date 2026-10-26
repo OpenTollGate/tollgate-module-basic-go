@@ -172,6 +172,28 @@ var balanceCmd = &cobra.Command{
 	},
 }
 
+var issueCmd = &cobra.Command{
+	Use:   "issue <amount> <unit> [mint-url]",
+	Short: "Issue ecash on request (operator side)",
+	Long: `Issue custom-unit ecash from this router's mint to hand to a customer.
+
+The token is printed to stdout so it can be given to the customer, who holds it
+in their own wallet and spends it in small transactions. The unit must match the
+mint's configured unit (for example "mb" for megabytes or "min" for minutes).
+
+This is the issuance-on-request path: quote, wait for the payment, mint, print.`,
+	Args: cobra.RangeArgs(2, 3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		amount := args[0]
+		unit := args[1]
+		mintURL := ""
+		if len(args) == 3 {
+			mintURL = args[2]
+		}
+		return sendCommandAndDisplay("wallet", []string{"issue", amount, unit, mintURL}, nil)
+	},
+}
+
 var infoCmd = &cobra.Command{
 	Use:   "info",
 	Short: "Show wallet information",
@@ -551,7 +573,7 @@ func init() {
 	drainCashuCmd.Flags().BoolVarP(&drainAssumeYes, "yes", "y", false, "Assume yes; skip the interactive confirmation prompt (for automation)")
 
 	drainCmd.AddCommand(drainCashuCmd)
-	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
+	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd, issueCmd)
 	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd, privateSetEncryptionCmd)
 	networkCmd.AddCommand(privateCmd)
 	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd, upstreamKnownCmd)

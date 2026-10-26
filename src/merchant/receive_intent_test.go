@@ -31,6 +31,7 @@ type intentNote struct{}
 
 func (intentNote) Mint() string               { return renewalMintURL }
 func (intentNote) Amount() uint64             { return renewalSats }
+func (intentNote) Unit() string { return "" }
 func (intentNote) Serialize() (string, error) { return "cashuBreceive-intent-fixture", nil }
 func (intentNote) Secrets() []string          { return nil }
 func (intentNote) Close()                     {}

@@ -40,6 +40,7 @@ func (duplicateNote) Mint() string { return "https://preflight-mint.example.com"
 func (duplicateNote) Amount() uint64 {
 	return 1
 }
+func (duplicateNote) Unit() string { return "" }
 func (duplicateNote) Serialize() (string, error) { return duplicateNoteSerialized, nil }
 func (duplicateNote) Close()                     {}
 
@@ -52,6 +53,7 @@ type unserializableNote struct{ tollwallet.Token }
 
 func (unserializableNote) Mint() string   { return "https://preflight-mint.example.com" }
 func (unserializableNote) Amount() uint64 { return 1 }
+func (unserializableNote) Unit() string   { return "" }
 func (unserializableNote) Serialize() (string, error) {
 	return "", errors.New("fixture: unserializable note")
 }

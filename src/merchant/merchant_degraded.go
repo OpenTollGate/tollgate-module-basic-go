@@ -325,6 +325,21 @@ func (m *MerchantDegraded) Fund(cashuToken string) (uint64, error) {
 	return 0, m.walletNotInitializedError()
 }
 
+// IssueOnRequest refuses: a degraded merchant has no reachable mint, and
+// issuance is a money-creating operation. Failing here is the correct outcome
+// -- an operator asking for a token must get an error, never a token that was
+// not actually backed by a mint.
+func (m *MerchantDegraded) IssueOnRequest(mintURL, unit string, amount uint64) (string, error) {
+	return "", fmt.Errorf("cannot issue ecash: no reachable mints (wallet not initialized)")
+}
+
+// DefaultIssuanceMint returns "" in degraded mode: with no reachable mint there
+// is nothing to issue from, so the caller gets the explicit "no mint" error
+// rather than a mint URL that cannot serve it.
+func (m *MerchantDegraded) DefaultIssuanceMint(unit string) string {
+	return ""
+}
+
 func (m *MerchantDegraded) WalletLoaded() bool {
 	return m.walletLoaded
 }

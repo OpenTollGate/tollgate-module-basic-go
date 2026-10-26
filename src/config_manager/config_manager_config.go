@@ -134,6 +134,14 @@ type MintConfig struct {
 	MinPayoutAmount         uint64 `json:"min_payout_amount"`
 	PricePerStep            uint64 `json:"price_per_step"`
 	PriceUnit               string `json:"price_unit"`
+	// Unit names the ecash unit this mint issues and this config prices, as
+	// the mint declares it on the wire ("sat", "msat", "usd", or an
+	// operator-issued custom unit such as "mb"/"min"). Empty means "sat":
+	// every pre-existing config is a satoshi mint, and the merchant prices
+	// sat tokens against it without a config change. A token in any OTHER
+	// unit is refused rather than mispriced — the 2026-10 draft integration
+	// with an operator-run CDK mint depends on this being explicit.
+	Unit                    string `json:"unit"`
 	MinPurchaseSteps        uint64 `json:"purchase_min_steps"`
 }
 
@@ -633,6 +641,14 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	if profitShareErr != nil {
 		log.Printf("WARNING: Invalid profit_share, resetting to defaults: %v", profitShareErr)
 		config.ProfitShare = defaultConfig.ProfitShare
+	}
+	// A custom-unit mint priced with a step_size from another unit gives away
+	// access on every sale (unit "mb" with the bytes default 22020096 sold 21x
+	// the access for the same money in the 2026-10 CDK integration). Warn
+	// rather than refuse: the router must keep serving customers who already
+	// paid, but the operator has to see this in logread.
+	if err := config.ValidateUnitPricingForConfig(); err != nil {
+		log.Printf("WARNING: unit/step_size mismatch — this router is mispricing access: %v", err)
 	}
 	if config.ConfigVersion != defaultConfig.ConfigVersion {
 		log.Printf("INFO: Config version %s → %s, migrating (preserving user settings)", config.ConfigVersion, defaultConfig.ConfigVersion)
