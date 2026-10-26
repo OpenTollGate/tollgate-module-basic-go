@@ -577,7 +577,7 @@ work runs automatically after `config set`/`config save` and at service start,
 so this verb is for a `config.json` you edited by hand:
 
 ```
-Operator settings converged (runtime: unchanged, not applicable here)
+Operator settings converged (runtime: 1 unchanged, 1 not applicable here)
 ```
 
 It is a converging writer: a router whose runtime already matches the file
