@@ -63,15 +63,21 @@ func TestApplyScriptIsIdempotentOnEndpoints(t *testing.T) {
 		// re-running cannot fail on a duplicate registration. The delete must go
 		// through the owning id: `endpoint delete <addr>` is invalid grammar.
 		// So look for an id-resolving delete of this address in the preceding
-		// lines, and require that the add itself is guarded.
+		// lines, and require that a failed add is tracked, not swallowed
+		// (#974: `|| true` here produced a silently unbonded router — the
+		// failure must not abort the OTHER uplinks under `set -e`, but the
+		// script as a whole must exit non-zero when any add fails).
 		fields := strings.Fields(line)
 		if len(fields) < 5 {
 			t.Errorf("malformed endpoint add: %q", line)
 			continue
 		}
 		addr := fields[4]
-		if !strings.Contains(line, "|| true") {
-			t.Errorf("endpoint add for %s must be guarded so EEXIST cannot abort: %q", addr, line)
+		if !strings.HasPrefix(strings.TrimSpace(line), "if ! ip mptcp endpoint add") {
+			t.Errorf("endpoint add for %s must run under a per-uplink `if !` guard: %q", addr, line)
+		}
+		if !strings.Contains(line, "FAILED=1") || !strings.Contains(line, "add failed") {
+			t.Errorf("endpoint add for %s must record the failure loudly (echo + FAILED=1): %q", addr, line)
 		}
 		guarded := false
 		for j := i - 1; j >= 0 && j >= i-6; j-- {
@@ -132,4 +138,44 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// #974: disable must be a full rollback — FlushScript removes every kernel
+// endpoint, and is a silent no-op on kernels without MPTCP so a stock node
+// never logs a warning on boot.
+func TestFlushScriptRendersGuardedFlush(t *testing.T) {
+	s := FlushScript()
+	if !strings.Contains(s, "ip mptcp endpoint flush") {
+		t.Errorf("flush script must contain the flush command:\n%s", s)
+	}
+	if !strings.Contains(s, "exit 0") {
+		t.Errorf("flush script must exit 0 when MPTCP is unavailable (nothing to flush):\n%s", s)
+	}
+	if strings.Contains(s, "exit 1\nfi") && !strings.Contains(s, "endpoint flush") {
+		t.Errorf("flush script must not demand MPTCP the way apply does:\n%s", s)
+	}
+	if FlushScript() != s {
+		t.Error("flush script must render byte-identical on every call (idempotent reconcile)")
+	}
+}
+
+// The loud-failure invariant: a failed endpoint add must not abort the other
+// uplinks (device-learned: EEXIST under `set -e` left the bond half-applied)
+// but must fail the whole script so the reconcile surfaces it (#974).
+func TestApplyScriptFailsScriptWhenAnyEndpointAddFails(t *testing.T) {
+	c := validConfig()
+	c.Uplinks = []Uplink{
+		{Interface: "eth1", Address: "192.0.2.10"},
+		{Interface: "phy1-sta0", Address: "198.51.100.7"},
+	}
+	s := c.ApplyScript()
+	if !strings.Contains(s, "FAILED=0") {
+		t.Error("apply script must initialise the failure tracker")
+	}
+	if !strings.Contains(s, `[ "$FAILED" = 1 ]`) || !strings.Contains(s, "exit 1") {
+		t.Error("apply script must exit non-zero when any endpoint add failed")
+	}
+	if strings.Contains(s, "endpoint add failed") == false {
+		t.Error("a failed add must say which endpoint failed")
+	}
 }

@@ -25,7 +25,6 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/identity"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/mptcp_bonding"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
@@ -743,7 +742,15 @@ func installMerchant(merchantInstance merchant.MerchantInterface) {
 	swapMerchant(merchantInstance)
 
 	if deg, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
-		mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
+		if deg.StorageIncompatible() {
+			// #583: a jffs2-overlay box can never initialize the wallet, so
+			// the historic banner ("will initialize when a mint becomes
+			// reachable") is a false promise that sent operators hunting
+			// the mints while every mint probed 200 OK.
+			mainLogger.Error("Merchant started in degraded mode — wallet storage does not support shared mmap (jffs2 overlay?); the wallet cannot initialize on this filesystem until wallet.db moves to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)")
+		} else {
+			mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
+		}
 		// WireStartupDegraded registers the upgrade consumer AND the recovery
 		// trigger as one pair (#10). Doing only the first left the tracker's
 		// onFirstReachable nil, so the service stayed degraded forever even
@@ -797,27 +804,13 @@ func initUpstreamDetector() {
 	upstreamDetectorInstance.SetUpstreamSessionManager(usmInstance)
 
 	// MPTCP bond (optional). When the config enables it, the detector's
-	// interface events drive the bond's endpoint reconciliation. Absent or
-	// disabled config changes nothing: no sink is set and the detector behaves
-	// exactly as before.
-	if bondCfg, err := mptcp_bonding.LoadConfig(bondConfigJSON()); err != nil {
-		// A malformed bond section must not take the node down -- the bond is
-		// optional, and a router that boots without it still serves customers.
-		// Log it loudly so the misconfiguration is not invisible.
-		mainLogger.WithError(err).Error("MPTCP bond config invalid; bond disabled")
-	} else if bondCfg.Enabled {
-		applier := func(script string) error {
-			return exec.Command("/bin/sh", "-c", script).Run()
-		}
-		reconciler := mptcp_bonding.NewReconciler(bondCfg, applier)
-		upstreamDetectorInstance.SetBondReconciler(reconciler)
-		// Register what is already up: the detector only reports CHANGES, so
-		// without this an uplink that came up before the daemon started would
-		// never be registered.
-		if err := reconciler.ReconcileCurrent(); err != nil {
-			mainLogger.WithError(err).Error("MPTCP bond initial reconcile failed")
-		}
-	}
+	// interface events drive the bond's endpoint reconciliation. A clean
+	// disable (section absent or enabled=false) flushes any kernel endpoints
+	// a previous enabled boot left behind (#974: disable used to leave
+	// orphans). A malformed section changes nothing and is logged loudly.
+	applyBondConfig(bondConfigJSON(), func(name string, arg ...string) error {
+		return exec.Command(name, arg...).Run()
+	}, upstreamDetectorInstance.SetBondReconciler, logrusBondLogger{mainLogger})
 
 	go func() {
 		err := upstreamDetectorInstance.Start()
@@ -892,8 +885,11 @@ func initCLIServer() {
 // the body a paying customer gets — is only reachable in a unit test through
 // this seam (see TestBalanceEndpointLiveSessionReportsUsage).
 var (
-	dhcpLeasePath = "/tmp/dhcp.leases"
-	arpTablePath  = "/proc/net/arp"
+	dhcpLeasePath     = "/tmp/dhcp.leases"
+	arpTablePath      = "/proc/net/arp"
+	neighborTablePath = "/proc/net/icmp6_neighbors"
+	// neighborSource is overridable in tests; production shells out to ip -6 neigh.
+	neighborSource func() ([]byte, error)
 )
 
 // sentinelMACAddress is the all-zero address dnsmasq and the kernel ARP table
@@ -1064,7 +1060,39 @@ func getMacAddress(ipAddress string) (string, error) {
 		}
 	}
 
+	// Fallback for IPv6 payers: the kernel neighbor table. /proc/net/arp is
+	// IPv4-only, so an IPv6 source address (FIPS-mesh ULA, dual-stack LAN
+	// clients) could NEVER resolve a MAC here — the request was refused with
+	// device-unresolved even though the kernel knew the peer perfectly well.
+	// Read via `ip -6 neigh show` for portability; the procfs neighbor file
+	// name differs across kernels.
+	nsrc := neighborSource
+	if nsrc == nil {
+		nsrc = func() ([]byte, error) { return exec.Command("ip", "-6", "neigh", "show").Output() }
+	}
+	if out, err := nsrc(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			fields := strings.Fields(line)
+			// <addr> dev <dev> lladdr <mac> <state>
+			if len(fields) >= 4 && strings.ToLower(fields[0]) == ipLower {
+				if i := indexOf(fields, "lladdr"); i >= 0 && i+1 < len(fields) && fields[i+1] != sentinelMACAddress {
+					return strings.TrimSpace(fields[i+1]), nil
+				}
+			}
+		}
+	}
+
 	return "", fmt.Errorf("no MAC found for %s in DHCP leases or ARP table", ipAddress)
+}
+
+// indexOf returns the position of s in fields, or -1.
+func indexOf(fields []string, s string) int {
+	for i, f := range fields {
+		if f == s {
+			return i
+		}
+	}
+	return -1
 }
 
 // CORS middleware to handle Cross-Origin Resource Sharing
@@ -1204,7 +1232,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		mainLogger.WithError(err).Error("Request body read failed")
 		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "invalid-request",
-			"Invalid request", macAddress)
+			"Invalid request", "")
 		return
 	}
 
@@ -1233,7 +1261,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 		if cashuToken == "" {
 			mainLogger.Error("No payment tag found in event")
 			sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "invalid-event",
-				"No payment tag found in event", macAddress)
+				"No payment tag found in event", "")
 			return
 		}
 	} else {
@@ -1249,7 +1277,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		mainLogger.WithError(err).Error("Payment processing failed")
 		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusInternalServerError, "error", "internal-error",
-			"Payment processing failed", macAddress)
+			"Payment processing failed", "")
 		return
 	}
 

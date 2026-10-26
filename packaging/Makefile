@@ -57,10 +57,13 @@ include $(INCLUDE_DIR)/package.mk
 #   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
 #     into the control file, where `Replaces` does supersede the named package.
 #
-# So: declare the daemon, never also claim to replace it. Same contract as the
-# shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
-# with FreedomTechFeed/packages#57, the feed-side mirror of this change).
+# So: declare the daemon, never also claim to replace it. The dependency
+# list for this recipe is declared once, in the DEPENDS below; the
+# shipping-path feed definition (net/tollgate-wrt/Makefile in
+# FreedomTechFeed/packages) owns its own list, and
+# tests/packaging/package-nodogsplash-dependency_test.sh fences this
+# module's recipes — and the artifacts they build — against drifting from
+# the contract.
 #
 # ca-bundle is the SAME class of defect, found the same way: on a GL-MT3000
 # (OpenWrt 25.12.5) installing the shipped package by hand, `wget` AND
@@ -255,6 +258,8 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nds-preauth-render $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nft-interfaces-render $(1)/usr/local/bin/
 
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
@@ -320,6 +325,7 @@ FILES_$(PKG_NAME) += \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart \
+	/etc/nftables.d/00-tollgate-defs.nft \
 	/etc/nftables.d/20-nds-enforce.nft \
 	/etc/nftables.d/30-backend-firewall.nft \
 	/etc/nftables.d/31-admin-board-not-guest-reachable.nft \

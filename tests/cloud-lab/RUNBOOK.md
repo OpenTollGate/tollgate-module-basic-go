@@ -118,6 +118,16 @@ investigation instead of mixing them.
 12. **Bounded, idempotent teardown only.** A cleanup step that can hang
     (`compose down` against a wedged docker) wedges the caller. Wrap
     teardown in a timeout and make it safe to run twice.
+13. **The tracked `configs/install.json` is a template, not runtime
+    state.** Every container that bind-mounts it stamps `install_time`
+    at startup (`EnsureDefaultInstall`), writing through to the tracked
+    file — a lab run walks away with a dirty tree, and the mutation
+    twice hitchhiked near careless stashes (#550). After a plain
+    `docker compose` run: `git restore tests/cloud-lab/configs/install.json`.
+    Committing the stamped file fails
+    `tests/contract/check-cloud-lab-pristine.py`, which the pre-commit
+    hook and CI both run; if the template itself must change, update the
+    check's canonical copy in the same commit.
 
 ## Concurrent-session etiquette
 

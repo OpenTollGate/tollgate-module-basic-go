@@ -141,6 +141,11 @@ func TestResellerModeEnabled_ScanAllRadios(t *testing.T) {
 		{SSID: "TollGate-ABC", BSSID: "00:11:22:33:44:55", Signal: -50, Encryption: "none"},
 		{SSID: "OpenNetwork", BSSID: "66:77:88:99:AA:BB", Signal: -60, Encryption: "none"},
 		{SSID: "TollGate-XYZ", BSSID: "CC:DD:EE:FF:00:11", Signal: -70, Encryption: "none"},
+		// The shipped captive SSID carries a leading '!' so it sorts first in a
+		// WiFi list; reseller discovery must still select it as an upstream.
+		// (Whitelabel brand recognition is pinned in brands_test.go, on the
+		// shared hasTollGateSSID matcher this filter calls.)
+		{SSID: "!TollGate-DEF", BSSID: "AA:BB:CC:DD:EE:FF", Signal: -45, Encryption: "none"},
 	}, nil)
 
 	networks, err := mockScanner.ScanAllRadios()
@@ -148,14 +153,16 @@ func TestResellerModeEnabled_ScanAllRadios(t *testing.T) {
 		t.Fatalf("ScanAllRadios failed: %v", err)
 	}
 
+	// The reseller filter is the production recognizer, not a literal prefix
+	// slice: !TollGate- and !Net4sats- count exactly as the bare forms do.
 	tollGateCount := 0
 	for _, net := range networks {
-		if len(net.SSID) >= 9 && net.SSID[:9] == "TollGate-" {
+		if hasTollGateSSID(net.SSID) {
 			tollGateCount++
 		}
 	}
-	if tollGateCount != 2 {
-		t.Errorf("Expected 2 TollGate networks, got %d", tollGateCount)
+	if tollGateCount != 3 {
+		t.Errorf("Expected 3 TollGate networks, got %d", tollGateCount)
 	}
 
 	mockScanner.AssertExpectations(t)

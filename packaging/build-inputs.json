@@ -3,7 +3,7 @@
   "comment": "Immutable build inputs for reproducible tollgate-wrt artifacts. Every byte-affecting external input is pinned here. Update intentionally (see docs/reproducible-builds.md); never point portal.commit at a floating ref.",
   "go": {
     "version": "1.26.10",
-    "comment": "The toolchain that compiles the shipped binaries. SOURCE OF TRUTH: the official golang of the pinned OpenWrt SDK release's packages feed (see .openwrt_sdk.go_per_release) — the feed defines it, so our binaries are reproducible against the SDK's own toolchain; never a minor of our own choosing (#448). scripts/sdk-go-version.sh check enforces it against the live feeds; update re-derives it.",
+    "comment": "The toolchain that compiles the shipped binaries. SOURCE OF TRUTH: the official golang of the pinned OpenWrt SDK release's packages feed (see .openwrt_sdk.go_per_release) \u2014 the feed defines it, so our binaries are reproducible against the SDK's own toolchain; never a minor of our own choosing (#448). scripts/sdk-go-version.sh check enforces it against the live feeds; update re-derives it.",
     "tarball_linux_amd64": {
       "url": "https://go.dev/dl/go1.26.10.linux-amd64.tar.gz",
       "sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5"
@@ -11,7 +11,7 @@
   },
   "gonuts": {
     "repo": "https://github.com/OpenTollGate/gonuts-tollgate",
-    "version": "v0.13.0",
+    "version": "v0.14.1",
     "comment": "The wallet fork every Go module pins IDENTICALLY. tests/contract/check-gonuts-pin.py enumerates carriers by glob (never a hand list) and fails on any disagreement with this value; scripts/bump-gonuts.sh rewrites manifest and every carrier together. Before a release is cut, release-check verifies this is the fork's latest stable tag. Pseudo-version integration pins are for branches only and must not outlive their tag on main."
   },
   "node": {
@@ -39,7 +39,7 @@
   "openwrt_sdk": {
     "image": "openwrt/sdk",
     "go_per_release": {
-      "_comment": "Official Go toolchain of each OpenWrt release line, as shipped by that line's openwrt/packages feed (branch openwrt-<series>). scripts/sdk-go-version.sh check|update audits these against the live feed; the pinned .go.version must match the entry of the pinned .release's series. In-SDK Go builds on 23.05/24.10 additionally require src/go.mod's language minimum to be <= these versions (currently 1.25.0, so only 25.x qualifies).",
+      "_comment": "Official Go toolchain of each OpenWrt release line, as shipped by that line's openwrt/packages feed (branch openwrt-<series>). scripts/sdk-go-version.sh check|update audits these against the live feed; the pinned .go.version must match the entry of the pinned .release's series. In-SDK Go builds on 23.05/24.10 additionally require the tree's language minimum (generated into packaging/build-contract.json, go.minimum — 1.26.0 today) to be <= these versions, so only 25.x qualifies.",
       "23.05": "1.21.13",
       "24.10": "1.23.12",
       "25.12": "1.26.10"
@@ -71,7 +71,7 @@
       },
       "ipk": {
         "release": "24.10.8",
-        "comment": "The ipk/opkg era for the installed base (feed-less 24.10 systems — fork #93/#110 evidence). Digests are the point-release tags from hub.docker.com/openwrt/sdk. The SDK packages STAGED PREBUILT binaries (the manifest-pinned Go compiles on the host), so the era's older feed Go (1.23.x) never compiles our code — go_per_release keeps it audited for awareness.",
+        "comment": "The ipk/opkg era for the installed base (feed-less 24.10 systems \u2014 fork #93/#110 evidence). Digests are the point-release tags from hub.docker.com/openwrt/sdk. The SDK packages STAGED PREBUILT binaries (the manifest-pinned Go compiles on the host), so the era's older feed Go (1.23.x) never compiles our code \u2014 go_per_release keeps it audited for awareness.",
         "targets": {
           "mediatek-filogic": {
             "digest": "sha256:4109260d68a593972d0d0408e6e439472cd02df9a29a3a9383fd52bd97707a4a"
