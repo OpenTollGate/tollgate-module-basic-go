@@ -70,6 +70,17 @@ jobs:
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
+      # The entry-UI marker (/etc/tollgate/entry-ui-mapping, D4 of the
+      # default-ui-and-entry-port decision) is read by three declarations in
+      # two languages and two Go modules (99-tollgate-setup's shell repair,
+      # config_manager's default population, tollgate-cli's resolver). The
+      # fence requires every declaration to use ONE path value; a drifted
+      # copy silently sees "marker absent" and converges the wrong mapping.
+      # Offline (tree-only) on purpose, so it runs on this lane too — the
+      # ngit act lane is the live CI (#933).
+      - name: Entry-UI marker path (one value across shell and Go)
+        run: bash tests/contract/check-entry-ui-marker-path.sh
+
       - name: Doc-facts contract (docs that state facts must match the code)
         run: python3 tests/contract/check-docs-facts.py
 
@@ -194,6 +205,14 @@ jobs:
         run: bash tests/contract/build-purity.sh
       - name: Shipped AP SSID format check
         run: bash tests/contract/check-ssid-format.sh
+      - name: SSID naming contract (the matcher's acceptance table)
+        run: bash tests/contract/check-ssid-naming.sh
+      - name: NDS pre-auth allowlist nft ordering check
+        run: bash tests/contract/check-nds-preauth-nft.sh
+      - name: nft guard interface defines check
+        run: bash tests/contract/check-nft-interface-defs.sh
+      - name: gatewayinterface adoption check
+        run: bash tests/contract/check-gatewayinterface-adoption.sh
 
   deps-and-imports:
     runs-on: ubuntu-latest
@@ -204,6 +223,12 @@ jobs:
           go-version-file: src/go.mod
       - name: Dependency sync check
         run: python3 tests/contract/check-deps-sync.py
+      - name: Gonuts pin identity (one version, every carrier)
+        run: |
+          # Offline leg only (the ngit lane has no GitHub token for the
+          # fork-tag query; --latest is scripts/release-check.sh's verdict).
+          bash tests/contract/gonuts-pin_test.sh
+          python3 tests/contract/check-gonuts-pin.py
       - name: Mirror and relay sync check
         run: python3 tests/contract/check-mirror-sync.py
       - name: Stale import path check

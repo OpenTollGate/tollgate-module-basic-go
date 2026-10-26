@@ -2,7 +2,7 @@ package tollwallet
 
 // Sidecar wallet backend: a WalletPort implementation that talks to a separate
 // wallet daemon over an AF_UNIX socket using newline-delimited JSON. This lets
-// the router select a wallet backend (CDK, nucula, …) at runtime without CGO
+// the router select a wallet backend (currently CDK) at runtime without CGO
 // and without linking any Cashu library into the service.
 //
 // Protocol (one request per line, one response per line):

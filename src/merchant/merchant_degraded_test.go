@@ -41,7 +41,13 @@ func TestNewFullMerchant_WalletInitFail_FallsBackToDegraded(t *testing.T) {
 	tracker := newTestTracker(cfg, nil)
 	tracker.reachableMints[srv.URL] = true
 
+	// The fallback below arms the tracker's proactive checks and its
+	// first-reachable upgrade closure; both must die with this test, or a
+	// late upgrade constructs a full merchant whose usage sweep nobody
+	// stops (#733).
+	t.Cleanup(tracker.Stop)
 	result, err := newFullMerchant(cm, tracker)
+	drainUsageSweep(t, result) // the constructor (and its upgrade closure) starts usage sweeps nothing else stops (#733)
 
 	if err != nil {
 		t.Fatalf("newFullMerchant returned error (should have fallen back to degraded): %v", err)
@@ -498,6 +504,7 @@ func newDegradedMerchantWithMockWallet(t *testing.T, wallet Wallet, walletFactor
 		{URL: "https://mint2.test", PricePerStep: 2, PriceUnit: "sat"},
 	})
 	deg := ds.DegradedWithWallet(wallet, walletFactoryErr)
+	drainUsageSweep(t, deg)
 	return deg, ds.CM, ds.Tracker
 }
 
@@ -641,6 +648,7 @@ func TestKickstart_WalletNotLoaded_NoConfiguredMints(t *testing.T) {
 	}
 
 	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+	drainUsageSweep(t, deg)
 
 	if deg.WalletLoaded() {
 		t.Error("expected wallet to NOT be loaded when no mints configured")
@@ -663,7 +671,7 @@ func TestKickstart_WalletFactoryReceivesAllConfiguredMintURLs(t *testing.T) {
 		return &mockWallet{balance: 0}, nil
 	}
 
-	NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+	drainUsageSweep(t, NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir))
 
 	allConfigs := ds.Tracker.GetAllConfiguredMintConfigs()
 	expectedURLs := make([]string, len(allConfigs))
@@ -732,6 +740,7 @@ func TestKickstart_Integration_DegradedToFullUpgrade(t *testing.T) {
 	}
 
 	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+	drainUsageSweep(t, deg)
 
 	if !deg.WalletLoaded() {
 		t.Fatal("expected offline wallet to be loaded")
@@ -800,6 +809,7 @@ func TestKickstart_EndToEnd_OfflineKickstartWithWalletBalance(t *testing.T) {
 	}
 
 	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+	drainUsageSweep(t, deg)
 
 	if !deg.WalletLoaded() {
 		t.Fatal("expected wallet loaded from disk")
@@ -854,6 +864,7 @@ func TestKickstart_EndToEnd_FirstBootNoWallet_FallsBackToStubs(t *testing.T) {
 	}
 
 	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+	drainUsageSweep(t, deg)
 
 	if deg.WalletLoaded() {
 		t.Fatal("expected wallet to NOT be loaded on first boot")
@@ -1044,6 +1055,7 @@ func TestKickstart_Integration_ShutdownBeforeUpgrade(t *testing.T) {
 	}
 
 	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+	drainUsageSweep(t, deg)
 
 	if !deg.WalletLoaded() {
 		t.Fatal("expected offline wallet to be loaded")
@@ -1103,6 +1115,7 @@ func TestKickstart_Integration_UpgradeSwapsMerchantViaProvider(t *testing.T) {
 	}
 
 	deg := NewMerchantDegradedWithWallet(ds.CM, ds.Tracker, factory, ds.TestDir)
+	drainUsageSweep(t, deg)
 	provider := NewMutexMerchantProvider(deg)
 
 	if !deg.WalletLoaded() {
@@ -1205,6 +1218,7 @@ func TestE2E_BoltDBLock_DegradedShutdownThenReopen(t *testing.T) {
 	tracker.RunInitialProbe()
 
 	deg := NewMerchantDegradedWithWallet(nil, tracker, DefaultWalletFactory, testDir)
+	drainUsageSweep(t, deg)
 	if !deg.WalletLoaded() {
 		t.Fatal("expected degraded merchant to load wallet from disk")
 	}
@@ -1229,6 +1243,7 @@ func TestNewMerchantDegradedFromFull(t *testing.T) {
 	ds, _ := newDegradedSetupWithServer(t, nil)
 
 	deg := NewMerchantDegradedFromFull(ds.CM, ds.Tracker)
+	drainUsageSweep(t, deg)
 	if deg == nil {
 		t.Fatal("NewMerchantDegradedFromFull returned nil")
 	}
@@ -1241,6 +1256,7 @@ func TestMerchantDegraded_SetOnReachableSetChanged(t *testing.T) {
 	ds, _ := newDegradedSetupWithServer(t, nil)
 
 	deg := NewMerchantDegradedFromFull(ds.CM, ds.Tracker)
+	drainUsageSweep(t, deg)
 
 	callbackCalled := false
 	deg.SetOnReachableSetChanged(func() {
@@ -1266,9 +1282,38 @@ func TestMerchantDegraded_GetMintHealthTracker(t *testing.T) {
 	})
 
 	deg := NewMerchantDegradedFromFull(ds.CM, ds.Tracker)
+	drainUsageSweep(t, deg)
 
 	returnedTracker := deg.GetMintHealthTracker()
 	if returnedTracker != ds.Tracker {
 		t.Error("GetMintHealthTracker should return the same tracker instance")
+	}
+}
+
+// drainUsageSweep retires the usage sweep a full merchant starts at
+// construction (newFullMerchant -> StartDataUsageMonitoring) when the test
+// ends. Degraded merchants start nothing themselves, but their upgrade path
+// constructs a full merchant inside newFullMerchant's closure — the upgrade
+// arrives through onUpgrade, so the drain hooks that too. Without it the
+// sweep goroutine outlives its test and keeps running client-list
+// reconciliations through whichever later test's PATH-scoped fake is live
+// (#733's full-suite flakes).
+func drainUsageSweep(t *testing.T, mi MerchantInterface) {
+	t.Helper()
+	if m, ok := mi.(*Merchant); ok {
+		t.Cleanup(func() {
+			m.stopDataUsageMonitoring()
+			m.stopPayoutAndJanitor()
+		})
+		return
+	}
+	if deg, ok := mi.(*MerchantDegraded); ok && deg != nil {
+		prev := deg.onUpgrade
+		deg.onUpgrade = func(upgraded MerchantInterface) {
+			drainUsageSweep(t, upgraded)
+			if prev != nil {
+				prev(upgraded)
+			}
+		}
 	}
 }

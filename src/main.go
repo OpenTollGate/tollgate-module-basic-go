@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -24,6 +25,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/identity"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/mptcp_bonding"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
@@ -59,6 +61,43 @@ func getIPLimiter(ip string) *rate.Limiter {
 
 func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// The router's own loopback caller is exempt from the per-IP budget.
+		//
+		// WHY: registerAPIHandlers wires this middleware OUTSIDE requireStarted
+		// (RateLimitMiddleware(CorsMiddleware(requireStarted(...)))), so the
+		// limiter runs FIRST. The installer polls 127.0.0.1:2121 every 3 s
+		// (~20 req/min) while it waits for the merchant, against a default
+		// budget of 10 req/min — so the router used to rate-limit its own
+		// localhost installer, which then read `429 {"error":"rate limit
+		// exceeded"}` instead of the readable `503 {"code":"starting"}` refusal
+		// from startup_gate.go, and reported a correct install as "Setup
+		// failed" (2026-10-16 incident, tracked in #953).
+		//
+		// Exempting loopback fixes that at the narrowest possible point: no
+		// route ordering changes and no real client's budget changes. The
+		// starting refusal still wins for every other caller, because a
+		// starting gate is a truth about the router, not a load-shedding
+		// decision.
+		//
+		// The decision is made from the CONNECTION (isLocalRequest), never from
+		// a header. The identity helpers nearby (getIP, sourceNetworkKey,
+		// clientLimiterKey) deliberately read X-Real-Ip / X-Forwarded-For for a
+		// loopback peer, because a proxy on the box forwards a real customer's
+		// address that way. That is right for NAMING a client and wrong for
+		// deciding trust: this router runs no reverse proxy in front of :2121
+		// (the guest portal and every route here call the API directly), and
+		// the packaging drops WAN-side callers at the firewall
+		// (packaging/files/etc/nftables.d/30-backend-firewall.nft admits only
+		// br-lan, br-private and lo). A loopback connection carrying a
+		// forwarded header is therefore either a local process or a caller who
+		// set the header itself, and a header a caller controls must never mint
+		// an unlimited-rate bucket — the same trust boundary as #808's loopback
+		// XFF finding. A LAN caller who cannot claim loopback still gets the
+		// 429, which is what bounds them.
+		if isLocalRequest(r) {
+			next(w, r)
+			return
+		}
 		ip := getIP(r)
 		if !getIPLimiter(ip).Allow() {
 			mainLogger.WithField("ip", ip).Warn("Rate limit exceeded")
@@ -583,7 +622,15 @@ func init() {
 	if mainConfig != nil && mainConfig.UpstreamWifi.DHCPTimeoutSeconds > 0 {
 		sharedConnector.DHCPTimeout = time.Duration(mainConfig.UpstreamWifi.DHCPTimeoutSeconds) * time.Second
 	}
-	sharedScanner = &wireless_gateway_manager.Scanner{Connector: sharedConnector}
+	// The vendor-IE discovery flag was declared in config but never read, so
+	// the scan-side producer that identifies TollGates by their vendor element
+	// could never fire. Wire it here so the flag has a consumer. The field
+	// lives on the UpstreamWifi sub-struct, not on Config.
+	vendorIEDiscovery := false
+	if mainConfig != nil {
+		vendorIEDiscovery = mainConfig.UpstreamWifi.VendorIEDiscovery
+	}
+	sharedScanner = wireless_gateway_manager.NewScanner(sharedConnector, vendorIEDiscovery)
 
 	mainLogger.WithField("ip_randomized", installConfig.IPAddressRandomized).Info("Configuration loaded")
 
@@ -696,8 +743,20 @@ func installMerchant(merchantInstance merchant.MerchantInterface) {
 	swapMerchant(merchantInstance)
 
 	if deg, ok := merchantInstance.(*merchant.MerchantDegraded); ok {
-		mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
-		deg.OnUpgrade(func(full merchant.MerchantInterface) {
+		if deg.StorageIncompatible() {
+			// #583: a jffs2-overlay box can never initialize the wallet, so
+			// the historic banner ("will initialize when a mint becomes
+			// reachable") is a false promise that sent operators hunting
+			// the mints while every mint probed 200 OK.
+			mainLogger.Error("Merchant started in degraded mode — wallet storage does not support shared mmap (jffs2 overlay?); the wallet cannot initialize on this filesystem until wallet.db moves to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)")
+		} else {
+			mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
+		}
+		// WireStartupDegraded registers the upgrade consumer AND the recovery
+		// trigger as one pair (#10). Doing only the first left the tracker's
+		// onFirstReachable nil, so the service stayed degraded forever even
+		// after the mint returned.
+		deg.WireStartupDegraded(func(full merchant.MerchantInterface) {
 			mainLogger.Info("Upgrading from degraded to full merchant")
 			swapMerchant(full)
 			registerReachableSetChangedCallback(full)
@@ -705,6 +764,32 @@ func installMerchant(merchantInstance merchant.MerchantInterface) {
 	} else {
 		registerReachableSetChangedCallback(merchantInstance)
 	}
+}
+
+// bondConfigJSON re-serialises the managed mptcp_bonding section into the JSON
+// the mptcp_bonding module parses.
+//
+// The two packages are separate Go modules and neither imports the other's
+// types, so the boundary is the JSON shape -- which is also the on-disk shape,
+// so there is no second schema to drift. Marshalling the typed struct (rather
+// than reading the file) means the section the operator set through
+// `tollgate config` is exactly what the bond sees.
+//
+// On a node with no bond, the section marshals to {} and LoadConfig returns a
+// disabled bond.
+func bondConfigJSON() []byte {
+	cfg := configManager.GetConfig()
+	if cfg == nil {
+		return nil
+	}
+	blob, err := json.Marshal(cfg.MPTCPBonding)
+	if err != nil {
+		// Callers treat an error from LoadConfig as "bond disabled"; return the
+		// raw error path by handing back an unparseable token so it is logged,
+		// not silently ignored.
+		return []byte(`{"__marshal_error__":true}`)
+	}
+	return blob
 }
 
 func initUpstreamDetector() {
@@ -718,6 +803,29 @@ func initUpstreamDetector() {
 		mainLogger.WithError(err).Fatal("Failed to create upstream session manager instance")
 	}
 	upstreamDetectorInstance.SetUpstreamSessionManager(usmInstance)
+
+	// MPTCP bond (optional). When the config enables it, the detector's
+	// interface events drive the bond's endpoint reconciliation. Absent or
+	// disabled config changes nothing: no sink is set and the detector behaves
+	// exactly as before.
+	if bondCfg, err := mptcp_bonding.LoadConfig(bondConfigJSON()); err != nil {
+		// A malformed bond section must not take the node down -- the bond is
+		// optional, and a router that boots without it still serves customers.
+		// Log it loudly so the misconfiguration is not invisible.
+		mainLogger.WithError(err).Error("MPTCP bond config invalid; bond disabled")
+	} else if bondCfg.Enabled {
+		applier := func(script string) error {
+			return exec.Command("/bin/sh", "-c", script).Run()
+		}
+		reconciler := mptcp_bonding.NewReconciler(bondCfg, applier)
+		upstreamDetectorInstance.SetBondReconciler(reconciler)
+		// Register what is already up: the detector only reports CHANGES, so
+		// without this an uplink that came up before the daemon started would
+		// never be registered.
+		if err := reconciler.ReconcileCurrent(); err != nil {
+			mainLogger.WithError(err).Error("MPTCP bond initial reconcile failed")
+		}
+	}
 
 	go func() {
 		err := upstreamDetectorInstance.Start()
@@ -792,8 +900,11 @@ func initCLIServer() {
 // the body a paying customer gets — is only reachable in a unit test through
 // this seam (see TestBalanceEndpointLiveSessionReportsUsage).
 var (
-	dhcpLeasePath = "/tmp/dhcp.leases"
-	arpTablePath  = "/proc/net/arp"
+	dhcpLeasePath     = "/tmp/dhcp.leases"
+	arpTablePath      = "/proc/net/arp"
+	neighborTablePath = "/proc/net/icmp6_neighbors"
+	// neighborSource is overridable in tests; production shells out to ip -6 neigh.
+	neighborSource func() ([]byte, error)
 )
 
 // sentinelMACAddress is the all-zero address dnsmasq and the kernel ARP table
@@ -964,7 +1075,39 @@ func getMacAddress(ipAddress string) (string, error) {
 		}
 	}
 
+	// Fallback for IPv6 payers: the kernel neighbor table. /proc/net/arp is
+	// IPv4-only, so an IPv6 source address (FIPS-mesh ULA, dual-stack LAN
+	// clients) could NEVER resolve a MAC here — the request was refused with
+	// device-unresolved even though the kernel knew the peer perfectly well.
+	// Read via `ip -6 neigh show` for portability; the procfs neighbor file
+	// name differs across kernels.
+	nsrc := neighborSource
+	if nsrc == nil {
+		nsrc = func() ([]byte, error) { return exec.Command("ip", "-6", "neigh", "show").Output() }
+	}
+	if out, err := nsrc(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			fields := strings.Fields(line)
+			// <addr> dev <dev> lladdr <mac> <state>
+			if len(fields) >= 4 && strings.ToLower(fields[0]) == ipLower {
+				if i := indexOf(fields, "lladdr"); i >= 0 && i+1 < len(fields) && fields[i+1] != sentinelMACAddress {
+					return strings.TrimSpace(fields[i+1]), nil
+				}
+			}
+		}
+	}
+
 	return "", fmt.Errorf("no MAC found for %s in DHCP leases or ARP table", ipAddress)
+}
+
+// indexOf returns the position of s in fields, or -1.
+func indexOf(fields []string, s string) int {
+	for i, f := range fields {
+		if f == s {
+			return i
+		}
+	}
+	return -1
 }
 
 // CORS middleware to handle Cross-Origin Resource Sharing
@@ -1104,7 +1247,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		mainLogger.WithError(err).Error("Request body read failed")
 		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "invalid-request",
-			"Invalid request", macAddress)
+			"Invalid request", "")
 		return
 	}
 
@@ -1133,7 +1276,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 		if cashuToken == "" {
 			mainLogger.Error("No payment tag found in event")
 			sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusBadRequest, "error", "invalid-event",
-				"No payment tag found in event", macAddress)
+				"No payment tag found in event", "")
 			return
 		}
 	} else {
@@ -1149,7 +1292,7 @@ func HandleRootPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		mainLogger.WithError(err).Error("Payment processing failed")
 		sendNoticeResponse(w, merchantProvider.inner.GetMerchant(), http.StatusInternalServerError, "error", "internal-error",
-			"Payment processing failed", macAddress)
+			"Payment processing failed", "")
 		return
 	}
 

@@ -144,8 +144,8 @@ if [ -n "$dep_val" ] && [ -n "$rep_val" ] && \
    ( cd "$ipk_work" && tar xzf tollgate-wrt.ipk ./control.tar.gz && tar xzf control.tar.gz -O ./control > control.txt ) 2>/dev/null; then
     control=$(cat "$ipk_work/control.txt")
     case "$control" in
-        *"Depends: libc, nodogsplash, jq"*)
-            ok "built .ipk control declares Depends: libc, nodogsplash, jq" ;;
+        *"Depends: libc, nodogsplash, jq, ca-bundle"*)
+            ok "built .ipk control declares Depends: libc, nodogsplash, jq, ca-bundle" ;;
         *)
             bad "built .ipk control has wrong Depends (got: $(printf '%s' "$control" | grep '^Depends:' || echo '<none>'))" ;;
     esac
