@@ -15,6 +15,8 @@ const profitShareSumTolerance = 1e-6
 
 // Config represents the main configuration for the Tollgate service.
 type Config struct {
+	// MultiWAN is optional declared intent; validation and policy derivation live in multi_wan.
+	MultiWAN               *MultiWANConfig              `json:"multi_wan,omitempty"`
 	ConfigVersion          string                       `json:"config_version"`
 	LogLevel               string                       `json:"log_level"`
 	AcceptedMints          []MintConfig                 `json:"accepted_mints"`

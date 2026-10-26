@@ -636,6 +636,36 @@ tmpfs on a funded device — a reboot would destroy the proofs and the funds
 with them. The long-term fix is the CDK/sqlite wallet lane (no shared-mmap
 dependency).
 
+### Optional multi-WAN policy intent
+
+`multi_wan` is an optional configuration object. Leaving it absent preserves
+existing defaults and canonical JSON; it is not inserted by an upgrade.
+It records the policy engine, default objective, next-session change policy, mark base,
+health-check and sampling thresholds, eligibility limits, uplinks and named
+objectives. Uplinks may omit `cost` when their cost is unknown (unknown is not
+zero); objectives may provide `weight_override` keyed by uplink ID.
+
+The field definitions and editable metadata are in
+[`config_manager`](src/config_manager/config_multi_wan.go) and its
+[schema](src/config_manager/config_schema.go). Validation and policy derivation
+belong to `multi_wan`; storing this object alone does not probe links, change
+routes or firewall rules, apply UCI, or enable MPTCP. No MPTCP configuration
+block or new UI is introduced.
+
+Objectives are `cost` (cheapest comparable sats/GiB), `speed` (fastest measured
+line), and `balanced` (weights proportional to Mbit/s divided by sats/GiB).
+Both winner-takes-all modes break ties by uplink ID. Balanced rounds a
+`weight_max` budget to integers, with a best-member fallback if all round to
+zero. Flat monthly and unknown prices cannot be scored by cost or balanced;
+speed can select them, reporting a null aggregate price rather than zero.
+TollGate prices come only from the caller-supplied upstream session; locally
+configured prices are allowed only for plain uplinks. `sats_min` is normalized
+at the measured rate, `sats_mib` is multiplied by 1024, and `flat_month` is
+reported separately. Measurement aggregates must cover `sampler.window_s`.
+Overrides replace derived weights only for eligible, scoreable members.
+Validation is explicit through `multi_wan.Load`/`Validate`/`Derive`; this change
+does not wire a new policy consumer into the running router.
+
 ## SSID conventions
 
 On first boot the router derives its Wi-Fi names from a single generated
