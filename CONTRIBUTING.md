@@ -225,9 +225,12 @@ bash tests/contract/check-ssid-format.sh
 **Recommended for router-visible changes**: build a real package with
 [scripts/build-sdk-package.sh](scripts/build-sdk-package.sh), install
 it on a test router, and exercise the affected flow — at minimum the
-purchase path (`tests/test_ecash_payment.py` automates it if you have
-a fleet configured). Captive-portal, firewall, Wi-Fi, and
-session-lifecycle changes cannot be validated any other way.
+purchase path ([physical-router-test-automation](https://github.com/OpenTollGate/physical-router-test-automation)
+automates it against a configured router via its `tests/api/` payment
+suite; the legacy `tests/test_ecash_payment.py` here is retired pending
+migration, see [tests/README.md](tests/README.md)). Captive-portal,
+firewall, Wi-Fi, and session-lifecycle changes cannot be validated any
+other way.
 
 ### Self-review against the project review checklist
 
