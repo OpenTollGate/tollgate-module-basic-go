@@ -59,11 +59,54 @@ func loadOrCreateMnemonic(walletPath string) (string, error) {
 	if err := os.MkdirAll(walletPath, 0o700); err != nil {
 		return "", err
 	}
-	// 0600: the mnemonic is the wallet's entire key material.
-	if err := os.WriteFile(path, []byte(mnemonic), 0o600); err != nil {
+	// Durably and atomically (the config_manager writeFileDurably pattern):
+	// the mnemonic is the wallet's entire key material, and a plain
+	// os.WriteFile torn by power loss at first generation bricks the wallet
+	// at every later boot (#505 audit) — temp + fsync + rename means the
+	// seed file is either whole or absent, never half-written.
+	if err := writeMnemonicDurably(path, mnemonic); err != nil {
 		return "", err
 	}
 	return mnemonic, nil
+}
+
+// writeMnemonicDurably persists the mnemonic via temp+fsync+rename so a
+// power cut cannot leave a truncated seed: a reader sees the whole
+// mnemonic or no file at all. Local to this build-tagged lane to keep the
+// cdk_wallet build free of a config_manager dependency; config_manager's
+// writeFileDurably owns the general pattern.
+func writeMnemonicDurably(path, mnemonic string) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".mnemonic-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create mnemonic temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.WriteString(mnemonic); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write mnemonic temp file: %w", err)
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("chmod mnemonic temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sync mnemonic temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close mnemonic temp file: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("persist mnemonic: %w", err)
+	}
+	cleanup = false
+	return nil
 }
 
 func DecodeToken(tokenStr string) (Token, error) {

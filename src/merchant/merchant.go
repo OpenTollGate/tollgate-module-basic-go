@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	gonutsclient "github.com/OpenTollGate/gonuts-tollgate/wallet/client"
@@ -435,6 +436,11 @@ type Merchant struct {
 	// money-moving Receive deadline; zero keeps the default. Per merchant for
 	// the same -race reason as the probe seam above (#821).
 	receiveTimeout time.Duration
+	// unmeterableReportInterval overrides
+	// defaultUnmeterableReportInterval for this merchant's unmeterable-session
+	// repeats; zero keeps the default. Per merchant for the same -race reason
+	// as the probe seam above (#858).
+	unmeterableReportInterval time.Duration
 	// monitorMu guards the usage sweep's stop/done channels. They are created by
 	// startUsageSweep and closed by stopDataUsageMonitoring, which exists so a
 	// test that drives the real startup path can end the sweep it started: the
@@ -465,6 +471,49 @@ type Merchant struct {
 	tickets  *ticketState
 }
 
+// walletDirFor returns the directory the wallet's bbolt DB and its JSON
+// stores live in: the config directory by default, or the config directory's
+// "wallet" subdirectory when setup mounted the ext4 loop image there
+// (mmap-incapable overlays — jffs2 cannot host bbolt's shared mmap; see
+// docs/architecture/wallet-storage-mmap-incapable-overlay-decision.md).
+// The subdirectory wins ONLY when it is a mountpoint, so a plain empty
+// directory next to the config can never silently move the wallet.
+func walletDirFor(configManager *config_manager.ConfigManager) string {
+	base := filepath.Dir(configManager.ConfigFilePath)
+	walletSub := filepath.Join(base, "wallet")
+	if isMountpoint(walletSub) {
+		return walletSub
+	}
+	return base
+}
+
+// isMountpoint reports whether dir is the root of a mounted filesystem,
+// without /proc: a directory's ".." is on the same device unless a mount
+// boundary sits between them. (Inode identity is NOT the signal — a plain
+// directory and its parent always differ in inode; and a BIND mount shares
+// the source's st_dev, so it is invisible here — neither matters for the
+// one consumer: the loop-image wallet dir is ext4 on a loop device while
+// its parent sits on the overlay, which IS a device change.)
+func isMountpoint(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	parentInfo, err := os.Stat(filepath.Join(dir, ".."))
+	if err != nil {
+		return false
+	}
+	pst, ok := parentInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	return st.Dev != pst.Dev
+}
+
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
 	log.Printf("=== Merchant Initializing ===")
 
@@ -479,7 +528,7 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	reachableMints := mintHealthTracker.GetReachableMintConfigs()
 	if len(reachableMints) == 0 {
 		log.Printf("WARNING: No reachable mints detected. Starting in degraded mode.")
-		walletDirPath := filepath.Dir(configManager.ConfigFilePath)
+		walletDirPath := walletDirFor(configManager)
 		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
 		mintHealthTracker.StartProactiveChecks()
 		mintHealthTracker.SetOnFirstReachableForDegraded(func() {
@@ -525,7 +574,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	}
 
 	log.Printf("Setting up wallet...")
-	walletDirPath := filepath.Dir(configManager.ConfigFilePath)
+	walletDirPath := walletDirFor(configManager)
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
 	}
@@ -812,12 +861,16 @@ type unmeteredSession struct {
 	lastCloseAbandoned   bool
 }
 
-// unmeterableSessionReportInterval is how often the module repeats the state of a
-// session it can neither meter nor close. The sweep runs every 2 s, so without
-// this the module wrote an ERROR — and the close failure under it — on every
-// sweep for as long as NoDogSplash refused (the bench log's "has been unreadable
-// for 39 sweeps"). A var so tests can shrink it.
-var unmeterableSessionReportInterval = time.Minute
+// defaultUnmeterableReportInterval is how often the module repeats the state
+// of a session it can neither meter nor close. The sweep runs every 2 s, so
+// without this the module wrote an ERROR — and the close failure under it —
+// on every sweep for as long as NoDogSplash refused (the bench log's "has
+// been unreadable for 39 sweeps"). It is the zero-value default of
+// Merchant.unmeterableReportInterval — per merchant, like the Receive
+// deadline seam, because this one was a package-level var once too, and the
+// same -race discipline applies: the read runs on the sweep goroutine while
+// a harness write would race it (#858).
+const defaultUnmeterableReportInterval = time.Minute
 
 // unmeteredStateLocked returns the bookkeeping of mac, creating it on first use.
 // Caller must hold unmeteredMu.
@@ -876,7 +929,11 @@ func (m *Merchant) noteUnmeterableCloseFailure(macAddress string, closeErr error
 	state := m.unmeteredStateLocked(macAddress)
 	escalate = !state.forceCloseEscalated
 	changed = !escalate && abandoned != state.lastCloseAbandoned
-	repeat = escalate || now.Sub(state.lastForceCloseReport) >= unmeterableSessionReportInterval
+	reportInterval := m.unmeterableReportInterval
+	if reportInterval <= 0 {
+		reportInterval = defaultUnmeterableReportInterval
+	}
+	repeat = escalate || now.Sub(state.lastForceCloseReport) >= reportInterval
 
 	if escalate {
 		state.forceCloseEscalated = true
@@ -1052,7 +1109,7 @@ func (m *Merchant) establishBaseline(macAddress string) {
 // The REPORTING of that state is bounded, because the sweep runs every 2 s: the
 // force-close is escalated once, a change of state (the close being abandoned, or
 // coming back) is reported at once, and the same state repeating is reported at
-// most once per unmeterableSessionReportInterval. Before this, one session NoDogSplash
+// most once per unmeterableReportInterval. Before this, one session NoDogSplash
 // would not deauthorize wrote two ERROR lines every second for ever, which is how
 // the bench log's real escalation ("has been unreadable for 39 sweeps") became
 // unreadable itself.
@@ -1070,8 +1127,12 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 
 		switch {
 		case escalate:
+			reportInterval := m.unmeterableReportInterval
+			if reportInterval <= 0 {
+				reportInterval = defaultUnmeterableReportInterval
+			}
 			log.Printf("ERROR: the usage of the bytes session of %s has been unreadable for %d sweeps (%v): the session cannot be metered, so its gate is closed rather than left open unmetered (escalated once: the session stays TRACKED until the close is confirmed, and this state is repeated at most every %s — a change of state is reported at once)",
-				macAddress, sweeps, usageErr, unmeterableSessionReportInterval)
+				macAddress, sweeps, usageErr, reportInterval)
 			log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v — the session is retained and %s (unconfirmed gate closes=%d)",
 				macAddress, err, closeRetryStateClause(err), valve.GateCloseFailures())
 		case changed:

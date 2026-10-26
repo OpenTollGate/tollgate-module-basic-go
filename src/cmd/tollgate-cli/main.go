@@ -298,6 +298,36 @@ selecting it would leave the management network unable to start.`,
 	},
 }
 
+var privateSetAddressCmd = &cobra.Command{
+	Use:   "set-address <address>[/24]",
+	Short: "Pin the private network address",
+	Long: `Set the private (management) network's IPv4 address and pin it.
+
+The address is preserved across reinstalls and upgrades instead of being
+re-derived, which is the fix for a management subnet that collides with a
+network your own laptop/phone is on (the router cannot see those). Only a
+/24 is supported; give the router's own address in it, e.g. 10.9.8.1/24.
+
+Devices connected on the old subnet — including the session this command
+runs from — must reconnect on the new one.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if jsonOutput {
+			return sendCommandRaw("network", []string{"private", "set-address", args[0]}, nil)
+		}
+
+		fmt.Println("\n⚠️  WARNING: Changing the private network address disconnects every device on the old subnet!")
+		fmt.Printf("This session may drop; the router answers on %s afterwards.\n", args[0])
+
+		if !askConfirmation("\nAre you sure you want to change the private network address") {
+			fmt.Println("Operation cancelled.")
+			return nil
+		}
+
+		return sendCommandAndDisplay("network", []string{"private", "set-address", args[0]}, nil)
+	},
+}
+
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version information",
@@ -552,7 +582,7 @@ func init() {
 
 	drainCmd.AddCommand(drainCashuCmd)
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
-	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd, privateSetEncryptionCmd)
+	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd, privateSetEncryptionCmd, privateSetAddressCmd)
 	networkCmd.AddCommand(privateCmd)
 	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd, upstreamKnownCmd)
 	configCmd.AddCommand(configGetCmd, configSetCmd, configApplyCmd, configSchemaCmd, configSaveCmd, configSaveIdentitiesCmd)

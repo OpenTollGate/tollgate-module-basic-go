@@ -26,6 +26,44 @@ map and configuration reference.
   firewall, Wi-Fi, `ndsctl`). Unit tests passing does not mean a
   router-visible change works — say so honestly in PR descriptions.
 
+## Cross-Repository Engineering Ownership and Verification
+
+**This repository owns the Go runtime implementation, its unit tests,
+source-level contracts (config schema, packaging scripts' offline suites,
+the userspace happy-path and installer-contract lanes) and its own
+documentation.** It is *not* the authority for anything below that it does
+not own — check before you build:
+
+- **Shipping packages** (recipes, pins, feed publication, released
+  `.apk`/`.ipk`) are owned by [`FreedomTechFeed/packages`](https://github.com/FreedomTechFeed/packages).
+  This repo's `scripts/build-sdk-package.sh` is a reproducible
+  *development* build path, not a competing shipping authority.
+- **Router integration and deployed-artifact acceptance testing** is owned
+  by [`OpenTollGate/physical-router-test-automation`](https://github.com/OpenTollGate/physical-router-test-automation)
+  (PRTA). Router-visible verification evidence belongs there, bound to the
+  exact artifact sha256 and source SHA. The hardware-fleet tests under
+  [tests/](tests/) are retired pending that migration (see `tests/README.md`
+  and PRTA's consolidation decision).
+- The captive portal is [`OpenTollGate/tollgate-captive-portal-site`](https://github.com/OpenTollGate/tollgate-captive-portal-site),
+  consumed at the revision pinned in `packaging/build-inputs.json` — never
+  vendored divergently.
+- The wire protocol is [`OpenTollGate/tollgate`](https://github.com/OpenTollGate/tollgate);
+  the wallet layer is [`OpenTollGate/gonuts-tollgate`](https://github.com/OpenTollGate/gonuts-tollgate)
+  (fixes land there first, then bump the `replace` pin).
+
+The canonical policy — ownership map, the four-level verification hierarchy
+(source / virtual integration / physical / release acceptance), and the
+AI-agent operating principles — is
+[`physical-router-test-automation/docs/engineering-policy.md`](https://github.com/OpenTollGate/physical-router-test-automation/blob/main/docs/engineering-policy.md).
+Before implementing: identify the owner of the behavior, search open PRs
+for the same change, and use the existing canonical runner instead of
+creating a new one. A required check that was skipped or never run is
+reported as such, never as PASS. Do not duplicate declarations (versions,
+ports, package contracts) that another repository owns.
+
+All fund-safety, crash-consistency and environment-truth rules below remain
+in force.
+
 ## Fund safety, crash consistency, and distributed transaction invariants
 
 Any change touching payments, wallets, sessions, gates, mints, payouts,
@@ -415,6 +453,43 @@ the artifact is the published bytes from a kind-`1063` event
 (hash-pinned via its `x` tag) or, for pre-tag candidates, a local
 `scripts/build-sdk-package.sh` build whose sha256 is recorded in the
 evidence.
+
+### Host resource discipline (ai-legion)
+
+The bench host is shared by agent sessions, VM lanes, docker stacks and
+test soaks. On 2026-10-11 their sum filled all 24 GiB of swap and earlyoom
+killed an unrelated session mid-review (six simultaneous opencode cold
+boots were the trigger; every consumer was individually legitimate).
+Rules, in order of leverage:
+
+1. **Bound every big invocation.** Test soaks, cargo builds, qemu runs:
+   give each its own cgroup ceiling —
+   `systemd-run --quiet --scope -p MemoryMax=8G -p MemorySwapMax=2G -- go test …`
+   — so a runaway dies ALONE with an obvious journal OOM line instead of
+   tipping the whole host into earlyoom, which picks victims from every
+   other session. `scripts/go-battery.sh` wraps its test legs this way
+   when systemd is present.
+2. **Fan out sequentially.** Start coding agents one at a time with ~8 s
+   gaps; check `free -h` and `journalctl -t earlyoom -n 5` BEFORE any
+   fan-out; cap concurrent opencode sessions (~10 including the fleet's
+   — each holds 0.8–1.2 GiB for its lifetime). For fan-outs and soaks,
+   launch agents through `/usr/local/bin/opencode-bounded` (ai-legion):
+   it wraps the session in an `agent.slice` scope with MemoryMax=3G /
+   MemorySwapMax=1G (raise via `OC_BOUND_MEM`/`OC_BOUND_SWAP`), so a
+   runaway session hits its own ceiling — herdr still detects it, and
+   `herdr pane run <pane> opencode-bounded` + `herdr agent rename` is
+   the start incantation.
+3. **Fixtures are on-demand, not always-on.** AVDs boot via
+   `avd-acquire` and come down via `avd-release`; the `avd-reaper` timer
+   reaps an un-acquired emulator after 15 min and a stale
+   `android-emulator` place lock (acquired with no emulator running)
+   after 60 min. Anything that idles for days belongs in a labgrid place
+   or shut down. Docker stacks get `mem_limit`s in their compose files.
+4. **Treat the alerts as load-shed orders.** The `host-mem-alert` timer
+   journals a WARNING past 80% swap and raises a herdr banner the moment
+   available memory crosses 20% — that banner is roughly ten minutes
+   ahead of earlyoom's 5% kill floor, and it means stop soaks and
+   fan-outs NOW, not after the next build finishes.
 
 ### Where each class of verification lives (single source of truth)
 
