@@ -82,6 +82,12 @@ func (w *GonutsWallet) CheckTokenSpent(token Token) (bool, error) {
 	return w.inner.CheckTokenSpent(gt.inner)
 }
 
+// ResumePendingSwaps delegates the #719 boot-time crash recovery to the
+// wrapped TollWallet (gonuts-tollgate's pending-swap replay).
+func (w *GonutsWallet) ResumePendingSwaps() (uint64, int, error) {
+	return w.inner.ResumePendingSwaps()
+}
+
 func (w *GonutsWallet) DecodeToken(tokenStr string) (Token, error) {
 	return DecodeToken(tokenStr)
 }
