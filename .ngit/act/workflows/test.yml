@@ -233,6 +233,8 @@ jobs:
         run: python3 tests/contract/check-mirror-sync.py
       - name: Stale import path check
         run: python3 tests/contract/check-import-paths.py
+      - name: go.sum completeness fence (every module builds on its own sums)
+        run: bash tests/contract/check-gosum-completeness.sh
 
   # The gate-shaped legs this lane used to carry — packaging-suites,
   # hygiene, release-check-fast — moved to test-gates.yml (#520): at 16
