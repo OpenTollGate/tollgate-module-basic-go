@@ -53,6 +53,42 @@ func TestRecordPaymentAcceptsTheExactNextBalance(t *testing.T) {
 	require.Equal(t, uint64(2), latest.PaymentCount)
 }
 
+// A balance that SKIPS AHEAD (more than one step past the stored value) is
+// ACCEPTED, and this test pins that deliberately rather than leaving it as
+// prose in the ledger's doc comment.
+//
+// The guard is a strict-advance predicate (`stored < offered`), not a
+// compare-and-swap against a caller-supplied "expected previous" balance: the
+// caller never supplies one, and nothing in the SQL compares against a value
+// the caller expected. So offering 5 when 1 is stored is accepted, not refused.
+//
+// That is the right trade for this rail — the offered balance is signed by the
+// payer, so it is self-authenticating for the amount it names, and a higher
+// balance is never worse for the seller than the stored one. It is NOT a licence
+// to describe the guard as a CAS: a CAS would refuse this write instead.
+//
+// If this test ever fails because the write was refused, the guard became
+// stricter than documented and the ledger doc comment (and any PR text calling
+// it a monotonic guard) must be corrected with it.
+func TestRecordPaymentAcceptsASkipAheadBalance(t *testing.T) {
+	ledger := openCASLedger(t)
+
+	outcome, err := ledger.recordAuthenticatedPayment("chan-1", 1, "sig-1")
+	require.NoError(t, err)
+	require.Equal(t, LedgerOutcomeAccepted, outcome)
+
+	outcome, err = ledger.recordAuthenticatedPayment("chan-1", 5, "sig-5")
+	require.NoError(t, err, "a skip-ahead balance is accepted by the strict-advance guard")
+	require.Equal(t, LedgerOutcomeAccepted, outcome)
+
+	latest, err := ledger.LatestPayment("chan-1")
+	require.NoError(t, err)
+	require.NotNil(t, latest)
+	require.Equal(t, uint64(5), latest.Balance)
+	require.Equal(t, "sig-5", latest.Signature)
+	require.Equal(t, uint64(2), latest.PaymentCount)
+}
+
 // A stale (lower) balance must be refused: honouring it would roll back credit
 // the payee already served bytes for.
 func TestRecordPaymentRejectsStaleBalance(t *testing.T) {

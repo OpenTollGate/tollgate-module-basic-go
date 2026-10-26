@@ -87,8 +87,10 @@ type ChannelPaymentRail interface {
 	Open(ctx context.Context, req ChannelOpenRequest) (ChannelStatus, error)
 	// Status reports the durable state and latest durable balance.
 	Status(ctx context.Context, channelID string) (ChannelStatus, error)
-	// AcceptPayment durably records a signed balance update by CAS against the
-	// exact previous balance, before the caller serves a single byte.
+	// AcceptPayment durably records a signed balance update via a single-statement
+	// strict-advance guard (the write lands only if the offered balance is
+	// strictly greater than the stored one — a monotonic guard, not a CAS against
+	// an expected previous value), before the caller serves a single byte.
 	AcceptPayment(ctx context.Context, payment ChannelPayment) (LedgerOutcome, error)
 	// Settle closes the channel for value, paying the payee its latest durable
 	// balance. Needs the protocol binding.
@@ -248,8 +250,9 @@ func (r *SellerRail) statusFrom(ctx context.Context, rec *ChannelRecord) (Channe
 	return status, nil
 }
 
-// AcceptPayment durably records a signed balance update by CAS against the exact
-// previous balance. Nothing is served until this returns nil.
+// AcceptPayment durably records a signed balance update behind the ledger's
+// strict-advance guard (not a CAS against an expected previous balance).
+// Nothing is served until this returns nil.
 func (r *SellerRail) AcceptPayment(ctx context.Context, payment ChannelPayment) (LedgerOutcome, error) {
 	rec, err := r.ledger.Channel(ctx, payment.ChannelID)
 	if err != nil {

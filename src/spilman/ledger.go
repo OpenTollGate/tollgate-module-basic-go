@@ -8,21 +8,36 @@ package spilman
 //   - AmountDue reads the stored balance (a local SQLite read, no network);
 //   - RecordPayment writes (balance, signature) durably before returning.
 //
-// # Why CAS and not `new > stored`
+// # The advance guard: strictly-advancing, not compare-and-swap
 //
 // Gap analysis §6: the Go integration kit's shipped host uses a monotonic
 // maximum (integration-kits/go/stores.go:382-383, `WHERE balance < ?`), which
-// INTEGRATION.md:86-88 explicitly forbids. A monotonic max double-credits a
-// *retry of a different payment that happens to carry the same balance*.
-//
-// The write here is a compare-and-swap against the exact previous balance in a
-// single statement:
+// INTEGRATION.md:86-88 explicitly forbids. What this package does instead is a
+// SINGLE-STATEMENT strict-advance guard with authentication in front of it:
 //
 //	INSERT ... ON CONFLICT(channel_id) DO UPDATE SET ... WHERE stored.balance < excluded.balance
 //
-// Exactly one of two racing writers can win, and a replay (equal), a rollback
-// (lower) or a same-balance/different-signature retry is refused with
-// ErrBalanceNotAdvanced and no write and no payment-count bump.
+// Be precise about what that predicate is and is not. It is NOT a
+// compare-and-swap against a caller-supplied "expected previous" balance: the
+// caller never supplies one, and `expected` appears nowhere in the SQL. It is a
+// strict-advance condition — the write lands only if the offered balance is
+// strictly GREATER than the stored one. Consequences, stated plainly:
+//
+//   - a replay (equal), a rollback (lower) and a same-balance/different-signature
+//     retry are refused with ErrBalanceNotAdvanced, with no write and no
+//     payment-count bump;
+//   - exactly one of two racing writers can win, because the guard and the write
+//     are the same statement and no other writer can interleave inside it;
+//   - BUT a balance that SKIPS AHEAD (offered > stored by more than one step) is
+//     accepted. That is deliberate for this rail: a balance signed by the payer
+//     is self-authenticating for the amount it names, and a higher balance is
+//     never worse for the seller than the stored one. It does mean this is a
+//     monotonic guard, not a CAS, and any comment, test name or PR text that
+//     calls it a CAS against the exact previous balance is overstating it.
+//
+// Authenticity is NOT the guard's job and must never be inferred from it: the
+// guard only enforces advance. See step 2 in RecordPayment for the check that
+// stops a forged balance, and note that step 2 is ordered BEFORE this write.
 //
 // # Durability
 //
@@ -46,7 +61,7 @@ import (
 // LedgerOutcome is the result of a durable ledger write.
 type LedgerOutcome string
 
-// LedgerOutcomeAccepted means the balance advanced from the exact previous value
+// LedgerOutcomeAccepted means the balance strictly advanced past the stored value
 // and is now durable.
 const LedgerOutcomeAccepted LedgerOutcome = "accepted"
 
@@ -342,7 +357,8 @@ func (l *ChannelLedger) PaymentCount(channelID string) (uint64, error) {
 }
 
 // RecordPayment authenticates a payment and, only if it is genuine, durably
-// records the new balance CAS'd against the exact previous value.
+// records the new balance behind a strict-advance guard, not a CAS against an
+// expected previous value.
 //
 // Order is AUTHENTICATE -> PERSIST, and the order is the point:
 //
@@ -351,13 +367,13 @@ func (l *ChannelLedger) PaymentCount(channelID string) (uint64, error) {
 //  2. the signature is checked with the upstream validator against that exact
 //     funding record, and ANY error is fatal (ErrPaymentNotAuthentic). A
 //     refused payment writes nothing;
-//  3. only then does the single-statement CAS run.
+//  3. only then does the single-statement advance guard run.
 //
-// Step 2 is what stops a FORGED balance: the CAS alone only enforces
-// monotonicity, which is not authenticity — before this check, a higher balance
+// Step 2 is what stops a FORGED balance: the guard alone only enforces
+// monotonicity, which is not authenticity — without this check, a higher balance
 // was accepted from anyone, for any channel, with any signature.
 //
-// Steps 3's CAS additionally rejects a balance that does not strictly advance
+// Step 3's guard additionally rejects a balance that does not strictly advance
 // the stored one: replay (equal), stale/rollback (lower) and the same-balance
 // different-signature double-credit case. A rejected payment is not newly
 // accepted funds, so the payment count does not advance either.
@@ -396,13 +412,13 @@ func (l *ChannelLedger) RecordPayment(ctx context.Context, channelID string, bal
 	return l.recordAuthenticatedPayment(channelID, balance, signature)
 }
 
-// recordAuthenticatedPayment is the durable CAS half of RecordPayment. It MUST
+// recordAuthenticatedPayment is the durable advance-guard half of RecordPayment. It MUST
 // NOT be reachable from a caller that has not authenticated the payment, which
 // is why it is unexported and why its only production caller is the
 // authenticate-then-persist sequence above.
 //
 // It exists as a separate function so the package's own tests can exercise the
-// CAS arithmetic (advance / replay / rollback / racing writers) without minting a
+// guard arithmetic (advance / replay / rollback / racing writers) without minting a
 // signature for every case. That is the Go equivalent of the Rust rail's
 // non-default `test-support` feature: `#[cfg(test)]` items are invisible to a
 // separate tests/ crate there, while a same-package Go test can call an
@@ -419,7 +435,7 @@ func (l *ChannelLedger) recordAuthenticatedPayment(channelID string, balance uin
 	}
 
 	// 3. PERSIST. One statement, so the guard and the write cannot be
-	//    interleaved by another writer: the CAS condition lives in the SQL, not
+	//    interleaved by another writer: the advance condition lives in the SQL, not
 	//    in Go.
 	res, err := l.db.Exec(
 		`INSERT INTO spilman_channel_balance
@@ -440,7 +456,7 @@ func (l *ChannelLedger) recordAuthenticatedPayment(channelID string, balance uin
 		return "", fmt.Errorf("%w: record payment for %q: %v", ErrLedger, channelID, err)
 	}
 	if affected != 1 {
-		// The CAS guard refused the write. Do not pretend it landed: report the
+		// The advance guard refused the write. Do not pretend it landed: report the
 		// balance we actually hold so the caller can reconcile.
 		stored, _, err := l.Balance(channelID)
 		if err != nil {

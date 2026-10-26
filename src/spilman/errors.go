@@ -96,7 +96,7 @@ func (e *ZeroRateError) Error() string {
 
 func (e *ZeroRateError) Is(target error) bool { return target == ErrZeroRate }
 
-// BalanceNotAdvancedError is the CAS refusal, with the exact values that
+// BalanceNotAdvancedError is the advance-guard refusal, with the exact values that
 // disagreed so the caller can reconcile instead of blind-retrying.
 type BalanceNotAdvancedError struct {
 	ChannelID string
