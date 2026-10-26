@@ -81,13 +81,22 @@ func uciID(s string) bool {
 	return true
 }
 
-// RenderMWAN3 returns UCI text with commented rule templates only: stock
-// mwan3 does not support a UCI mark selector. Do not activate these templates.
-// Uplink IDs must be existing logical
-// network interface names, never guessed device names. Outcomes correspond to
-// cfg.Objectives in input order. Metrics differ BETWEEN objectives; members
-// within one objective share a metric so mwan3 actually uses their weights.
-func RenderMWAN3(cfg *cm.MultiWANConfig, objectives []Outcome) (string, error) {
+// ClientRoute assigns one client address to an objective. mwan3 selects a
+// policy by rule matching on src_ip; it has no UCI mark selector, so this — not
+// a packet mark — is how a buyer's objective is realised.
+type ClientRoute struct {
+	IP        string
+	Objective string
+}
+
+// RenderMWAN3 returns UCI text for stock mwan3.
+// Uplink IDs must be existing logical network interface names, never guessed
+// device names. Outcomes correspond to cfg.Objectives in input order. Metrics
+// differ BETWEEN objectives; members within one objective share a metric so
+// mwan3 actually uses their weights. Clients with an empty slice get a single
+// catch-all rule pointing at cfg.DefaultObjective, which is what an operator
+// expects when no session has chosen yet.
+func RenderMWAN3(cfg *cm.MultiWANConfig, objectives []Outcome, clients []ClientRoute) (string, error) {
 	uplinks, objs, err := renderInputs(cfg, objectives)
 	if err != nil {
 		return "", err
@@ -111,7 +120,27 @@ func RenderMWAN3(cfg *cm.MultiWANConfig, objectives []Outcome) (string, error) {
 				fmt.Fprintf(&b, "\tlist use_member 'mw_%d_%d'\n", i, j)
 			}
 		}
-		fmt.Fprintf(&b, "\n# BLOCKED: stock mwan3 has no UCI mark selector; template only.\n# config rule 'mw_rule_%d'\n# \toption family 'ipv4'\n# \toption proto 'all'\n# \toption mark '0x%x/0xffffc0ff'\n# \toption use_policy 'mw_policy_%d'\n", i, o.mark, i)
+	}
+	// Selection is by src_ip: stock mwan3 rules match src_ip/src_port/proto and
+	// have no UCI mark option (verified in net/mwan3 mwan3.sh). Emitting
+	// "option mark" would silently turn every rule into a catch-all.
+	byID := map[string]int{}
+	for i, o := range objs {
+		byID[o.id] = i
+	}
+	for n, c := range clients {
+		idx, ok := byID[c.Objective]
+		if !ok {
+			return "", fmt.Errorf("client %q names unknown objective %q", c.IP, c.Objective)
+		}
+		fmt.Fprintf(&b, "\nconfig rule 'mw_client_%d'\n	option family 'ipv4'\n	option proto 'all'\n	option src_ip '%s'\n	option use_policy 'mw_policy_%d'\n", n, c.IP, idx)
+	}
+	if len(clients) == 0 {
+		idx, ok := byID[cfg.DefaultObjective]
+		if !ok {
+			return "", fmt.Errorf("default objective %q has no policy", cfg.DefaultObjective)
+		}
+		fmt.Fprintf(&b, "\nconfig rule 'mw_default'\n	option family 'ipv4'\n	option proto 'all'\n	option src_ip '0.0.0.0/0'\n	option use_policy 'mw_policy_%d'\n", idx)
 	}
 	return b.String(), nil
 }

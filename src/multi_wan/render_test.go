@@ -31,14 +31,13 @@ config policy 'mw_policy_0'
 	option last_resort 'unreachable'
 	list use_member 'mw_0_0'
 
-# BLOCKED: stock mwan3 has no UCI mark selector; template only.
-# config rule 'mw_rule_0'
-# 	option family 'ipv4'
-# 	option proto 'all'
-# 	option mark '0x4000/0xffffc0ff'
-# 	option use_policy 'mw_policy_0'
+config rule 'mw_default'
+	option family 'ipv4'
+	option proto 'all'
+	option src_ip '0.0.0.0/0'
+	option use_policy 'mw_policy_0'
 `
-	got, err := RenderMWAN3(c, out)
+	got, err := RenderMWAN3(c, out, nil)
 	if err != nil || got != want {
 		t.Fatalf("UCI: %v\ngot:\n%s\nwant:\n%s", err, got, want)
 	}
@@ -62,11 +61,11 @@ func TestRenderOrderingAndWeights(t *testing.T) {
 	c.Objectives = append(c.Objectives, cm.MultiWANObjective{ID: "a", Mode: "speed"})
 	c.Uplinks[0], c.Uplinks[1] = c.Uplinks[1], c.Uplinks[0]
 	out := []Outcome{{Weights: map[string]int{"a": 20, "b": 80}}, {Weights: map[string]int{"a": 0, "b": 100}}}
-	got, err := RenderMWAN3(c, out)
+	got, err := RenderMWAN3(c, out, []ClientRoute{{IP: "10.0.0.7", Objective: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{"config member 'mw_0_0'\n\toption interface 'a'\n\toption metric '1'\n\toption weight '0'", "config member 'mw_1_0'\n\toption interface 'a'\n\toption metric '2'\n\toption weight '20'", "option mark '0x4001/0xffffc0ff'"} {
+	for _, s := range []string{"config member 'mw_0_0'\n\toption interface 'a'\n\toption metric '1'\n\toption weight '0'", "config member 'mw_1_0'\n\toption interface 'a'\n\toption metric '2'\n\toption weight '20'", "config rule 'mw_client_0'\n\toption family 'ipv4'\n\toption proto 'all'\n\toption src_ip '10.0.0.7'\n\toption use_policy 'mw_policy_0'"} {
 		if !strings.Contains(got, s) {
 			t.Fatalf("missing %s in %s", s, got)
 		}
@@ -77,7 +76,7 @@ func TestRenderOrderingAndWeights(t *testing.T) {
 	before := got
 	c.Objectives[0], c.Objectives[1] = c.Objectives[1], c.Objectives[0]
 	out[0], out[1] = out[1], out[0]
-	got, err = RenderMWAN3(c, out)
+	got, err = RenderMWAN3(c, out, []ClientRoute{{IP: "10.0.0.7", Objective: "a"}})
 	if err != nil || got != before {
 		t.Fatal("ordering changed rendering", err)
 	}
@@ -88,7 +87,8 @@ func TestRenderOrderingAndWeights(t *testing.T) {
 }
 
 func TestRenderRefusesMutations(t *testing.T) {
-	for _, render := range []func(*cm.MultiWANConfig, []Outcome) (string, error){RenderMWAN3, RenderMarks} {
+	for _, render := range []func(*cm.MultiWANConfig, []Outcome) (string, error){
+		func(c *cm.MultiWANConfig, o []Outcome) (string, error) { return RenderMWAN3(c, o, nil) }, RenderMarks} {
 		for _, mutate := range []func(*cm.MultiWANConfig){
 			func(c *cm.MultiWANConfig) { c.MarkBase = "0x3f00" },
 			func(c *cm.MultiWANConfig) { c.Enabled = false },

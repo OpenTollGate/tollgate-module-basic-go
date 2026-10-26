@@ -26,11 +26,27 @@ upload throughput is invented. A future schema extension is needed to expose it.
 ## Rendering
 
 `RenderMWAN3` returns UCI interface, member and policy sections, plus **commented
-rule templates only**. Stock [mwan3.sh](https://github.com/openwrt/packages/blob/master/net/mwan3/files/lib/mwan3/mwan3.sh)
-(`mwan3_set_user_iptables_rule`) does not read a UCI `mark` option. Emitting
-those templates as active rules would silently create catch-all policies.
-A supported mark-to-policy integration is a blocker, not implemented here;
-this renderer therefore does not yet provide the requested active marked rules.
+rule selection is by `src_ip`, not by mark**. Stock
+[mwan3.sh](https://github.com/openwrt/packages/blob/master/net/mwan3/files/lib/mwan3/mwan3.sh)
+reads `proto`, `src_ip`, `src_port`, `dest_ip` and friends for a rule
+(`mwan3_set_user_iptables_rule`) and has **no** UCI `mark` option. An active
+rule carrying `option mark` would therefore silently match everything and the
+per-client choice would be lost.
+
+So the renderer emits one active rule per client address:
+
+```
+config rule 'mw_client_0'
+	option family 'ipv4'
+	option proto 'all'
+	option src_ip '<client address>'
+	option use_policy 'mw_policy_<objective>'
+```
+
+with a single `src_ip '0.0.0.0/0'` catch-all pointing at
+`default_objective` when no client has chosen yet. The caller supplies the
+client→objective assignment (the live session map); the renderer validates that
+every named objective exists and refuses an unknown one.
 Uplink IDs must be existing UCI logical network interface names (alphanumeric
 or underscore); the renderer does not invent device names. Members within one
 objective share a metric so their weights balance traffic; metrics differ
