@@ -1,0 +1,239 @@
+{
+  "schema_version": 1,
+  "generated_utc": "2026-10-13T13:38:59.143275+00:00",
+  "lane_host": "Linux-7.0.0-34-generic-x86_64-with-glibc2.39",
+  "artifact": {
+    "name": "tollgate-wrt-0.6.0_rc4-r0.apk",
+    "sha256": "79e67a5914ed6c343d2027a407b93405d60094d708cd349e9405b7051f51e08c"
+  },
+  "source_sha": "6b572ddaeeac0ccede4d9a09acad94668baaa2c6",
+  "image": {
+    "kernel": "Linux OpenWrt 6.12.94 #0 SMP Mon Jun 29 12:59:20 2026 x86_64 GNU/Linux",
+    "apk_version": "apk-tools 3.0.5, compiled for x86_64.",
+    "board": "\"board_name\": \"qemu-standard-pc-i440fx-piix-1996\""
+  },
+  "summary": {
+    "pass": 31,
+    "fail": 12,
+    "skip": 0,
+    "not_verified": 0,
+    "exit": 1
+  },
+  "checks": [
+    {
+      "id": "preflight:ssh",
+      "status": "PASS",
+      "detail": "127.0.0.1:22222 reachable after serial bootstrap (fresh-boot VM)"
+    },
+    {
+      "id": "preflight:apk-era",
+      "status": "PASS",
+      "detail": "OpenWrt 25.12.5 (apk era)"
+    },
+    {
+      "id": "preflight:openssl",
+      "status": "PASS",
+      "detail": "lane host has openssl (credential comparison)"
+    },
+    {
+      "id": "provenance:artifact-sha256",
+      "status": "PASS",
+      "detail": "tollgate-wrt-0.6.0_rc4-r0.apk sha256 79e67a5914ed6c343d2027a407b93405d60094d708cd349e9405b7051f51e08c"
+    },
+    {
+      "id": "provenance:source-sha",
+      "status": "PASS",
+      "detail": "artifact recorded as built from 6b572ddaeeac0ccede4d9a09acad94668baaa2c6"
+    },
+    {
+      "id": "pristine:factory-reset",
+      "status": "PASS",
+      "detail": "firstboot + forced reboot, ssh back"
+    },
+    {
+      "id": "pristine:verified",
+      "status": "PASS",
+      "detail": "no tollgate-wrt registered and root credential empty"
+    },
+    {
+      "id": "install:transfer",
+      "status": "PASS",
+      "detail": "tollgate-wrt-0.6.0_rc4-r0.apk sha256 79e67a5914ed6c343d2027a407b93405d60094d708cd349e9405b7051f51e08c"
+    },
+    {
+      "id": "contract:preinst-refuses-empty-root",
+      "status": "FAIL",
+      "detail": "apk add exited 0 on an empty-root device \u2014 the preinst gate did not even fire: exit=0 guidance=suppressed registered=yes service=running"
+    },
+    {
+      "id": "flow:operator-sets-password",
+      "status": "PASS",
+      "detail": "root password set by the operator before install"
+    },
+    {
+      "id": "install:apk-add",
+      "status": "PASS",
+      "detail": "apk add exit 0 after the operator set the credential, tollgate-wrt registered"
+    },
+    {
+      "id": "contract:package-sets-no-credential",
+      "status": "PASS",
+      "detail": "root's hash is byte-identical across the install \u2014 nothing was applied, replaced or generated"
+    },
+    {
+      "id": "contract:no-provisional-marker",
+      "status": "FAIL",
+      "detail": "provisional marker exists on a pristine install \u2014 a credential was generated"
+    },
+    {
+      "id": "contract:no-plaintext",
+      "status": "PASS",
+      "detail": "the operator's root password never appears in the install output"
+    },
+    {
+      "id": "services:tollgate-wrt",
+      "status": "PASS",
+      "detail": "running: API :2121 listening and /var/run/tollgate.sock present"
+    },
+    {
+      "id": "services:nodogsplash",
+      "status": "PASS",
+      "detail": "nodogsplash running"
+    },
+    {
+      "id": "services:uhttpd",
+      "status": "PASS",
+      "detail": "uhttpd running"
+    },
+    {
+      "id": "listeners:80",
+      "status": "PASS",
+      "detail": "listening"
+    },
+    {
+      "id": "listeners:443",
+      "status": "PASS",
+      "detail": "listening"
+    },
+    {
+      "id": "listeners:2050",
+      "status": "PASS",
+      "detail": "listening"
+    },
+    {
+      "id": "listeners:2051",
+      "status": "PASS",
+      "detail": "listening"
+    },
+    {
+      "id": "listeners:8080",
+      "status": "PASS",
+      "detail": "listening"
+    },
+    {
+      "id": "listeners:8090",
+      "status": "FAIL",
+      "detail": "nothing listening on :8090"
+    },
+    {
+      "id": "listeners:8443",
+      "status": "FAIL",
+      "detail": "nothing listening on :8443"
+    },
+    {
+      "id": "http:guest-entry",
+      "status": "PASS",
+      "detail": "GET / on :80 answered"
+    },
+    {
+      "id": "http:admin-tls",
+      "status": "PASS",
+      "detail": "admin pair answers TLS on :443"
+    },
+    {
+      "id": "mapping:entry-ui",
+      "status": "PASS",
+      "detail": "board"
+    },
+    {
+      "id": "listeners:uhttpd-sections",
+      "status": "FAIL",
+      "detail": "listenerless uhttpd section(s): defaults main \u2014 the #899 tear (an instance with no listen_http/listen_https crashes with 'No sockets bound')"
+    },
+    {
+      "id": "mapping:port-ownership",
+      "status": "FAIL",
+      "detail": "mapping=board but the expected owners are absent: main:8090 main:8443 (main='[]' admin='[8080 8080 443 443 ]')"
+    },
+    {
+      "id": "logs:crash-signatures",
+      "status": "FAIL",
+      "detail": "crash signatures in logread: 'No sockets bound'=5, segfault/core=0"
+    },
+    {
+      "id": "persistence:credential",
+      "status": "PASS",
+      "detail": "root credential survived the reboot"
+    },
+    {
+      "id": "persistence:mapping",
+      "status": "PASS",
+      "detail": "entry-ui mapping stable (board)"
+    },
+    {
+      "id": "persistence:services",
+      "status": "PASS",
+      "detail": "tollgate-wrt auto-started after reboot"
+    },
+    {
+      "id": "persistence:listeners:80",
+      "status": "PASS",
+      "detail": "listening after reboot"
+    },
+    {
+      "id": "persistence:listeners:443",
+      "status": "PASS",
+      "detail": "listening after reboot"
+    },
+    {
+      "id": "persistence:listeners:2050",
+      "status": "PASS",
+      "detail": "listening after reboot"
+    },
+    {
+      "id": "persistence:listeners:2051",
+      "status": "PASS",
+      "detail": "listening after reboot"
+    },
+    {
+      "id": "persistence:listeners:8080",
+      "status": "PASS",
+      "detail": "listening after reboot"
+    },
+    {
+      "id": "persistence:listeners:8090",
+      "status": "FAIL",
+      "detail": "nothing listening on :8090 after reboot"
+    },
+    {
+      "id": "persistence:listeners:8443",
+      "status": "FAIL",
+      "detail": "nothing listening on :8443 after reboot"
+    },
+    {
+      "id": "persistence:uhttpd-sections",
+      "status": "FAIL",
+      "detail": "listenerless uhttpd section(s): defaults main \u2014 the #899 tear (an instance with no listen_http/listen_https crashes with 'No sockets bound')"
+    },
+    {
+      "id": "persistence:port-ownership",
+      "status": "FAIL",
+      "detail": "mapping=board but the expected owners are absent: main:8090 main:8443 (main='[]' admin='[8080 8080 443 443 ]')"
+    },
+    {
+      "id": "persistence:crash-signatures",
+      "status": "FAIL",
+      "detail": "crash signatures in logread: 'No sockets bound'=2, segfault/core=0"
+    }
+  ]
+}
