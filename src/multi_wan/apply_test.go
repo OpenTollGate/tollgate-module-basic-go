@@ -172,7 +172,7 @@ func TestRestore(t *testing.T) {
 		if i >= 0 {
 			r.fail = want[i]
 		}
-		err := a.Restore(context.Background(), testBackup)
+		err := a.Restore(context.Background(), testBackup, "")
 		if i < 0 {
 			if err != nil || string(r.files["/etc/config/mwan3"]) != "restore me" {
 				t.Fatal(err)
@@ -186,6 +186,35 @@ func TestRestore(t *testing.T) {
 		}
 		if !reflect.DeepEqual(r.calls, want[:n]) {
 			t.Fatal(r.calls)
+		}
+	}
+}
+
+func TestApplyBacksUpExistingMarksFragmentAndRestoreReinstallsIt(t *testing.T) {
+	a, r, o := applyFixture()
+	r.files[marksFragmentPath] = []byte("old-fragment")
+	res, err := a.Apply(context.Background(), fixture(), o, nil)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	wantMarks := "/backups/marks.20261026T120000.000000123Z.bak"
+	if res.MarksBackupPath != wantMarks {
+		t.Fatalf("marks backup = %q, want %q", res.MarksBackupPath, wantMarks)
+	}
+	if string(r.files[wantMarks]) != "old-fragment" {
+		t.Fatalf("marks backup content = %q", r.files[wantMarks])
+	}
+	r.calls = nil
+	if err := a.Restore(context.Background(), res.BackupPath, res.MarksBackupPath); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if string(r.files[marksFragmentPath]) != "old-fragment" {
+		t.Fatalf("fragment not restored: %q", r.files[marksFragmentPath])
+	}
+	joined := strings.Join(r.calls, "\n")
+	for _, want := range []string{"uci commit mwan3", "/etc/init.d/mwan3 restart", "write " + marksFragmentPath, "run fw4 reload"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("restore missing %q in calls:\n%s", want, joined)
 		}
 	}
 }

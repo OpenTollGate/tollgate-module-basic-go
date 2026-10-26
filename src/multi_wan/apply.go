@@ -44,6 +44,7 @@ type Result struct {
 	BackupPath        string
 	MWAN3Restarted    bool
 	MarksFragmentPath string
+	MarksBackupPath   string
 }
 
 // Apply validates and renders both artifacts before I/O. Byte-identical mwan3
@@ -114,6 +115,15 @@ func (a *Applier) Apply(ctx context.Context, cfg *cm.MultiWANConfig, objectives 
 	if err == nil && bytes.Equal(currentMarks, []byte(marks)) {
 		return result, nil
 	}
+	// Back up any pre-existing fragment too: a partial apply must be recoverable
+	// in both directions, not just for /etc/config/mwan3.
+	if err == nil {
+		marksBackup := a.backupFileName("marks")
+		if werr := a.Run.WriteFile(ctx, marksBackup, currentMarks, 0600); werr != nil {
+			return result, fmt.Errorf("backup marks fragment: %w", werr)
+		}
+		result.MarksBackupPath = marksBackup
+	}
 	if err := a.Run.WriteFile(ctx, marksFragmentPath, []byte(marks), 0644); err != nil {
 		return result, fmt.Errorf("write marks fragment: %w", err)
 	}
@@ -123,6 +133,14 @@ func (a *Applier) Apply(ctx context.Context, cfg *cm.MultiWANConfig, objectives 
 		return result, fmt.Errorf("reload firewall: %w", err)
 	}
 	return result, nil
+}
+
+func (a *Applier) backupFileName(kind string) string {
+	now := time.Now
+	if a.Now != nil {
+		now = a.Now
+	}
+	return filepath.Join(a.BackupDir, kind+"."+now().UTC().Format("20060102T150405.000000000Z")+".bak")
 }
 
 func (a *Applier) commitAndRestart(ctx context.Context) error {
@@ -135,9 +153,11 @@ func (a *Applier) commitAndRestart(ctx context.Context) error {
 	return nil
 }
 
-// Restore reinstalls a trusted backup, commits UCI and restarts mwan3. It does
-// not restore the marks fragment or reload fw4; callers handle those separately.
-func (a *Applier) Restore(ctx context.Context, backupPath string) error {
+// Restore reinstalls the mwan3 backup and restarts mwan3. When marksBackupPath
+// is non-empty the previous nft fragment is also reinstalled and fw4 reloaded.
+// A partial apply is therefore recoverable in both directions; pass an empty
+// marksBackupPath only when no fragment existed before the apply.
+func (a *Applier) Restore(ctx context.Context, backupPath, marksBackupPath string) error {
 	if a.Run == nil {
 		return fmt.Errorf("multi_wan: runner is required")
 	}
@@ -148,5 +168,21 @@ func (a *Applier) Restore(ctx context.Context, backupPath string) error {
 	if err := a.Run.WriteFile(ctx, mwan3ConfigPath, data, 0600); err != nil {
 		return fmt.Errorf("restore mwan3: %w", err)
 	}
-	return a.commitAndRestart(ctx)
+	if err := a.commitAndRestart(ctx); err != nil {
+		return err
+	}
+	if marksBackupPath == "" {
+		return nil
+	}
+	frag, err := a.Run.ReadFile(ctx, marksBackupPath)
+	if err != nil {
+		return fmt.Errorf("read marks backup: %w", err)
+	}
+	if err := a.Run.WriteFile(ctx, marksFragmentPath, frag, 0644); err != nil {
+		return fmt.Errorf("restore marks fragment: %w", err)
+	}
+	if _, err := a.Run.Run(ctx, "fw4", "reload"); err != nil {
+		return fmt.Errorf("reload firewall after restore: %w", err)
+	}
+	return nil
 }
