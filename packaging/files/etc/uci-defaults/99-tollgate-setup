@@ -52,7 +52,11 @@ case "$SETUP_VERSION" in
         ;;
 esac
 
-LOGFILE=/tmp/tollgate-setup.log
+# Overridable on purpose: the offline suites (tests/uci-defaults-*_test.sh)
+# export their own per-run LOGFILE so concurrent runs never share this file —
+# an unconditional assignment here used to clobber that redirect, making every
+# suite truncate and grep one shared /tmp/tollgate-setup.log.
+LOGFILE="${LOGFILE:-/tmp/tollgate-setup.log}"
 # The nodogsplash init script, as an absolute path next to SETUP_FLAG and
 # LOGFILE so the offline tests can redirect all three the same way
 # (tests/uci-defaults-*_test.sh).

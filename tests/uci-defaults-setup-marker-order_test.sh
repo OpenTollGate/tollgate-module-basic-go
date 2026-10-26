@@ -440,7 +440,7 @@ seed_state() {
 build_script() {
     local shipped="$1" variant="${2:-shipped}"
     sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-        -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
+        -e "s|^LOGFILE=\"\${LOGFILE:-/tmp/tollgate-setup\.log}\"\$|LOGFILE=$LOGFILE|" \
         -e "s|> */proc/sys/kernel/hostname|> $HOSTNAME_FILE|" \
         -e "s|/etc/profile|$PROFILE_FILE|g" \
         -e "s|/etc/config/nodogsplash|$NDS_CONFIG|g" \
