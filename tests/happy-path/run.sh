@@ -22,6 +22,8 @@ set -u
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
 
+. "$SELF_DIR/hygiene.sh"
+
 ARTIFACT=""
 STRICT=0
 KEEP=0
@@ -110,6 +112,7 @@ cleanup() {
     [ -n "$MOD_PID" ] && kill "$MOD_PID" 2>/dev/null
     [ -n "$STUB_PID" ] && kill "$STUB_PID" 2>/dev/null
     wait 2>/dev/null
+    hygiene_teardown --port "$MODULE_PORT" --root "$ARTIFACT" --root "$REPO_ROOT" 2>/dev/null
     if [ "$KEEP" = "1" ]; then
         note "work dir kept: $WORK"
     else
@@ -295,8 +298,11 @@ start_module() {
 }
 
 if [ "$RUN_MODULE" = "1" ] && command -v curl >/dev/null 2>&1; then
+    # #947: kills only own-tree PIDs / module binaries under $ARTIFACT or
+    # $REPO_ROOT; a foreign :$MODULE_PORT holder is reported, never killed.
+    hygiene_teardown --port "$MODULE_PORT" --root "$ARTIFACT" --root "$REPO_ROOT"
     if curl -s -m 2 -o /dev/null "http://127.0.0.1:$MODULE_PORT/" 2>/dev/null; then
-        chk boot:port-free FAIL "something already listens on :$MODULE_PORT — the suite needs it"
+        chk boot:port-free FAIL "something already listens on :$MODULE_PORT — the suite needs it (see HPHYG lines above for the holder's identity; a foreign holder belongs to another lane and is never killed)"
     else
         start_module
         for _ in $(seq 1 90); do
