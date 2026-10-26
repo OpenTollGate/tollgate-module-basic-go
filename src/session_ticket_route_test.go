@@ -58,6 +58,10 @@ func (m *sessionTicketMerchant) GetUsage(macAddress string) (string, error) {
 	return m.usage, nil
 }
 
+// BindChannel satisfies merchant.MerchantInterface. This double has no
+// sessions to bind, and reporting a live one would grant access nothing meters.
+func (m *sessionTicketMerchant) BindChannel(string, string) (uint64, bool) { return 0, false }
+
 func (m *sessionTicketMerchant) GetSession(macAddress string) (*merchant.CustomerSession, error) {
 	return &merchant.CustomerSession{MacAddress: macAddress, Metric: "bytes", Allotment: 100 * 1024 * 1024}, nil
 }

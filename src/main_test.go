@@ -199,7 +199,12 @@ func (m *namedMerchant) AddAllotment(macAddress, metric string, amount uint64) (
 	return nil, nil
 }
 func (m *namedMerchant) GetUsage(macAddress string) (string, error) { return "", nil }
-func (m *namedMerchant) Fund(cashuToken string) (uint64, error)     { return 0, nil }
+
+// BindChannel satisfies merchant.MerchantInterface for this base double and every
+// double that embeds it. No sessions exist here, and reporting a live one would
+// grant access that nothing meters.
+func (m *namedMerchant) BindChannel(string, string) (uint64, bool) { return 0, false }
+func (m *namedMerchant) Fund(cashuToken string) (uint64, error)    { return 0, nil }
 func (m *namedMerchant) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*merchant.LightningInvoice, error) {
 	return nil, nil
 }

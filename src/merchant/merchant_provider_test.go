@@ -66,6 +66,10 @@ func (m *mockMerchantForProvider) GetUsage(macAddress string) (string, error) {
 	return "", fmt.Errorf("mock: %s", m.name)
 }
 
+// BindChannel satisfies merchant.MerchantInterface. This double has no
+// sessions to bind, and reporting a live one would grant access nothing meters.
+func (m *mockMerchantForProvider) BindChannel(string, string) (uint64, bool) { return 0, false }
+
 func (m *mockMerchantForProvider) IssueSessionTicket(macAddress string) (string, int64, error) {
 	return "", 0, fmt.Errorf("mock: %s", m.name)
 }

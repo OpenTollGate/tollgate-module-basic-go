@@ -74,6 +74,10 @@ func (m *identityMerchant) GetUsage(macAddress string) (string, error) {
 	return "-1/-1", nil
 }
 
+// BindChannel satisfies merchant.MerchantInterface. This double has no
+// sessions to bind, and reporting a live one would grant access nothing meters.
+func (m *identityMerchant) BindChannel(string, string) (uint64, bool) { return 0, false }
+
 func (m *identityMerchant) PurchaseSession(cashuToken, macAddress string) (*nostr.Event, error) {
 	m.purchaseCalls++
 	m.purchaseMAC = macAddress
