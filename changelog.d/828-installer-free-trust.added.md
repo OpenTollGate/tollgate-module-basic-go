@@ -34,3 +34,5 @@
   `Depends:` field of the control file opkg consumes — both fail closed when
   the dependency is dropped or moved into a comment, where the previous
   literal-string greps could not tell the difference.
+
+([#828](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/828)).
