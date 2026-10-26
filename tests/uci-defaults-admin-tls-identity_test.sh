@@ -102,6 +102,11 @@ export COMMITTED="$TMP/committed-nodogsplash"
 export PROVISIONED_CERT PROVISIONED_KEY OPTOUT_FILE OPERATOR_CERT OPERATOR_KEY
 export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd"
+# The credential markers default to absolute paths; keep them in the sandbox so a
+# run neither touches the build host's /etc/tollgate nor trips over the sandbox's
+# missing one when the private-WiFi default is applied.
+export ADMIN_PROVISIONAL_MARKER="$TMP/etc/tollgate/admin-credential-provisional"
+export PRIVATE_WIFI_PROVISIONAL_MARKER="$TMP/etc/tollgate/private-wifi-credential-provisional"
 
 # ---------------------------------------------------------------- fake uci
 # Flat-file stand-in: one "key=value" line per option, list options stored as one
@@ -296,7 +301,7 @@ build_script() { # build_script <source-file> [extra-sed...]
     local src="$1"
     shift
     sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-        -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
+        -e "s|^LOGFILE=\"\${LOGFILE:-/tmp/tollgate-setup\.log}\"\$|LOGFILE=$LOGFILE|" \
         -e "s|^UHTTPD_INIT=\"/etc/init\.d/uhttpd\"\$|UHTTPD_INIT=\"$UHTTPD_INIT\"|" \
         -e "s|^TOLLGATE_CLI=\"/usr/bin/tollgate\"\$|TOLLGATE_CLI=\"$TOLLGATE_CLI\"|" \
         -e "s|^PROVISIONED_CERT=\"/etc/tollgate/ssl/server\.crt\"\$|PROVISIONED_CERT=\"$PROVISIONED_CERT\"|" \

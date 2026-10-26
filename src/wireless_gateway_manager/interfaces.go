@@ -20,7 +20,7 @@ type ConnectorInterface interface {
 	GetActiveSTA() (*STASection, error)
 	FindOrCreateSTAForSSID(ssid, passphrase, encryption, radio string) (string, error)
 	RemoveDisabledSTA(ssid string) error
-	SwitchUpstream(activeIface, candidateIface, candidateSSID string) error
+	SwitchUpstream(activeIface, candidateIface, candidateSSID, candidateBSSID string) error
 	GetSTADevice(ifaceName string) (string, error)
 	EnsureWWANSetup() error
 	EnsureRadiosEnabled() error

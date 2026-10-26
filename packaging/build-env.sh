@@ -26,6 +26,15 @@
 #                              the live feed by scripts/sdk-go-version.sh)
 #   go_ldflags  <pkg-version>  service binary ldflags (no wall clock)
 #   cli_ldflags <pkg-version>  go_ldflags + main.version for the CLI module
+#   tg_version                 release version for this build: TG_VERSION
+#                              (the one documented override, #941) wins,
+#                              the repository-root VERSION file is the
+#                              fallback
+#   tg_assert_version_consistency <binary> <expected-version>
+#                              post-build fence (#941): the version the
+#                              ldflags embedded must equal the version the
+#                              package carries; warns by default, fails
+#                              when TG_REQUIRE_VERSION_CONSISTENCY=1
 #   tg_git_branch              branch of the enclosing repo; "main" when the
 #                              checkout cannot name one (detached HEAD)
 #   tg_git_commit              short HEAD of the enclosing repo; "unknown"
@@ -77,7 +86,13 @@ NPM_VERSION="$(jq -r '.npm.version' "$TG_BUILD_INPUTS")"
 UPX_VERSION="$(jq -r '.upx.version' "$TG_BUILD_INPUTS")"
 PORTAL_REPO="$(jq -r '.portal.repo' "$TG_BUILD_INPUTS")"
 PORTAL_COMMIT="$(jq -r '.portal.commit' "$TG_BUILD_INPUTS")"
-SDK_RELEASE="$(jq -r '.openwrt_sdk.release' "$TG_BUILD_INPUTS")"
+# Two pinned SDK eras (build-inputs.json .openwrt_sdk.releases): the apk-native
+# 25.12 line (primary — the .go.version pin and released-feed audit track it)
+# and the ipk/opkg 24.10 line for the installed base. Format selects the era.
+sdk_release_for() {
+    jq -r --arg f "${1:-apk}" '.openwrt_sdk.releases[$f].release // .openwrt_sdk.release // empty' "$TG_BUILD_INPUTS"
+}
+SDK_RELEASE="$(sdk_release_for "${TG_PACKAGE_FORMAT:-apk}")"
 
 [ -n "$GO_VERSION" ] && [ "$GO_VERSION" != "null" ] || tg_die "go version missing from manifest"
 [ -n "$PORTAL_COMMIT" ] && [ "$PORTAL_COMMIT" != "null" ] || tg_die "portal.commit missing from manifest"
@@ -115,16 +130,18 @@ export BUILD_TIME_UTC
 # ---- helpers ---------------------------------------------------------------
 
 sdk_image_ref() {
-    # Accepts either a bare target (e.g. mediatek-filogic) or a full tag
-    # (mediatek-filogic-25.12.0); normalizes to bare + pinned release.
+    # Accepts a bare target (e.g. mediatek-filogic) or a full tag; the SECOND
+    # arg selects the packaging era ("apk" default, "ipk" for the 24.10 line).
     _tgt="$1"
+    _fmt="${2:-${TG_PACKAGE_FORMAT:-apk}}"
+    _rel="$(sdk_release_for "$_fmt")"
     case "$_tgt" in
-        *-"$SDK_RELEASE") _tgt="${_tgt%-$SDK_RELEASE}" ;;
+        *-"$_rel") _tgt="${_tgt%-$_rel}" ;;
     esac
-    _digest="$(jq -r --arg t "$_tgt" '.openwrt_sdk.targets[$t].digest' "$TG_BUILD_INPUTS")"
+    _digest="$(jq -r --arg t "$_tgt" --arg f "$_fmt" '.openwrt_sdk.releases[$f].targets[$t].digest // .openwrt_sdk.targets[$t].digest // empty' "$TG_BUILD_INPUTS")"
     [ -n "$_digest" ] && [ "$_digest" != "null" ] \
-        || tg_die "no SDK digest pinned for target '$_tgt' in build-inputs.json"
-    printf '%s:%s@%s' "$(jq -r '.openwrt_sdk.image' "$TG_BUILD_INPUTS")" "$_tgt-$SDK_RELEASE" "$_digest"
+        || tg_die "no SDK digest pinned for target '$_tgt' (era $_fmt) in build-inputs.json"
+    printf '%s:%s@%s' "$(jq -r '.openwrt_sdk.image' "$TG_BUILD_INPUTS")" "$_tgt-$_rel" "$_digest"
 }
 
 # Release line ("series") of an OpenWrt release: the feed branch name
@@ -190,6 +207,64 @@ tg_git_commit() {
     fi
     [ -n "$_commit" ] || _commit=unknown
     printf '%s' "$_commit"
+}
+
+# Release version this build stamps everywhere (ldflags via go_ldflags/
+# cli_ldflags, package version, the __TOLLGATE_VERSION__ marker in
+# 99-tollgate-setup). ONE override knob: TG_VERSION wins, the
+# repository-root VERSION file is the fallback. #941: the rc5 feed
+# package embedded a binary stamped from a lagged VERSION file (rc4)
+# while the tag and the package said rc5 — deriving this in one place
+# instead of per-script is what lets a release-cutting lane re-point
+# the stamp without hand-editing VERSION.
+tg_version() {
+    if [ -n "${TG_VERSION:-}" ]; then
+        printf '%s' "$TG_VERSION"
+        return 0
+    fi
+    [ -f "$TG_ROOT/VERSION" ] \
+        || tg_die "TG_VERSION not set and no VERSION file at $TG_ROOT — refusing to guess a release version"
+    _ver="$(tr -d '[:space:]' < "$TG_ROOT/VERSION")"
+    [ -n "$_ver" ] || tg_die "VERSION file at $TG_ROOT is empty — set TG_VERSION or bump VERSION"
+    printf '%s' "$_ver"
+}
+
+# Post-build fence (#941): the version the ldflags embedded in <binary>
+# must equal the version the package carries. Read with strings(1), not
+# by executing the binary — the artifacts are cross-compiled for
+# routers. Substring match: the embedded cli.Version/main.version is the
+# exact string the same caller passed to go_ldflags, so the guarded
+# failure (ldflags wired to a different source than the package) always
+# misses. Run BEFORE any UPX pass — compression hides the strings.
+# Warns loudly by default; fails when TG_REQUIRE_VERSION_CONSISTENCY=1
+# (the release workflow sets that: a fence that cannot fail is
+# decoration).
+#
+# PIPEFAIL CONTRACT: every caller lane runs `set -euo pipefail`. The
+# match must NOT use `grep -q`: -q exits on first match, the writer
+# (strings, with megabytes to emit over a 12 MB binary) then dies on
+# SIGPIPE, and under pipefail the pipeline reports 141 — the fence
+# denies a correctly-stamped binary (rehearsal-verified on a real
+# build). grep without -q drains the stream to EOF, so strings always
+# exits 0 and the pipeline verdict is grep's alone.
+tg_assert_version_consistency() {
+    _bin="$1"
+    _expected="$2"
+    [ -n "$_expected" ] || tg_die "version-consistency fence invoked without an expected version"
+    if [ ! -f "$_bin" ]; then
+        printf 'build-env: WARNING: version-consistency: no such binary: %s\n' "$_bin" >&2
+        [ "${TG_REQUIRE_VERSION_CONSISTENCY:-0}" = "1" ] && exit 1
+        return 0
+    fi
+    if strings "$_bin" 2>/dev/null | grep -F -- "$_expected" >/dev/null; then
+        printf 'build-env: version-consistency: %s embeds %s\n' "$_bin" "$_expected" >&2
+        return 0
+    fi
+    printf 'build-env: WARNING: version-consistency: %s does NOT embed %s — the stamp and the package version diverged (#941)\n' "$_bin" "$_expected" >&2
+    if [ "${TG_REQUIRE_VERSION_CONSISTENCY:-0}" = "1" ]; then
+        printf 'build-env: ERROR: TG_REQUIRE_VERSION_CONSISTENCY=1 — failing the build\n' >&2
+        exit 1
+    fi
 }
 
 # Deterministic ldflags for the service binaries (module
