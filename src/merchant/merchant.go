@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	gonutsclient "github.com/OpenTollGate/gonuts-tollgate/wallet/client"
@@ -459,6 +460,49 @@ type Merchant struct {
 	tickets  *ticketState
 }
 
+// walletDirFor returns the directory the wallet's bbolt DB and its JSON
+// stores live in: the config directory by default, or the config directory's
+// "wallet" subdirectory when setup mounted the ext4 loop image there
+// (mmap-incapable overlays — jffs2 cannot host bbolt's shared mmap; see
+// docs/architecture/wallet-storage-mmap-incapable-overlay-decision.md).
+// The subdirectory wins ONLY when it is a mountpoint, so a plain empty
+// directory next to the config can never silently move the wallet.
+func walletDirFor(configManager *config_manager.ConfigManager) string {
+	base := filepath.Dir(configManager.ConfigFilePath)
+	walletSub := filepath.Join(base, "wallet")
+	if isMountpoint(walletSub) {
+		return walletSub
+	}
+	return base
+}
+
+// isMountpoint reports whether dir is the root of a mounted filesystem,
+// without /proc: a directory's ".." is on the same device unless a mount
+// boundary sits between them. (Inode identity is NOT the signal — a plain
+// directory and its parent always differ in inode; and a BIND mount shares
+// the source's st_dev, so it is invisible here — neither matters for the
+// one consumer: the loop-image wallet dir is ext4 on a loop device while
+// its parent sits on the overlay, which IS a device change.)
+func isMountpoint(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	parentInfo, err := os.Stat(filepath.Join(dir, ".."))
+	if err != nil {
+		return false
+	}
+	pst, ok := parentInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	return st.Dev != pst.Dev
+}
+
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
 	log.Printf("=== Merchant Initializing ===")
 
@@ -473,7 +517,7 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	reachableMints := mintHealthTracker.GetReachableMintConfigs()
 	if len(reachableMints) == 0 {
 		log.Printf("WARNING: No reachable mints detected. Starting in degraded mode.")
-		walletDirPath := filepath.Dir(configManager.ConfigFilePath)
+		walletDirPath := walletDirFor(configManager)
 		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
 		mintHealthTracker.StartProactiveChecks()
 		mintHealthTracker.SetOnFirstReachableForDegraded(func() {
@@ -519,7 +563,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	}
 
 	log.Printf("Setting up wallet...")
-	walletDirPath := filepath.Dir(configManager.ConfigFilePath)
+	walletDirPath := walletDirFor(configManager)
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
 	}

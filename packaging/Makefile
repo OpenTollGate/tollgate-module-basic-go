@@ -79,7 +79,7 @@ define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=TollGate Basic Module
-	DEPENDS:=+nodogsplash +jq +ca-bundle
+	DEPENDS:=+nodogsplash +jq +ca-bundle +kmod-loop +kmod-fs-ext4 +e2fsprogs +losetup
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
 	REPLACES:=base-files
