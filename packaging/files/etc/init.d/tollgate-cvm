@@ -1,0 +1,79 @@
+#!/bin/sh /etc/rc.common
+
+# tollgate-cvm — the ContextVM control plane.
+#
+# DISABLED BY DEFAULT. The package installs the daemon and this init script,
+# but enables neither: exposing remote control of a payment gateway must be an
+# operator decision, not an upgrade side effect. Enable explicitly with
+# `uci set tollgate.cvm.enabled=1 && uci commit tollgate` then
+# `service tollgate-cvm enable` — or just `service tollgate-cvm start` for a
+# one-off run.
+#
+# The daemon additionally refuses to serve on an unclaimed router (one whose
+# config.json maintainer_npub is empty): with no maintainer there is nobody to
+# authorize writes and reads would be open to any signed caller.
+#
+# The key is read from /etc/tollgate/cvm.key via TOLLGATE_CVM_NSEC_HEX. It is
+# passed as an ENV VAR, never as an argument — argv is world-readable in
+# /proc/<pid>/cmdline on this image, and this key decrypts every request.
+
+START=96
+USE_PROCD=1
+USE_PROCD_ONLY=1
+
+CONF="tollgate"
+KEY_FILE=/etc/tollgate/cvm.key
+
+start_service() {
+    config_load "$CONF"
+    config_get_bool enabled cvm enabled 0
+
+    if [ "$enabled" != "1" ]; then
+        echo "tollgate-cvm: disabled (uci set $CONF.cvm.enabled=1 to enable)" >&2
+        return 0
+    fi
+
+    if [ ! -f "$KEY_FILE" ]; then
+        echo "tollgate-cvm: $KEY_FILE is missing — generate one with 'nak key generate' (the raw 64-hex private key, mode 0600) and retry" >&2
+        return 1
+    fi
+
+    # Read and validate the key here rather than trusting the file: a
+    # truncated key (63 chars) is the classic keygen failure and produces a
+    # confusing nip19 error deep in the daemon.
+    #
+    # The MODE is enforced, not merely advised: this file is the whole control
+    # plane (it decrypts every request), so a world-readable copy is a total
+    # compromise. BusyBox `stat -c %a` is available on this image; if it is
+    # not, refuse rather than run with an unverified key file.
+    if command -v stat >/dev/null 2>&1; then
+        TG_CVM_MODE="$(stat -c %a "$KEY_FILE" 2>/dev/null)"
+        if [ "$TG_CVM_MODE" != "600" ]; then
+            echo "tollgate-cvm: $KEY_FILE is mode $TG_CVM_MODE, must be 600 (chmod 600 $KEY_FILE) — this key decrypts every request" >&2
+            return 1
+        fi
+    else
+        echo "tollgate-cvm: no 'stat' applet, cannot verify $KEY_FILE is mode 600 — refusing to run with an unverified key file" >&2
+        return 1
+    fi
+
+    TG_CVM_KEY="$(head -n 1 "$KEY_FILE" | tr -d ' \t\r\n')"
+    if [ "${#TG_CVM_KEY}" -ne 64 ]; then
+        echo "tollgate-cvm: $KEY_FILE does not hold a 64-hex private key (got ${#TG_CVM_KEY} chars)" >&2
+        return 1
+    fi
+
+    procd_open_instance
+    procd_set_param command /usr/bin/tollgate-cvm
+    procd_set_param directory /
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+    procd_set_param file /tmp/tollgate-cvm.log
+    procd_set_param env TOLLGATE_CVM_NSEC_HEX="$TG_CVM_KEY"
+    # The service must be up first: the daemon reads maintainer_npub over the
+    # CLI socket, so starting it against an absent socket would only produce a
+    # confusing "unclaimed" refusal.
+    procd_set_param depends tollgate-wrt
+    procd_set_param respawn 3 5 0
+    procd_close_instance
+}

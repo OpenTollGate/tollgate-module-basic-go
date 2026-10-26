@@ -87,6 +87,9 @@ func (s *CLIServer) handlePrivateNetworkCommand(args []string, flags map[string]
 
 // handlePrivateNetworkStatus returns the current private network configuration
 func (s *CLIServer) handlePrivateNetworkStatus() CLIResponse {
+	if err := requirePrivateNetwork(); err != nil {
+		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
+	}
 	ssid, err := getUCIValue("wireless.private_radio0.ssid")
 	if err != nil {
 		return CLIResponse{
@@ -122,6 +125,9 @@ func (s *CLIServer) handlePrivateNetworkStatus() CLIResponse {
 
 // handlePrivateNetworkEnable enables the private network
 func (s *CLIServer) handlePrivateNetworkEnable() CLIResponse {
+	if err := requirePrivateNetwork(); err != nil {
+		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
+	}
 	// Enable both 2.4GHz and 5GHz private interfaces
 	if err := setUCIValue("wireless.private_radio0.disabled", "0"); err != nil {
 		return CLIResponse{
@@ -237,6 +243,9 @@ func (s *CLIServer) handlePrivateNetworkRename(newSSID string) CLIResponse {
 
 // handlePrivateNetworkSetPassword changes the private network password
 func (s *CLIServer) handlePrivateNetworkSetPassword(newPassword string) CLIResponse {
+	if err := requirePrivateNetwork(); err != nil {
+		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
+	}
 	// If no password provided, generate a random one
 	generated := newPassword == ""
 	if generated {
@@ -268,6 +277,20 @@ func (s *CLIServer) handlePrivateNetworkSetPassword(newPassword string) CLIRespo
 			Timestamp: time.Now(),
 		}
 	}
+
+	// Setting a passphrase implies the operator wants the private network up:
+	// 99-tollgate-setup leaves a credential-less private AP DISABLED, so a
+	// set-password that did not also enable it would write a key into a radio
+	// that stays down. Already-enabled radios are a no-op here.
+	enabled, err := setPrivateRadioOption("disabled", "0")
+	if err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     fmt.Sprintf("Failed to enable the private network: %v", err),
+			Timestamp: time.Now(),
+		}
+	}
+	changed = append(changed, enabled...)
 
 	if err := finishPrivateRadioWrite(changed); err != nil {
 		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
@@ -331,19 +354,32 @@ func (s *CLIServer) handlePrivateNetworkSetEncryption(encryption string) CLIResp
 	}
 }
 
+// errNoPrivateNetwork is the one refusal every private-network command gives
+// when the private radios are not provisioned (radio-less systems, fresh
+// installs). Before #1002 C2, rename/set-encryption produced it while
+// status/enable/set-password leaked raw UCI errors first.
+var errNoPrivateNetwork = fmt.Errorf("this router has no private network (no wireless.private_radio0 section); run the TollGate setup first")
+
+func requirePrivateNetwork() error {
+	if len(existingPrivateRadioSections()) == 0 {
+		return errNoPrivateNetwork
+	}
+	return nil
+}
+
 // setPrivateRadioOption writes one option on every private radio that exists,
 // and returns the sections it changed.
 //
 // It exists because the three private-network commands used to write
 // wireless.private_radio0 and wireless.private_radio1 independently, each
-// ignoring a failure on radio1 — which is how the two radios drift apart — and
-// because `uci set` on a section that does not exist CREATES it, so a
+// ignoring a failure on radio1 — which is how the two radios drift apart —
+// and because `uci set` on a section that does not exist CREATES it, so a
 // single-radio router ended up with a typeless wifi-iface section. Writing only
 // existing sections and reporting "nothing to write" fixes both.
 func setPrivateRadioOption(option, value string) ([]string, error) {
 	sections := existingPrivateRadioSections()
 	if len(sections) == 0 {
-		return nil, fmt.Errorf("this router has no private network (no wireless.private_radio0 section); run the TollGate setup first")
+		return nil, errNoPrivateNetwork
 	}
 
 	var changed []string

@@ -1,0 +1,48 @@
+=== P0-P6 INDEPENDENCE PRECONDITION ===
+-- ip route get over ALL peer addresses (must differ in BOTH egress iface AND gateway):
+10.10.1.2 dev a0 src 10.10.1.1 uid 0 
+    cache 
+10.20.2.2 dev b0 src 10.20.2.1 uid 0 
+    cache 
+-- ARBITER: MPJoinSynRx non-zero at the responder (a subflow can only form if this moves):
+
+=== GOLDEN calibration + cells (n=5) ===
+CELL=golden RUN=1 loss=0% cli_sent=268435456 srv_recv=268435456 boundary_total=275760212 legA=147891636 legB=127868576 shareB=0.4637 R=0.027287 D=0.000000 validity=ok
+CELL=golden RUN=2 loss=0% cli_sent=268435456 srv_recv=268435456 boundary_total=276539316 legA=149182680 legB=127356536 shareB=0.4605 R=0.030189 D=-0.000000 validity=ok
+CELL=golden RUN=3 loss=0% cli_sent=268435456 srv_recv=268435456 boundary_total=277187340 legA=149365160 legB=127822080 shareB=0.4611 R=0.032603 D=-0.000000 validity=ok
+CELL=golden RUN=4 loss=0% cli_sent=268435456 srv_recv=268435456 boundary_total=275308356 legA=147534644 legB=127773652 shareB=0.4641 R=0.025604 D=-0.000000 validity=ok
+CELL=golden RUN=5 loss=0% cli_sent=268435456 srv_recv=268435456 boundary_total=277101928 legA=149115520 legB=127986348 shareB=0.4619 R=0.032285 D=-0.000000 validity=ok
+CELL=noloss RUN=1 loss=0% cli_sent=268435456 srv_recv=268435456 boundary_total=277179364 legA=148577092 legB=128602272 shareB=0.4640 R=0.032574 D=0.000000 validity=ok
+CELL=noloss RUN=2 loss=0% cli_sent=268435456 srv_recv=268435456 boundary_total=277173128 legA=148188568 legB=128984380 shareB=0.4654 R=0.032550 D=-0.000001 validity=ok
+CELL=noloss RUN=3 loss=0% cli_sent=268435456 srv_recv=268435456 boundary_total=277118008 legA=148749820 legB=128368008 shareB=0.4632 R=0.032345 D=-0.000001 validity=ok
+CELL=noloss RUN=4 loss=0% cli_sent=268435456 srv_recv=268435456 boundary_total=276633632 legA=148853672 legB=127779960 shareB=0.4619 R=0.030541 D=0.000000 validity=ok
+CELL=noloss RUN=5 loss=0% cli_sent=268435456 srv_recv=268435456 boundary_total=276427124 legA=149005480 legB=127421544 shareB=0.4610 R=0.029771 D=-0.000000 validity=ok
+CELL=loss RUN=1 loss=5% cli_sent=268435456 srv_recv=268435456 boundary_total=279340152 legA=26253964 legB=253086188 shareB=0.9060 R=0.040623 D=0.000000 validity=ok
+CELL=loss RUN=2 loss=5% cli_sent=268435456 srv_recv=268435456 boundary_total=286439276 legA=30517580 legB=255921696 shareB=0.8935 R=0.067069 D=0.000000 validity=ok
+CELL=loss RUN=3 loss=5% cli_sent=268435456 srv_recv=268435456 boundary_total=275442008 legA=37686648 legB=237755360 shareB=0.8632 R=0.026101 D=0.000000 validity=ok
+CELL=loss RUN=4 loss=5% cli_sent=268435456 srv_recv=268435456 boundary_total=274674152 legA=30598728 legB=244075324 shareB=0.8886 R=0.023241 D=-0.000000 validity=ok
+CELL=loss RUN=5 loss=5% cli_sent=268435456 srv_recv=268435456 boundary_total=273682896 legA=23306508 legB=250376388 shareB=0.9148 R=0.019548 D=0.000000 validity=ok
+
+=== subflow arbiter + DSS consistency (zeros on the DSS counters are the proof the map stayed consistent) ===
+TcpExtTcpDuplicateDataRehash    0                  0.0
+MPTcpExtMPTCPRetrans            0                  0.0
+MPTcpExtMPJoinNoTokenFound      0                  0.0
+MPTcpExtMPJoinSynRx             15                 0.0
+MPTcpExtMPJoinAckRx             15                 0.0
+MPTcpExtDSSNotMatching          0                  0.0
+MPTcpExtDSSCorruptionFallback   0                  0.0
+MPTcpExtDSSCorruptionReset      0                  0.0
+MPTcpExtInfiniteMapTx           0                  0.0
+MPTcpExtInfiniteMapRx           0                  0.0
+MPTcpExtDuplicateData           6093               0.0
+-- per-leg split of the last transfer:
+table inet m {
+	chain tin {
+		type filter hook input priority filter; policy accept;
+		counter packets 20418 bytes 273682896
+		iifname "a1" counter packets 9547 bytes 23306508
+		iifname "b1" counter packets 10871 bytes 250376388
+	}
+}
+
+RAW RECORD: /home/c08r4d0r/reports/mptcp-loop/e2r-raw.txt

@@ -1,0 +1,120 @@
+# The SSID matcher's acceptance table — ONE table, two readers.
+#
+#   * src/wireless_gateway_manager/brands_test.go drives hasTollGateSSID
+#     over every line of this file (behaviour: the Go matcher itself);
+#   * tests/contract/check-ssid-naming.sh proves this table is well-formed
+#     and covers every REQUIRED class, and that the Go test actually reads
+#     it (structure: the pin is wired, not decorative).
+#
+# Line grammar, directives (one per line, whitespace-separated):
+#
+#   match <ssid>            the matcher MUST recognize this name
+#   nomatch <ssid>          the matcher MUST reject this name
+#   banner-suffix <text>    the portal banner's suffix, declared ONCE
+#   banner <ssid>           the canonical banner is '<ssid> <banner-suffix>'
+#   nomatch-banner <ssid>   a name that is NOT a banner: the installer writes
+#                           this SSID with the suffix dropped, and it wins
+#
+# The last three are the CROSS-REPO portal-banner pin (defect 2). The banner
+# has TWO writers in TWO repositories — this module's 99-tollgate-setup writes
+# "<captive SSID> Portal", the installer's deploy.go writes the SSID with NO
+# suffix — and the installer runs LAST on a deployed router, so its spelling
+# wins on the splash page. The canonical value is declared HERE, once, so a
+# third spelling in either repo is a CI failure in both: brands_test.go
+# (TestCanonicalPortalBannerIsPinned) checks it against the shipped writer
+# source, and tests/uci-defaults-gatewayname-banner_test.sh derives its
+# expected banner from these same lines instead of re-spelling it.
+#
+# The suffix is declared once and the banner SSIDs are declared per brand, so
+# the canonical banner is DERIVED ('<ssid> ' + suffix) rather than repeated —
+# a table that spelled the whole banner out could carry two spellings of it.
+# 'nomatch-banner' puts the DIVERGENT spelling on record: that name is still a
+# recognised TollGate SSID (the matcher ignores directives it does not own),
+# but it is explicitly not the banner. The installer-side test reads this same
+# file from the same well-known path.
+#
+# Line grammar: 'match <ssid>' or 'nomatch <ssid>' (a bare 'nomatch' is the
+# empty SSID); comment and blank lines are ignored; comments live on their
+# own lines so parsing stays trivial.
+#
+# The contract, and where each class came from:
+#   * BOTH brands — the matcher was brand-blind until #618 (re-landed as
+#     #682): a whitelabel-branded TollGate was invisible as an upstream.
+#   * case-insensitive — the pre-device-code installer wrote lowercase
+#     tollgate-<code> SSIDs; those routers are still in the fleet.
+#   * single-'!'-decorated — #706's writer prefix, so the decorated and
+#     bare spellings of one router converge on the same recognition.
+#   * at most ONE '!' — a double decoration is not a TollGate name (#706).
+#
+# The whitelabel prefix appears literally HERE and nowhere else in the
+# table's consumers: this file is the SSID contract's allowlisted home
+# (tests/packaging/rebrand-literal-gutter_test.sh); Go source assembles it
+# from non-contiguous bytes and brands_test.go pins that assembly.
+
+# --- default brand, bare writer ---------------------------------------------
+match TollGate-OQ3Q
+match TollGate-A1B2
+match TollGate-G7ZQ
+match TollGate-
+match tollgate-0GLK
+match tOLLgATE-ab12
+
+# --- default brand, single-'!'-decorated writer (#706) ----------------------
+match !TollGate-9C3F
+match !tollgate-9c3f
+
+# --- whitelabel brand, bare writer ------------------------------------------
+match Net4sats-OQ3Q
+match net4sats-aa11
+match NET4SATS-AA11
+
+# --- whitelabel brand, single-'!'-decorated writer --------------------------
+match !Net4sats-7D2K
+match !net4sats-7d2k
+
+# --- decoration is at most ONE '!' ------------------------------------------
+nomatch !!TollGate-A1B2
+nomatch !!Net4sats-A1B2
+nomatch !tollgate
+
+# --- prefix anchored at the start, exact up to case -------------------------
+nomatch
+nomatch TollGate
+nomatch tollgate
+nomatch TollGatex-AB12
+nomatch MyTollGate-AB12
+nomatch x!TollGate-AB12
+nomatch FreeWifi
+nomatch !FreeWifi
+nomatch !
+
+# ---------------------------------------------------------------------------
+# The CROSS-REPO portal-banner pin (defect 2), read from this well-known path
+# by the module's own Go test AND by the installer-side check.
+#
+#   banner-suffix   the one suffix every canonical banner carries
+#   banner          the canonical banner's SSID, per brand: the banner is
+#                   this name plus the suffix above
+#   nomatch-banner  the installer's divergence on record: a canonical banner's
+#                   SSID with the suffix DROPPED. A recognized NAME, but not
+#                   the banner.
+#
+# 'nodogsplash.@nodogsplash[0].gatewayname' has TWO writers in TWO repos and
+# only ONE value is right. The module's 99-tollgate-setup writes '<ssid>
+# Portal'; the installer's deploy.go writes the bare SSID and runs LAST on a
+# deployed router, so its spelling wins on the splash page. That divergence was
+# undetectable while the invariant lived only inside the module's own shell
+# suite. It is declared HERE, once, and closed onto the shipped writer by
+# brands_test.go's TestCanonicalPortalBannerIsPinned, so a third spelling in
+# either repo fails CI. CHANGE ONE WRITER, CHANGE THIS TABLE.
+banner-suffix Portal
+banner !TollGate-OQ3Q
+banner !Net4sats-OQ3Q
+nomatch-banner !TollGate-OQ3Q
+
+# The banner SSIDs above are recognized names in their own right (the banner is
+# the guest-visible network's name plus the suffix), so they are pinned as
+# matches too: check-ssid-naming.sh requires every 'banner' line's SSID to have
+# a matching 'match' line here.
+match !TollGate-OQ3Q
+match !Net4sats-OQ3Q
