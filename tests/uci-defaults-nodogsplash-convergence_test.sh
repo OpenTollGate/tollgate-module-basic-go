@@ -62,7 +62,7 @@ mkdir -p "$TMP/bin" "$TMP/init.d"
 # configured list must not".
 KEY="nodogsplash.@nodogsplash[0].users_to_router"
 # Entries are `proto/port` pairs, the shape the convergence step compares.
-CORE_ENTRIES="tcp/2121 tcp/2050 tcp/2051 udp/123"
+CORE_ENTRIES="tcp/53 udp/53 tcp/2121 tcp/2050 tcp/2051 udp/123"
 STALE_ENTRY="tcp/8090"
 
 # ---------------------------------------------------------------- fake apk
@@ -212,7 +212,7 @@ FLAG="$TMP/tollgate-setup-done"
 LOGFILE="$TMP/setup.log"
 SCRIPT_UNDER_TEST="$TMP/99-tollgate-setup"
 sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-    -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
+    -e "s|^LOGFILE=\"\${LOGFILE:-/tmp/tollgate-setup\.log}\"\$|LOGFILE=$LOGFILE|" \
     -e "s|^NDS_INIT=\"/etc/init.d/nodogsplash\"\$|NDS_INIT=\"$FAKE_INIT\"|" \
     "$ROOT/$SCRIPT" > "$SCRIPT_UNDER_TEST"
 if grep -q "^SETUP_FLAG=\"$FLAG\"\$" "$SCRIPT_UNDER_TEST" &&

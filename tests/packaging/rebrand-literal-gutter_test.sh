@@ -66,6 +66,11 @@ DISCUSSION_ALLOWLIST=(
     'README.md'
     'CONTRIBUTING.md'
     'tests/contract/check-ssid-format.sh'
+    # The SSID matcher's pinned acceptance table: the whitelabel fixtures
+    # are the contract's own data, consumed by brands_test.go (which keeps
+    # the literal out of src/) and check-ssid-naming.sh. Same legitimate
+    # home as the format checker above it.
+    'tests/contract/ssid-naming-fixtures.txt'
 )
 scan_tree() { # scan_tree <extended-regex>
     if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -77,7 +82,7 @@ scan_tree() { # scan_tree <extended-regex>
         git grep -I -i -E -- "$1" -- . "${excludes[@]}" 2>/dev/null
     else
         grep -rI -i -E -- "$1" . 2>/dev/null | grep -v '^\./\.git/' \
-            | grep -vE '^(\./)?(docs/|CHANGELOG\.md:|README\.md:|CONTRIBUTING\.md:|tests/contract/check-ssid-format\.sh:)' || true
+            | grep -vE '^(\./)?(docs/|CHANGELOG\.md:|README\.md:|CONTRIBUTING\.md:|tests/contract/check-ssid-format\.sh:|tests/contract/ssid-naming-fixtures\.txt:)' || true
     fi
 }
 

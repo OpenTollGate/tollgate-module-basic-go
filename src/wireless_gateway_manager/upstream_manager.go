@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -25,20 +26,24 @@ type ResellerModeChecker interface {
 }
 
 type UpstreamManager struct {
-	connector            ConnectorInterface
-	scanner              ScannerInterface
-	reseller             ResellerModeChecker
-	config               UpstreamManagerConfig
-	stopChan             chan struct{}
-	pauseMu              sync.Mutex
-	pauseUntil           time.Time
-	blacklist            map[string]time.Time
-	blacklistMu          sync.Mutex
-	failMu               sync.Mutex
-	consecutiveFails     int
-	cooldownUntil        time.Time
-	connectivityCheckFn  func() bool
-	isTollGateConnection bool
+	connector           ConnectorInterface
+	scanner             ScannerInterface
+	reseller            ResellerModeChecker
+	config              UpstreamManagerConfig
+	stopChan            chan struct{}
+	pauseMu             sync.Mutex
+	pauseUntil          time.Time
+	blacklist           map[string]time.Time
+	blacklistMu         sync.Mutex
+	failMu              sync.Mutex
+	consecutiveFails    int
+	cooldownUntil       time.Time
+	connectivityCheckFn func() bool
+	connectivityProbeFn func() ConnectivityResult
+	// #880: written by concurrent verifyPostSwitchConnectivity
+	// goroutines (overlapping scan cycles spawn one per switch), read by
+	// the Start loop — no shared lock, hence atomic.
+	isTollGateConnection atomic.Bool
 	DiscoveryLog         *DiscoveryLogger
 }
 
@@ -197,7 +202,15 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 			"signal": candidate.Signal,
 		}).Info("Startup check: candidate found, switching")
 
-		if err := um.connector.SwitchUpstream(activeSTA.Name, candidate.IfaceName, candidate.SSID); err != nil {
+		// Same pause discipline as the main loop's switch: a manual
+		// upstream operation may have started while this startup scan
+		// was in flight — decline rather than race it (#880).
+		if um.isPaused() {
+			logger.Info("Startup check: declining switch, connectivity checks paused (manual upstream operation in flight)")
+			break
+		}
+
+		if err := um.connector.SwitchUpstream(activeSTA.Name, candidate.IfaceName, candidate.SSID, candidate.BSSID); err != nil {
 			logger.WithError(err).Warn("Startup check: switch failed")
 			um.recordSwitchFailure()
 			if scanAttempt < startupScanRetries {
@@ -207,7 +220,7 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 		}
 
 		um.resetSwitchFailures()
-		um.blacklistSSID(activeSTA.SSID)
+		um.blacklistUpstream(activeSTA.SSID, um.getAssociatedBSSID(staNetdev))
 		go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID)
 		switched = true
 		break
@@ -328,7 +341,7 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 					}
 					lostCount++
 					lostThreshold := um.config.LostThreshold
-					if um.isTollGateConnection {
+					if um.isTollGateConnection.Load() {
 						lostThreshold = um.config.TollGateLostThreshold
 					}
 					logger.WithField("lost_count", lostCount).Info("Connectivity lost")
@@ -344,11 +357,30 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 		}
 
 		if shouldScan {
+			// #880: a manual `tollgate upstream connect` parks inside
+			// SwitchUpstream for its DHCP wait with this manager paused.
+			// The pause used to gate only the lost-connectivity
+			// escalation, so a tick that read the mid-join radio as
+			// not-associated (or with no active section) still scanned
+			// and counter-switched to the disabled section the manual
+			// flow's competitor sweep (#848) had just created — the join
+			// never completed. While paused, the manager may observe but
+			// must not scan, clean up, or switch: the connect flow and
+			// the manager must not both drive the radio.
+			if um.isPaused() {
+				logger.WithField("reason", reason).Debug("Skipping scan cycle: connectivity checks paused (manual upstream operation in flight)")
+				continue
+			}
+
 			activeIface := ""
 			activeSSID := ""
+			activeBSSID := ""
 			if activeSTA != nil {
 				activeIface = activeSTA.Name
 				activeSSID = activeSTA.SSID
+				if netdev, err := um.connector.GetSTANetdev(activeSTA.Name); err == nil && netdev != "" {
+					activeBSSID = um.getAssociatedBSSID(netdev)
+				}
 			}
 
 			logger.WithFields(logrus.Fields{
@@ -361,7 +393,7 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 				logger.WithError(err).Warn("Failed to cleanup stale STAs before switch")
 			}
 
-			um.runScanCycle(activeIface, activeSSID, currentSignal, reason, isReseller)
+			um.runScanCycle(activeIface, activeSSID, activeBSSID, currentSignal, reason, isReseller)
 			scanCounter = 0
 			lostCount = 0
 		}
@@ -416,16 +448,24 @@ func (um *UpstreamManager) resetSwitchFailures() {
 	um.failMu.Unlock()
 }
 
-func (um *UpstreamManager) blacklistSSID(ssid string) {
+// blacklistUpstream records that a specific upstream has no internet. The key
+// is the BSSID when known: one SSID can be served by several BSSIDs across
+// different upstream networks (some routed to the internet, some captive or
+// isolated), and blacklisting the whole SSID would also exclude a working
+// BSSID of the same name — which is exactly how a router gets stuck retrying
+// the wrong AP. Falls back to the SSID only when no BSSID is available.
+func (um *UpstreamManager) blacklistUpstream(ssid, bssid string) {
+	key := blacklistKey(ssid, bssid)
 	um.blacklistMu.Lock()
-	um.blacklist[ssid] = time.Now()
+	um.blacklist[key] = time.Now()
 	um.blacklistMu.Unlock()
-	logger.WithField("ssid", ssid).Info("Blacklisted SSID (no internet)")
+	logger.WithFields(logrus.Fields{"ssid": ssid, "bssid": bssid}).Info("Blacklisted upstream (no internet)")
 }
 
-func (um *UpstreamManager) isBlacklisted(ssid string) bool {
+func (um *UpstreamManager) isBlacklisted(ssid, bssid string) bool {
+	key := blacklistKey(ssid, bssid)
 	um.blacklistMu.Lock()
-	t, exists := um.blacklist[ssid]
+	t, exists := um.blacklist[key]
 	um.blacklistMu.Unlock()
 	if !exists {
 		return false
@@ -433,13 +473,20 @@ func (um *UpstreamManager) isBlacklisted(ssid string) bool {
 	return time.Since(t) < um.config.BlacklistTTL
 }
 
+func blacklistKey(ssid, bssid string) string {
+	if b := strings.TrimSpace(bssid); b != "" {
+		return strings.ToLower(b)
+	}
+	return ssid
+}
+
 func (um *UpstreamManager) purgeBlacklist() {
 	um.blacklistMu.Lock()
 	now := time.Now()
-	for ssid, t := range um.blacklist {
+	for key, t := range um.blacklist {
 		if now.Sub(t) >= um.config.BlacklistTTL {
-			delete(um.blacklist, ssid)
-			logger.WithField("ssid", ssid).Debug("Purged expired blacklist entry")
+			delete(um.blacklist, key)
+			logger.WithField("key", key).Debug("Purged expired blacklist entry")
 		}
 	}
 	um.blacklistMu.Unlock()
@@ -452,7 +499,7 @@ func (um *UpstreamManager) isResellerModeActive() bool {
 	return um.reseller.IsResellerModeActive()
 }
 
-func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentSignal int, reason string, isReseller bool) {
+func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID string, currentSignal int, reason string, isReseller bool) {
 	if um.isInCooldown() {
 		logger.WithField("reason", reason).Info("In cooldown period, skipping scan cycle")
 		return
@@ -509,13 +556,24 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID string, currentS
 	}
 
 	if shouldSwitch {
-		if err := um.connector.SwitchUpstream(activeIface, candidate.IfaceName, candidate.SSID); err != nil {
+		// Re-check after the scan: a manual upstream operation may have
+		// taken the pause while this cycle was scanning (scans take
+		// seconds). A cycle that started before the pause must still
+		// decline to switch once one is in force — #880.
+		if um.isPaused() {
+			logger.WithFields(logrus.Fields{
+				"ssid":   candidate.SSID,
+				"reason": reason,
+			}).Info("Declining switch: connectivity checks paused mid-cycle (manual upstream operation in flight)")
+			return
+		}
+		if err := um.connector.SwitchUpstream(activeIface, candidate.IfaceName, candidate.SSID, candidate.BSSID); err != nil {
 			logger.WithError(err).Warn("Failed to switch upstream")
 			um.recordSwitchFailure()
 		} else {
 			um.resetSwitchFailures()
 			if isEmergency && activeSSID != "" {
-				um.blacklistSSID(activeSSID)
+				um.blacklistUpstream(activeSSID, activeBSSID)
 			}
 			go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID)
 		}
@@ -544,17 +602,21 @@ func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string, bssid strin
 	logger.WithField("ssid", ssid).Info("Post-switch: verifying connectivity")
 	if um.waitForDefaultRoute(30 * time.Second) {
 		if um.probeTollGateGateway(bssid) {
-			um.isTollGateConnection = true
+			um.isTollGateConnection.Store(true)
 			logger.WithField("ssid", ssid).Info("Post-switch: TollGate detected, skipping internet blacklist check")
 			return
 		}
 	}
 
-	um.isTollGateConnection = false
-	cmd := exec.Command("ping", "-c", "1", "-W", "5", "9.9.9.9")
-	if cmd.Run() != nil {
-		um.blacklistSSID(ssid)
-		logger.WithField("ssid", ssid).Warn("Blacklisted new upstream: no internet after switch")
+	um.isTollGateConnection.Store(false)
+	result := um.probeConnectivity("")
+	if !result.OK {
+		um.blacklistUpstream(ssid, bssid)
+		logger.WithFields(logrus.Fields{
+			"ssid":   ssid,
+			"bssid":  bssid,
+			"reason": result.Reason,
+		}).Warn("Blacklisted new upstream: no internet after switch")
 	} else {
 		logger.WithField("ssid", ssid).Info("Post-switch connectivity verified")
 	}
@@ -619,7 +681,7 @@ func (um *UpstreamManager) findKnownCandidates(networks []NetworkInfo) (*Candida
 		if !ok {
 			continue
 		}
-		if um.isBlacklisted(net.SSID) {
+		if um.isBlacklisted(net.SSID, net.BSSID) {
 			continue
 		}
 		if best == nil || net.Signal > best.Signal {
@@ -661,7 +723,7 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo, isEmer
 		if net.SSID == activeSSID {
 			continue
 		}
-		if um.isBlacklisted(net.SSID) {
+		if um.isBlacklisted(net.SSID, net.BSSID) {
 			continue
 		}
 
@@ -730,18 +792,31 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo, isEmer
 	return best.candidate, nil
 }
 
-func (um *UpstreamManager) checkConnectivity(staDevice string) bool {
-	if !um.isSTAAssociated(staDevice) {
-		return false
+// probeConnectivity runs the layered internet probe, honoring the injectable
+// hooks used by tests. staDevice may be empty when the caller only wants the
+// reachability check without an association gate.
+func (um *UpstreamManager) probeConnectivity(staDevice string) ConnectivityResult {
+	if um.connectivityProbeFn != nil {
+		return um.connectivityProbeFn()
 	}
+	if um.connectivityCheckFn != nil {
+		if um.connectivityCheckFn() {
+			return ConnectivityResult{OK: true, Reason: "ok"}
+		}
+		return ConnectivityResult{OK: false, Reason: "probe"}
+	}
+	if staDevice != "" && !um.isSTAAssociated(staDevice) {
+		return ConnectivityResult{OK: false, Reason: "not-associated"}
+	}
+	return probeUpstreamInternet()
+}
 
-	cmd := exec.Command("ping", "-c", "1", "-W", "3", "9.9.9.9")
-	return cmd.Run() == nil
+func (um *UpstreamManager) checkConnectivity(staDevice string) bool {
+	return um.probeConnectivity(staDevice).OK
 }
 
 func (um *UpstreamManager) CheckConnectivity() bool {
-	cmd := exec.Command("ping", "-c", "1", "-W", "3", "9.9.9.9")
-	return cmd.Run() == nil
+	return um.probeConnectivity("").OK
 }
 
 func (um *UpstreamManager) isSTAAssociated(staDevice string) bool {
@@ -756,6 +831,28 @@ func (um *UpstreamManager) isSTAAssociated(staDevice string) bool {
 	}
 	output := out.String()
 	return strings.Contains(output, "Access Point:") || strings.Contains(output, "Associated with")
+}
+
+// getAssociatedBSSID returns the BSSID the STA is currently associated with,
+// or "" when it cannot be determined. The manager blacklists the exact
+// upstream that failed rather than the whole SSID, so it must know which
+// BSSID it was on — one SSID can be served by several BSSIDs across different
+// upstream networks.
+func (um *UpstreamManager) getAssociatedBSSID(staDevice string) string {
+	if staDevice == "" {
+		return ""
+	}
+	out, err := exec.Command("iwinfo", staDevice, "info").Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "Access Point:") {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, "Access Point:"))
+		}
+	}
+	return ""
 }
 
 func (um *UpstreamManager) getCurrentSignal(staDevice string) (int, error) {

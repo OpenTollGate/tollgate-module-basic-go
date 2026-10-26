@@ -6,7 +6,7 @@ import (
 )
 
 // knownBackends is the set of wallet backends the selection layer understands.
-var knownBackends = map[string]bool{"gonuts": true, "cdk": true, "nucula": true}
+var knownBackends = map[string]bool{"gonuts": true, "cdk": true}
 
 // TestPolicyBackendsHaveManifests keeps the selection policy and the capability
 // manifests consistent: every backend named by the policy must have a valid
@@ -40,8 +40,14 @@ func TestPolicyBackendsHaveManifests(t *testing.T) {
 			t.Errorf("manifest for %q is missing required fields (kind/arches/licence): %+v", r.Backend, m)
 		}
 	}
-	if len(seen) < 2 {
-		t.Errorf("policy should reference at least two backends; saw %v", seen)
+	// The policy deliberately references ONE backend (cdk) since the gonuts
+	// upstream was archived. The guard's real job -- every referenced backend
+	// resolves to a complete manifest -- is above and unchanged. Requiring two
+	// here would forbid a single-backend default, which is now the decision.
+	// The other manifests (gonuts, nucula) stay shipped and are still validated
+	// by TestAllManifestsLoadable, because an operator can override to them.
+	if len(seen) < 1 {
+		t.Errorf("policy should reference at least one backend; saw %v", seen)
 	}
 }
 

@@ -1,34 +1,44 @@
 #!/usr/bin/env bash
-# Offline test for the ORDER the postinst runs the uci-defaults scripts in.
+# Offline test for the ORDER the uci-defaults run in on the INSTALL path, and
+# for the ORDER the BOOT path applies them in.
 #
-# At boot, /etc/init.d/boot applies /etc/uci-defaults/* in NUMERIC order —
-# 90-tollgate-captive-portal-symlink, 92-tollgate-admin-setup,
-# 99-tollgate-setup. The postinst a package install triggers used to run the
-# same scripts as 90, 99, 92 instead, so the LAST writer of uhttpd.main differed
-# between the install pass and the boot pass: an install converged to whatever
-# the earlier order produced until the next reboot re-ran them numerically. That
-# is a divergence nobody sees until the reboot, and both of those scripts derive
-# uhttpd.main.redirect_https — this module's 99 from certificate COVERAGE
-# (`tollgate ssl covers`), the pinned portal's 92 from the same coverage rule
-# since the module's portal pin advanced to 4158030 (guarded by
-# tests/packaging/assert-portal-bundle-contract.sh, CHECK F).
+# THE DEFECT THIS PINS
 #
-# An install must converge to the state the boot path produces, whatever either
-# script decides. That is what this test pins: the in-repo recipes run the list
-# in ascending numeric order and 99-tollgate-setup — the script that re-derives
-# the whole uhttpd contract from coverage — is the last writer.
+# The admin board's setup script is FAIL CLOSED: while root's /etc/shadow hash is
+# empty it DELETES uhttpd.admin's listeners, on the stated principle that the
+# board must be UNREACHABLE, not merely unhelpful. The credential that makes the
+# board authenticatable is CREATED by 99-tollgate-setup. Numeric order
+# (90, 92, 99) therefore ran the gate BEFORE the credential existed: on a fresh
+# hand-install the gate killed the admin board and nothing restored it. The field
+# log is the gate's "admin board ... is NOT being served ... root has no usable
+# password (state: empty)" immediately followed by 99's "generated one for the
+# :8090 admin board".
 #
-# The historical instance, for the record: with the pre-#593 guard (a readable,
-# non-empty cert+key pair and a configured listen_https) 92 armed the
-# :8080 -> https:// hop for the OpenWrt image's placeholder certificate
-# (CN=OpenWrt, SAN DNS:OpenWrt, 561 bytes, bench MT3000 2026-09-26), which covers
-# neither the router's hostname nor its LAN IP, while 99 derived 0 from coverage.
-# With 92 last, that install ended in a hard certificate error on every admin
-# login until the next boot. 92 no longer carries that premise in the portal pin,
-# but the feed repository's vendored copy does (net/tollgate-wrt/files/uci-defaults/
-# 92-tollgate-admin-setup, existence-only as of 2026-09-27) and its recipe still
-# runs 92 last — so the order is worth holding regardless of which copy a router
-# gets, and the feed needs the same two changes in its own repository.
+# The gate must run LAST, so the credential exists before the gate looks for it.
+# The feed's recipe already ran it last (90, 99, 92); the module's ran numeric
+# (90, 92, 99). This test pins the unified, gate-last contract.
+#
+# WHAT IT PINS
+#
+#   1. every in-repo recipe runs the uci-defaults in ASCENDING numeric order, so
+#      an install converges to the state the next boot produces (the boot path
+#      applies /etc/uci-defaults/* in one collated glob);
+#   2. the CREDENTIAL script (99-tollgate-setup) runs BEFORE the admin GATE
+#      (*-tollgate-admin-setup), and the gate runs LAST;
+#   3. the gate's INSTALLED FILENAME sorts AFTER the credential script's, so the
+#      boot path is gate-last too - reordering the recipe alone is not the fix,
+#      because a boot does not read the recipe;
+#   4. the file the recipes run is the file the packaging stages (portal-build.sh)
+#      and installs (packaging/Makefile), so the run order and the shipped file
+#      cannot drift apart.
+#
+# The historical instance, for the record: the module's postinst used to run the
+# same scripts as 90, 99, 92, so the LAST writer of uhttpd.main differed between
+# the install pass and the boot pass. #593 moved it onto the boot order
+# (90, 92, 99) to converge the two - which is what put the fail-closed gate in
+# front of the credential and produced this defect. Converging on the boot order
+# is right; the boot order must be gate-last, which is why the fix is a rename
+# (the numeric prefix IS the boot order) rather than only a recipe edit.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -38,6 +48,9 @@ PASS=0
 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; }
+
+CREDENTIAL="99-tollgate-setup"
+GATE_GLOB='*-tollgate-admin-setup'
 
 # Every in-repo recipe that runs the uci-defaults itself, on install.
 RECIPES=(
@@ -52,26 +65,40 @@ script_order() { # script_order <file>
         grep -o 'uci-defaults/[0-9A-Za-z._-]*' | sed 's|uci-defaults/||'
 }
 
-# order_is_boot_order <name...>: the list must be in ascending numeric order (the
-# order the boot path applies them in) and must contain 99-tollgate-setup, the
-# writer that derives the uhttpd contract from coverage.
-order_is_boot_order() {
-    local prev="" name num bad="0"
+# order_ok <name...>: the contract above, as one predicate, so the recipes and
+# the controls below are judged by exactly the same rule.
+#
+#   - every prefix parses and the list ascends by numeric prefix;
+#   - the credential script is present and BEFORE the gate;
+#   - the gate is present and is the LAST entry;
+#   - collating the names (what the boot glob does) still leaves the gate last.
+order_ok() {
+    local prev="" name num i=0 cred_i="" gate_i="" cred_n="" gate_n="" bad="0"
     [ "$#" -gt 0 ] || return 1
     for name in "$@"; do
+        i=$((i + 1))
         num="${name%%-*}"
         case "$num" in ''|*[!0-9]*) return 1 ;; esac
         if [ -n "$prev" ] && [ "$((10#$num))" -lt "$((10#$prev))" ]; then
             bad="1"
         fi
         prev="$num"
+        case "$name" in
+            "$CREDENTIAL")            cred_i="$i"; cred_n="$name" ;;
+            $GATE_GLOB)               gate_i="$i"; gate_n="$name" ;;
+        esac
     done
     [ "$bad" = 0 ] || return 1
-    case " $* " in *" 99-tollgate-setup "*) ;; *) return 1 ;; esac
+    [ -n "$cred_i" ] && [ -n "$gate_i" ] || return 1
+    [ "$cred_i" -lt "$gate_i" ] || return 1
+    [ "$gate_i" = "$i" ] || return 1
+    # The boot path collates the filenames; the gate must still be last there.
+    [ "$(printf '%s\n' "$@" | LC_ALL=C sort | tail -n 1)" = "$gate_n" ] || return 1
     return 0
 }
 
-echo "== the postinst runs the uci-defaults in the boot path's numeric order"
+echo "== every recipe runs the credential BEFORE the fail-closed admin gate"
+GATE_NAME=""
 for recipe in "${RECIPES[@]}"; do
     if [ ! -f "$recipe" ]; then
         bad "recipe missing: $recipe"
@@ -82,45 +109,70 @@ for recipe in "${RECIPES[@]}"; do
         bad "$recipe: no uci-defaults run loop found (the extractor stopped matching)"
         continue
     fi
-    if order_is_boot_order "${order[@]}"; then
+    for name in "${order[@]}"; do
+        case "$name" in $GATE_GLOB) GATE_NAME="$name" ;; esac
+    done
+    if order_ok "${order[@]}"; then
         ok "$recipe: ${order[*]}"
     else
-        bad "$recipe: ${order[*]} — not ascending by numeric prefix, so install order differs from boot order"
+        bad "$recipe: ${order[*]} — the credential must sort/run before the gate, and the gate must run last"
     fi
 done
 
 echo
-echo "== 99-tollgate-setup is the last writer of the uhttpd contract on the install path"
-last_writer() { # last_writer <file> -> the last uci-default in the loop
-    local order
-    mapfile -t order < <(script_order "$1")
-    printf '%s' "${order[@]: -1}"
-}
-for recipe in "${RECIPES[@]}"; do
-    [ -f "$recipe" ] || continue
-    got="$(last_writer "$recipe")"
-    if [ "$got" = "99-tollgate-setup" ]; then
-        ok "$recipe: last uci-default is $got"
+echo "== the gate's filename sorts after the credential's, so BOOT is gate-last too"
+if [ -z "$GATE_NAME" ]; then
+    bad "no *-tollgate-admin-setup entry in any recipe — cannot check the boot order"
+else
+    first="$(printf '%s\n%s\n' "$CREDENTIAL" "$GATE_NAME" | LC_ALL=C sort | head -n 1)"
+    if [ "$first" = "$CREDENTIAL" ]; then
+        ok "the boot glob applies $CREDENTIAL before $GATE_NAME"
     else
-        bad "$recipe: last uci-default is ${got:-none}, want 99-tollgate-setup (it is the one that re-derives the contract from coverage)"
+        bad "the boot glob applies $GATE_NAME before $CREDENTIAL — a boot would still gate before the credential exists"
     fi
-done
+fi
+
+echo
+echo "== the file the recipes run is the file the packaging stages and installs"
+if [ -n "$GATE_NAME" ]; then
+    if grep -q "uci-defaults/$GATE_NAME" packaging/portal-build.sh; then
+        ok "portal-build.sh stages the gate as $GATE_NAME"
+    else
+        bad "portal-build.sh does not stage the gate as $GATE_NAME — the recipe runs a file the build never produces"
+    fi
+    if grep -q "uci-defaults/$GATE_NAME" packaging/Makefile; then
+        ok "packaging/Makefile installs the gate as $GATE_NAME"
+    else
+        bad "packaging/Makefile does not install the gate as $GATE_NAME"
+    fi
+fi
 
 echo
 echo "== negative control: the order this repository shipped must fail the check"
-# The order the module shipped before the fix. If the check above cannot reject
-# it, the assertions carry no information.
-if order_is_boot_order \
-   90-tollgate-captive-portal-symlink 99-tollgate-setup 92-tollgate-admin-setup; then
-    bad "negative control: the check accepted 90, 99, 92 — it does not detect the divergence"
-else
-    ok "negative control: 90, 99, 92 is rejected (92 was the last writer at install time, 99 at boot)"
-fi
-if order_is_boot_order \
+# The order the module shipped before the fix (the fail-closed gate before the
+# credential). If the predicate accepts it, the assertions carry no information.
+if order_ok \
    90-tollgate-captive-portal-symlink 92-tollgate-admin-setup 99-tollgate-setup; then
-    ok "positive control: the boot order 90, 92, 99 passes the same check"
+    bad "negative control: the check accepted 90, 92, 99 — it does not detect the gate-before-credential defect"
 else
-    bad "the boot order 90, 92, 99 does not pass the check"
+    ok "negative control: 90, 92, 99 is rejected (the gate ran before the credential existed)"
+fi
+# A rename that only the recipe follows is not a fix either: same names, recipe
+# order swapped. The boot glob would still gate first.
+if order_ok \
+   90-tollgate-captive-portal-symlink 99-tollgate-setup 92-tollgate-admin-setup; then
+    bad "negative control: the check accepted 90, 99, 92 with the OLD gate filename — the boot path is not fixed"
+else
+    ok "negative control: 90, 99, 92 with an untouched gate filename is rejected (boot would still gate first)"
+fi
+
+echo
+echo "== positive control: the gate-last order must pass the same check"
+if order_ok \
+   90-tollgate-captive-portal-symlink 99-tollgate-setup 999-tollgate-admin-setup; then
+    ok "positive control: 90, 99, 999 passes the check"
+else
+    bad "the gate-last order 90, 99, 999 does not pass the check"
 fi
 
 echo
