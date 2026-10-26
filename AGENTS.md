@@ -454,6 +454,43 @@ the artifact is the published bytes from a kind-`1063` event
 `scripts/build-sdk-package.sh` build whose sha256 is recorded in the
 evidence.
 
+### Host resource discipline (ai-legion)
+
+The bench host is shared by agent sessions, VM lanes, docker stacks and
+test soaks. On 2026-10-11 their sum filled all 24 GiB of swap and earlyoom
+killed an unrelated session mid-review (six simultaneous opencode cold
+boots were the trigger; every consumer was individually legitimate).
+Rules, in order of leverage:
+
+1. **Bound every big invocation.** Test soaks, cargo builds, qemu runs:
+   give each its own cgroup ceiling —
+   `systemd-run --quiet --scope -p MemoryMax=8G -p MemorySwapMax=2G -- go test …`
+   — so a runaway dies ALONE with an obvious journal OOM line instead of
+   tipping the whole host into earlyoom, which picks victims from every
+   other session. `scripts/go-battery.sh` wraps its test legs this way
+   when systemd is present.
+2. **Fan out sequentially.** Start coding agents one at a time with ~8 s
+   gaps; check `free -h` and `journalctl -t earlyoom -n 5` BEFORE any
+   fan-out; cap concurrent opencode sessions (~10 including the fleet's
+   — each holds 0.8–1.2 GiB for its lifetime). For fan-outs and soaks,
+   launch agents through `/usr/local/bin/opencode-bounded` (ai-legion):
+   it wraps the session in an `agent.slice` scope with MemoryMax=3G /
+   MemorySwapMax=1G (raise via `OC_BOUND_MEM`/`OC_BOUND_SWAP`), so a
+   runaway session hits its own ceiling — herdr still detects it, and
+   `herdr pane run <pane> opencode-bounded` + `herdr agent rename` is
+   the start incantation.
+3. **Fixtures are on-demand, not always-on.** AVDs boot via
+   `avd-acquire` and come down via `avd-release`; the `avd-reaper` timer
+   reaps an un-acquired emulator after 15 min and a stale
+   `android-emulator` place lock (acquired with no emulator running)
+   after 60 min. Anything that idles for days belongs in a labgrid place
+   or shut down. Docker stacks get `mem_limit`s in their compose files.
+4. **Treat the alerts as load-shed orders.** The `host-mem-alert` timer
+   journals a WARNING past 80% swap and raises a herdr banner the moment
+   available memory crosses 20% — that banner is roughly ten minutes
+   ahead of earlyoom's 5% kill floor, and it means stop soaks and
+   fan-outs NOW, not after the next build finishes.
+
 ### Where each class of verification lives (single source of truth)
 
 Complexity has outgrown any single rig — each class has ONE canonical
