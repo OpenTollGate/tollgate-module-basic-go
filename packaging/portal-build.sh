@@ -39,7 +39,17 @@ export TG_TOOLS
 # shellcheck source=build-env.sh
 . "$REPO_ROOT/packaging/build-env.sh"
 
-PORTAL_DIR="${PORTAL_DIR:-/tmp/tollgate-captive-portal-site}"
+# Per-checkout working tree, NOT a fixed shared /tmp path: a shared default
+# let one user's node_modules EACCES the next user's build (and invites
+# cross-user mutation of untracked dependency state between the pinned
+# checkout and `npm ci`). Override with PORTAL_DIR when needed; a tree we
+# cannot write is a hard refusal, never an npm-internal permission error.
+PORTAL_DIR="${PORTAL_DIR:-$REPO_ROOT/.portal-tree}"
+if [ -d "$PORTAL_DIR" ] && { [ ! -w "$PORTAL_DIR" ] || { [ -d "$PORTAL_DIR/node_modules" ] && [ ! -w "$PORTAL_DIR/node_modules" ]; }; }; then
+    echo "ERROR: PORTAL_DIR '$PORTAL_DIR' exists but is not writable by $(id -un) (another user's tree?)." >&2
+    echo "Set PORTAL_DIR to a private path (default: <repo>/.portal-tree) instead of sharing one." >&2
+    exit 1
+fi
 OUTPUT_DIR="${OUTPUT_DIR:-packaging/files/tollgate-captive-portal-site}"
 ADMIN_OUTPUT_DIR="${ADMIN_OUTPUT_DIR:-packaging/files/tollgate-admin}"
 # Brand webroot the shipped 999-tollgate-admin-setup points at. TollGate is the
