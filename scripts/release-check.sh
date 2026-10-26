@@ -215,6 +215,22 @@ echo "== tollgate-wrt release check: $VERSION"
 echo "== logs in $tmpdir"
 echo
 
+run_fold_state() {
+    # The release-fold fence (docs/release-process.md): a FINAL version must
+    # be folded (own section, drained fragments, current notes); pre-releases
+    # warn-only. Same command CI/hooks can run: check-release-fold-state.py.
+    local out
+    if out=$(python3 tests/contract/check-release-fold-state.py "$VERSION" 2>&1); then
+        case "$out" in
+            *WARN*) record "Changelog fold state" PASS "pre-release: $(echo "$out" | head -1 | sed 's/WARN: //')" ;;
+            *) record "Changelog fold state" PASS "folded" ;;
+        esac
+    else
+        record "Changelog fold state" FAIL "$out"
+    fi
+}
+
+run_fold_state
 run_go_battery
 run_cold_sums
 run_deps_imports
