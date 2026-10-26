@@ -170,7 +170,7 @@ func TestReadEntryUIConfiguredFailsClosedToBoard(t *testing.T) {
 func TestUILinksBoardMapping(t *testing.T) {
 	root := redirectUIPaths(t)
 	writeEntryUIFixture(t, root, "board", "board")
-	cert := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix))
+	cert := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix, ""))
 	stubUCI(t, boardUCI(cert))
 
 	got := computeUILinks()
@@ -205,7 +205,7 @@ func TestUILinksBoardMapping(t *testing.T) {
 func TestUILinksLuciMapping(t *testing.T) {
 	root := redirectUIPaths(t)
 	writeEntryUIFixture(t, root, "luci", "")
-	cert := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix))
+	cert := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix, ""))
 	stubUCI(t, luciUCI(cert))
 
 	got := computeUILinks()
@@ -262,7 +262,7 @@ func TestUILinksNoCoveringIdentityIsNoLink(t *testing.T) {
 func TestUILinksNoTLSListenerIsNoLink(t *testing.T) {
 	root := redirectUIPaths(t)
 	writeEntryUIFixture(t, root, "board", "board")
-	cert := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix))
+	cert := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix, ""))
 	seed := boardUCI(cert)
 	// LuCI's section exists but serves HTTP only, as a half-converged or
 	// deliberately-cleartext secondary pair would.
@@ -289,7 +289,7 @@ func TestUILinksNoTLSListenerIsNoLink(t *testing.T) {
 func TestUILinksJSONShapeMatchesTheSPA(t *testing.T) {
 	root := redirectUIPaths(t)
 	writeEntryUIFixture(t, root, "board", "board")
-	cert := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix))
+	cert := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix, ""))
 	// The board is linked; LuCI is not (placeholder on its listener) — one
 	// payload exercising both halves of the contract.
 	seed := boardUCI(cert)
@@ -354,7 +354,7 @@ func TestUILinksJSONShapeMatchesTheSPA(t *testing.T) {
 func TestUILinksPlainOutputIsNotJSON(t *testing.T) {
 	root := redirectUIPaths(t)
 	writeEntryUIFixture(t, root, "board", "board")
-	cert := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix))
+	cert := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIPWithPrefix, ""))
 	stubUCI(t, boardUCI(cert))
 
 	out, err := captureStdout(t, func() error {

@@ -1,6 +1,7 @@
 package mptcp_bonding
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -80,24 +81,33 @@ func TestTunnelPlanEmitsOnePerUplink(t *testing.T) {
 	}
 }
 
-func TestTunnelBindsEndpointToItsUplink(t *testing.T) {
-	// THE critical property. Without `bind` to the uplink's own source address,
-	// both tunnels would follow the default route and collapse onto one uplink,
-	// which defeats the entire point of the bond.
+func TestTunnelPinsToUplinkViaFwmarkAndRule(t *testing.T) {
+	// THE critical property. Without pinning, both tunnels follow the default
+	// route, collapse onto one uplink, and the bond is pointless.
+	//
+	// The original implementation used `bind <LocalAddr>` for this, but `bind`
+	// is NOT a wg option -- it failed on device with "Invalid argument: bind".
+	// The correct mechanism is fwmark + a routing rule, so that is what this
+	// asserts now.
 	c := wgTestConfig()
-	for i, t2 := range c.Tunnels {
-		expected := t2.LocalAddr
-		found := false
-		for _, cmd := range c.TunnelPlan() {
-			if strings.Contains(cmd, "bind "+expected) && strings.Contains(cmd, t2.Name) {
-				found = true
-				break
-			}
+	cfg := c
+	// give the fixture the pinning fields the design requires
+	for i := range cfg.Tunnels {
+		cfg.Tunnels[i].FwMark = 0x2000 + i + 1
+		cfg.Tunnels[i].Gateway = "192.168.2.1"
+		cfg.Tunnels[i].Table = 200 + i + 1
+	}
+
+	plan := strings.Join(cfg.TunnelPlan(), "\n")
+	for _, t2 := range cfg.Tunnels {
+		mark := fmt.Sprintf("fwmark 0x%x", t2.FwMark)
+		if !strings.Contains(plan, mark) {
+			t.Errorf("tunnel %s must set %s to pin it to its uplink", t2.Name, mark)
 		}
-		if !found {
-			t.Errorf("tunnel %d (%s) must bind its endpoint to %s",
-				i, t2.Name, expected)
-		}
+	}
+	// And no invalid bind may appear anywhere.
+	if strings.Contains(plan, " bind ") {
+		t.Errorf("`bind` does not exist in wg and failed on device; must not be rendered:\n%s", plan)
 	}
 }
 
