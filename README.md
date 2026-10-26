@@ -638,6 +638,11 @@ dependency).
 
 ### Optional multi-WAN policy intent
 
+The [multi-WAN datapath core](docs/MULTI-WAN-DATAPATH.md) adds a deterministic
+rolling measurement sampler and pure mwan3 UCI/nftables renderers. It does not
+apply configuration or execute probes; client-set population and the picker UI
+remain later integration steps.
+
 `multi_wan` is an optional configuration object. Leaving it absent preserves
 existing defaults and canonical JSON; it is not inserted by an upgrade.
 It records the policy engine, default objective, next-session change policy, mark base,
