@@ -13,6 +13,7 @@ package mptcp_bonding
 
 import (
 	"fmt"
+	"net"
 	"strings"
 )
 
@@ -30,11 +31,16 @@ func PrerequisitePackages() []string {
 // EndpointPlan returns one `ip mptcp endpoint add` command per uplink that
 // has a known local address.
 //
-// Every endpoint is marked BOTH `signal` and `subflow`:
+// Which flags are used depends on the configured transport:
 //
-//	signal  — make the kernel send ADD_ADDR for this address, so the peer
-//	          learns it. Without this, no second subflow can ever form.
-//	subflow — permit this address to be used for a subflow.
+//	subflow — always set: permit this address to be used for a subflow.
+//	signal  — set ONLY in the advertised-address shape. `signal` makes the kernel
+//	          send ADD_ADDR, which instructs the PEER to connect back to this
+//	          address. That is required when the address is genuinely reachable,
+//	          and counter-productive when it is not: behind NAT/CGNAT the peer
+//	          cannot dial it, so signalling produces a JOIN that can never
+//	          succeed. In the proxy-terminated shape the client initiates every
+//	          path, so nothing is signalled. (D10, measured on a physical router.)
 //
 // Uplinks with no address are skipped rather than rendered with an empty
 // address, because the latter is a shell error on the device. An addressless
@@ -50,7 +56,20 @@ func (c *Config) EndpointPlan() []string {
 		if addr == "" || iface == "" {
 			continue
 		}
-		out = append(out, fmt.Sprintf("ip mptcp endpoint add %s dev %s signal subflow", addr, iface))
+		// #974 defense-in-depth: LoadConfig rejects CIDR-form addresses, but
+		// programmatic callers (and runtime-learned addresses) bypass it, and
+		// the kernel rejects `endpoint add <addr>/<len>`. Normalize what can
+		// be normalized; skip what could only render a failing command.
+		if ip, _, err := net.ParseCIDR(addr); err == nil {
+			addr = ip.String()
+		} else if net.ParseIP(addr) == nil {
+			continue
+		}
+		flags := "subflow"
+		if c.EffectiveTransport() == TransportAdvertisedAddress {
+			flags = "signal subflow"
+		}
+		out = append(out, fmt.Sprintf("ip mptcp endpoint add %s dev %s %s", addr, iface, flags))
 	}
 	return out
 }

@@ -36,13 +36,16 @@ on:
 
 env:
   PACKAGE_NAME: "tollgate-wrt"
+  # relay1.orangesync.tech removed 2026-10-20: it resolves to a dead IP
+  # (66.92.204.38) and every publish to it stalls/errs. relay2 (ours,
+  # uncapped) + damus carry the release history; nos.lol/nostr.mom are
+  # best-effort extras.
   COORDINATION_RELAYS: >-
     wss://relay.damus.io
     wss://nos.lol
     wss://nostr.mom
-    wss://relay1.orangesync.tech
     wss://relay2.orangesync.tech
-  RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech"
+  RELAYS: "wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay2.orangesync.tech"
 
 jobs:
   # --------------------------------------------------------------------------
@@ -107,12 +110,139 @@ jobs:
             "$PACKAGE_VERSION" "$RELEASE_CHANNEL" "$RELEASE_RUN" "$BUILD_ID" --dry-run
 
   # --------------------------------------------------------------------------
+  # THE BEHAVIORAL GATE. The happy path is exercised on the exact bytes this
+  # release is about to announce -- the x86_64 .apk the apk-x86-64 shard
+  # built, fetched from that leg's own kind-30078 build record -- and the
+  # release does not proceed if it is broken: `announce` needs this job, with
+  # no `if: always()`, so a red suite skips the announcement fail-closed.
+  # Port of the dead GitHub lane's happy-path job (build-package.yml), which
+  # shipped the rule but ran nowhere after 2026-08-27.
+  #
+  # Why: the happy path broke three times in ways only manual testing caught
+  # (stale vendored portal bundle, renewal-after-expiry dead end, a Lightning
+  # lane that could not buy time). The suite that catches them
+  # (tests/happy-path/, #544) is offline -- no secret, no token, no real
+  # mint -- so it is safe to run unattended.
+  #
+  # ngit notes: actions/download-artifact does not work here (no runtime
+  # token), so the package travels the ngit-native way -- the leg's build
+  # record on the coordination relays names the Blossom mirrors and the
+  # sha256, and this job verifies the bytes it downloaded against that
+  # record before extracting. `container:` is refused on this runner, but
+  # `docker run` works (alpine + apk-tools-static extraction, the recipe in
+  # tests/happy-path/README.md).
+  # --------------------------------------------------------------------------
+  happy-path:
+    name: Happy path (suite on the built x86_64 .apk, --strict)
+    needs: [release-guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install nak
+        run: |
+          curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v0.16.2/nak-v0.16.2-linux-amd64" -o /usr/local/bin/nak
+          chmod +x /usr/local/bin/nak
+          nak --version
+
+      - name: Fetch the x86_64 .apk this release built (from its build record)
+        env:
+          BUILD_ID: ${{ needs.release-guard.outputs.build_id }}
+          RELEASE_RUN: ${{ needs.release-guard.outputs.release_run }}
+        run: |
+          set -euo pipefail
+          RECORD="$(timeout 60 nak req -k 30078 \
+              --tag "d=tollgate-build/${BUILD_ID}/x86_64/apk/none" \
+              --limit 1 $COORDINATION_RELAYS | head -n 1)"
+          [ -n "$RECORD" ] || { echo "FAIL: no build record for ${BUILD_ID}/x86_64/apk/none -- nothing to gate on"; exit 1; }
+          CONTENT="$(printf '%s' "$RECORD" | jq -r '.content' | jq -c .)"
+          # The record must name THIS release run: a leftover record from an
+          # earlier release at the same commit is not evidence (same rule the
+          # announce gate enforces on every leg).
+          GOT_RUN="$(printf '%s' "$CONTENT" | jq -r '.release_run')"
+          [ "$GOT_RUN" = "$RELEASE_RUN" ] || { echo "FAIL: record release_run=${GOT_RUN}, this run is ${RELEASE_RUN}"; exit 1; }
+          SHA="$(printf '%s' "$CONTENT" | jq -r '.sha256')"
+          [ -n "$SHA" ] && [ "$SHA" != "null" ] || { echo "FAIL: record carries no sha256: $CONTENT"; exit 1; }
+          mkdir -p /var/tmp/hp-artifact/extracted
+          got=""
+          for u in $(printf '%s' "$CONTENT" | jq -r '.urls[]'); do
+            echo "trying mirror: $u"
+            if curl -fsSL --retry 2 -o /var/tmp/hp-artifact/tollgate-wrt.apk "$u"; then got="$u"; break; fi
+          done
+          [ -n "$got" ] || { echo "FAIL: no mirror answered for ${SHA:0:16}…"; exit 1; }
+          ACTUAL="$(sha256sum /var/tmp/hp-artifact/tollgate-wrt.apk | awk '{print $1}')"
+          [ "$ACTUAL" = "$SHA" ] || { echo "FAIL: downloaded bytes sha256 ${ACTUAL:0:16}… != record ${SHA:0:16}…"; exit 1; }
+          echo "OK: fetched $SHA from $got"
+
+          # An OpenWrt .apk is a custom v3 format (NOT gzip/zstd): extract
+          # with apk-tools. `apk.static extract --destination` does NOT create
+          # the destination dir (measured on the GitHub lane's first run), so
+          # it is created on the host first. The extracted tree is exactly
+          # what the module sees on a router. `--network host` matches the
+          # dep-smoke suite's own workaround: on runners whose docker bridge
+          # DNS flakes against the Alpine CDN (measured on ai-legion), the
+          # apk-tools-static fetch only resolves on host networking.
+          docker run --rm --network host -v /var/tmp/hp-artifact:/out alpine:edge sh -c \
+            'apk add --no-cache apk-tools-static >/dev/null &&
+             /sbin/apk.static extract --allow-untrusted --destination /out/extracted /out/tollgate-wrt.apk'
+          ls -l /var/tmp/hp-artifact/extracted/usr/bin/
+
+      - name: Install the suite's runner-side dependencies
+        run: |
+          set -euo pipefail
+          # The artifact binary is musl x86_64: the suite runs it natively via
+          # /lib/ld-musl-x86_64.so.1 (`musl` pkg) and pulls libgcc_s.so.1 out
+          # of alpine:3.20. Playwright drives the portal half in a browser.
+          sudo apt-get update -qq
+          sudo apt-get install -y musl
+          docker pull alpine:3.20
+          python3 -m pip install --break-system-packages playwright
+          python3 -m playwright install --with-deps chromium
+
+      # Dependency-resolution smoke (seconds, not minutes): apk3 must be able
+      # to select every declared name from the standard 25.12.x feed set -- the
+      # September #552 breakage class, caught before "a bench VM cannot
+      # install it" is the messenger.
+      - name: Apk dependency-resolution smoke
+        run: |
+          set -euo pipefail
+          export APK=/var/tmp/hp-artifact/tollgate-wrt.apk
+          bash tests/packaging/apk-install-resolution_test.sh
+
+      # --strict: this artifact is built from the tip, which carries
+      # /session-state and the renewal CTA, so an absent expected surface must
+      # FAIL, not SKIP. The gate script tolerates ONLY the check ids in
+      # tests/happy-path/known-issues.txt.
+      - name: Run the happy-path suite
+        env:
+          HP_PYTHON: python3
+        run: |
+          set -euo pipefail
+          bash .github/scripts/happy-path-gate.sh \
+            --artifact /var/tmp/hp-artifact/extracted \
+            --out "$RUNNER_TEMP/happy-path-evidence"
+
+      - name: Suite verdict summary (kept last -- only the log tail survives in the job record)
+        if: always()
+        run: |
+          echo "=== happy-path gate: see steps above for the full evidence ==="
+          ls -la "$RUNNER_TEMP/happy-path-evidence" 2>/dev/null || echo "(no evidence dir -- gate did not reach the suite)"
+
+  # --------------------------------------------------------------------------
   # Publishes one kind-1063 per leg, from the leg's own build record. The gate
   # runs again inside the script: this job cannot publish without a complete
   # release even if it is reached on its own.
+  #
+  # `happy-path` is in the needs list on purpose and there is deliberately no
+  # `if: always()`: a red happy path skips the announcement, fail-closed,
+  # instead of publishing a broken build to every feed consumer.
   # --------------------------------------------------------------------------
   announce:
-    needs: [release-guard]
+    needs: [release-guard, happy-path]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:

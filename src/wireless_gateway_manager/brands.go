@@ -33,16 +33,25 @@ const whitelabelCaptivePrefix = "Net4" + "sats" + "-"
 // agreement.
 var tollGateBrandPrefixes = []string{"TollGate-", whitelabelCaptivePrefix}
 
-// ssidDecoration is the optional leading '!' the captive-SSID writer may
-// emit (#706: the guest SSID sorts first in alphabetically-ordered client
-// lists). It is decoration, never a new brand prefix: recognition strips at
-// most ONE occurrence, so a double '!!TollGate-…' is explicitly not a
-// TollGate name (a fixture class, not an accident).
+// ssidDecoration is the optional leading '!' the captive-SSID writer may emit
+// (#706: the guest SSID sorts first in alphabetically-ordered client lists; '!'
+// is 0x21, before digits and letters). It is PRESENTATION ONLY, never part of
+// the discovery contract: the bare TollGate-<code> form is what already-deployed
+// routers and third-party clients carry, and both forms identify the same
+// gateway. It is decoration, never a new brand prefix: recognition strips at
+// most ONE occurrence, so a double '!!TollGate-…' is explicitly not a TollGate
+// name (a fixture class, not an accident).
+//
+// The name is pinned: tests/contract/check-ssid-naming.sh asserts this literal
+// is present, so do not rename it without moving that fence too.
 const ssidDecoration = "!"
 
 // hasTollGateSSID reports whether ssid starts with any brand prefix the
-// captive-SSID writer can emit, case-insensitively, with at most one
-// leading '!' decoration stripped first. The acceptance table both this
+// captive-SSID writer can emit, case-insensitively, with at most one leading
+// '!' decoration stripped first. It is the single Go reader of the SSID
+// discovery contract (reseller-mode upstream selection, the vendor-element
+// score heuristic); the shell side's equivalent strips the same decoration via
+// strip_ssid_decoration in 99-tollgate-setup. The acceptance table both this
 // helper and the contract check run against is pinned in
 // tests/contract/ssid-naming-fixtures.txt (#618: the matcher was once
 // brand-blind; #706: the decoration arrived) — keep table and prefixes in

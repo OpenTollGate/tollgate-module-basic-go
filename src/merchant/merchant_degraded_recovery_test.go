@@ -28,10 +28,13 @@ func newSwitchableMintServer(t *testing.T) *switchableMintServer {
 		switch r.URL.Path {
 		case "/v1/keysets":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true,"input_fee_ppk":0}]}`)
+			// 000f715baf5d4c2e is what DeriveKeysetId derives for this fake's
+			// amount-1 key (the generator point) — v0.14.0's #705 guard
+			// refuses ids the published keys do not derive to.
+			fmt.Fprint(w, `{"keysets":[{"id":"000f715baf5d4c2e","unit":"sat","active":true,"input_fee_ppk":0}]}`)
 		case "/v1/keys":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}]}`)
+			fmt.Fprint(w, `{"keysets":[{"id":"000f715baf5d4c2e","unit":"sat","active":true,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}]}`)
 		default:
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, `{}`)
@@ -63,6 +66,7 @@ func TestDegradedWireRecoveryTrigger_RuntimDowngradeUpgrades(t *testing.T) {
 	// The runtime-downgrade construction from main.go: a degraded merchant
 	// carrying the full merchant's tracker, with only an onUpgrade consumer.
 	deg := NewMerchantDegradedWithWallet(cm, tracker, DefaultWalletFactory, testDir)
+	drainUsageSweep(t, deg)
 	upgraded := make(chan MerchantInterface, 1)
 	deg.OnUpgrade(func(mi MerchantInterface) { upgraded <- mi })
 	deg.WireRecoveryTrigger()
@@ -80,6 +84,9 @@ func TestDegradedWireRecoveryTrigger_RuntimDowngradeUpgrades(t *testing.T) {
 			if _, ok := mi.(*Merchant); !ok {
 				t.Fatalf("onUpgrade fired with %T, want *Merchant", mi)
 			}
+			// This test is the upgraded merchant's owner now: retire the
+			// usage sweep its construction started (#733).
+			drainUsageSweep(t, mi)
 			return
 		case <-time.After(200 * time.Millisecond):
 		}

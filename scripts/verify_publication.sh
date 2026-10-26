@@ -58,7 +58,7 @@ CHANNEL="${2:-}"
 MATRIX="${3:--}"
 if [ -z "$VERSION" ] || [ -z "$CHANNEL" ]; then usage; exit 2; fi
 
-VERIFY_RELAYS="${VERIFY_RELAYS:-wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay1.orangesync.tech wss://relay2.orangesync.tech}"
+VERIFY_RELAYS="${VERIFY_RELAYS:-wss://relay.damus.io wss://nos.lol wss://nostr.mom wss://relay2.orangesync.tech}"
 VERIFY_MIRRORS="${VERIFY_MIRRORS:-2}"
 VERIFY_DOWNLOAD="${VERIFY_DOWNLOAD:-sample}"
 VERIFY_SCOPE="${VERIFY_SCOPE:-ipk,apk}"
