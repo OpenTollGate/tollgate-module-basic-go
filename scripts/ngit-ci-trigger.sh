@@ -57,7 +57,6 @@ set -euo pipefail
 WT=${WT:-$(git -C "$(dirname -- "$0")" rev-parse --show-toplevel)}
 KEYFILE=${KEYFILE:-${HOME}/.hermes/.ngit-new-key}
 COORD_HEX=${COORD_HEX:-765cd47badcbbc4a38c7d0c57d5607663b484c20cd59773f9f7064487f9431e8}
-MAINT_HEX=${MAINT_HEX:-9cd14d9acdbab7ca162b772c91fa514da8e3248f61f924bf3441e6e72c5f0dee}
 REPO_ID=${REPO_ID:-tollgate-module-basic-go}
 RELAYS=${RELAYS:-"wss://relay.ngit.dev wss://gitnostr.com"}
 
@@ -91,37 +90,89 @@ echo "workflow : $WORKFLOW"
 echo "commit   : $COMMIT"
 echo "sha256   : $FILE_SHA"
 
+# --------------------------------------------------------------------------
+# Trust declaration -> a set of 64-hex pubkeys.
+# --------------------------------------------------------------------------
+if [ -n "${NGIT_TRUST:-}" ]; then
+  TRUST_SRC="$NGIT_TRUST"
+elif [ -n "${MAINT_HEX:-}" ]; then
+  echo "WARNING: MAINT_HEX is the legacy single-entry trust form; rename it to NGIT_TRUST (a set)." >&2
+  TRUST_SRC="$MAINT_HEX"
+else
+  echo "ERROR: no trusted identities declared. Set NGIT_TRUST to the identities" >&2
+  echo "this run may sign with (64-hex pubkeys, npub1... or nsec1... entries," >&2
+  echo "space- or comma-separated). No built-in authority ships in this file:" >&2
+  echo "you define which identities you trust." >&2
+  exit 1
+fi
+
+# pubkey_of <nsec> -> the 64-hex public half, or empty. Older nak builds take
+# the nsec as `nak key public`'s argument; nak v0.16.2 takes hex only there
+# (verified: `invalid hex key` on a valid nsec), so the fallback renders a
+# throwaway kind-1 event with --sec -- the surface the publish step already
+# depends on, stable across versions -- and reads the pubkey out of the JSON.
+# The private half never reaches the output.
+pubkey_of() { # pubkey_of <nsec>
+    local nsec="$1" pub
+    pub=$(nak key public "$nsec" 2>/dev/null || true)
+    if ! printf '%s' "$pub" | grep -qE '^[0-9a-f]{64}$'; then
+        pub=$(nak event --sec "$nsec" -k 1 -c "tollgate-pubkey-probe" < /dev/null 2>/dev/null \
+              | grep -o '"pubkey":"[0-9a-f]\{64\}"' | head -1 | cut -d'"' -f4 || true)
+    fi
+    printf '%s' "$pub"
+}
+
+TRUST_HEXES=""
+entry_no=0
+for entry in ${TRUST_SRC//,/ }; do
+  entry_no=$((entry_no + 1))
+  hex=""
+  case "$entry" in
+    npub1*) hex=$(nak decode "$entry" 2>/dev/null || true) ;;
+    nsec1*) hex=$(pubkey_of "$entry") ;;
+    *) if printf '%s' "$entry" | grep -qE '^[0-9a-fA-F]{64}$'; then
+         hex=$(printf '%s' "$entry" | tr 'A-F' 'a-f')
+       fi ;;
+  esac
+  if ! printf '%s' "$hex" | grep -qE '^[0-9a-f]{64}$'; then
+    echo "ERROR: NGIT_TRUST entry $entry_no is not a usable 64-hex pubkey, npub1... or nsec1... value" >&2
+    echo "       (its public half could not be derived; the entry itself is never printed)" >&2
+    exit 1
+  fi
+  TRUST_HEXES+="$hex"$'\n'
+done
+
 # grep exits 1 when there is no match; without this `|| true` the script would
 # die inside the command substitution (set -e + pipefail) before it can explain
 # why the key file is unusable.
 NSEC=$(grep -o 'nsec1[0-9a-z]*' "$KEYFILE" 2>/dev/null | head -1 || true)
 [ -n "$NSEC" ] || { echo "ERROR: no nsec1... key found in $KEYFILE" >&2; exit 1; }
 
-# Refuse to sign with anything that is not the maintainer key. `nak key public`
-# prints the public half only; never run `nak decode` on a private key.
+# The signing key must resolve into the declared trust set.
 #
-# nak ≥ v0.16 refuses `nak key public <nsec>` (bech32 in, "invalid nsec
-# code"), which made SIGNER come back empty — the guard then rejected every
-# key against the built-in default and release-check's packaging leg went
-# red on modern hosts. Deriving the private hex first (`nak decode`, stable
-# across versions) and handing `key public` hex keeps both nak generations
-# working. The comment above still holds: `decode` outputs the PRIVATE hex,
-# which never leaves this line — only `key public`'s output is compared.
+# nak ≥ v0.16 refuses `nak key public <nsec>` (bech32 in), so derive the
+# private hex first (`nak decode`, stable across versions) and hand `key
+# public` hex. The private hex never leaves this line; only the public half
+# is compared, and the trust entry itself is never echoed.
 PRIV_HEX=$NSEC
 case "$NSEC" in
     nsec1*) PRIV_HEX=$(nak decode "$NSEC" 2>/dev/null || true) ;;
 esac
 [ -n "$PRIV_HEX" ] || { echo "ERROR: could not derive the key in $KEYFILE (nak decode)" >&2; exit 1; }
 SIGNER=$(nak key public "$PRIV_HEX" 2>/dev/null || true)
-if [ "$SIGNER" != "$MAINT_HEX" ]; then
-  echo "ERROR: $KEYFILE is not the maintainer key (signer ${SIGNER:0:16}..., expected ${MAINT_HEX:0:16}...)" >&2
+if ! printf '%s' "$SIGNER" | grep -qE '^[0-9a-f]{64}$'; then
+  echo "ERROR: could not derive the public half of the key in $KEYFILE (nak on PATH?)" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$TRUST_HEXES" | grep -qxF "$SIGNER"; then
+  echo "ERROR: the key in $KEYFILE (signer ${SIGNER:0:16}...) is not in the declared trust set (NGIT_TRUST)" >&2
   exit 1
 fi
 
 args=(
   --sec "$NSEC" -k 9840 -c ""
   --tag "p=$COORD_HEX"
-  --tag "a=30617:$MAINT_HEX:$REPO_ID"
+  --tag "a=30617:$SIGNER:$REPO_ID"
   --tag "c=$COMMIT"
   --tag "w=$WORKFLOW;$FILE_SHA"
 )
