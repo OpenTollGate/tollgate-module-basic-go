@@ -10,6 +10,15 @@
 #   with, and posts the results table as a PR comment so the review thread
 #   carries the evidence.
 #
+# TRUST BOUNDARY
+#   The gate executes the PR's own scripts on this host. It therefore refuses
+#   PRs whose diff touches .github/workflows/, .github/scripts/, .ngit/,
+#   ci.d/ or this runner itself, unless TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED=1
+#   is set deliberately. Ref mode (a bare git ref) also requires that env
+#   var: a ref cannot be inspected without fetching and checking it out.
+#   Even for a trusted PR, the worktree isolates the TREE, not the host —
+#   run it as a user whose credentials the PR code cannot use.
+#
 # WHAT IT RUNS (the per-PR shape — never a weaker set)
 #   hygiene                conflict-marker grep over the tracked tree
 #   contract-fences        the tests/contract checks test.yml runs offline
@@ -138,9 +147,24 @@ if [[ "$TARGET" =~ ^[0-9]+$ ]]; then
     [ "$PR_STATE" = "OPEN" ] || die "PR #$PR_NUMBER is $PR_STATE — verify open PRs"
     git -C "$ROOT" fetch --quiet origin main 2>/dev/null || true
     BASE_SHA="$(git -C "$ROOT" merge-base "$HEAD_OID" origin/main 2>/dev/null || echo '?')"
+    # Trust boundary: this gate runs tree-local scripts from the PR on THIS
+    # host (tests can read $HOME, the environment and gh credentials). A PR
+    # that touches workflow/runner surfaces is not something an unattended
+    # run may execute.
+    changed_files="$(gh pr view "$PR_NUMBER" -R "$SLUG" --json files --jq '.files[].path' 2>/dev/null || true)"
+    untrusted="$(printf '%s\n' "$changed_files" | grep -E '^(\.github/(workflows|scripts)/|\.ngit/|ci\.d/|scripts/pr-verify)' || true)"
+    if [ -n "$untrusted" ] && [ "${TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED:-0}" != "1" ]; then
+        printf 'refusing PR #%s: its diff touches workflow/runner surfaces:\n' "$PR_NUMBER" >&2
+        printf '  %s\n' $untrusted >&2
+        die "review this PR by hand first, or set TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED=1 to run it deliberately"
+    fi
+
     echo "== PR #$PR_NUMBER: $PR_TITLE"
     echo "== head $HEAD_REF @ ${HEAD_OID:0:10} (base ${BASE_SHA:0:10})"
 else
+    if [ "${TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED:-0}" != "1" ]; then
+        die "ref mode () runs tree-local scripts from a ref that cannot be inspected before checkout; set TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED=1 after reviewing it"
+    fi
     HEAD_REF="$TARGET"
     # A remote-tracking ref or local ref resolves without a fetch; anything
     # else is fetched from origin. FETCH_HEAD is captured immediately.
@@ -149,7 +173,7 @@ else
     else
         git -C "$ROOT" fetch --quiet origin "$TARGET" \
             || die "cannot fetch '$TARGET' from origin"
-        HEAD_OID="$(git -C "$ROOT" rev-parse --verify FETCH_HEAD^{commit})" \
+        HEAD_OID="$(git -C "$ROOT" rev-parse --verify "FETCH_HEAD^{commit}")" \
             || die "FETCH_HEAD did not resolve to a commit"
     fi
     BASE_SHA="$(git -C "$ROOT" rev-parse origin/main 2>/dev/null || echo "?")"
@@ -394,12 +418,12 @@ WALL=$((SECONDS - STARTED))
 # ---------------------------------------------------------------------------
 # Table + verdict
 # ---------------------------------------------------------------------------
-green=0; red=0
+green_legs=0; red_legs=0
 for st in "${leg_status[@]}"; do
-    case "$st" in PASS) green=$((green + 1)) ;; FAIL) red=$((red + 1)) ;; esac
+    case "$st" in PASS) green_legs=$((green_legs + 1)) ;; FAIL) red_legs=$((red_legs + 1)) ;; esac
 done
-VERDICT="$green legs green"
-[ "$red" = 0 ] || VERDICT="$red leg(s) RED — $green green"
+VERDICT="$green_legs legs green"
+[ "$red_legs" = 0 ] || VERDICT="$red_legs leg(s) RED — $green_legs green"
 
 echo
 echo "=================================================="
@@ -520,10 +544,10 @@ if [ -n "$PR_NUMBER" ] && [ "$NO_POST" = 0 ]; then
         echo "== posted: $URL"
     else
         echo "== FAILED to post comment (body kept at $BODY)" >&2
-        red=$((red + 1))
+        red_legs=$((red_legs + 1))
     fi
 elif [ -n "$PR_NUMBER" ]; then
     echo "== --no-post: comment body kept at $(compose_comment)"
 fi
 
-[ "$red" = 0 ] && exit 0 || exit 1
+[ "$red_legs" = 0 ] && exit 0 || exit 1
