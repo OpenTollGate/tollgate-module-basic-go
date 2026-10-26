@@ -46,7 +46,7 @@ func newTestTracker(config *config_manager.Config, client *http.Client) *MintHea
 func writeKeysetsOK(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true}]}`))
+	_, _ = w.Write([]byte(`{"keysets":[{"id":"000f715baf5d4c2e","unit":"sat","active":true}]}`))
 }
 
 // --- Unit Tests ---

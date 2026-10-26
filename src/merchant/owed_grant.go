@@ -154,6 +154,9 @@ func (s *owedGrantStore) saveGrants(grants map[string]*owedGrantRecord) error {
 	if err := os.Rename(tmpName, s.filePath); err != nil {
 		return fmt.Errorf("rename temp owed-grants file: %w", err)
 	}
+	if err := syncParentDir(s.filePath); err != nil {
+		return fmt.Errorf("sync owed-grants directory after rename: %w", err)
+	}
 	cleanup = false
 	return nil
 }

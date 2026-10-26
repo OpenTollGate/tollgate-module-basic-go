@@ -52,18 +52,26 @@ report() { # <what> <manifest> <live> <mode>
 }
 
 # SDK digests per target
-for target in $(jq -r '.openwrt_sdk.targets | keys[]' "$TG_BUILD_INPUTS"); do
-    tag="$target-$SDK_RELEASE"
+# Both SDK eras are refreshed (25.12/apk primary, 24.10/ipk for the
+# installed base) — each era's digests tracked in .openwrt_sdk.releases.
+for era in apk ipk; do
+for target in $(jq -r --arg e "$era" '.openwrt_sdk.releases[$e].targets | keys[]' "$TG_BUILD_INPUTS"); do
+    # The era's OWN release line: $SDK_RELEASE is the package-format-selected
+    # release (apk's 25.12.0 unless TG_PACKAGE_FORMAT=ipk). Querying an ipk-era
+    # digest against an apk-era tag compares it with the wrong image and, in
+    # update mode, corrupts the pin.
+    tag="$target-$(sdk_release_for "$era")"
     live="$(sdk_digest "$tag")"
-    pinned="$(jq -r --arg t "$target" '.openwrt_sdk.targets[$t].digest' "$TG_BUILD_INPUTS")"
+    pinned="$(jq -r --arg t "$target" --arg e "$era" '.openwrt_sdk.releases[$e].targets[$t].digest' "$TG_BUILD_INPUTS")"
     if [ "$MODE" = update ] && [ -n "$live" ] && [ "$live" != "$pinned" ]; then
-        jq --arg t "$target" --arg d "$live" \
-            '.openwrt_sdk.targets[$t].digest = $d' "$TG_BUILD_INPUTS" > "$TMP/bi.json" && mv "$TMP/bi.json" "$TG_BUILD_INPUTS"
-        printf 'UPDATED sdk %s -> %s\n' "$target" "$live"
+        jq --arg t "$target" --arg e "$era" --arg d "$live" \
+            '.openwrt_sdk.releases[$e].targets[$t].digest = $d' "$TG_BUILD_INPUTS" > "$TMP/bi.json" && mv "$TMP/bi.json" "$TG_BUILD_INPUTS"
+        printf 'UPDATED sdk %s/%s -> %s\n' "$era" "$target" "$live"
     else
-        report "sdk:$target" "$pinned" "${live:-<unreachable>}" "$MODE"
+        report "sdk:$era/$target" "$pinned" "${live:-<unreachable>}" "$MODE"
     fi
 done
+done  # era
 
 # Toolchain tarball hashes for the pinned versions
 for pair in "go:$(go_sha):.go.tarball_linux_amd64.sha256" \

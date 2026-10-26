@@ -12,6 +12,17 @@ func SetDotPath(cm *ConfigManager, key, value string) error {
 	if err := validateAgainstSchema(key, value); err != nil {
 		return fmt.Errorf("validation failed for %q: %w", key, err)
 	}
+	// Field-specific rules that the generic schema walk cannot express. The
+	// schema can bound a string's length but not its meaning, so a key with a
+	// semantic contract is checked here, before anything is written. This is
+	// the only cheap moment to refuse a bad value: once maintainer_npub is
+	// stored, the router publishes it in its announcement and a dashboard
+	// filters on it, so a typo becomes an unfindable fleet.
+	if key == "maintainer_npub" {
+		if err := ValidateMaintainerNpub(value); err != nil {
+			return fmt.Errorf("validation failed for %q: %w", key, err)
+		}
+	}
 
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -286,7 +297,7 @@ func setFieldValue(v reflect.Value, value string) error {
 		}
 		v.SetFloat(f)
 	default:
-		return fmt.Errorf("unsupported type %s for set", v.Kind())
+		return fmt.Errorf("unsupported type %s for set — `config set` writes scalar keys only; array/object keys (e.g. accepted_mints) must be written whole via `tollgate config save <json>` (#1002 C3)", v.Kind())
 	}
 
 	return nil

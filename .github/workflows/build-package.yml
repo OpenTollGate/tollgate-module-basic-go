@@ -7,6 +7,11 @@ on:
         description: "Build all UPX compression variants (overrides the branch gate)"
         type: boolean
         default: false
+      version:
+        description: "TG_VERSION: override the version stamped into the binaries, the packages and the announce (empty = tag on tag builds, else VERSION)"
+        type: string
+        required: false
+        default: ""
   push:
     branches: [main]
     tags: ["v*"]
@@ -28,6 +33,12 @@ env:
   # resolves it from packaging/build-inputs.json (.go.version) so the
   # workflow and the manifest cannot drift apart (#448).
   DEBUG: "true"
+  # #941: the rc5 feed package carried a binary stamped from a lagged
+  # VERSION file (rc4) while the tag and the package said rc5. The
+  # post-build version-consistency fence in packaging/build-env.sh must
+  # FAIL here, not warn — a release whose stamp diverged from its
+  # package is unshippable, and a fence that cannot fail is decoration.
+  TG_REQUIRE_VERSION_CONSISTENCY: "1"
   BLOSSOM_SERVERS: "https://blossom.primal.net https://blossom.psbt.me https://blossom1.orangesync.tech https://blossom2.orangesync.tech https://drive.cashu.email"
   # Tag publishes must land on enough mirrors that the redundancy the channel
   # promises is real; branch/dev builds stay lenient (1) so flaky mirrors
@@ -74,12 +85,18 @@ jobs:
           # source of truth — so this matrix cannot drift from the manifest:
           # every row's digest is injected here, never hand-copied.
           jq --slurpfile inputs packaging/build-inputs.json -c '
+            # Both SDK eras are pinned in build-inputs.json (25.12/apk native,
+            # 24.10/ipk for the installed base); every row carries BOTH
+            # digest+release pairs and the format split below attaches the
+            # right one. Digests never hand-copied.
             .include |= map(
-              .sdk as $sdk
-              | ($inputs[0].openwrt_sdk.targets[$sdk].digest //
-                 (error("no SDK digest pinned for target \($sdk) in packaging/build-inputs.json")))
-              as $digest
-              | . + {digest: $digest}
+              . as $row
+              | ($inputs[0].openwrt_sdk.releases.apk.targets[$row.sdk].digest //
+                 (error("no apk-era SDK digest pinned for target \($row.sdk)"))) as $da
+              | ($inputs[0].openwrt_sdk.releases.ipk.targets[$row.sdk].digest //
+                 (error("no ipk-era SDK digest pinned for target \($row.sdk)"))) as $di
+              | . + { digest_apk: $da, release_apk: $inputs[0].openwrt_sdk.releases.apk.release,
+                     digest_ipk: $di, release_ipk: $inputs[0].openwrt_sdk.releases.ipk.release }
             )
           ' matrix.json > matrix.digests.json
           mv matrix.digests.json matrix.json
@@ -94,12 +111,25 @@ jobs:
             mv matrix.filtered.json matrix.json
           fi
 
-          echo "matrix=$(jq -c '{include: [
-            (.include[] | select(.ipk) | del(.ipk, .apk) + {format: "ipk"}),
-            (.include[] | select(.apk) | del(.ipk, .apk) + {format: "apk"})
-          ]}' matrix.json)" >> $GITHUB_OUTPUT
-          echo "ipk_matrix=$(jq -c '{include: [.include[] | select(.ipk) | del(.ipk, .apk) + {format: "ipk"}]}' matrix.json)" >> $GITHUB_OUTPUT
-          echo "apk_matrix=$(jq -c '{include: [.include[] | select(.apk) | del(.ipk, .apk) + {format: "apk"}]}' matrix.json)" >> $GITHUB_OUTPUT
+          # One pass: the era attachment rule lives exactly once; the three
+          # outputs (combined, ipk-only, apk-only) are projections of it.
+          # Each row gains its format's digest+release FIRST, then the
+          # both-era source keys are stripped (order matters — the pairs
+          # must exist when read).
+          jq -r '
+            def split_rows:
+              [.include[]
+               | (if .ipk then
+                    (. + {format: "ipk", digest: .digest_ipk, sdk_release: .release_ipk})
+                  else empty end),
+                 (if .apk then
+                    (. + {format: "apk", digest: .digest_apk, sdk_release: .release_apk})
+                  else empty end)
+               | del(.digest_apk, .release_apk, .digest_ipk, .release_ipk, .ipk, .apk)];
+            "matrix=" + ({include: split_rows} | tostring),
+            "ipk_matrix=" + ({include: [split_rows[] | select(.format == "ipk")]} | tostring),
+            "apk_matrix=" + ({include: [split_rows[] | select(.format == "apk")]} | tostring)
+          ' matrix.json >> "$GITHUB_OUTPUT"
 
   determine-versioning:
     runs-on: ubuntu-latest
@@ -145,9 +175,18 @@ jobs:
       - name: Set package_version variable
         id: determine-package-version
         shell: bash
+        env:
+          # Env context, not run-block interpolation: the dispatch input
+          # must reach the script as data, never as script text.
+          VERSION_INPUT: ${{ github.event.inputs.version }}
         run: |
           : ${GITHUB_OUTPUT:=/tmp/github_output}
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
+          # #941: the workflow_dispatch `version` input is TG_VERSION — one
+          # knob that re-points stamp AND package version together, so the
+          # two can never diverge on a manual build.
+          if [[ -n "${VERSION_INPUT:-}" ]]; then
+            echo "package_version=${VERSION_INPUT}" >> $GITHUB_OUTPUT
+          elif [[ $GITHUB_REF == refs/tags/* ]]; then
             echo "package_version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
           else
             SANITIZED_BRANCH_NAME=$(echo "${GITHUB_REF_NAME}" | sed 's/\//-/g')
@@ -218,6 +257,7 @@ jobs:
         env:
           CGO_ENABLED: "0"
           PACKAGE_VERSION: ${{ needs.determine-versioning.outputs.package_version }}
+          TG_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
           # ONE flag recipe for every lane. packaging/build-env.sh owns the
@@ -229,16 +269,26 @@ jobs:
           # (repro-test built with main) and stamped the branch-derived
           # package_version where the harness stamps VERSION.
           #
-          # The binaries embed the version in VERSION at the repository root,
-          # the single source of truth (scripts/check-version-sync.sh enforces
-          # it, and the tag check above pins refs/tags/* to it), so a release
-          # build and a harness build of one commit embed the same string.
-          # PACKAGE_VERSION — the tag, or <branch>.<height>.<sha> for branch
-          # builds — still versions the packages, their control metadata and
-          # the Nostr announcement; only the ldflags take VERSION.
-          BUILD_VERSION="$(tr -d '[:space:]' < VERSION)"
+          # #941: the stamp derives from the SAME string the release is cut
+          # under, in one place. TG_VERSION (the workflow_dispatch `version`
+          # input) wins; a tag build derives it from the git tag itself — what
+          # the package is versioned with — so a lagged VERSION file can no
+          # longer mis-stamp the binary (the rc5 package self-reported rc4);
+          # the tag-vs-VERSION guard above still refuses tag/VERSION
+          # disagreement. The VERSION file stays the fallback for branch
+          # builds, keeping release and harness builds of one commit
+          # byte-identical. PACKAGE_VERSION — the tag, or
+          # <branch>.<height>.<sha> for branch builds — still versions the
+          # packages, their control metadata and the Nostr announcement.
+          if [[ -n "${TG_VERSION:-}" ]]; then
+            BUILD_VERSION="$TG_VERSION"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            BUILD_VERSION="${GITHUB_REF_NAME}"
+          else
+            BUILD_VERSION="$(tr -d '[:space:]' < VERSION)"
+          fi
           if [ -z "$BUILD_VERSION" ]; then
-            echo "ERROR: VERSION at the repository root is empty." >&2
+            echo "ERROR: could not derive the release version (TG_VERSION/tag/VERSION)." >&2
             exit 1
           fi
           # TG_ROOT matters: build-env.sh cannot infer the repository from $0
@@ -283,6 +333,16 @@ jobs:
               -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 
             ls -lh "bin/$key/"
+
+            # #941 fence: fence each target as it is built, so the fence's
+            # subject list derives from TARGETS above — an enumerated copy
+            # here would silently skip a target added to TARGETS later (the
+            # #791 enumeration-drift class). The binaries target routers,
+            # so the fence reads the embedded string instead of executing
+            # them; TG_REQUIRE_VERSION_CONSISTENCY=1 (workflow env) makes a
+            # mismatch fail the build instead of warning.
+            tg_assert_version_consistency "$GITHUB_WORKSPACE/bin/$key/tollgate-wrt" "$BUILD_VERSION"
+            tg_assert_version_consistency "$GITHUB_WORKSPACE/bin/$key/tollgate" "$BUILD_VERSION"
           done < <(printf '%s' "$TARGETS" | jq -c '.[]')
 
       - name: Install nak
@@ -411,7 +471,7 @@ jobs:
       # the recipe the SDK apk lane compiles - installs all five. The artifact
       # above carries only the guest SPA, so the apk job's tree was missing the
       # other four and its compile died at
-      #   install: cannot stat '.../files/etc/uci-defaults/92-tollgate-admin-setup'
+      #   install: cannot stat '.../files/etc/uci-defaults/999-tollgate-admin-setup'
       # (measured on the 2026-09-24 run). Hand the apk lane the whole set as one
       # tarball of repository-relative paths, so what it unpacks is exactly the
       # tree portal-build.sh produced - no per-file list to drift, and no
@@ -427,7 +487,7 @@ jobs:
               packaging/files/tollgate-admin \
               packaging/files/usr/libexec/rpcd/tollgate \
               packaging/files/usr/share/rpcd/acl.d/tollgate.json \
-              packaging/files/etc/uci-defaults/92-tollgate-admin-setup ; do
+              packaging/files/etc/uci-defaults/999-tollgate-admin-setup ; do
             if [ ! -e "$p" ]; then
               echo "ERROR: portal-build.sh produced no $p - refusing to hand the apk lane a partial bundle" >&2
               exit 1
@@ -448,6 +508,10 @@ jobs:
           retention-days: 7
 
   package-ipk:
+    # Frugality: SDK packaging is release-critical, not PR-blocking — PRs run the
+    # fast path (compile + happy-path + contract lanes); the matrix runs on
+    # push-to-main and tags. Override via workflow_dispatch.
+    if: github.event_name != 'pull_request'
     timeout-minutes: 30
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
@@ -566,7 +630,7 @@ jobs:
             ARCH="${{ matrix.architecture }}" \
             MAINTAINER="TollGate <tollgate@tollgate.me>" \
             LICENSE="GPL-3.0-only" \
-            DEPENDS="libc, nodogsplash, jq" \
+            DEPENDS="libc, nodogsplash, jq, ca-bundle" \
             PROVIDES="nodogsplash-files" \
             REPLACES="base-files" \
             DESCRIPTION="TollGate Basic Module for OpenWrt" \
@@ -641,11 +705,15 @@ jobs:
           echo "Uploaded $PACKAGE_FILENAME → $PKG_HASH"
 
   package-apk:
+    # Frugality: SDK packaging is release-critical, not PR-blocking — PRs run the
+    # fast path (compile + happy-path + contract lanes); the matrix runs on
+    # push-to-main and tags. Override via workflow_dispatch.
+    if: github.event_name != 'pull_request'
     timeout-minutes: 90
     needs: [define-package-matrix, determine-versioning, compile-binaries, build-portal]
     runs-on: ubuntu-latest
     container:
-      image: openwrt/sdk:${{ matrix.sdk }}-25.12.0@${{ matrix.digest }}
+      image: openwrt/sdk:${{ matrix.sdk }}-${{ matrix.sdk_release }}@${{ matrix.digest }}
       options: --user root
     strategy:
       # Fail fast: the happy-path gate runs after packaging, so there is nothing
@@ -749,7 +817,7 @@ jobs:
           # the guest SPA, the admin SPA, the rpcd plugin and its ACL, and the
           # admin uci-default. packaging/Makefile installs all five, so a
           # guest-SPA-only artifact leaves the compile red
-          # ("install: cannot stat '.../92-tollgate-admin-setup'", 2026-09-24).
+          # ("install: cannot stat '.../999-tollgate-admin-setup'", 2026-09-24).
           tar xzf /var/tmp/portal-generated.tar.gz -C src-checkout
           # The guest SPA's entry file is splash.html (the bundle has no
           # index.html - the admin webroot is the one with index.html), so this
@@ -762,7 +830,7 @@ jobs:
               src-checkout/packaging/files/tollgate-admin/index.html \
               src-checkout/packaging/files/usr/libexec/rpcd/tollgate \
               src-checkout/packaging/files/usr/share/rpcd/acl.d/tollgate.json \
-              src-checkout/packaging/files/etc/uci-defaults/92-tollgate-admin-setup ; do
+              src-checkout/packaging/files/etc/uci-defaults/999-tollgate-admin-setup ; do
             [ -e "$p" ] || { echo "ERROR: missing generated portal file $p" >&2; exit 1; }
           done
           ls -l src-checkout/packaging/files/etc/uci-defaults/ \

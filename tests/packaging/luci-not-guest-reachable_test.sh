@@ -54,8 +54,8 @@ else
     # port set rather than only for the rule's presence.
     for port in $LUCI_PORTS; do
         for proto in ipv4 ipv6; do
-            if grep -qE "meta nfproto $proto iifname \"br-lan\" tcp dport \{[^}]*[[:space:],]${port}[[:space:],}][^}]*\}[[:space:]]+counter drop" "$LUCI_NFT"; then
-                ok "rule drops :$port on br-lan ($proto)"
+            if grep -qE "meta nfproto $proto iifname [$]tg_portal_if tcp dport \{[^}]*[[:space:],]${port}[[:space:],}][^}]*\}[[:space:]]+counter drop" "$LUCI_NFT"; then
+                ok "rule drops :$port on the captive bridge ($proto)"
                 break
             fi
         done
@@ -63,7 +63,7 @@ else
     # Both protocol families must be covered: an IPv6-only client on the guest
     # bridge would otherwise walk straight past an ipv4-only rule.
     for proto in ipv4 ipv6; do
-        if grep -qE "meta nfproto $proto iifname \"br-lan\" tcp dport \{ 8080, 443 \}[[:space:]]+counter drop" "$LUCI_NFT"; then
+        if grep -qE "meta nfproto $proto iifname [$]tg_portal_if tcp dport \{ 8080, 443 \}[[:space:]]+counter drop" "$LUCI_NFT"; then
             ok "rule covers $proto captive clients"
         else
             bad "rule does not cover $proto captive clients (an $proto-only guest still reaches the LuCI login)"
@@ -204,6 +204,10 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 export PAYLOAD="$WORK/payload"
 mkdir -p "$PAYLOAD"
+# The GPL license ships at usr/share/doc/tollgate-wrt/LICENSE in both release
+# lanes (#751) and assert-artifact-contents.sh hard-fails any package
+# missing it — stage the real text so the fixture artifact matches a real one.
+install -D -m 0644 "$ROOT/LICENSE" "$PAYLOAD/usr/share/doc/tollgate-wrt/LICENSE"
 installed=0
 while IFS= read -r line; do
     case "$line" in

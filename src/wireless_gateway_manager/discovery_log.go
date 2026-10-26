@@ -3,7 +3,6 @@ package wireless_gateway_manager
 import (
 	"encoding/json"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -14,15 +13,15 @@ const DefaultDiscoveryLogPath = "/etc/tollgate/discovery_log.jsonl"
 const DiscoveryLogMaxBytes = 1 << 20
 
 type DiscoveryEntry struct {
-	Timestamp    time.Time `json:"ts"`
-	BSSID        string    `json:"bssid"`
-	SSID         string    `json:"ssid"`
-	Signal       int       `json:"signal"`
-	Radio        string    `json:"radio"`
-	IsTollGate   bool      `json:"is_tollgate"`
-	PricePerStep int       `json:"price_per_step,omitempty"`
-	StepSize     int       `json:"step_size,omitempty"`
-	Encryption   string    `json:"encryption,omitempty"`
+	Timestamp              time.Time `json:"ts"`
+	BSSID                  string    `json:"bssid"`
+	SSID                   string    `json:"ssid"`
+	Signal                 int       `json:"signal"`
+	Radio                  string    `json:"radio"`
+	IsTollGate             bool      `json:"is_tollgate"`
+	AdvertisedPricePerStep int       `json:"price_per_step,omitempty"` // unsigned IE hint; see NetworkInfo
+	AdvertisedStepSize     int       `json:"step_size,omitempty"`      // unsigned IE hint; see NetworkInfo
+	Encryption             string    `json:"encryption,omitempty"`
 }
 
 type ProbeEntry struct {
@@ -35,18 +34,18 @@ type ProbeEntry struct {
 }
 
 type KnownTollGate struct {
-	BSSID        string    `json:"bssid"`
-	SSID         string    `json:"ssid"`
-	FirstSeen    time.Time `json:"first_seen"`
-	LastSeen     time.Time `json:"last_seen"`
-	BestSignal   int       `json:"best_signal"`
-	WorstSignal  int       `json:"worst_signal"`
-	SampleCount  int       `json:"sample_count"`
-	PricePerStep int       `json:"price_per_step,omitempty"`
-	StepSize     int       `json:"step_size,omitempty"`
-	LastRTTMs    int64     `json:"last_rtt_ms,omitempty"`
-	BestRTTMs    int64     `json:"best_rtt_ms,omitempty"`
-	ProbeCount   int       `json:"probe_count,omitempty"`
+	BSSID                  string    `json:"bssid"`
+	SSID                   string    `json:"ssid"`
+	FirstSeen              time.Time `json:"first_seen"`
+	LastSeen               time.Time `json:"last_seen"`
+	BestSignal             int       `json:"best_signal"`
+	WorstSignal            int       `json:"worst_signal"`
+	SampleCount            int       `json:"sample_count"`
+	AdvertisedPricePerStep int       `json:"price_per_step,omitempty"` // unsigned IE hint; see NetworkInfo
+	AdvertisedStepSize     int       `json:"step_size,omitempty"`      // unsigned IE hint; see NetworkInfo
+	LastRTTMs              int64     `json:"last_rtt_ms,omitempty"`
+	BestRTTMs              int64     `json:"best_rtt_ms,omitempty"`
+	ProbeCount             int       `json:"probe_count,omitempty"`
 }
 
 type DiscoverySummary struct {
@@ -93,15 +92,15 @@ func (dl *DiscoveryLogger) LogScan(networks []NetworkInfo) {
 	now := time.Now()
 	for _, net := range networks {
 		entries = append(entries, DiscoveryEntry{
-			Timestamp:    now,
-			BSSID:        net.BSSID,
-			SSID:         net.SSID,
-			Signal:       net.Signal,
-			Radio:        net.Radio,
-			IsTollGate:   net.IsTollGate,
-			PricePerStep: net.PricePerStep,
-			StepSize:     net.StepSize,
-			Encryption:   net.Encryption,
+			Timestamp:              now,
+			BSSID:                  net.BSSID,
+			SSID:                   net.SSID,
+			Signal:                 net.Signal,
+			Radio:                  net.Radio,
+			IsTollGate:             net.IsTollGate,
+			AdvertisedPricePerStep: net.AdvertisedPricePerStep,
+			AdvertisedStepSize:     net.AdvertisedStepSize,
+			Encryption:             net.Encryption,
 		})
 	}
 
@@ -162,15 +161,15 @@ func (dl *DiscoveryLogger) updateRegistry(net NetworkInfo) {
 	existing, ok := dl.registry[net.BSSID]
 	if !ok {
 		dl.registry[net.BSSID] = &KnownTollGate{
-			BSSID:        net.BSSID,
-			SSID:         net.SSID,
-			FirstSeen:    time.Now(),
-			LastSeen:     time.Now(),
-			BestSignal:   net.Signal,
-			WorstSignal:  net.Signal,
-			SampleCount:  1,
-			PricePerStep: net.PricePerStep,
-			StepSize:     net.StepSize,
+			BSSID:                  net.BSSID,
+			SSID:                   net.SSID,
+			FirstSeen:              time.Now(),
+			LastSeen:               time.Now(),
+			BestSignal:             net.Signal,
+			WorstSignal:            net.Signal,
+			SampleCount:            1,
+			AdvertisedPricePerStep: net.AdvertisedPricePerStep,
+			AdvertisedStepSize:     net.AdvertisedStepSize,
 		}
 		return
 	}
@@ -183,11 +182,11 @@ func (dl *DiscoveryLogger) updateRegistry(net NetworkInfo) {
 	if existing.WorstSignal == 0 || net.Signal < existing.WorstSignal {
 		existing.WorstSignal = net.Signal
 	}
-	if net.PricePerStep > 0 {
-		existing.PricePerStep = net.PricePerStep
+	if net.AdvertisedPricePerStep > 0 {
+		existing.AdvertisedPricePerStep = net.AdvertisedPricePerStep
 	}
-	if net.StepSize > 0 {
-		existing.StepSize = net.StepSize
+	if net.AdvertisedStepSize > 0 {
+		existing.AdvertisedStepSize = net.AdvertisedStepSize
 	}
 }
 
@@ -221,7 +220,7 @@ func (dl *DiscoveryLogger) Summary() DiscoverySummary {
 	known := make([]KnownTollGate, 0)
 
 	for _, v := range dl.registry {
-		if v.PricePerStep > 0 || hasTollGateSSID(v.SSID) {
+		if v.AdvertisedPricePerStep > 0 || hasTollGateSSID(v.SSID) {
 			tgCount++
 		} else {
 			regularCount++
@@ -265,40 +264,19 @@ func (dl *DiscoveryLogger) LoadExistingLog() error {
 			lastTs = entry.Timestamp
 		}
 		dl.updateRegistry(NetworkInfo{
-			BSSID:        entry.BSSID,
-			SSID:         entry.SSID,
-			Signal:       entry.Signal,
-			Radio:        entry.Radio,
-			IsTollGate:   entry.IsTollGate,
-			PricePerStep: entry.PricePerStep,
-			StepSize:     entry.StepSize,
-			Encryption:   entry.Encryption,
+			BSSID:                  entry.BSSID,
+			SSID:                   entry.SSID,
+			Signal:                 entry.Signal,
+			Radio:                  entry.Radio,
+			IsTollGate:             entry.IsTollGate,
+			AdvertisedPricePerStep: entry.AdvertisedPricePerStep,
+			AdvertisedStepSize:     entry.AdvertisedStepSize,
+			Encryption:             entry.Encryption,
 		})
 	}
 
 	dl.logger.WithField("entries_loaded", len(lines)).Info("Discovery log loaded")
 	return nil
-}
-
-// tollGateBrandPrefixes is the SSID recognition set: the captive-SSID
-// prefixes the first-boot writer can emit (99-tollgate-setup load_brand:
-// TollGate-…, and Net4sats-… for the whitelabel brand — mirrored by the
-// installer's brandingCommands). A Net4sats-branded TollGate must be
-// recognizable as an upstream in reseller mode. Matching is
-// case-insensitive because the pre-device-code installer wrote lowercase
-// `tollgate-<code>` captive SSIDs, and those routers are still in the
-// fleet (docs/architecture/one-device-code.md, "The measured drift").
-// The definitive brand-independent identification remains the vendor IE
-// (vendor_element_manager), staged behind VendorIEDiscovery.
-var tollGateBrandPrefixes = []string{"TollGate-", "Net4sats-"}
-
-func hasTollGateSSID(ssid string) bool {
-	for _, prefix := range tollGateBrandPrefixes {
-		if len(ssid) >= len(prefix) && strings.EqualFold(ssid[:len(prefix)], prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 func splitLines(data []byte) [][]byte {

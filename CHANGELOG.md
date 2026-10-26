@@ -11,6 +11,33 @@ and [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 ### Changed / Internal
 
+- **The duplicate-guard harness installs the ndsctl its grant assertion
+  exercises.** `newDuplicateGuardMerchant` ended by asserting a *granted*
+  session — the only grant-exercising assertion in its file — but installed no
+  fake `ndsctl`, unlike every other grant-exercising test. On a host without
+  `ndsctl` on PATH the third submission died as a grant-pending notice instead,
+  so the file's battery was deterministically red on every bare host/CI runner
+  regardless of any other fix. The harness now installs the same renewal fake
+  the other tests use, scoped to each test's lifetime
+  ([#822](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/822)).
+
+- **The bcm2709 artifact rows build again.** `build-sdk-package.sh`
+  defaulted bcm2709 to `EXPECTED_ARCH=arm_cortex-a7`, but the SDK stages
+  its packages under `arm_cortex-a7_neon-vfpv4` — the staged-packages
+  directory check failed and killed the copy step on an otherwise-clean
+  cross-compile (the rc1 artifact matrix's two missing rows)
+  ([#717](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/717)).
+
+- **The late-receive outcome test no longer races its own log.** The
+  #700 test sampled "the last non-deadline log line" while the code path
+  under test logs two lines in fixed order (the COMPLETED record, then
+  the unconditional owed-grant ERROR) — the pass depended on
+  snapshotting between them, and the #681 dependency sweep's goroutine
+  timing flipped it deterministically in some environments, leaving
+  `make go-battery` red on main. The selection now names the record it
+  wants
+  ([#718](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/718)).
+
 - **CHANGELOG duplicate entries are now a checked contract.** Resolving a
   CHANGELOG conflict with a section-level "take ours" can resurrect an entry a
   branch had already moved or reworded, leaving one change described twice (this
@@ -57,6 +84,24 @@ and [Semantic Versioning](https://semver.org/).
 
 
 ### Fixed
+
+- **The router no longer rate-limits its own localhost installer, so the
+  readable `starting` refusal wins again.** `registerAPIHandlers` wires
+  `RateLimitMiddleware` OUTSIDE `requireStarted`, so the per-IP limiter
+  (10 req/min, burst 10) ran before the startup gate: while the merchant was
+  being constructed the installer's 3 s poll of `127.0.0.1:2121` (~20 req/min)
+  tripped it, and the probe received `429 {"error":"rate limit exceeded"}`
+  instead of `503 {"code":"starting"}` — a correct install was reported as
+  "Setup failed" on 2026-10-16. Loopback callers are now exempt from the
+  limiter; every real client's budget is unchanged, the route ordering is
+  unchanged, and the exemption is decided from the CONNECTION, never from
+  `X-Real-Ip`/`X-Forwarded-For` — a header a caller controls must not be able
+  to mint an unlimited-rate bucket (the trust boundary of #808's loopback XFF
+  finding). Regression tests drive the real route table with the gate closed:
+  a loopback burst of 25 probes gets 25 starting refusals, `::1` is exempt, a
+  LAN caller past its budget still gets the 429, and neither a spoofed
+  forwarded header nor a forwarded header on a genuinely-local caller changes
+  the decision. ([#953](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/953))
 
 - **The rebrand gutter allows documented prose references to the commercial
   re-brand.** `tests/packaging/rebrand-literal-gutter_test.sh` was red on

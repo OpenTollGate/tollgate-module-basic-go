@@ -1060,12 +1060,25 @@ func displayMap(m map[string]interface{}, prefix string) {
 		case map[string]interface{}:
 			fmt.Printf("%s%s:\n", prefix, key)
 			displayMap(v, prefix+"  ")
+		case []interface{}:
+			fmt.Printf("%s%s:\n", prefix, key)
+			displayList(v, prefix+"  ")
 		default:
-			if strings.Contains(fmt.Sprintf("%T", v), "slice") {
-				fmt.Printf("%s%s: %v\n", prefix, key, v)
-			} else {
-				fmt.Printf("%s%s: %v\n", prefix, key, v)
-			}
+			fmt.Printf("%s%s: %v\n", prefix, key, v)
+		}
+	}
+}
+
+// displayList renders a slice value element by element instead of dumping it
+// with %v (which leaks Go map syntax for record lists such as config apply's
+// per-setting report). Map elements go through the same recursive renderer as
+// every other record; scalars print as plain list items.
+func displayList(items []interface{}, prefix string) {
+	for _, item := range items {
+		if m, ok := item.(map[string]interface{}); ok {
+			displayMap(m, prefix)
+		} else {
+			fmt.Printf("%s- %v\n", prefix, item)
 		}
 	}
 }
