@@ -260,9 +260,11 @@ release lanes use today.
 
 `packaging/build-contract.json` is the machine-readable face of everything
 above: the binary set (authority: `packaging/Makefile` `PREBUILT_*`), the
-module map and ldflags profiles per binary, the language minimum (max `go`
-directive across every `src/**/go.mod`, glob-discovered), the toolchain
-pin and the portal commit. `scripts/gen-build-contract.sh` is its single
+module map and ldflags profiles per binary, the **arch table** (authority:
+`scripts/repro-test.sh`'s arch case, cross-checked both directions — the
+feed's build matrix and the fast lane's cross-compile consume it instead of
+re-listing arches), the language minimum (max `go` directive across every
+`src/**/go.mod`, glob-discovered), the toolchain pin and the portal commit. `scripts/gen-build-contract.sh` is its single
 writer — the committed file is generated, never hand-edited — and
 `tests/contract/check-build-contract.py` fences it two ways: the
 generator must reproduce the committed bytes, and every carrier that

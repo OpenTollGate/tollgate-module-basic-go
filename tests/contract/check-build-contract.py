@@ -126,6 +126,34 @@ def check_makefile_authority(bins: list[str]) -> None:
         notes.append(f"PREBUILT authority matches the contract ({prebuilt})")
 
 
+def check_arch_authority() -> None:
+    """The contract's arch table must match scripts/repro-test.sh's arch case
+    in BOTH directions: the case statement is the authority for which arches
+    the release supports; the generator table adds the Go env + SDK target.
+    Drift either way (an arch added to one and not the other) fails here —
+    the fork's matrix and the fast lane's cross-compile consume the contract,
+    so neither may re-list arches."""
+    import json
+
+    contract_arches = sorted(a["name"] for a in json.loads(CONTRACT.read_text())["arches"])
+    repro = (REPO / "scripts" / "repro-test.sh").read_text()
+    case_arches = sorted(
+        m.group(1)
+        for m in re.finditer(r"^\s{4}([a-z0-9_-]+)\)\s+GOARCH=", repro, re.MULTILINE)
+    )
+    if contract_arches != case_arches:
+        only_contract = [a for a in contract_arches if a not in case_arches]
+        only_case = [a for a in case_arches if a not in contract_arches]
+        fail(
+            f"contract arch table {contract_arches} != repro-test.sh arch case "
+            f"{case_arches} (only-in-contract: {only_contract}, only-in-case: "
+            f"{only_case}) — add the case arm and the generator row together, "
+            "then regenerate"
+        )
+    else:
+        notes.append(f"arch authority matches ({len(contract_arches)} arches)")
+
+
 def main() -> int:
     if not CONTRACT.is_file():
         print("check-build-contract: FAIL — packaging/build-contract.json missing "
@@ -140,6 +168,7 @@ def main() -> int:
     check_regeneration()
     check_makefile_authority(bins)
     check_carriers(bins)
+    check_arch_authority()
 
     print(f"  contract binaries: {' '.join(bins)}")
     for n in notes:
