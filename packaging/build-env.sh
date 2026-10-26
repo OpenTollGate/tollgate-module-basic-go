@@ -26,6 +26,15 @@
 #                              the live feed by scripts/sdk-go-version.sh)
 #   go_ldflags  <pkg-version>  service binary ldflags (no wall clock)
 #   cli_ldflags <pkg-version>  go_ldflags + main.version for the CLI module
+#   tg_version                 release version for this build: TG_VERSION
+#                              (the one documented override, #941) wins,
+#                              the repository-root VERSION file is the
+#                              fallback
+#   tg_assert_version_consistency <binary> <expected-version>
+#                              post-build fence (#941): the version the
+#                              ldflags embedded must equal the version the
+#                              package carries; warns by default, fails
+#                              when TG_REQUIRE_VERSION_CONSISTENCY=1
 #   tg_git_branch              branch of the enclosing repo; "main" when the
 #                              checkout cannot name one (detached HEAD)
 #   tg_git_commit              short HEAD of the enclosing repo; "unknown"
@@ -198,6 +207,64 @@ tg_git_commit() {
     fi
     [ -n "$_commit" ] || _commit=unknown
     printf '%s' "$_commit"
+}
+
+# Release version this build stamps everywhere (ldflags via go_ldflags/
+# cli_ldflags, package version, the __TOLLGATE_VERSION__ marker in
+# 99-tollgate-setup). ONE override knob: TG_VERSION wins, the
+# repository-root VERSION file is the fallback. #941: the rc5 feed
+# package embedded a binary stamped from a lagged VERSION file (rc4)
+# while the tag and the package said rc5 — deriving this in one place
+# instead of per-script is what lets a release-cutting lane re-point
+# the stamp without hand-editing VERSION.
+tg_version() {
+    if [ -n "${TG_VERSION:-}" ]; then
+        printf '%s' "$TG_VERSION"
+        return 0
+    fi
+    [ -f "$TG_ROOT/VERSION" ] \
+        || tg_die "TG_VERSION not set and no VERSION file at $TG_ROOT — refusing to guess a release version"
+    _ver="$(tr -d '[:space:]' < "$TG_ROOT/VERSION")"
+    [ -n "$_ver" ] || tg_die "VERSION file at $TG_ROOT is empty — set TG_VERSION or bump VERSION"
+    printf '%s' "$_ver"
+}
+
+# Post-build fence (#941): the version the ldflags embedded in <binary>
+# must equal the version the package carries. Read with strings(1), not
+# by executing the binary — the artifacts are cross-compiled for
+# routers. Substring match: the embedded cli.Version/main.version is the
+# exact string the same caller passed to go_ldflags, so the guarded
+# failure (ldflags wired to a different source than the package) always
+# misses. Run BEFORE any UPX pass — compression hides the strings.
+# Warns loudly by default; fails when TG_REQUIRE_VERSION_CONSISTENCY=1
+# (the release workflow sets that: a fence that cannot fail is
+# decoration).
+#
+# PIPEFAIL CONTRACT: every caller lane runs `set -euo pipefail`. The
+# match must NOT use `grep -q`: -q exits on first match, the writer
+# (strings, with megabytes to emit over a 12 MB binary) then dies on
+# SIGPIPE, and under pipefail the pipeline reports 141 — the fence
+# denies a correctly-stamped binary (rehearsal-verified on a real
+# build). grep without -q drains the stream to EOF, so strings always
+# exits 0 and the pipeline verdict is grep's alone.
+tg_assert_version_consistency() {
+    _bin="$1"
+    _expected="$2"
+    [ -n "$_expected" ] || tg_die "version-consistency fence invoked without an expected version"
+    if [ ! -f "$_bin" ]; then
+        printf 'build-env: WARNING: version-consistency: no such binary: %s\n' "$_bin" >&2
+        [ "${TG_REQUIRE_VERSION_CONSISTENCY:-0}" = "1" ] && exit 1
+        return 0
+    fi
+    if strings "$_bin" 2>/dev/null | grep -F -- "$_expected" >/dev/null; then
+        printf 'build-env: version-consistency: %s embeds %s\n' "$_bin" "$_expected" >&2
+        return 0
+    fi
+    printf 'build-env: WARNING: version-consistency: %s does NOT embed %s — the stamp and the package version diverged (#941)\n' "$_bin" "$_expected" >&2
+    if [ "${TG_REQUIRE_VERSION_CONSISTENCY:-0}" = "1" ]; then
+        printf 'build-env: ERROR: TG_REQUIRE_VERSION_CONSISTENCY=1 — failing the build\n' >&2
+        exit 1
+    fi
 }
 
 # Deterministic ldflags for the service binaries (module

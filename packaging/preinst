@@ -4,10 +4,14 @@
 # Historical note: this preinst used to bump install_time in
 # /etc/tollgate/install.json via jq. That was fragile and redundant:
 #
-#   - jq is no longer a package dependency (DEPENDS is +libc only), so a
-#     bare `jq` call fails on minimal systems and aborted the upgrade —
-#     and the aborted opkg transaction then orphan-removed runtime deps
-#     (nodogsplash et al.). Repro + forensics:
+#   - at the time of the incident the recipes had dropped their runtime
+#     DEPENDS, so a bare `jq` call could be missing on an upgraded box
+#     and aborted the upgrade — and the aborted opkg transaction then
+#     orphan-removed the runtime deps (nodogsplash et al.). The dep
+#     contract now lives in the packaging recipes (packaging/Makefile,
+#     packaging/local-build-ipk.sh, the generated ngit shards) and is
+#     fenced by tests/packaging/package-nodogsplash-dependency_test.sh.
+#     Repro + forensics:
 #     https://github.com/Amperstrand/tollgate-module-basic-go/issues/93
 #   - The binary owns install.json (config_manager.EnsureDefaultInstall)
 #     and stamps install_time itself when it is zero/unset.

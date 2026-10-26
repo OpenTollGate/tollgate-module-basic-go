@@ -45,6 +45,10 @@ func TestUnmeterableSessionEscalationIsBounded(t *testing.T) {
 	// cannot be retired.
 	ndsctl.setRegistered(t, true)
 	ndsctl.failDeauth(t, true)
+	// This test spends the close budget for its MAC, so its gate cleanup must
+	// be able to reconcile the abandoned streak — which needs a working
+	// deauth. LIFO: registered after closeGateCleanup above, runs before it.
+	t.Cleanup(func() { ndsctl.failDeauth(t, false) })
 	restoreReportInterval := setUnmeterableReportInterval(time.Hour)
 	t.Cleanup(restoreReportInterval)
 

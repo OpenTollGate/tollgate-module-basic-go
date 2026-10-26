@@ -172,17 +172,45 @@ func lateOutcomeCase(t *testing.T, amount uint64, receiveErr error) (*Merchant, 
 	}
 	var once sync.Once
 	release := func() { once.Do(func() { close(wallet.release) }) }
-	t.Cleanup(release)
 
 	stubPreflightProbe(t, m, func(string) (valve.ClientState, error) {
 		return valve.ClientState{Registered: true}, nil
 	})
+	m.receiveTimeout = 150 * time.Millisecond
+	drainOwedGrantMonitors(t, m)
 
-	prevTimeout := receiveTimeout
-	receiveTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { receiveTimeout = prevTimeout })
+	logs := captureSyncLogs(t)
 
-	return m, wallet, release, captureSyncLogs(t)
+	// A late SUCCESS owes the customer their grant. On its own goroutine the
+	// recorder logs the COMPLETED record, then records the owed grant —
+	// which logs the owed-grant ERROR line and starts the retry monitor
+	// (first attempt at 5 s + jitter). Release is deferred to cleanup for
+	// tests that forget it, and the recording must complete HERE, inside
+	// this test's cleanup with its log capture still live: the wait below
+	// proves the record is IN the map before the drain cleanup (registered
+	// earlier, so run later — LIFO) swaps the map empty, which is what makes
+	// every monitor's next wake terminal before any later test's PATH-scoped
+	// fake exists. Without the pair, the monitor's ndsctl auth attempts
+	// landed in whichever later test's fake was current — the 1-in-8
+	// stray-AUTH failure of TestFirstTimePurchaseStill... in the #733 soak
+	// ledger (success variants only; a late failure owes nothing and records
+	// nothing).
+	if amount >= 1 {
+		t.Cleanup(func() {
+			release()
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				if strings.Contains(logs.String(), "could not be granted") {
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	} else {
+		t.Cleanup(release)
+	}
+
+	return m, wallet, release, logs
 }
 
 func awaitReceiveStarted(t *testing.T, wallet *completingReceiveWallet) {

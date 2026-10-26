@@ -29,6 +29,12 @@ type MerchantDegraded struct {
 	wallet            Wallet
 	walletLoaded      bool
 	walletPath        string
+	// walletInitErr is why the offline wallet load failed, if it failed.
+	// It distinguishes "no wallet yet" causes so operator-facing errors can
+	// stop blaming the mints when the mints are fine (#583): a storage
+	// filesystem that cannot back bbolt's shared mmap is permanent, while
+	// "no reachable mints" promises a recovery that will never come.
+	walletInitErr error
 }
 
 func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, mintHealthTracker *MintHealthTracker, walletFactory WalletFactory, walletPath string) *MerchantDegraded {
@@ -51,7 +57,12 @@ func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, 
 
 	wallet, err := walletFactory(walletPath, mintURLs)
 	if err != nil {
-		log.Printf("Degraded mode: offline wallet load failed (first boot or no cached data): %v", err)
+		deg.walletInitErr = err
+		if tollwallet.IsStorageMmapUnsupported(err) {
+			log.Printf("Degraded mode: wallet storage filesystem does not support shared mmap (jffs2 overlay?): %v — the wallet can NEVER initialize on this filesystem; move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)", err)
+		} else {
+			log.Printf("Degraded mode: offline wallet load failed (first boot or no cached data): %v", err)
+		}
 		return deg
 	}
 
@@ -63,8 +74,62 @@ func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, 
 	return deg
 }
 
+// WireStartupDegraded performs the full startup wiring for a merchant that
+// booted degraded: register the upgrade consumer, then wire the recovery
+// trigger so the tracker can actually fire it.
+//
+// Both steps belong together. #400 added WireRecoveryTrigger to the runtime
+// downgrade path, and the startup path (installMerchant in main.go) was missed
+// — it registered the onUpgrade consumer but left the tracker's
+// onFirstReachable nil, so the service stayed degraded forever even after the
+// mint returned (#10).
+//
+// This exists as one method because the two steps are only correct as a pair,
+// and because main.go's startup path and its test must call the same code. The
+// previous test re-implemented the sequence inline, so deleting
+// WireRecoveryTrigger() from installMerchant left the suite green: the test
+// still called the library directly. With the sequence named, main.go calls
+// this and the test calls this.
+func (m *MerchantDegraded) WireStartupDegraded(onUpgrade func(MerchantInterface)) {
+	m.OnUpgrade(onUpgrade)
+	m.WireRecoveryTrigger()
+}
+
 func (m *MerchantDegraded) OnUpgrade(callback func(MerchantInterface)) {
 	m.onUpgrade = callback
+}
+
+// StorageIncompatible reports whether the degraded state is caused by a
+// wallet storage filesystem that cannot back bbolt's shared mmap (#583) —
+// the one degraded cause a mint recovery can never fix, so boot banners
+// and upgrade logs must not promise otherwise.
+func (m *MerchantDegraded) StorageIncompatible() bool {
+	return tollwallet.IsStorageMmapUnsupported(m.walletInitErr)
+}
+
+// walletUnavailableReason says why there is no wallet behind the merchant:
+// the storage-mmap class names the filesystem and its remedy; everything
+// else keeps the historic "no reachable mints" wording, which stays true
+// for its own cause (#583's misleading-errors half).
+func (m *MerchantDegraded) walletUnavailableReason() string {
+	if m.StorageIncompatible() {
+		return "wallet storage does not support shared mmap (jffs2 overlay?) — move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs); see README storage requirements"
+	}
+	return "no reachable mints"
+}
+
+func (m *MerchantDegraded) walletNotInitializedError() error {
+	return fmt.Errorf("wallet not initialized: %s", m.walletUnavailableReason())
+}
+
+// WalletDegradedInfo reports the degraded state and its reason for the
+// status surfaces (CLI `status`, board): the degraded merchant is degraded
+// by construction, and the reason string distinguishes the permanent
+// storage-mmap class from the recoverable no-reachable-mints one (#824).
+// Consumed through an interface assertion so MerchantInterface itself is
+// untouched.
+func (m *MerchantDegraded) WalletDegradedInfo() (bool, string) {
+	return true, m.walletUnavailableReason()
 }
 
 // WireRecoveryTrigger registers the tracker's first-reachable callback so a
@@ -93,6 +158,12 @@ func (m *MerchantDegraded) AttemptUpgrade() {
 	}
 	if m.onUpgrade != nil {
 		m.onUpgrade(fullMerchant)
+	} else if s, ok := fullMerchant.(interface{ Shutdown() error }); ok {
+		// An upgraded merchant with nowhere to go must not leak the
+		// background work its construction started: nobody will ever Shut
+		// it down. Production always wires onUpgrade; this is the defensive
+		// seam upgrade-strand tests exercise.
+		_ = s.Shutdown()
 	}
 }
 
@@ -122,28 +193,28 @@ func (m *MerchantDegraded) GetMintHealthTracker() *MintHealthTracker {
 
 func (m *MerchantDegraded) CreatePaymentToken(mintURL string, amount uint64) (string, error) {
 	if !m.walletLoaded {
-		return "", fmt.Errorf("wallet not initialized: no reachable mints")
+		return "", m.walletNotInitializedError()
 	}
 	return "", fmt.Errorf("CreatePaymentToken not supported in degraded mode; use CreatePaymentTokenWithOverpayment")
 }
 
 func (m *MerchantDegraded) CreatePaymentTokenWithOverpayment(mintURL string, amount uint64, maxOverpaymentPercent uint64, maxOverpaymentAbsolute uint64) (string, error) {
 	if !m.walletLoaded {
-		return "", fmt.Errorf("wallet not initialized: no reachable mints")
+		return "", m.walletNotInitializedError()
 	}
 	return m.wallet.SendWithOverpayment(amount, mintURL, maxOverpaymentPercent, maxOverpaymentAbsolute)
 }
 
 func (m *MerchantDegraded) DrainMint(mintURL string) (string, uint64, error) {
-	return "", 0, fmt.Errorf("wallet not initialized: no reachable mints")
+	return "", 0, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) RequestLightningInvoice(macAddress, mintURL string, amount uint64) (*LightningInvoice, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) GetLightningInvoiceStatus(quoteID, macAddress string) (*LightningQuoteStatus, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) GetAcceptedMints() []config_manager.MintConfig {
@@ -173,7 +244,7 @@ func (m *MerchantDegraded) GetAllMintBalances() map[string]uint64 {
 
 func (m *MerchantDegraded) PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error) {
 	noticeEvent, err := m.CreateNoticeEvent("error", "service-unavailable",
-		"TollGate is initializing. No reachable mints. Please try again in a few minutes.", macAddress)
+		"TollGate is initializing. No reachable mints. Please try again in a few minutes.", "")
 	if err != nil {
 		return nil, fmt.Errorf("wallet not initialized and failed to create notice: %w", err)
 	}
@@ -181,6 +252,22 @@ func (m *MerchantDegraded) PurchaseSession(cashuToken string, macAddress string)
 }
 
 func (m *MerchantDegraded) GetAdvertisement() string {
+	if m.StorageIncompatible() {
+		// The operator-facing advertisement is the portal's status surface:
+		// a storage-class degraded state must not present itself as a
+		// transient "initializing" — no mint recovery can ever clear it
+		// (#583, #824: one probe, three consumers — log, notice, status).
+		noticeEvent, err := m.CreateNoticeEvent("error", "wallet-storage-unsupported",
+			"TollGate wallet storage does not support shared mmap (jffs2 overlay?). The wallet cannot initialize on this filesystem. Move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs) — see README storage requirements.", "")
+		if err != nil {
+			return fmt.Sprintf(`{"error": "wallet storage unsupported: %v"}`, err)
+		}
+		bytes, err := json.Marshal(noticeEvent)
+		if err != nil {
+			return `{"error": "failed to marshal notice"}`
+		}
+		return string(bytes)
+	}
 	noticeEvent, err := m.CreateNoticeEvent("warning", "no-reachable-mints",
 		"TollGate is initializing. No reachable mints detected. Service will auto-recover.", "")
 	if err != nil {
@@ -206,7 +293,7 @@ func (m *MerchantDegraded) CreateNoticeEvent(level, code, message, customerPubke
 }
 
 func (m *MerchantDegraded) GetSession(macAddress string) (*CustomerSession, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.walletNotInitializedError()
 }
 
 // GetSessionState answers "none" in degraded mode: without a wallet no session
@@ -216,7 +303,7 @@ func (m *MerchantDegraded) GetSessionState(macAddress string) (SessionState, err
 }
 
 func (m *MerchantDegraded) AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) GetUsage(macAddress string) (string, error) {
@@ -227,15 +314,15 @@ func (m *MerchantDegraded) GetUsage(macAddress string) (string, error) {
 // AddAllotment is: there is no wallet, so there is no session to name and
 // nothing a ticket could hand over.
 func (m *MerchantDegraded) IssueSessionTicket(macAddress string) (string, int64, error) {
-	return "", 0, fmt.Errorf("wallet not initialized: no reachable mints")
+	return "", 0, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) RebindSession(ticket, macAddress string) (*CustomerSession, error) {
-	return nil, fmt.Errorf("wallet not initialized: no reachable mints")
+	return nil, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) Fund(cashuToken string) (uint64, error) {
-	return 0, fmt.Errorf("wallet not initialized: no reachable mints")
+	return 0, m.walletNotInitializedError()
 }
 
 func (m *MerchantDegraded) WalletLoaded() bool {

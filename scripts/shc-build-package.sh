@@ -26,7 +26,7 @@
 #   SHC_TEMPLATE  OS template       (default: debian13)
 #   SHC_REAP      reaper deadline   (default: 2h — backstop if this script dies)
 #   SSH_PUB       public key path   (default: ~/.ssh/id_ed25519.pub)
-#   PKG_VERSION   embedded version  (default: VERSION at the repository root)
+#   PKG_VERSION   embedded version  (default: tg_version — TG_VERSION > VERSION)
 #   OUT_DIR       artifact dir      (default: artifacts/shc)
 set -euo pipefail
 
@@ -37,15 +37,23 @@ SHC_SIZE="${SHC_SIZE:-nvme-2c-8gb}"
 SHC_TEMPLATE="${SHC_TEMPLATE:-debian13}"
 SHC_REAP="${SHC_REAP:-2h}"
 SSH_PUB="${SSH_PUB:-$HOME/.ssh/id_ed25519.pub}"
-# The release version comes from the repository-root VERSION file, the single
-# source of truth (see CONTRIBUTING.md); set PKG_VERSION to override.
-PKG_VERSION="${PKG_VERSION:-$(cat "$REPO_ROOT/VERSION")}"
 OUT_DIR="${OUT_DIR:-artifacts/shc}"
 
 die() { printf 'ERROR: %s\n' "$1" >&2; exit 1; }
 command -v shc >/dev/null 2>&1 || die "shc CLI not on PATH (pip install shc-toolkit)"
 [ -n "${SHC_API_KEY:-}" ] || die "SHC_API_KEY not set"
 [ -f "$SSH_PUB" ] || die "public key not found: $SSH_PUB"
+
+TG_ROOT="$REPO_ROOT"
+export TG_ROOT
+# shellcheck source=../packaging/build-env.sh
+. "$REPO_ROOT/packaging/build-env.sh"
+
+# One version knob (#941): resolve like every other lane (TG_VERSION >
+# VERSION file); the resolved string is pinned into the remote build below,
+# because the synced tree's VM must not re-derive the version under an
+# environment this host does not control.
+PKG_VERSION="${PKG_VERSION:-$(tg_version)}"
 
 VM_ID=""
 cleanup() {
@@ -100,6 +108,7 @@ echo "=== [3/5] remote build (local-build-ipk.sh, verbatim) ==="
   sudo tar -C /usr/local -xzf /tmp/go.tgz
   export PATH=/usr/local/go/bin:/tmp/shim:\$PATH
   export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH
+  export PKG_VERSION=$PKG_VERSION
   go version
   cd /tmp/tree
   bash packaging/local-build-ipk.sh"

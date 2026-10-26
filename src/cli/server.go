@@ -567,6 +567,19 @@ func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) 
 		WalletOK:  s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
 		NetworkOK: s.upstreamManager != nil && s.upstreamManager.CheckConnectivity(),
 	}
+	// Optional-interface assertion (#824): MerchantDegraded (and only it)
+	// carries the degraded story; a full merchant answers nothing and the
+	// defaults (false, "") hold. Assertion rather than an interface method
+	// so every MerchantInterface implementer needs no change.
+	if s.merchantProvider != nil {
+		if m := s.merchantProvider.GetMerchant(); m != nil {
+			if info, ok := m.(interface {
+				WalletDegradedInfo() (bool, string)
+			}); ok {
+				status.WalletDegraded, status.WalletReason = info.WalletDegradedInfo()
+			}
+		}
+	}
 
 	return CLIResponse{
 		Success:   true,
@@ -689,15 +702,15 @@ func (s *CLIServer) handleUpstreamScan() CLIResponse {
 	var result []UpstreamNetwork
 	for _, net := range networks {
 		result = append(result, UpstreamNetwork{
-			SSID:         net.SSID,
-			Signal:       net.Signal,
-			Encryption:   net.Encryption,
-			BSSID:        net.BSSID,
-			Radio:        net.Radio,
-			Band:         net.Band,
-			IsTollGate:   net.IsTollGate,
-			PricePerStep: net.PricePerStep,
-			StepSize:     net.StepSize,
+			SSID:                   net.SSID,
+			Signal:                 net.Signal,
+			Encryption:             net.Encryption,
+			BSSID:                  net.BSSID,
+			Radio:                  net.Radio,
+			Band:                   net.Band,
+			IsTollGate:             net.IsTollGate,
+			AdvertisedPricePerStep: net.AdvertisedPricePerStep,
+			AdvertisedStepSize:     net.AdvertisedStepSize,
 		})
 	}
 
@@ -725,6 +738,28 @@ func (s *CLIServer) handleUpstreamKnown() CLIResponse {
 		Data:      summary,
 		Timestamp: time.Now(),
 	}
+}
+
+// bestBSSIDForSSID returns the strongest scanned BSSID for ssid (optionally
+// restricted to a radio), or "" when the scan carried no BSSIDs. A manual
+// connect pins the same upstream the scan ranked best: one SSID can be served
+// by several BSSIDs across different upstream networks, some without internet.
+func bestBSSIDForSSID(networks []wireless_gateway_manager.NetworkInfo, ssid, radio string) string {
+	best := ""
+	bestSignal := -1 << 30
+	for _, n := range networks {
+		if n.SSID != ssid || n.BSSID == "" {
+			continue
+		}
+		if radio != "" && n.Radio != radio {
+			continue
+		}
+		if n.Signal > bestSignal {
+			bestSignal = n.Signal
+			best = n.BSSID
+		}
+	}
+	return best
 }
 
 func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
@@ -811,7 +846,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		activeIface = activeSTA.Name
 	}
 
-	if err := s.connector.SwitchUpstream(activeIface, ifaceName, ssid); err != nil {
+	if err := s.connector.SwitchUpstream(activeIface, ifaceName, ssid, bestBSSIDForSSID(networks, ssid, bestRadio)); err != nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     fmt.Sprintf("Failed to connect: %v", err),
@@ -928,7 +963,7 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), "Switching upstream... waiting for DHCP")
-	if err := s.connector.SwitchUpstream(activeIface, staIface, ssid); err != nil {
+	if err := s.connector.SwitchUpstream(activeIface, staIface, ssid, bestBSSIDForSSID(networks, ssid, bestRadio)); err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to connect: %v", err), Timestamp: time.Now()})
 		return
 	}

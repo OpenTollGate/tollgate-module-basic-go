@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -28,6 +29,29 @@ type Config struct {
 	UpstreamDetector       UpstreamDetectorConfig       `json:"upstream_detector"`
 	UpstreamSessionManager UpstreamSessionManagerConfig `json:"upstream_session_manager"`
 	UpstreamWifi           UpstreamWifiConfig           `json:"upstream_wifi"`
+	// MaintainerNpub names the Nostr identity that owns this tollgate. It is
+	// the authorization boundary of the CVM control plane: only this npub may
+	// call a state-changing tool over Nostr (see
+	// docs/architecture/cvm-control-plane-decision.md, D3). It is ALSO the
+	// discovery key — the router publishes it in the `p` tag of its kind-11316
+	// announcement, which is how a dashboard finds every tollgate one
+	// maintainer owns without any registry (D4).
+	//
+	// Empty is the "unclaimed" sentinel and is legal: a router that has not
+	// been claimed still serves customers, it just cannot be managed remotely
+	// and does not appear in anyone's fleet view. Anything non-empty must be a
+	// bech32 npub1… key — see ValidateMaintainerNpub for why a raw hex pubkey
+	// is refused rather than normalized.
+	MaintainerNpub string `json:"maintainer_npub,omitempty"`
+	// MPTCPBonding is an OPTIONAL multi-WAN bond. It is off by default and
+	// nothing in this package acts on it: the mptcp_bonding module reads it and
+	// renders the kernel state. Declared here so the schema entry is not an
+	// orphan (TestSchemaHasNoOrphanEntries), and so an operator can set it
+	// through the normal `tollgate config` path.
+	//
+	// The Password field is a SECRET and must be redacted on every read path,
+	// like PrivateKey above.
+	MPTCPBonding MPTCPBondingConfig `json:"mptcp_bonding,omitempty"`
 	// Operator-settable network settings. Declared intent: nothing reads these
 	// fields directly. The applier in src/cli/operator_settings.go converges
 	// them onto the router (UCI wireless + the admin-access nft fragment) on
@@ -70,6 +94,35 @@ type UpstreamWifiConfig struct {
 	DHCPTimeoutSeconds     int  `json:"dhcp_timeout_seconds"`
 	ManualPauseSeconds     int  `json:"manual_pause_seconds"`
 	VendorIEDiscovery      bool `json:"vendor_ie_discovery"`
+}
+
+// MPTCPBondingConfig describes an optional MPTCP multi-WAN bond.
+//
+// Every field is optional and the whole section is absent on a node that has
+// not opted in: LoadConfig in the mptcp_bonding module treats an absent section
+// as a disabled bond rather than an error, so an upgrade never fails on it.
+//
+// Password is a SECRET and must be redacted on read paths.
+type MPTCPBondingConfig struct {
+	Enabled      bool                `json:"enabled"`
+	Policy       string              `json:"policy,omitempty"`
+	Server       string              `json:"server,omitempty"`
+	Method       string              `json:"method,omitempty"`
+	Password     string              `json:"password,omitempty"`
+	Uplinks      []MPTCPUplinkConfig `json:"uplinks,omitempty"`
+	Subflows     int                 `json:"subflows,omitempty"`
+	SteeringCIDR string              `json:"steering_cidr,omitempty"`
+	SocksPort    int                 `json:"socks_port,omitempty"`
+	TproxyPort   int                 `json:"tproxy_port,omitempty"`
+	FwMark       string              `json:"fwmark,omitempty"`
+	FwMarkTable  int                 `json:"fwmark_table,omitempty"`
+}
+
+// MPTCPUplinkConfig is one member of the bond. Address may be empty, in which
+// case it is learned at runtime when the interface acquires a lease.
+type MPTCPUplinkConfig struct {
+	Interface string `json:"interface"`
+	Address   string `json:"address,omitempty"`
 }
 
 // MintConfig holds configuration for a specific mint.
@@ -476,7 +529,63 @@ func NewDefaultConfig() *Config {
 		PrivateEncryption: "psk2+ccmp",
 		AdminAccess:       "both",
 		EntryUI:           "board",
+		// MPTCP bonding is OPT-IN: Enabled is false, and the remaining fields
+		// carry the schema's declared defaults so defaults_parity_test.go
+		// keeps schema and code in step. An operator who never touches this
+		// section gets a disabled bond and no behaviour change.
+		MPTCPBonding: MPTCPBondingConfig{
+			Enabled:     false,
+			Policy:      "guest_only",
+			Method:      "chacha20-ietf-poly1305",
+			Subflows:    8,
+			SocksPort:   1081,
+			TproxyPort:  1082,
+			FwMark:      "0x1",
+			FwMarkTable: 100,
+		},
 	}
+}
+
+// entryUIMarkerPath mirrors 99-tollgate-setup's ENTRY_UI_MARKER (D4 of
+// docs/architecture/default-ui-and-entry-port-decision.md): the file whose
+// presence and content announce that the mode-aware portal writer
+// (92-tollgate-admin-setup, shipped by the captive-portal feed) has applied
+// the board mapping. A package-level var — the same seam as
+// src/cmd/tollgate-cli/ui.go's entryUIMarkerPath — so tests can point it at
+// a fixture instead of a live router. The Go/shell copies are fenced by
+// tests/contract/check-entry-ui-marker-path.sh.
+var entryUIMarkerPath = "/etc/tollgate/entry-ui-mapping"
+
+// entryUIMarkerAnnouncesBoard reports whether this deployment can actually
+// back entry_ui=board: the mode-aware portal writer must have announced the
+// board mapping. An absent, unreadable, or non-board marker means it cannot —
+// the same fail-closed comparison 99-tollgate-setup's ensure_entry_ui and
+// tollgate-cli's entryUIMode apply.
+func entryUIMarkerAnnouncesBoard() bool {
+	data, err := os.ReadFile(entryUIMarkerPath)
+	return err == nil && strings.TrimSpace(string(data)) == "board"
+}
+
+// applyBackedEntryUIDefault rewrites the entry_ui DEFAULT in cfg to the value
+// this deployment can actually back (#928): the declared default (board) only
+// when the D4 marker announces the board mapping, and the legacy luci mapping
+// otherwise. An ipk-only install carries no captive-portal feed, so its
+// 99-tollgate-setup has already converged the legacy port table and no board
+// UI exists at all — recording board there would disagree with the converged
+// listeners by construction, exactly the divergence PRTA's
+// test_entry_ui_port_mapping_contract flags. Populating the backed value makes
+// config.json and the port table agree from the first boot.
+//
+// Called ONLY on paths that write an entry_ui the operator never chose — the
+// fresh-install write, the invalid-JSON rewrite, and the migration's
+// empty-field population. An operator-declared value is never rewritten: D4
+// leaves it recorded for the release that carries both halves.
+func applyBackedEntryUIDefault(cfg *Config) {
+	if cfg == nil || cfg.EntryUI != "board" || entryUIMarkerAnnouncesBoard() {
+		return
+	}
+	log.Printf("WARNING: the entry_ui default (board) is not backed on this deployment — the admin-UI mapping marker %s is absent, so the captive-portal feed's mode-aware writer (92-tollgate-admin-setup) has not run (ipk-only install or pre-switch feed) and no board UI exists to answer the entry pair. Populating entry_ui=luci instead so config.json agrees with the legacy port table 99-tollgate-setup converged (#928). Re-vendor the feed (FreedomTechFeed/packages) so both halves ship together.", entryUIMarkerPath)
+	cfg.EntryUI = "luci"
 }
 
 // EnsureDefaultConfig ensures a default config.json exists, loading from file if present.
@@ -490,6 +599,7 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 			// and here silently reverts the router to factory mints. Say it
 			// loudly so an operator reading the log can restore a backup.
 			log.Printf("WARNING: %s does not exist — writing factory defaults; if this router was configured, restore from config_backups and investigate what removed the file", filePath)
+			applyBackedEntryUIDefault(defaultConfig)
 			return defaultConfig, SaveConfig(filePath, defaultConfig)
 		}
 		return nil, err // Other read error
@@ -503,11 +613,21 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		profitShareErr = config.ValidateProfitShare()
 	}
 	if unmarshalErr != nil {
+		// #929: valid JSON with a wrong shape (e.g. accepted_mints as a
+		// plain string array) is an operator edit, not corruption.
+		// Replacing the file with factory mints would silently swap the
+		// money path on a commissioned router. Refuse to start; only
+		// genuinely corrupt files (truncation, #402 class) take the
+		// backup-and-defaults recovery below.
+		if json.Valid(data) {
+			return nil, fmt.Errorf("config %s is valid JSON but does not match the schema (%v); refusing to fall back to factory defaults — fix the field and restart", filePath, unmarshalErr)
+		}
 		log.Printf("WARNING: Invalid config JSON, backing up and recreating: %v", unmarshalErr)
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
 			log.Printf("CRITICAL: Failed to backup invalid config: %v", backupErr)
 			return nil, backupErr
 		}
+		applyBackedEntryUIDefault(defaultConfig)
 		return defaultConfig, SaveConfig(filePath, defaultConfig)
 	}
 	if profitShareErr != nil {
@@ -519,6 +639,7 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", config.ConfigVersion); backupErr != nil {
 			log.Printf("WARN: Failed to backup config before migration (continuing): %v", backupErr)
 		}
+		applyBackedEntryUIDefault(defaultConfig)
 		migrateConfig(&config, defaultConfig)
 		return &config, SaveConfig(filePath, &config)
 	}
@@ -549,9 +670,11 @@ func migrateConfig(config *Config, defaults *Config) {
 	}
 	// v0.0.10 adds the entry-UI switch. The declared default is the operator's
 	// decision (board), but the effective mapping is release-gated: 99 honours
-	// board only once the mode-aware 92 is installed (the D4 marker). A router
-	// upgraded by a module-only release therefore records the value and keeps
-	// today's mapping — see the ADR's D4.
+	// board only once the mode-aware 92 is installed (the D4 marker). The
+	// defaults passed in therefore already carry the backed value (#928's
+	// applyBackedEntryUIDefault): a router the feed never reached records luci,
+	// the mapping its port table actually converged; a fully-vendored one
+	// records board. An operator-declared value is kept as-is (ADR D4).
 	if config.EntryUI == "" {
 		config.EntryUI = defaults.EntryUI
 		log.Printf("INFO: Populated entry_ui default (%s) on upgrade", defaults.EntryUI)

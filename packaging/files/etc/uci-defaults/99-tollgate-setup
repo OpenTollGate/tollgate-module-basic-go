@@ -52,7 +52,11 @@ case "$SETUP_VERSION" in
         ;;
 esac
 
-LOGFILE=/tmp/tollgate-setup.log
+# Overridable on purpose: the offline suites (tests/uci-defaults-*_test.sh)
+# export their own per-run LOGFILE so concurrent runs never share this file —
+# an unconditional assignment here used to clobber that redirect, making every
+# suite truncate and grep one shared /tmp/tollgate-setup.log.
+LOGFILE="${LOGFILE:-/tmp/tollgate-setup.log}"
 # The nodogsplash init script, as an absolute path next to SETUP_FLAG and
 # LOGFILE so the offline tests can redirect all three the same way
 # (tests/uci-defaults-*_test.sh).
@@ -93,11 +97,16 @@ TLS_IDENTITY_OPTOUT="/etc/tollgate/ssl/tls-identity-removed"
 # uhttpd.admin is written by the portal's 92-tollgate-admin-setup (D3 — the only
 # writer that knows the brand webroot); this file writes uhttpd.main and never
 # the listener set of uhttpd.admin. Both halves resolve the mapping from the
-# SAME value, and D4 gates the board mapping on a marker the mode-aware 92
-# writes, so this file next to a pre-switch 92 degrades to today's mapping
-# instead of tearing one admin UI off the router.
+# SAME value, and D4 gates the board mapping on a signal that the mode-aware
+# admin writer is present, so this file next to a pre-switch 92 degrades to
+# today's mapping instead of tearing one admin UI off the router.
 ENTRY_UI_CONFIG="${TOLLGATE_ENTRY_UI_CONFIG:-/etc/tollgate/config.json}"
 ENTRY_UI_MARKER="${TOLLGATE_ENTRY_UI_MARKER:-/etc/tollgate/entry-ui-mapping}"
+# The staged admin script at its install location — the mode-aware 92 shipped
+# by THIS package as 999-tollgate-admin-setup (packaging/portal-build.sh stages
+# it; packaging/Makefile installs it here). Overridable so the offline tests can
+# point at a sandbox copy, exactly like the two paths above.
+ENTRY_UI_ADMIN_SETUP="${TOLLGATE_ENTRY_UI_ADMIN_SETUP:-/etc/uci-defaults/999-tollgate-admin-setup}"
 # The jq the reader drives. Overridable so the offline tests can point at a
 # shim, or exercise the absent-jq branch, without touching the host.
 ENTRY_UI_JQ_BIN="${ENTRY_UI_JQ_BIN:-jq}"
@@ -119,14 +128,49 @@ entry_ui_configured() {
 }
 
 # The mapping this run applies, set ONCE in the CALLING shell. D4: honour
-# `board` only when the mode-aware 92 has announced the mapping it applied.
-# Otherwise repair to `luci` (today's mapping, the one a pre-switch 92 wrote) and
-# warn ONCE, naming the feed re-vendor that closes the gap.
+# `board` only when the mode-aware admin writer is PRESENT — by either of two
+# signals, because the two halves arrive through two lanes:
+#
+#   1. the marker file records a mapping the mode-aware admin writer applied
+#      (the feed lane: 92 runs numerically BEFORE this script, so by the time
+#      this runs the marker already exists). The marker survives uci-defaults
+#      consumption, so it is also the PERSISTENT record every later reader —
+#      including `tollgate ui links` — resolves the live mapping from;
+#   2. the staged admin script sits at its install location
+#      (999-tollgate-admin-setup), i.e. both halves ship in THIS package and
+#      the admin writer will run AFTER this script in the same pass
+#      (postinst/boot order 90, 99, 999 — gate-last per #838). Presence alone
+#      is not enough: the file must carry the marker protocol
+#      (TOLLGATE_ENTRY_UI_MARKER), which only the mode-aware revision does —
+#      a pre-switch 92 staged under the same name must still degrade.
+#
+# Signal 2 is what fixes #849: on a fresh install NO marker exists yet (its
+# writer has not run), and the marker-only gate repaired `board` to `luci`,
+# putting uhttpd.main on the entry pair — which the admin writer then strips
+# from every non-admin section, leaving main with NO listener at all (LuCI
+# unbound, procd crash-looping uhttpd). When signal 2 fires, this script
+# applies board AND writes the marker itself, so the mapping this box applied
+# is recorded persistently even if the admin writer's run is interrupted, and
+# every reader that resolves from the marker agrees with the listeners on the
+# wire.
+#
+# Neither signal present -> repair to `luci` (today's mapping, the one a
+# pre-switch 92 wrote) and warn ONCE, naming the feed re-vendor that closes
+# the gap.
 #
 # Deliberately NOT a `$(...)`-returning resolver: a command substitution runs in
 # a subshell, whose ENTRY_UI_MODE assignment does not survive, so every lookup
 # would re-log the WARNING. Writers therefore call this first and then read
 # $ENTRY_UI_MODE directly (a subshell they spawn inherits it).
+staged_admin_setup_mode_aware() {
+    [ -r "$ENTRY_UI_ADMIN_SETUP" ] || return 1
+    # Content, not bare existence: the marker protocol variable is present only
+    # in the mode-aware revision of the admin script. A pre-switch script
+    # staged under the 999 name would otherwise pass the probe and tear the
+    # pair exactly like #849.
+    grep -q 'TOLLGATE_ENTRY_UI_MARKER' "$ENTRY_UI_ADMIN_SETUP" 2>/dev/null
+}
+
 ensure_entry_ui() {
     [ -n "$ENTRY_UI_MODE" ] && return 0
     local configured marker
@@ -135,9 +179,23 @@ ensure_entry_ui() {
     if [ "$configured" = board ]; then
         marker=""
         [ -r "$ENTRY_UI_MARKER" ] && marker="$(cat "$ENTRY_UI_MARKER" 2>/dev/null)"
-        if [ "$marker" != board ]; then
+        if [ "$marker" = board ]; then
+            :
+        elif staged_admin_setup_mode_aware; then
+            # Both halves ship here and the admin writer runs after this
+            # script in the same pass (#838's gate-last order): apply board
+            # now and RECORD it, so the persistent marker exists before any
+            # later reader asks — and survives even if the admin writer's
+            # fail-closed gate then refuses to serve the board (the marker
+            # then still names the mapping this box applied, which is what
+            # uhttpd.main's listeners say too).
+            if ! { mkdir -p "$(dirname "$ENTRY_UI_MARKER")" 2>/dev/null &&
+                   printf 'board\n' > "$ENTRY_UI_MARKER" 2>/dev/null; }; then
+                log "WARNING: could not record the applied entry_ui mapping in '${ENTRY_UI_MARKER}' — later readers will resolve from config.json until the admin writer re-runs."
+            fi
+        else
             ENTRY_UI_MODE=luci
-            log "WARNING: entry_ui=board was requested, but the mode-aware admin-UI mapping marker '${ENTRY_UI_MARKER}' is absent — the captive-portal feed (92-tollgate-admin-setup) is still pre-switch. Repairing to the legacy luci mapping so no admin UI is left unbound. Re-vendor the feed (FreedomTechFeed/packages) so both halves ship together."
+            log "WARNING: entry_ui=board was requested, but neither the admin-UI mapping marker '${ENTRY_UI_MARKER}' nor the mode-aware admin script '${ENTRY_UI_ADMIN_SETUP}' is present — the captive-portal feed (92-tollgate-admin-setup) is still pre-switch. Repairing to the legacy luci mapping so no admin UI is left unbound. Re-vendor the feed (FreedomTechFeed/packages) so both halves ship together."
         fi
     fi
     log "entry_ui mapping: ${ENTRY_UI_MODE} (configured: ${configured})"
@@ -453,17 +511,42 @@ brand_token() {
 # from it, so the three names can never disagree:
 #
 #   hostname      tollgate-<code>   (brand prefix lowercased: RFC-1123 shape)
-#   captive SSID  TollGate-<code>   (brand prefix as shipped — reseller-mode
-#                                    upstream discovery in
+#   captive SSID  !TollGate-<code>  (the #706 leading '!' — 0x21 sorts before
+#                                    every digit and letter, so the guest
+#                                    network sorts first in an
+#                                    alphabetically-ordered client scan list —
+#                                    then the brand prefix as shipped. It is
+#                                    SORT DECORATION, presentation only, never
+#                                    part of the discovery contract: the bare
+#                                    TollGate-<code> form is what
+#                                    already-deployed routers and third-party
+#                                    clients matching the brand prefix carry,
+#                                    and readers still accept it.
+#                                    Reseller-mode upstream discovery in
 #                                    src/wireless_gateway_manager/brands.go
-#                                    matches EVERY brand prefix the writer
-#                                    can emit, case-insensitively
-#                                    (hasTollGateSSID — including the
-#                                    whitelabel re-brand's), as does the
-#                                    Android client; the shipped case is
-#                                    brand presentation, not a discovery
-#                                    constraint)
-#   private SSID  <nym>-<code>      (the operator's nym, see resolve_nym below)
+#                                    matches EVERY brand prefix the writer can
+#                                    emit, case-insensitively, AFTER trimming
+#                                    at most one '!' (hasTollGateSSID /
+#                                    ssidDecoration — including the whitelabel
+#                                    re-brand's), as does the Android client;
+#                                    the shipped case is brand presentation,
+#                                    not a discovery constraint)
+#   private SSID  <nym>-<code>      (the operator's nym, see resolve_nym below —
+#                                    the PRIVATE SSID never carries the '!':
+#                                    guests never see it, so it has no sort
+#                                    order to influence)
+#
+# The '!' is the INSTALLER's writer prefix too (deploy.go: SSID =
+# "!TollGate-$CODE"), and before this the two writers published DIFFERENT SSIDs
+# for the same router: this script wrote the bare form and its shell parsers did
+# not strip the bang, so on a router whose store was empty and whose only name
+# source was the installer's SSID (every router deployed before the store
+# existed) the adoption chain below found nothing and minted a SECOND code —
+# the hostname and the SSID kept the old one. The writer now emits the same
+# string the installer does, and both shell parsers strip at most ONE '!' before
+# the prefix compare, exactly as the Go matcher does (the accepted/rejected
+# spellings are pinned in tests/contract/ssid-naming-fixtures.txt, whose
+# double-'!' negative is the same one-'!' rule).
 #
 # Why the store exists — measured on the bench MT3000 (2026-09-26): TWO writers
 # minted their own code and neither ever read one back. This script re-minted on
@@ -518,14 +601,42 @@ normalize_device_code() {
     esac
 }
 
-# The code carried by a machine-written name: "<brand>-<code>", where <brand> is
-# the default 'tollgate' or THIS router's own brand token (brand_token above) —
-# the same prefix the installer and this script write into the name. Any other
+# The optional leading '!' on a machine-written name, stripped EXACTLY ONCE.
+# The guest SSID carries it as a SORT DECORATION (0x21 sorts before every digit
+# and letter, so the guest network sorts first in an alphabetically-ordered
+# client scan list) and it is PRESENTATION, never part of a brand or of the
+# discovery contract: the bare `TollGate-<code>` form is what already-deployed
+# routers and every third-party client matching the brand prefix carry, and both
+# forms identify the same gateway. `${1#!}` is POSIX parameter expansion, i.e.
+# the BusyBox-ash spelling of the Go matcher's
+# `strings.TrimPrefix(ssid, ssidDecoration)` — the same one-'!' rule, so a
+# double-'!' name ('!!TollGate-…', a pinned no-match fixture) is nothing this
+# stack wrote and yields nothing below. The shared place: every reader of a
+# machine-written NAME goes through here. It applies to CAPTIVE names only,
+# never to private_ssid_for_code: the PRIVATE SSID never carries the '!' —
+# guests never see it, so it has no scan order to influence.
+strip_ssid_decoration() {
+    printf '%s\n' "${1#!}"
+}
+
+# The code carried by a machine-written name: "[!]<brand>-<code>", where <brand>
+# is the default 'tollgate' or THIS router's own brand token (brand_token above)
+# — the same prefix the installer and this script write into the name — and the
+# leading '!' is the optional #706 decoration the INSTALLER writes today
+# (deploy.go: SSID = "!TollGate-$CODE") and this script writes as well. Any other
 # name — an operator's own hostname or SSID — yields nothing, which is what keeps
 # custom names out of the adoption path. A whitelabel name is recognized because
 # the brand file says so, never because a brand is listed here.
+#
+# The strip is load-bearing, not cosmetic: the adoption chain in
+# setup_device_identity reads the INSTALLER's hostname and SSID, and a router
+# deployed before the store existed has no code anywhere else. Without the strip
+# the prefix compare sees '!tollgate' here, this returns nothing, and the chain
+# falls through to mint_device_code() — a SECOND code over a router whose
+# hostname and SSID still carry the first one (docs/architecture/one-device-code.md).
 code_from_name() {
-    local name="$1" prefix suffix brand
+    local name prefix suffix brand
+    name=$(strip_ssid_decoration "$1")
     prefix=$(printf '%s' "${name%%-*}" | tr 'A-Z' 'a-z')
     suffix=${name#*-}
     brand=$(brand_token)
@@ -583,7 +694,8 @@ mint_device_code() {
 # the same section so both writers agree, and adopted from an existing
 # machine-shaped private SSID so an operator who already runs the module under
 # their own nym keeps it. Used to build the PRIVATE SSID only — never the
-# captive one, which is the brand's (discovery matches "TollGate-*").
+# captive one, which is the brand's (discovery matches the brand prefix with the
+# optional '!' decoration stripped, e.g. "TollGate-*").
 resolve_nym() {
     local stored existing prefix suffix
     stored=$(uci -q get tollgate.device.nym 2>/dev/null)
@@ -626,24 +738,39 @@ private_ssid_for_code() {
 }
 
 # The captive SSID on the verify/repair path. A name this stack wrote — the
-# brand prefix plus four characters, either brand, the legacy lowercase
-# spelling included — converges on the code; a name the OPERATOR chose is
-# preserved, exactly as the hostname (#444) and the private SSID are. This is
-# the behaviour this path had before it derived the SSID from the store (it read
-# the live SSID back), kept deliberately: a reinstall must not rename a network
-# the operator named. The full path still writes the brand's name, which is what
-# it has always done.
+# optional #706 '!' (the installer writes it, this script writes it, and a
+# router deployed before #706 carries the bare spelling), the brand prefix, and
+# four characters; either brand, the legacy lowercase spelling included, with
+# the '!' sort decoration treated as optional — converges on the code. A name
+# the OPERATOR chose is preserved, exactly as the hostname (#444) and the
+# private SSID are. This is the behaviour this path had before it derived the
+# SSID from the store (it read the live SSID back), kept deliberately: a
+# reinstall must not rename a network the operator named. The full path still
+# writes the brand's name, which is what it has always done.
+#
+# The decoration strip is the SAME one code_from_name uses (one '!' at most), so
+# the installer's output converges here instead of being read as the OPERATOR's
+# own name — which is what preserving it would do: the store would donate the
+# code while the SSID kept the old spelling, and the two writers' strings would
+# sit on one router. A DOUBLE-banged name ('!!TollGate-…') is not this stack's
+# (the pinned #706 rule) and is preserved as the operator's own.
+#
+# The strip applies to the DECISION only (`probe`), never to what is printed
+# back: a name this stack did not write — an operator's `!CafeWiFi`, or the
+# double-banged form — must be preserved byte-for-byte (#444's rule for the
+# hostname and the private SSID, applied to the open one).
 captive_ssid_for_code() {
-    local current="$1" prefix suffix brand
+    local current="$1" probe prefix suffix brand
     if [ -z "$current" ]; then
         printf '%s\n' "$DEVICE_SSID"
         return 0
     fi
-    prefix=$(printf '%s' "${current%%-*}" | tr 'A-Z' 'a-z')
-    suffix=${current#*-}
+    probe=$(strip_ssid_decoration "$current")
+    prefix=$(printf '%s' "${probe%%-*}" | tr 'A-Z' 'a-z')
+    suffix=${probe#*-}
     brand=$(brand_token)
     if { [ "$prefix" = "tollgate" ] || [ "$prefix" = "$brand" ]; } &&
-       [ "$suffix" != "$current" ] && is_minted_suffix "$suffix"; then
+       [ "$suffix" != "$probe" ] && is_minted_suffix "$suffix"; then
         printf '%s\n' "$DEVICE_SSID"
         return 0
     fi
@@ -697,7 +824,15 @@ setup_device_identity() {
 
     resolve_nym
     DEVICE_HOSTNAME="$(printf '%s' "$BRAND_HOSTNAME" | tr 'A-Z' 'a-z')-${CODE}"
-    DEVICE_SSID="${BRAND_HOSTNAME}-${CODE}"
+    # The #706 decoration, then the brand prefix and the code — the SAME string
+    # the installer writes (deploy.go: SSID="!TollGate-$CODE"), so the two
+    # writers publish ONE name for one router. The '!' is deliberately part of
+    # the emitted SSID (the writer's shape is pinned as ^!<brand>-[A-Z0-9]{4}$
+    # in tests/contract/check-ssid-format.sh); readers trim at most one of them
+    # (strip_ssid_decoration above, and the Go matcher). It is SORT DECORATION,
+    # presentation only: the DISCOVERY contract is the brand prefix underneath
+    # it. The private SSID below deliberately does NOT get it.
+    DEVICE_SSID="!${BRAND_HOSTNAME}-${CODE}"
 
     uci -q get tollgate.device >/dev/null 2>&1 || uci set tollgate.device='device'
     uci set tollgate.device.code="$CODE"
@@ -1200,10 +1335,11 @@ purge_foreign_configui_sections() {
 # no credential at all. Reachability is a separate half (the pre-auth
 # allowance and the captive-bridge drop); this is the credential half.
 #
-# So the admin path FAILS CLOSED: a credential is established when there is
-# none (and shown to the operator exactly once), and when no credential can be
-# established or verified the admin listeners are dropped instead of being
-# served behind an empty hash.
+# So the admin path FAILS CLOSED: the credential must be PROVIDED by the
+# operator (`passwd root`, or the LuCI password page), and when none exists the
+# admin listeners are dropped instead of being served behind an empty hash. This
+# package NEVER sets or generates a credential — a password the operator did not
+# choose is how a router gets locked out.
 #
 # The two credential sources are absolute paths into the live system; the
 # offline tests redirect them in their copy of this script, exactly as they
@@ -1239,67 +1375,66 @@ admin_credential_state() {
     esac
 }
 
-# 20 characters from a 32-character alphabet — no l/o/0/1 look-alikes and
-# nothing a shell or a password prompt would eat — read straight from the
-# kernel CSPRNG. The mapping is uniform: each byte is reduced modulo 32; the
-# 32-alphabet size means the bias is exactly 0 because 256 = 32 * 8.
-# Historically this called `od`, but OpenWrt 25.12.5 images ship a stripped
-# busybox where `od` is not built in (and `hostname` is absent too), so `od`
-# produced no output, the generator returned an empty string, and no root
-# password could be applied. `hexdump` is present on those images and is
-# already used elsewhere in this script (mint_device_code, random_octet).
-generate_admin_password() {
-    local alphabet="abcdefghijkmnpqrstuvwxyz23456789"  # pragma: allowlist secret
-    hexdump -n 20 -e '20/1 " %u"' /dev/urandom 2>/dev/null \
-        | awk -v a="$alphabet" \
-            '{ for (i = 1; i <= NF; i++) printf "%s", substr(a, ($i % 32) + 1, 1) }'
-}
-
-# The operator may CHOOSE the admin credential at install time instead of
-# receiving a generated one they have to write down in the seconds it is on
-# screen. This is the supported mechanism because uci-defaults run from the
-# package manager with no controlling terminal: there is nowhere to hold a
-# prompt, so the choice arrives in the environment.
+# When root has NO credential this package sets a FIXED, well-known default
+# (TOLLGATE_DEFAULT_CREDENTIAL below) instead of refusing. It is deliberately a
+# constant, never a generated random value: a random password is one the
+# operator cannot know, and a router whose root password nobody knows is exactly
+# the lockout this gate exists to prevent. A default the operator can read off
+# this file and the install log is one they can always log in with, and it is
+# marked PROVISIONAL so the admin/config UI FORCES them to choose their own at
+# first login (the board's forced password choice reads the marker below).
 #
-#   TOLLGATE_ADMIN_PASSWORD='…' apk add --allow-untrusted /tmp/tollgate-wrt.apk
-#
-# The value is taken as-is (no trimming — a deliberate leading/trailing space
-# is the operator's business) and is NEVER echoed: it is already known to the
-# operator, so printing it would only leak it into the install log.
-operator_chosen_admin_password() {
-    printf '%s' "${TOLLGATE_ADMIN_PASSWORD:-}"
-}
+# An install-time credential is still NOT accepted: an earlier version read
+# TOLLGATE_ADMIN_PASSWORD (and a root-only /etc/tollgate/admin-password file,
+# added because apk-tools 3 does not forward the install environment to package
+# scriptlets) and set root to that. A non-interactive "supply a value"
+# mechanism is too easy to mis-fire — an operator who pasted the run-book's
+# EXAMPLE value verbatim ended up with root set to a string they never chose.
+# The default is the only value this package writes on its own; whatever the
+# operator sets (with `passwd root`, LuCI, the installer, or the board) wins and
+# is never rewritten.
 
-# Marks a credential this package GENERATED rather than one the operator
-# chose. Its absence is the contract the config UI reads to decide whether it
-# must force a password change at first login; its presence is also how a later
-# run knows to re-print the recovery guidance, because the one-time line is
-# gone the moment the log is truncated (every full-setup run does that).
+# Marks a credential that is the PACKAGE default (or one a past version
+# GENERATED) rather than one the operator chose. The file holds no secret; its
+# presence is the contract the admin/config UI reads to DECIDE TO FORCE a
+# password change at first login. It is cleared once the operator chooses their
+# own (through the board, `passwd root`, or the installer).
 ADMIN_PROVISIONAL_MARKER="${ADMIN_PROVISIONAL_MARKER:-/etc/tollgate/admin-credential-provisional}"
 
-mark_admin_credential_provisional() {
-    local board_http
-    # The board's own port, from the same mapping the gate messages use, so the
-    # marker names the same URL as the refusal/allowance lines around it.
-    ensure_entry_ui
-    board_http="$(board_http_port)"
-    mkdir -p "$(dirname "$ADMIN_PROVISIONAL_MARKER")" 2>/dev/null || true
-    # Never the value — the marker records a FACT about the credential, and the
-    # file is world-readable.
-    printf '%s\n' "This router's root password was generated by tollgate-wrt, not chosen by the operator." \
-                  "Change it with 'passwd root' over SSH (or reinstall with TOLLGATE_ADMIN_PASSWORD set);" \
-                  "the :${board_http} admin board will then stop treating it as provisional." \
-        > "$ADMIN_PROVISIONAL_MARKER" 2>/dev/null || true
-}
+# The fixed default this package sets when root has none (see above). Kept in
+# ONE place so the admin gate, the private-WiFi default, and the tests agree.
+TOLLGATE_DEFAULT_CREDENTIAL="TollGate"
 
-clear_admin_credential_provisional() {
-    rm -f "$ADMIN_PROVISIONAL_MARKER" 2>/dev/null || true
-}
+# Companion marker to ADMIN_PROVISIONAL_MARKER for the private (management)
+# WiFi: written when setup_private_network installs the fixed DEFAULT passphrase
+# rather than one the operator chose. The admin/config UI reads it (through the
+# rpcd auth_status probe) to force the operator to choose a WiFi passphrase at
+# first login, and clears it once they do. Holds no secret.
+PRIVATE_WIFI_PROVISIONAL_MARKER="${PRIVATE_WIFI_PROVISIONAL_MARKER:-/etc/tollgate/private-wifi-credential-provisional}"
 
-# BusyBox `passwd` reading the new password twice from stdin is the
-# dependency-free path OpenWrt always ships, and the value never reaches argv.
+# Set root's password to $1 non-interactively and VERIFY the result — `passwd`
+# can report success while the hash never changes (a read-only /etc, a locked
+# account). BusyBox `passwd` reads the new password twice on stdin; `chpasswd`
+# (when present) takes `user:password`. Returns non-zero if the credential is
+# still not usable afterwards.
 set_admin_password() {
-    printf '%s\n%s\n' "$1" "$1" | passwd root >/dev/null 2>&1
+    local pw="$1"
+    if command -v passwd >/dev/null 2>&1; then
+        printf '%s\n%s\n' "$pw" "$pw" | passwd root >/dev/null 2>&1 || true
+    else
+        printf '%s:%s\n' root "$pw" | chpasswd >/dev/null 2>&1 || true
+    fi
+    [ "$(admin_credential_state)" = "set" ]
+}
+
+# Set the fixed default credential and record that it is PROVISIONAL (the
+# operator must replace it at first login). Returns non-zero if the write did
+# not take, so the caller can still fail closed.
+set_admin_default_credential() {
+    set_admin_password "$TOLLGATE_DEFAULT_CREDENTIAL" || return 1
+    mkdir -p "$(dirname "$ADMIN_PROVISIONAL_MARKER")" 2>/dev/null || true
+    : > "$ADMIN_PROVISIONAL_MARKER" 2>/dev/null || true
+    return 0
 }
 
 # Drop every admin-board listener this package can own or repair. The board's
@@ -1333,12 +1468,15 @@ drop_admin_listeners() {
 # reinstall/upgrade must not leave an empty hash behind it either.
 #   set    -> nothing to do, the board is authenticatable
 #   locked -> nothing to do, password login is refused
-#   empty  -> generate a credential, apply it, and PROVE it by re-reading the
-#             hash; the value is shown once (install output + root-only log,
-#             the same channel as the generated private WiFi key)
-#   empty-but-unprovable / unknown -> refuse to serve the board at all
+#   empty  -> NO credential exists: set the FIXED default (TOLLGATE_DEFAULT_
+#             CREDENTIAL), mark it PROVISIONAL, and serve the board. The
+#             admin/config UI forces the operator to choose their own at first
+#             login; the default is one they can always log in with, so nobody
+#             is locked out. Falls through to the refusal only if the write did
+#             not take.
+#   unknown -> refuse to serve the board at all
 enforce_admin_credential() {
-    local state password chosen had board_http board_https
+    local state board_http board_https
     # The board's OWN pair, from the same `entry_ui` mapping the listener drop
     # uses. Every message below used to hardcode :8090 while the board's own
     # script names the mapped pair, so an operator in board mode was told two
@@ -1348,44 +1486,16 @@ enforce_admin_credential() {
     board_http="$(board_http_port)"
     board_https="$(board_https_port)"
     state=$(admin_credential_state)
-    chosen=$(operator_chosen_admin_password)
-
-    # An explicit operator choice wins over anything this package would
-    # generate: that is the whole point of offering it. Two states are exempt —
-    # `locked` (a deliberate "password login is refused" setting) and `unknown`
-    # (no readable shadow at all, so there is nothing to apply a password to,
-    # and guessing would be worse than refusing).
-    if [ -n "$chosen" ] && [ "$state" != "locked" ] && [ "$state" != "unknown" ]; then
-        had=0
-        [ "$state" = "set" ] && had=1
-        set_admin_password "$chosen"
-        if [ "$(admin_credential_state)" = "set" ]; then
-            # The operator chose it, so there is nothing provisional to mark —
-            # and it is deliberately NOT echoed: they already know it, and the
-            # install log must not become a place it can be read from.
-            clear_admin_credential_provisional
-            if [ "$had" = "1" ]; then
-                log "Admin credential REPLACED by the operator-chosen password (TOLLGATE_ADMIN_PASSWORD) — :${board_http}/:${board_https} admin board allowed"
-            else
-                log "Admin credential established from the operator-chosen password (TOLLGATE_ADMIN_PASSWORD) — :${board_http}/:${board_https} admin board allowed"
-            fi
-            return 0
-        fi
-        log "ERROR: the operator-supplied password (TOLLGATE_ADMIN_PASSWORD) did not take — refusing to serve the :${board_http}/:${board_https} admin board rather than leave it on the old credential"
-        drop_admin_listeners
-        printf 'TollGate: the password you supplied (TOLLGATE_ADMIN_PASSWORD) was not applied, so the :%s admin board is NOT served. Set one with `passwd root` and re-run /etc/uci-defaults/99-tollgate-setup\n' "$board_http" >&2
-        return 1
-    fi
 
     case "$state" in
         set)
-            # A credential this package GENERATED is provisional until the
-            # operator replaces it. The one-time line is gone as soon as the
-            # log is truncated (every full-setup run does that), so while the
-            # marker stands, re-state the recovery path instead of implying the
-            # credential is one the operator chose.
+            # A credential an OLDER package GENERATED is provisional until the
+            # operator replaces it. This package no longer generates one, but
+            # the marker is still read on upgrade: while it stands, re-state the
+            # recovery path instead of implying the credential is one the
+            # operator chose.
             if [ -f "$ADMIN_PROVISIONAL_MARKER" ]; then
-                log "Admin credential verified (GENERATED by this package — not yet chosen by the operator). Change it with 'passwd root' over SSH; the board keeps working meanwhile."
+                log "Admin credential is the installed DEFAULT (or one an older package generated) — not yet chosen by the operator. The admin/config UI forces a change at first login; it can also be changed with 'passwd root' over SSH. The board keeps working meanwhile."
             else
                 log "Admin credential verified (root password set) — :${board_http}/:${board_https} admin board allowed"
             fi
@@ -1398,29 +1508,23 @@ enforce_admin_credential() {
     esac
 
     if [ "$state" = "empty" ]; then
-        password=$(generate_admin_password)
-        if [ -n "$password" ]; then
-            set_admin_password "$password"
-        fi
-        if [ -n "$password" ] && [ "$(admin_credential_state)" = "set" ]; then
-            mark_admin_credential_provisional
-            # Shown ONCE: the install output, plus the root-only log (600, and
-            # already the home of the generated private WiFi key). It is never
-            # written to UCI — /etc/config is world-readable — and never
-            # re-displayed; the operator changes it with `passwd root`.
-            printf 'TollGate: root had no password; generated one for the :%s admin board — shown once: %s\n' "$board_http" "$password"
-            printf 'TollGate: that password is PROVISIONAL. Choose your own with `passwd root` over SSH, or reinstall with TOLLGATE_ADMIN_PASSWORD set; the board serves either way.\n'
-            log "No root password was set: generated one for the admin board (shown once, change it with 'passwd root'): $password"
+        # NO credential exists. Set the FIXED default and mark it provisional so
+        # the operator is never locked out and the admin/config UI forces them
+        # to choose their own at first login. Fall through to the refusal only
+        # if the write did not take (read-only /etc, unwritable shadow).
+        log "Root has no password — setting the default admin password (${TOLLGATE_DEFAULT_CREDENTIAL}) and marking it provisional; the admin/config UI forces a change at first login."
+        if set_admin_default_credential; then
+            log "Default admin credential set (PROVISIONAL) — :${board_http}/:${board_https} admin board allowed; the operator is prompted to choose their own at first login"
             return 0
         fi
-        log "ERROR: no credential could be established (passwd did not take, or no entropy to generate one) — refusing to serve the :${board_http}/:${board_https} admin board (rpcd would accept ANY password against the empty hash); set one with 'passwd root' and re-run this script"
+        log "ERROR: could not set the default admin password on root (${SHADOW_FILE}) — refusing to serve the :${board_http}/:${board_https} admin board"
     else
-        log "ERROR: no readable root credential state ($SHADOW_FILE / $PASSWD_FILE) — refusing to serve the :${board_http}/:${board_https} admin board; set one with 'passwd root' and re-run this script"
+        log "ERROR: no readable root credential state ($SHADOW_FILE / $PASSWD_FILE) — refusing to serve the :${board_http}/:${board_https} admin board; set one with 'passwd root', then re-run this script"
     fi
 
     # An unauthenticatable board is worse than no board.
     drop_admin_listeners
-    printf 'TollGate: root has no usable password — the :%s admin board is NOT served. Set one with `passwd root` and re-run /etc/uci-defaults/99-tollgate-setup\n' "$board_http" >&2
+    printf 'TollGate: could not establish a root password — the :%s admin board is NOT served. Set one with `passwd root` (or the LuCI password page), then re-run /etc/uci-defaults/99-tollgate-setup\n' "$board_http" >&2
     return 1
 }
 
@@ -1440,6 +1544,41 @@ setup_dns_dnsmasq() {
     uci set dhcp.@dnsmasq[0].local='/lan/'
     uci set dhcp.@dnsmasq[0].domain='lan'
     uci set dhcp.@dnsmasq[0].expandhosts='1'
+}
+
+# Point the fixed name `tollgate.lan` (and `tollgate.local`) at the router's
+# MANAGEMENT address so the board and LuCI are reachable BY NAME on every
+# install path — the wizard used to be the only writer, so a manual install had
+# no `tollgate.lan` at all. It resolves to br-private (network.private.ipaddr),
+# where the admin surfaces live, never the guest LAN.
+#
+# Deliberately NOT `nodogsplash.@nodogsplash[0].gatewaydomainname`: setting that
+# makes nodogsplash 5.0.2 redirect-loop pre-auth clients (issue #428, deleted a
+# few lines up). A plain /etc/hosts + dnsmasq alias carries the name without it.
+#
+# Idempotent: any prior /tollgate.lan* dnsmasq entry is purged before the fresh
+# one is added, and the /etc/hosts lines this script owns are dropped then
+# rewritten, never appended to.
+setup_management_alias() {
+    local ip a hosts
+    ip=$(uci -q get network.private.ipaddr)
+    if [ -z "$ip" ]; then
+        log "Management alias: no network.private.ipaddr — skipping tollgate.lan"
+        return 0
+    fi
+    ip="${ip%%/*}"
+
+    hosts="${HOSTS_FILE:-/etc/hosts}"
+    if [ -f "$hosts" ]; then
+        sed -i '/tollgate\.lan/d; /tollgate\.local/d' "$hosts" 2>/dev/null || true
+        printf '%s tollgate.lan tollgate.local\n' "$ip" >> "$hosts"
+    fi
+
+    for a in $(uci -q get dhcp.@dnsmasq[0].address); do
+        case "$a" in /tollgate.lan*) uci -q del_list dhcp.@dnsmasq[0].address="$a" ;; esac
+    done
+    uci -q add_list dhcp.@dnsmasq[0].address="/tollgate.lan/$ip"
+    log "Management alias: tollgate.lan -> $ip (dnsmasq address + /etc/hosts)"
 }
 
 # -- radio band detection ----------------------------------------------------
@@ -1675,7 +1814,9 @@ setup_hostname() {
 #
 # The list says what a PRE-AUTHENTICATION client may reach ON THE ROUTER, and
 # nothing else belongs on it: the portal itself (:2050 NDS gateway, :2051 SPA),
-# the backend API (:2121) and the gateway's own NTP service (udp/123 — see
+# the backend API (:2121), DNS on the router's own dnsmasq (tcp/53 + udp/53 —
+# stub resolvers query UDP first and the portal is usually reached by name,
+# #749), and the gateway's own NTP service (udp/123 — see
 # setup_ntp_server below; a client with a wrong clock cannot pay honestly:
 # Cashu proofs carry timestamps, keysets expire, sessions are time-boxed, and a
 # downstream TollGate in reseller mode joins the open portal with whatever
@@ -1705,6 +1846,23 @@ assert_nodogsplash_allow_entries() {
     fi
     if ! uci_list_has_port 2051; then
         uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 2051'
+    fi
+    # DNS to the router's own dnsmasq — the pre-auth client's primary need
+    # after the portal itself (#749): stub resolvers (glibc/musl, Android,
+    # browsers) query UDP first, and a UDP query dropped by ndsRTR costs a
+    # ~5s timeout per attempt before any TCP fallback — resolution is dead
+    # in practice, and the portal page is usually reached by name, so DNS is
+    # on the customer journey. tcp/53 is asserted alongside (not left to the
+    # feed default that carries it): this writer's contract is that a stale
+    # or absent list is REPAIRED on every setup path, and a list that lost
+    # tcp/53 would break TCP-fallback resolvers the same way. The guards are
+    # protocol-aware — `uci_list_has_port 53` matches the port on either
+    # protocol and would see the feed's tcp/53 default and skip the udp add.
+    if ! uci_list_has_entry 'allow tcp port 53'; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 53'
+    fi
+    if ! uci_list_has_entry 'allow udp port 53'; then
+        uci add_list nodogsplash.@nodogsplash[0].users_to_router='allow udp port 53'
     fi
     # The gateway's own time service: the one thing a pre-auth client needs
     # that is not the portal or the payment API. sysntpd must be told to
@@ -1794,6 +1952,17 @@ uci_list_has_port() {
     printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])port $1([[:space:]]|'|\$)"
 }
 
+# uci_list_has_entry E: succeeds when the users_to_router listing already
+# contains the whole entry E (e.g. 'allow udp port 53'). Protocol-aware,
+# unlike uci_list_has_port — which matches a port on either protocol and so
+# cannot guard two entries sharing one port (DNS tcp/53 + udp/53, #749): a
+# port-only guard would see the feed's tcp/53 default and skip the udp add.
+# Same two-rendering delimiter logic as uci_list_has_port: one entry per
+# line, space-joined single line, or uci's quoted single-line form.
+uci_list_has_entry() {
+    printf '%s\n' "$nds_users" | grep -qE "(^|[[:space:]'])$1([[:space:]']|\$)"
+}
+
 # The gateway serves time to its own clients, pre-authentication (#627).
 # OpenWrt's sysntpd (busybox ntpd) listens when system.ntp.enable_server is
 # set — that one option is the whole server half; the client half (polling
@@ -1819,13 +1988,61 @@ setup_ntp_server() {
     fi
 }
 
+# converge_gatewayinterface settles the NDS gatewayinterface — ADOPTED, not
+# asserted (#788): a full setup pass (every package upgrade) used to write
+# gatewayinterface='br-lan' unconditionally, reverting a working renamed
+# portal (BEFORE=br-portal AFTER=br-lan on the rel-cluster leg) into the
+# worst mixed state — NDS dies on a bridge that no longer names the portal,
+# and the next defs render flips every nft guard to follow it. The installed
+# value is kept when it names a network's device in UCI (config-coherent on
+# purpose: setup runs in the postinst BEFORE the network restarts, so the
+# kernel is not yet a witness); the stock literal is written only for a
+# fresh install, an empty/garbage value, or an interface no network owns —
+# and every non-stock decision is logged. MUST run before the two render
+# calls in the same pass so the fragments follow the adopted interface.
+converge_gatewayinterface() {
+    local installed net
+    installed="$(uci -q get nodogsplash.@nodogsplash[0].gatewayinterface 2>/dev/null || true)"
+    if [ -n "$installed" ]; then
+        case "$installed" in
+            *[!A-Za-z0-9._-]*)
+                log "WARNING: nodogsplash gatewayinterface '$installed' is not a usable interface name — resetting to the stock br-lan (#788)"
+                command -v logger >/dev/null 2>&1 && logger -t tollgate-setup "WARNING: nodogsplash gatewayinterface '$installed' is not a usable interface name — resetting to the stock br-lan (#788)" 2>/dev/null
+                ;;
+            *)
+                net="$(uci -q show network 2>/dev/null | sed -n "s/^network\.\([^.]*\)\.device='$installed'\$/\1/p" | head -n 1)"
+                if [ -n "$net" ]; then
+                    [ "$installed" = "br-lan" ] || \
+                        log "adopting the installed gatewayinterface '$installed' (network '$net' owns it) — a correctly-renamed portal is not reverted on upgrade (#788)"
+                    return 0
+                fi
+                log "WARNING: nodogsplash gatewayinterface '$installed' is owned by no network in uci — resetting to the stock br-lan (#788)"
+                command -v logger >/dev/null 2>&1 && logger -t tollgate-setup "WARNING: nodogsplash gatewayinterface '$installed' is owned by no network in uci — resetting to the stock br-lan (#788)" 2>/dev/null
+                ;;
+        esac
+    fi
+    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
+}
+
 setup_nodogsplash() {
     # The section, its pre-auth allow list and the whole-list repair live in
     # one place so the same-version path can call exactly the same writer.
     assert_nodogsplash_allow_entries
+    # The gatewayinterface converges FIRST — both renderers below read it,
+    # and a reverted rename must never reach them (#788).
+    converge_gatewayinterface
+    # The FORWARD half of the pre-auth allowlist: nodogsplash compiles
+    # preauthenticated_users at nft priority 0, which the package's own
+    # priority -1 enforce chain rejects before those accepts can run (#754).
+    # The renderer emits the accepts INTO the enforce chain, ahead of its
+    # first rule (the -2-chain shape was refuted live on nft 1.1.7 — see the
+    # #782 review); no reload here — the postinst/boot sequence reloads the
+    # firewall around this convergence anyway, and the tollgate-wrt reload
+    # trigger covers operator edits.
+    /usr/local/bin/tollgate-nds-preauth-render
+    /usr/local/bin/tollgate-nft-interfaces-render
     uci set nodogsplash.@nodogsplash[0].enabled='1'
     uci set nodogsplash.@nodogsplash[0].gatewayname="${GATEWAY_NAME} Portal"
-    uci set nodogsplash.@nodogsplash[0].gatewayinterface='br-lan'
     # gatewaydomainname deliberately NOT set — and actively deleted on
     # upgrade: nodogsplash 5.0.2 redirects every splash request carrying
     # a redir param back to the splash when it is configured, looping
@@ -2289,21 +2506,21 @@ setup_private_network() {
     private_ssid=$(private_ssid_for_code "$(uci -q get wireless.private_radio0.ssid)")
 
     private_key=$(uci -q get wireless.private_radio0.key)
-    if [ -z "$private_key" ]; then
-        # Memorable password: 3 words + 2-digit number. Single
-        # /dev/urandom read, awk picks words — avoids forking per word.
-        private_key=$(awk -v seed="$(hexdump -n 8 -e '"%u"' /dev/urandom)" '
-        BEGIN {
-            srand(seed);
-            n = split("Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet Kilo Lima Mike November Oscar Papa Quebec Romeo Sierra Tango Uniform Victor Whiskey Xray Yankee Zulu", w, " ");
-            printf("%s-%s-%s-%02d", w[int(rand()*n)+1], w[int(rand()*n)+1], w[int(rand()*n)+1], int(rand()*100));
-        }')
-        log "Generated new private WiFi key (none was configured)"
-    else
+    if [ -n "$private_key" ]; then
         log "Preserving existing private WiFi key"
+    else
+        # No passphrase has been set. Use the FIXED default — the same value the
+        # admin gate sets when root has none — rather than leaving the AP down:
+        # the operator can always know it, and the admin/config UI forces them to
+        # choose their own at first login (the admin-provisional marker records
+        # that a default credential is in use). The key VALUE is never logged:
+        # the install log is not a channel for a credential.
+        private_key="$TOLLGATE_DEFAULT_CREDENTIAL"
+        mkdir -p "$(dirname "$PRIVATE_WIFI_PROVISIONAL_MARKER")" 2>/dev/null || true
+        : > "$PRIVATE_WIFI_PROVISIONAL_MARKER" 2>/dev/null || true
+        log "No private WiFi passphrase set — using the default (${TOLLGATE_DEFAULT_CREDENTIAL}); the operator is prompted to choose their own at first login"
     fi
     log "Private SSID ${private_ssid}, IP ${private_ip}"
-    log "Private key: $private_key"
 
     uci set network.private='interface'
     uci set network.private.proto='static'
@@ -2529,6 +2746,45 @@ commit_all() {
     uci commit tollgate
 }
 
+# Re-check network.private for an upstream collision AFTER the network (and so
+# the uplink) is up. setup_private_network picks the subnet at uci-defaults time,
+# before a fresh DHCP WAN necessarily has a lease, so an upstream that lands on
+# the same /24 as the derived private network — the observed 192.168.2.1 against
+# a 192.168.2.0/24 upstream — is missed, and the router then answers for the
+# upstream gateway's own address, which breaks DNS on the deployed router.
+#
+# The package postinst calls this after `/etc/init.d/network restart`; when the
+# private subnet had to move it returns 0 and the caller reloads the network.
+# It is a no-op (returns 1) when there is no private network, the network is not
+# a /24, the upstream is unknown, or nothing collides.
+recheck_private_subnet() {
+    local cur_ip cur_mask lan_ip lan_mask new_prefix new_ip up
+    cur_ip=$(uci -q get network.private.ipaddr)
+    [ -n "$cur_ip" ] || return 1
+    cur_mask=$(uci -q get network.private.netmask)
+    [ -n "$cur_mask" ] || cur_mask="255.255.255.0"
+    [ "$(netmask_to_prefixlen "$cur_mask")" = "24" ] || return 1
+
+    up=$(upstream_networks)
+    [ -n "$up" ] || return 1
+    # shellcheck disable=SC2086 # upstream_networks prints one CIDR per word
+    subnet_conflicts "$(prefix24_of "$cur_ip")" $up || return 1
+
+    lan_ip=$(uci -q get network.lan.ipaddr)
+    lan_mask=$(uci -q get network.lan.netmask)
+    [ -n "$lan_mask" ] || lan_mask="255.255.255.0"
+    # shellcheck disable=SC2086
+    new_prefix=$(choose_private_subnet "$(prefix24_of "$cur_ip")" \
+        "${lan_ip}/$(netmask_to_prefixlen "$lan_mask")" $up)
+    new_ip="${new_prefix}.1"
+    [ "$new_ip" != "$cur_ip" ] || return 1
+
+    log "Private subnet ${cur_ip} collides with the upstream after the uplink came up; moving network.private to ${new_ip}"
+    uci set network.private.ipaddr="$new_ip"
+    uci commit network
+    return 0
+}
+
 # -- driver -----------------------------------------------------------------
 
 # Offline-test hook: sourcing with TOLLGATE_SETUP_LIB_ONLY=1 defines every
@@ -2687,6 +2943,12 @@ if [ "$BRANCH" != "FULL" ]; then
     else
         log "nodogsplash allow list already complete — nothing to commit"
     fi
+    # The renders follow the same state (#754/#757), and the
+    # gatewayinterface converges first here too (#788): a reverted rename
+    # must never reach the renderers on any setup path.
+    converge_gatewayinterface
+    /usr/local/bin/tollgate-nds-preauth-render
+    /usr/local/bin/tollgate-nft-interfaces-render
 
     # The wired LAN ports' placement is re-asserted here for the same reason
     # the uhttpd contract and the allow list are: the port list is IMAGE-
@@ -2712,6 +2974,16 @@ if [ "$BRANCH" != "FULL" ]; then
         uci delete nodogsplash.@nodogsplash[0].gatewaydomainname
         uci commit nodogsplash
         log "Deleted stale nodogsplash gatewaydomainname (same-version path)"
+    fi
+
+    # The management alias is re-asserted here too: a router whose br-private
+    # address changed (or that predates the alias) must get `tollgate.lan`
+    # without a version bump. Committed only when the dhcp export differs.
+    _dhcp_before=$(uci export dhcp)
+    setup_management_alias
+    if [ "$_dhcp_before" != "$(uci export dhcp)" ]; then
+        uci commit dhcp
+        log "Management alias re-asserted on the same-version path"
     fi
     # The TLS identity is re-asserted on this path too, and this is the path that
     # matters most for it: a router being REINSTALLED or upgraded is the one
@@ -2767,6 +3039,7 @@ setup_profile_hook
 setup_disable_ipv6_lan
 enable_modems
 setup_private_network        # consumes CODE/NYM, R2G/R5G
+setup_management_alias       # tollgate.lan -> the management IP (reads network.private.ipaddr)
 setup_lan_ports_private      # moves the wired LAN ports onto br-private
 commit_all
 

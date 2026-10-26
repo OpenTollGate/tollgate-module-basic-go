@@ -487,6 +487,18 @@ func applyPrivateNetworkCredentials(cfg *config_manager.Config) []SettingResult 
 				opLogger.Error(result.Detail)
 				break
 			}
+			if d.setting == "private_key" {
+				// 99-tollgate-setup leaves a credential-less private AP
+				// DISABLED; writing a passphrase is the operator asking for the
+				// private network to be up, so enable the radio the passphrase
+				// landed on.
+				if err := setUCIValue(section+".disabled", "0"); err != nil {
+					result.Status = statusFailed
+					result.Detail = fmt.Sprintf("cannot enable %s: %v", section, err)
+					opLogger.Error(result.Detail)
+					break
+				}
+			}
 			changedSections = append(changedSections, section)
 		}
 
@@ -606,6 +618,11 @@ func redactSecretFields(cfg *config_manager.Config) *config_manager.Config {
 	}
 	redacted := *cfg
 	redacted.PrivateKey = ""
+	// Nested secrets must be blanked too. Without this, a secret that lives one
+	// level down (mptcp_bonding.password) survives into the `config get`
+	// payload even though the schema marks it Secret.
+	redacted.MPTCPBonding = cfg.MPTCPBonding
+	redacted.MPTCPBonding.Password = ""
 	return &redacted
 }
 
@@ -619,7 +636,10 @@ func secretFieldValues(cfg *config_manager.Config) map[string]string {
 	if cfg == nil {
 		return map[string]string{}
 	}
-	return map[string]string{"private_key": cfg.PrivateKey}
+	return map[string]string{
+		"private_key": cfg.PrivateKey,
+		"password":    cfg.MPTCPBonding.Password,
+	}
 }
 
 // secretFieldState reports, per secret schema field, whether a value is stored.
@@ -635,13 +655,26 @@ func secretFieldState(cfg *config_manager.Config) map[string]bool {
 }
 
 // secretJSONKeys returns the json keys of the schema's secret fields.
+//
+// It descends into Children. It did not, and that was a real leak: a field
+// marked Secret one level down (mptcp_bonding.password) was never reported, so
+// redactSecretFields never blanked it and `config get` handed the bond's shared
+// secret to any authenticated board session. Nested secrets are how the schema
+// grows, so the walk must be recursive.
 func secretJSONKeys() []string {
 	var keys []string
-	for _, field := range config_manager.GetConfigSchema() {
-		if field.Secret {
-			keys = append(keys, field.JSONKey)
+	var walk func([]config_manager.FieldSchema)
+	walk = func(fields []config_manager.FieldSchema) {
+		for _, field := range fields {
+			if field.Secret {
+				keys = append(keys, field.JSONKey)
+			}
+			if len(field.Children) > 0 {
+				walk(field.Children)
+			}
 		}
 	}
+	walk(config_manager.GetConfigSchema())
 	return keys
 }
 
@@ -685,6 +718,7 @@ func identitySecretState(identities *config_manager.IdentitiesConfig) []string {
 // applySummary renders the applier's results as one line for a CLI message.
 func applySummary(results []SettingResult) string {
 	applied := 0
+	unchanged := 0
 	refused := 0
 	failed := 0
 	skipped := 0
@@ -692,6 +726,8 @@ func applySummary(results []SettingResult) string {
 		switch r.Status {
 		case statusApplied:
 			applied++
+		case statusUnchanged:
+			unchanged++
 		case statusRefused:
 			refused++
 		case statusFailed:
@@ -704,6 +740,9 @@ func applySummary(results []SettingResult) string {
 	var parts []string
 	if applied > 0 {
 		parts = append(parts, fmt.Sprintf("%d applied", applied))
+	}
+	if unchanged > 0 {
+		parts = append(parts, fmt.Sprintf("%d unchanged", unchanged))
 	}
 	if refused > 0 {
 		parts = append(parts, fmt.Sprintf("%d refused", refused))

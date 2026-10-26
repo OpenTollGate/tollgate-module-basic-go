@@ -59,8 +59,8 @@ else
     # the rule's own port set rather than only for the rule's presence.
     for port in $ADMIN_PORTS; do
         for proto in ipv4 ipv6; do
-            if grep -qE "meta nfproto $proto iifname \"br-lan\" tcp dport \{[^}]*[[:space:],]${port}[[:space:],}][^}]*\}[[:space:]]+counter drop" "$ADMIN_NFT"; then
-                ok "rule drops :$port on br-lan ($proto)"
+            if grep -qE "meta nfproto $proto iifname [$]tg_portal_if tcp dport \{[^}]*[[:space:],]${port}[[:space:],}][^}]*\}[[:space:]]+counter drop" "$ADMIN_NFT"; then
+                ok "rule drops :$port on the captive bridge ($proto)"
                 break
             fi
         done
@@ -68,7 +68,7 @@ else
     # Both protocol families must be covered: an IPv6-only client on the guest
     # bridge would otherwise walk straight past an ipv4-only rule.
     for proto in ipv4 ipv6; do
-        if grep -qE "meta nfproto $proto iifname \"br-lan\" tcp dport \{ 8090, 8443 \}[[:space:]]+counter drop" "$ADMIN_NFT"; then
+        if grep -qE "meta nfproto $proto iifname [$]tg_portal_if tcp dport \{ 8090, 8443 \}[[:space:]]+counter drop" "$ADMIN_NFT"; then
             ok "rule covers $proto captive clients"
         else
             bad "rule does not cover $proto captive clients (an $proto-only guest still reaches :8090)"

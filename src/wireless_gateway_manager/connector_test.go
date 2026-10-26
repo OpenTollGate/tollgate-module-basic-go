@@ -96,18 +96,18 @@ func TestConnector_RemoveDisabledSTA_NotFound(t *testing.T) {
 
 func TestConnector_SwitchUpstream_Success(t *testing.T) {
 	m := &MockConnector{}
-	m.On("SwitchUpstream", "old_iface", "new_iface", "TestNet").Return(nil)
+	m.On("SwitchUpstream", "old_iface", "new_iface", "TestNet", "").Return(nil)
 
-	err := m.SwitchUpstream("old_iface", "new_iface", "TestNet")
+	err := m.SwitchUpstream("old_iface", "new_iface", "TestNet", "")
 	assert.NoError(t, err)
 	m.AssertExpectations(t)
 }
 
 func TestConnector_SwitchUpstream_TimeoutFallback(t *testing.T) {
 	m := &MockConnector{}
-	m.On("SwitchUpstream", "old_iface", "bad_iface", "BadNet").Return(assert.AnError)
+	m.On("SwitchUpstream", "old_iface", "bad_iface", "BadNet", "").Return(assert.AnError)
 
-	err := m.SwitchUpstream("old_iface", "bad_iface", "BadNet")
+	err := m.SwitchUpstream("old_iface", "bad_iface", "BadNet", "")
 	assert.Error(t, err)
 	m.AssertExpectations(t)
 }
