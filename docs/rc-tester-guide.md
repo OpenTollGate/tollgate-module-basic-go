@@ -451,8 +451,11 @@ and quote `tollgate config get entry_ui`.
 **Confirm the mapping before you test.** Three checks, each on the router's own
 shell, agree when the flip has landed:
 
-- the marker: `cat /etc/tollgate/entry-ui-mapping` prints `board` (its content is
-  the resolved value; its existence means the mode-aware board-side writer ran);
+- the marker: `cat /etc/tollgate/entry-ui-mapping` prints `board` (its content
+  records the mapping this box applied; it is written by whichever writer
+  applied that mapping once the mode-aware admin half is installed — the
+  admin script itself, or the module's `99` when it detects the staged
+  mode-aware admin script);
 - the listeners: `uci show uhttpd | grep -E 'listen_http|listen_https'` shows
   `uhttpd.admin` on `:8080` + `:443` (the board) and `uhttpd.main` on `:8090` +
   `:8443` (LuCI);

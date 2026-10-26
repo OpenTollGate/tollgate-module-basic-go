@@ -97,11 +97,16 @@ TLS_IDENTITY_OPTOUT="/etc/tollgate/ssl/tls-identity-removed"
 # uhttpd.admin is written by the portal's 92-tollgate-admin-setup (D3 — the only
 # writer that knows the brand webroot); this file writes uhttpd.main and never
 # the listener set of uhttpd.admin. Both halves resolve the mapping from the
-# SAME value, and D4 gates the board mapping on a marker the mode-aware 92
-# writes, so this file next to a pre-switch 92 degrades to today's mapping
-# instead of tearing one admin UI off the router.
+# SAME value, and D4 gates the board mapping on a signal that the mode-aware
+# admin writer is present, so this file next to a pre-switch 92 degrades to
+# today's mapping instead of tearing one admin UI off the router.
 ENTRY_UI_CONFIG="${TOLLGATE_ENTRY_UI_CONFIG:-/etc/tollgate/config.json}"
 ENTRY_UI_MARKER="${TOLLGATE_ENTRY_UI_MARKER:-/etc/tollgate/entry-ui-mapping}"
+# The staged admin script at its install location — the mode-aware 92 shipped
+# by THIS package as 999-tollgate-admin-setup (packaging/portal-build.sh stages
+# it; packaging/Makefile installs it here). Overridable so the offline tests can
+# point at a sandbox copy, exactly like the two paths above.
+ENTRY_UI_ADMIN_SETUP="${TOLLGATE_ENTRY_UI_ADMIN_SETUP:-/etc/uci-defaults/999-tollgate-admin-setup}"
 # The jq the reader drives. Overridable so the offline tests can point at a
 # shim, or exercise the absent-jq branch, without touching the host.
 ENTRY_UI_JQ_BIN="${ENTRY_UI_JQ_BIN:-jq}"
@@ -123,14 +128,49 @@ entry_ui_configured() {
 }
 
 # The mapping this run applies, set ONCE in the CALLING shell. D4: honour
-# `board` only when the mode-aware 92 has announced the mapping it applied.
-# Otherwise repair to `luci` (today's mapping, the one a pre-switch 92 wrote) and
-# warn ONCE, naming the feed re-vendor that closes the gap.
+# `board` only when the mode-aware admin writer is PRESENT — by either of two
+# signals, because the two halves arrive through two lanes:
+#
+#   1. the marker file records a mapping the mode-aware admin writer applied
+#      (the feed lane: 92 runs numerically BEFORE this script, so by the time
+#      this runs the marker already exists). The marker survives uci-defaults
+#      consumption, so it is also the PERSISTENT record every later reader —
+#      including `tollgate ui links` — resolves the live mapping from;
+#   2. the staged admin script sits at its install location
+#      (999-tollgate-admin-setup), i.e. both halves ship in THIS package and
+#      the admin writer will run AFTER this script in the same pass
+#      (postinst/boot order 90, 99, 999 — gate-last per #838). Presence alone
+#      is not enough: the file must carry the marker protocol
+#      (TOLLGATE_ENTRY_UI_MARKER), which only the mode-aware revision does —
+#      a pre-switch 92 staged under the same name must still degrade.
+#
+# Signal 2 is what fixes #849: on a fresh install NO marker exists yet (its
+# writer has not run), and the marker-only gate repaired `board` to `luci`,
+# putting uhttpd.main on the entry pair — which the admin writer then strips
+# from every non-admin section, leaving main with NO listener at all (LuCI
+# unbound, procd crash-looping uhttpd). When signal 2 fires, this script
+# applies board AND writes the marker itself, so the mapping this box applied
+# is recorded persistently even if the admin writer's run is interrupted, and
+# every reader that resolves from the marker agrees with the listeners on the
+# wire.
+#
+# Neither signal present -> repair to `luci` (today's mapping, the one a
+# pre-switch 92 wrote) and warn ONCE, naming the feed re-vendor that closes
+# the gap.
 #
 # Deliberately NOT a `$(...)`-returning resolver: a command substitution runs in
 # a subshell, whose ENTRY_UI_MODE assignment does not survive, so every lookup
 # would re-log the WARNING. Writers therefore call this first and then read
 # $ENTRY_UI_MODE directly (a subshell they spawn inherits it).
+staged_admin_setup_mode_aware() {
+    [ -r "$ENTRY_UI_ADMIN_SETUP" ] || return 1
+    # Content, not bare existence: the marker protocol variable is present only
+    # in the mode-aware revision of the admin script. A pre-switch script
+    # staged under the 999 name would otherwise pass the probe and tear the
+    # pair exactly like #849.
+    grep -q 'TOLLGATE_ENTRY_UI_MARKER' "$ENTRY_UI_ADMIN_SETUP" 2>/dev/null
+}
+
 ensure_entry_ui() {
     [ -n "$ENTRY_UI_MODE" ] && return 0
     local configured marker
@@ -139,9 +179,23 @@ ensure_entry_ui() {
     if [ "$configured" = board ]; then
         marker=""
         [ -r "$ENTRY_UI_MARKER" ] && marker="$(cat "$ENTRY_UI_MARKER" 2>/dev/null)"
-        if [ "$marker" != board ]; then
+        if [ "$marker" = board ]; then
+            :
+        elif staged_admin_setup_mode_aware; then
+            # Both halves ship here and the admin writer runs after this
+            # script in the same pass (#838's gate-last order): apply board
+            # now and RECORD it, so the persistent marker exists before any
+            # later reader asks — and survives even if the admin writer's
+            # fail-closed gate then refuses to serve the board (the marker
+            # then still names the mapping this box applied, which is what
+            # uhttpd.main's listeners say too).
+            if ! { mkdir -p "$(dirname "$ENTRY_UI_MARKER")" 2>/dev/null &&
+                   printf 'board\n' > "$ENTRY_UI_MARKER" 2>/dev/null; }; then
+                log "WARNING: could not record the applied entry_ui mapping in '${ENTRY_UI_MARKER}' — later readers will resolve from config.json until the admin writer re-runs."
+            fi
+        else
             ENTRY_UI_MODE=luci
-            log "WARNING: entry_ui=board was requested, but the mode-aware admin-UI mapping marker '${ENTRY_UI_MARKER}' is absent — the captive-portal feed (92-tollgate-admin-setup) is still pre-switch. Repairing to the legacy luci mapping so no admin UI is left unbound. Re-vendor the feed (FreedomTechFeed/packages) so both halves ship together."
+            log "WARNING: entry_ui=board was requested, but neither the admin-UI mapping marker '${ENTRY_UI_MARKER}' nor the mode-aware admin script '${ENTRY_UI_ADMIN_SETUP}' is present — the captive-portal feed (92-tollgate-admin-setup) is still pre-switch. Repairing to the legacy luci mapping so no admin UI is left unbound. Re-vendor the feed (FreedomTechFeed/packages) so both halves ship together."
         fi
     fi
     log "entry_ui mapping: ${ENTRY_UI_MODE} (configured: ${configured})"

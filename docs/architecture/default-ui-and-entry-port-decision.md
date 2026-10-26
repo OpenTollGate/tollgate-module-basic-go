@@ -163,23 +163,57 @@ the left. Correspondingly, the portal's `:8443` must stop keying off
 `/etc/uhttpd.crt`.
 
 **D4 — A half-converged pair degrades to today's mapping; it never becomes a
-bind fight.** One port can be bound by one instance, and the two halves are
-delivered by different installers through different paths — the module's
-postinst runs `90`/`99`, the feed's recipe brings `92` — while at boot the
-numeric order is `90, 92, 99`. A router carrying a new `99` and a pre-switch
-`92` would have both sections claiming `8090`, and the loser does not start:
-an admin UI disappears. So the mode-aware `92` announces the mapping protocol
-(a marker; see the offline assertions), and `99` honours `entry_ui=board` **only
-when that marker is present**. Without it, `99` repairs to the `luci` mapping,
-logs one WARNING naming the feed re-vendor, and leaves the operator's switch
-value recorded in `config.json` for the release that carries both halves.
+bind fight.** One port can be bound by one instance, and the two halves arrive
+through two lanes. Originally both were separate packages on different install
+paths; since the portal pin (#714) the module's own build stages the mode-aware
+`92` into the package as `999-tollgate-admin-setup` (`packaging/portal-build.sh`
+→ `packaging/Makefile`), and #838 made every recipe run the install and boot
+order `90, 99, 999` — the fail-closed credential gate LAST, after `99` has its
+chance to establish the credential. That order is fixed: reordering the gate
+before the credential reintroduces the #838 fresh-flash lockout.
 
-The rollout consequence is explicit: **the module half may ship with the
-`board` default only in a release whose feed pin (`vendor.lock.json`
-`portal_commit`, the feed recipe's `PKG_SOURCE_VERSION`) carries the mode-aware
-`92`.** The feed is the atomicity boundary — the same shape as the `br-mgmt`
-record's promotion order. A module-only release ships the switch and the
-mapping machinery with the default still `luci`, which is a behaviour no-op.
+The order is also what broke the marker-only gate this record originally
+specified. On a fresh install `99` runs BEFORE `999`, so the marker (whose only
+writer was `999`, at the end of its run) cannot exist yet: `99` repaired
+`board` to `luci`, put `uhttpd.main` on the entry pair, and `999` then applied
+board mode, claimed the entry pair for `uhttpd.admin`, and stripped it from
+every other section — leaving `uhttpd.main` with **no listeners at all**: LuCI
+unbound and procd crash-looping the default uhttpd instance (#849). The same
+tear re-armed on the credential-recovery path (set a password, re-run) and on
+a refused fresh flash.
+
+So `99` honours `entry_ui=board` when **either** of two signals says the
+mode-aware admin writer is present:
+
+1. **The marker file** records a mapping the mode-aware writer applied. On the
+   feed lane (a separate `92` package) the marker exists before `99` runs
+   (`92` sorts first), and it survives uci-defaults consumption, which makes it
+   the PERSISTENT record — `tollgate ui links` and every later reader resolve
+   the live mapping from it.
+2. **The staged admin script sits at its install location**
+   (`/etc/uci-defaults/999-tollgate-admin-setup`) **and carries the marker
+   protocol** (`TOLLGATE_ENTRY_UI_MARKER` — only the mode-aware revision has
+   it; a pre-switch script staged under the same name must still degrade).
+   Both halves then ship in this package and the admin writer runs after `99`
+   in the same pass, so the mapping the two apply cannot disagree.
+
+When signal 2 fires, `99` applies board **and writes the marker itself**: the
+mapping this box applied is recorded persistently even if the admin writer's
+run is interrupted, and marker-based readers agree with the listeners on the
+wire. When the admin writer's own fail-closed gate then refuses to serve the
+board (no usable root credential), the refusal is a *listener* fact, not a
+mapping fact: `uhttpd.main` keeps the secondary pair (LuCI reachable on
+`:8090/:8443`), the marker truthfully names the applied mapping, and the
+board's pair answers nothing until a credential exists — refused, not torn.
+
+Neither signal present → `99` repairs to the `luci` mapping, logs one WARNING
+naming the feed re-vendor, and leaves the operator's switch value recorded in
+`config.json` for the release that carries both halves. The rollout consequence
+stands: **the module half may ship with the `board` default only in a release
+whose portal pin carries the mode-aware `92`** — the pin in
+`packaging/build-inputs.json` is the atomicity boundary. A module-only release
+ships the switch and the mapping machinery with the default still `luci`, which
+is a behaviour no-op.
 
 **Amendment (2026-10-14, #928): the default the daemon *populates* is
 deployment-aware, not fixed.** When `EnsureDefaultConfig` writes an
@@ -278,9 +312,9 @@ an admin surface, which is the rule #566 and #588 exist to enforce.
 4. **The identity follows the listener.** `:443` (whichever section owns it) is
    served by the provisioned identity when one covers this router, and only then.
 5. **No admin port in the pre-auth allow list**, on any setup path.
-6. **`entry_ui` resolves to a mapping or to `luci`** — never to "no admin
+7. **`entry_ui` resolves to a mapping or to `luci`** — never to "no admin
    listener".
-7. **A cross-link is `https://`, same host, router-supplied port, present only
+8. **A cross-link is `https://`, same host, router-supplied port, present only
    with a covering identity.**
 
 ## Consequences
@@ -398,33 +432,46 @@ test.
 3. **No port is bound twice**: for each of `8080`, `443`, `8090`, `8443`, the
    fixture's final `uhttpd` state has exactly one section listing it
    (invariant 3). This is the assertion that would have caught the torn pair.
-4. The **D4 marker path**: with `entry_ui=board` and **no** marker, `99` repairs
-   to the `luci` mapping and logs exactly one WARNING naming the feed re-vendor;
-   with the marker present, it binds the `board` mapping. Both directions, plus a
-   negative control that the marker alone (with `entry_ui=luci`) changes nothing.
-5. The derived redirect follows the **listener**: with a covering identity,
+4. The **D4 gate, both signals**: with `entry_ui=board`, no marker and no
+   staged admin script, `99` repairs to the `luci` mapping and logs exactly one
+   WARNING naming the feed re-vendor; with the marker present, it binds the
+   `board` mapping; with the marker absent but the **mode-aware staged script
+   present**, it binds `board` AND records it in the marker; with a
+   **pre-switch** script staged under the same name, it repairs to `luci` and
+   writes no marker (presence alone must not arm the signal). Both directions,
+   plus a negative control that the marker alone (with `entry_ui=luci`) changes
+   nothing.
+5. The **combined install sequence** (`tests/packaging/entry-ui-install-sequence_test.sh`):
+   the real `99` followed by the real pinned `999` (resolved from the portal
+   pin, never a committed copy) in the recipe order, on a fresh-install fixture
+   — no shipped uhttpd section ends listenerless (the admin board's stated
+   refusal being the one sanctioned exception), exactly one section claims each
+   of the four admin ports, both mappings converge, a second pass changes
+   nothing, and the marker records the applied mapping. This is the fence that
+   is RED against the #849 scripts.
+6. The derived redirect follows the **listener**: with a covering identity,
    whichever section owns `:443` has `redirect_https='1'` and the other has `'0'`;
    with a placeholder identity, both are `'0'` (#593's rule, applied per listener).
    The Go side answers the same value for the same fixture
    (`uhttpdCertPath`/`applyRedirectHTTPS`), which is the single-rule property.
-6. No shipped writer adds `:8080`/`:443`/`:8090`/`:8443` to `users_to_router` on
+7. No shipped writer adds `:8080`/`:443`/`:8090`/`:8443` to `users_to_router` on
    any setup path, in either mode — and the **portal** repo gets its own copy of
    that guard, since `92` is a gitignored build product in this tree
    (`tests/packaging/admin-board-not-guest-reachable_test.sh` covers the module
    half only).
-7. The scope-equality guard (invariant 2): a fixture in which `31-*.nft` and
+8. The scope-equality guard (invariant 2): a fixture in which `31-*.nft` and
    `32-*.nft` are given different `iifname` sets fails, and the admin-access
    field (card `t_868d0fa7`) is asserted to produce one scope for both pairs.
-8. `tollgate ui links --json` returns `url:null` with a non-empty `reason` when
+9. `tollgate ui links --json` returns `url:null` with a non-empty `reason` when
    there is no covering identity or no live TLS listener, and a single
    `https://` URL — same host, the router's port — when there is; the SPA renders
    no anchor for `null` (a component test, not a vision check).
-9. `entry_ui` round-trips the config chain the repo already tests: `gofmt -l .`,
+10. `entry_ui` round-trips the config chain the repo already tests: `gofmt -l .`,
    `go vet ./...`, `go build ./...`, `go test -race -count=1 -tags testenv ./...`
    from `src/`, the schema/struct two-way drift tests, `defaults_parity_test.go`,
    `node tests/contract/js-schema-lint.mjs`, `bash tests/contract/build-purity.sh`,
    plus the added `assertFieldValue` case (the surface map's four traps).
-10. `docs/rc-tester-guide.md` and `docs/operator-guide.md` name the same mapping
+11. `docs/rc-tester-guide.md` and `docs/operator-guide.md` name the same mapping
     the code computes — a grep-level drift test over the four port numbers, in
     the shape of the repo's existing doc-contract checks, so #593's conflation
     cannot come back as prose.
@@ -432,32 +479,32 @@ test.
 **Bench (GL-MT3000, one owner, artifact identity read back per the repo's deploy
 rules; `br-mgmt` needs PR #601's port move first)**
 
-11. **The entry answers the board.** From the management path: `https://<hostname>.lan/`
+12. **The entry answers the board.** From the management path: `https://<hostname>.lan/`
     serves the board's own document (title/first paint of the SPA, not LuCI's
     meta-refresh), and `GET /cgi-bin/luci` on that listener 404s to the board
     (`error_page`), i.e. the 2026-09-20 incident does not recur in reverse.
-12. **LuCI is secondary and reachable.** `:8443` completes a TLS handshake with
+13. **LuCI is secondary and reachable.** `:8443` completes a TLS handshake with
     an identity that covers the hostname used, and answers the LuCI login; `:8090`
     answers it over HTTP.
-13. **The button.** With a covering identity the board renders the LuCI link and
+14. **The button.** With a covering identity the board renders the LuCI link and
     it is `https://`, same host, the router's port; with the identity removed
     (`tollgate ssl remove`) the link is **absent** and `tollgate ui links` names
     the reason. Both states, one artifact.
-14. **Nothing new is guest-reachable.** From the open SSID pre-auth and
+15. **Nothing new is guest-reachable.** From the open SSID pre-auth and
     post-auth: `:8080`, `:443`, `:8090`, `:8443` all dropped (the current bench
     result, unchanged), and the portal still answers on `:2050`/`:2051`.
-15. **The management path still works from the cable**: `.lan/` on `br-mgmt`
+16. **The management path still works from the cable**: `.lan/` on `br-mgmt`
     reaches the board's entry pair pre-auth (PR #601's scope), and `tollgate ssl
     status` reports the certificate each listener serves.
-16. **The switch is live**: `tollgate config set entry_ui luci` flips the mapping
+17. **The switch is live**: `tollgate config set entry_ui luci` flips the mapping
     and reloads uhttpd without a reboot; back to `board`; both directions probed
     on `:443`/`:8090`.
-17. **The upgrade path that D4 exists for**: a router with a **pre-switch** `92`
+18. **The upgrade path that D4 exists for**: a router with a **pre-switch** `92`
     and the new module keeps the legacy mapping, logs the single WARNING, and
     loses no admin UI on `:8080`/`:8090`; then the feed re-vendor (both halves)
     makes `entry_ui=board` take effect on the next install without a manual step.
-18. **Rollback**: `entry_ui=luci` on the fully-vendored build reproduces the
-    pre-change bench results for items 11-16 (a downgrade is not required).
+19. **Rollback**: `entry_ui=luci` on the fully-vendored build reproduces the
+    pre-change bench results for items 12-17 (a downgrade is not required).
 
 ## What this record does not decide
 
