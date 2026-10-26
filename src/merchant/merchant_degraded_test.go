@@ -26,7 +26,7 @@ func TestNewFullMerchant_WalletInitFail_FallsBackToDegraded(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/keysets" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true}]}`)
+			fmt.Fprint(w, `{"keysets":[{"id":"000f715baf5d4c2e","unit":"sat","active":true}]}`)
 			return
 		}
 		http.Error(w, "internal server error", http.StatusInternalServerError)
