@@ -193,22 +193,22 @@ func (c *Connector) ExecuteUCI(args ...string) (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-	if len(args) > 0 && args[0] == "delete" && strings.Contains(stderr.String(), "Entry not found") {
-		logger.WithField("command", strings.Join(args, " ")).Debug("UCI entry to delete was not found (which is okay)")
-		return "", nil
-	}
-	if len(args) > 0 && args[0] == "get" && strings.Contains(stderr.String(), "Entry not found") {
-		return "", fmt.Errorf("uci: Entry not found")
-	}
-	if len(args) > 0 && args[0] == "show" && strings.Contains(stderr.String(), "Entry not found") {
-		// No /etc/config/<name> at all — uci's exact wording for a missing
-		// config file. Nothing to show is not a failure (the delete branch
-		// above makes the same call): radio-less systems carry no wireless
-		// config, and callers like GetSTASections parse an empty section
-		// list instead of surfacing a raw exit status (#1002 C1).
-		logger.WithField("command", strings.Join(args, " ")).Debug("UCI config absent for show (treating as empty)")
-		return "", nil
-	}
+		if len(args) > 0 && args[0] == "delete" && strings.Contains(stderr.String(), "Entry not found") {
+			logger.WithField("command", strings.Join(args, " ")).Debug("UCI entry to delete was not found (which is okay)")
+			return "", nil
+		}
+		if len(args) > 0 && args[0] == "get" && strings.Contains(stderr.String(), "Entry not found") {
+			return "", fmt.Errorf("uci: Entry not found")
+		}
+		if len(args) > 0 && args[0] == "show" && strings.Contains(stderr.String(), "Entry not found") {
+			// No /etc/config/<name> at all — uci's exact wording for a missing
+			// config file. Nothing to show is not a failure (the delete branch
+			// above makes the same call): radio-less systems carry no wireless
+			// config, and callers like GetSTASections parse an empty section
+			// list instead of surfacing a raw exit status (#1002 C1).
+			logger.WithField("command", strings.Join(args, " ")).Debug("UCI config absent for show (treating as empty)")
+			return "", nil
+		}
 		logger.WithFields(logrus.Fields{
 			"error":  err,
 			"stderr": stderr.String(),

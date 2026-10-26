@@ -1,0 +1,2 @@
+- Format `src/cli/network_radioless_test.go` and `src/wireless_gateway_manager/connector.go` so
+- `make go-battery` can run to completion again. Whitespace only; no behaviour change.
