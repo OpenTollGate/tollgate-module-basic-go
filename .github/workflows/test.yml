@@ -1,5 +1,9 @@
 name: Test
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main, master, develop]
@@ -8,6 +12,7 @@ on:
 
 jobs:
   go-test:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     strategy:
       # Fail fast: one red module lane stops the run instead of burning the
@@ -46,6 +51,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/.github/scripts/go-test-summary.sh" "${{ matrix.module }}" ./... -v -count=1 -race
 
   main-test:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -57,6 +63,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/.github/scripts/go-test-summary.sh" "main package (testenv)" -v -count=1 -race -tags testenv .
 
   contract-lint:
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -75,6 +82,15 @@ jobs:
 
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
+
+      # The entry-UI marker (/etc/tollgate/entry-ui-mapping, D4 of the
+      # default-ui-and-entry-port decision) is read by three declarations in
+      # two languages and two Go modules (99-tollgate-setup's shell repair,
+      # config_manager's default population, tollgate-cli's resolver). The
+      # fence requires every declaration to use ONE path value; a drifted
+      # copy silently sees "marker absent" and converges the wrong mapping.
+      - name: Entry-UI marker path (one value across shell and Go)
+        run: bash tests/contract/check-entry-ui-marker-path.sh
 
       - name: Portal bundle contract (pin decode + admin-redirect coverage)
         run: |
@@ -117,6 +133,17 @@ jobs:
           # This test has existed since the nodogsplash dependency incident but
           # was never wired into CI, so nothing ran it automatically.
           bash tests/packaging/package-nodogsplash-dependency_test.sh
+
+      - name: Version-stamp override and consistency fence
+        run: |
+          # Offline (no SDK, no router, no go build): #941 — the rc5 feed
+          # package carried a binary stamped from a lagged VERSION file (rc4)
+          # while the tag and the package said rc5. TG_VERSION must be the one
+          # override knob, resolved once (build-env.sh tg_version) and
+          # consumed by both packaging scripts and the release workflow, and
+          # the post-build fence must warn by default and refuse the planted
+          # drift under TG_REQUIRE_VERSION_CONSISTENCY=1.
+          bash tests/packaging/version-stamp_test.sh
 
       - name: GPL license ships in both release lanes
         run: |
@@ -305,6 +332,7 @@ jobs:
           greatspectate check --config specquotes.toml --comment-start "// " --comment-continue "//" $FILES
 
   build-purity:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -325,8 +353,15 @@ jobs:
           # decoration); each was a reader/writer disagreement this table
           # would have caught.
           bash tests/contract/check-ssid-naming.sh
+      - name: NDS pre-auth allowlist nft ordering check
+        run: bash tests/contract/check-nds-preauth-nft.sh
+      - name: nft guard interface defines check
+        run: bash tests/contract/check-nft-interface-defs.sh
+      - name: gatewayinterface adoption check
+        run: bash tests/contract/check-gatewayinterface-adoption.sh
 
   deps-and-imports:
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -344,6 +379,22 @@ jobs:
           # failing every open PR the moment the fork tags would be noise.
           bash tests/contract/gonuts-pin_test.sh
           python3 tests/contract/check-gonuts-pin.py
+
+      # #550: a replace directive whose target directory is missing (a
+      # half-set-up local fork) makes every go build/test in that module
+      # fail like a code regression — the false-negative verification class.
+      # The guard runs on the real tree and its verdicts are pinned by a
+      # fixture test, so it can neither cry wolf nor go inert.
+      - name: Dangling replace directives (local-override hygiene, #550)
+        run: |
+          bash scripts/check-dangling-replace.sh
+          bash tests/contract/dangling-replace_test.sh
+      # #550's second half: the lab stamps install_time through the compose
+      # bind mount; the tracked file is the pristine template, and runtime
+      # state must never ride a commit.
+      - name: Cloud-lab pristine config check
+        run: python3 tests/contract/check-cloud-lab-pristine.py
+
       - name: Toolchain parity (manifest is the single source of truth)
         run: python3 tests/contract/check-toolchain-parity.py
 

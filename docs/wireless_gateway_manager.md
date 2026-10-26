@@ -75,7 +75,7 @@ tollgate status                     # Service status (includes NetworkOK)
 
 ## Reseller Mode
 
-When `reseller_mode` is enabled in config, the daemon automatically discovers and connects to open `TollGate-*` SSIDs alongside known fallback networks. Non-TollGate SSIDs are only considered if a disabled STA section already exists for them.
+When `reseller_mode` is enabled in config, the daemon automatically discovers and connects to open `TollGate-*` SSIDs alongside known fallback networks (the shipped captive SSID carries a leading `!` sort decoration, `!TollGate-*`, which the recognizer treats as optional — the bare form still matches). Non-TollGate SSIDs are only considered if a disabled STA section already exists for them.
 
 ## Circuit Breaker
 

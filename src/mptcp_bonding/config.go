@@ -83,6 +83,31 @@ type Config struct {
 	FwMark      string `json:"fwmark"`
 	FwMarkTable int    `json:"fwmark_table"`
 
+	// Transport selects HOW the bond reaches its de-aggregation peer.
+	//
+	// The two shapes differ in who initiates the second path, and therefore in
+	// whether the client needs a routable address at all:
+	//
+	//	"advertised-address" (default, historic) — the client advertises its own
+	//	  uplink addresses with ADD_ADDR and the PEER connects back to them. This
+	//	  requires every uplink address to be reachable from the peer, so it works
+	//	  only on networks with real public addresses. Behind NAT or CGNAT the
+	//	  peer cannot reach the advertised address and the second subflow never
+	//	  forms (measured on the lab router: the peer's MPTcpExtAddAddr stayed 0,
+	//	  MPJoinNoTokenFound climbed, and the satellite subflow sat at handshake
+	//	  size indefinitely).
+	//
+	//	"proxy-terminated" — the de-aggregation server is the terminating end of
+	//	  a proxy and the CLIENT initiates every path. The client therefore needs
+	//	  no routable address: no public IP, no port-forward, no delegated prefix,
+	//	  no ISP cooperation. Endpoints are registered `subflow` but NOT
+	//	  `signal`, because signalling is precisely the instruction that asks the
+	//	  peer to dial back.
+	//
+	// Empty means "advertised-address", so an existing config that never
+	// mentions this field keeps its exact historic behaviour.
+	Transport string `json:"transport,omitempty"`
+
 	// Tunnels are optional per-uplink WireGuard overlays.
 	//
 	// They exist because MPTCP's second subflow needs the PEER to connect back
@@ -92,6 +117,31 @@ type Config struct {
 	// provides. Empty means "advertise the uplink addresses directly", which is
 	// correct only on a network with real public addresses.
 	Tunnels []Tunnel `json:"tunnels,omitempty"`
+}
+
+// Transport shapes. See Config.Transport.
+const (
+	// TransportAdvertisedAddress is the historic shape: the client advertises
+	// its own uplink addresses and the peer connects back. Correct only when
+	// those addresses are genuinely reachable from the peer.
+	TransportAdvertisedAddress = "advertised-address"
+
+	// TransportProxyTerminated is the NAT-safe shape: the client initiates
+	// every path to a proxy termination, so it needs no routable address and
+	// must not ask the peer to dial back.
+	TransportProxyTerminated = "proxy-terminated"
+)
+
+// EffectiveTransport resolves the configured transport, defaulting to the
+// historic advertised-address shape when the field is absent.
+//
+// The default matters: a config written before this field existed must keep
+// behaving exactly as it did, so an empty value is NOT treated as an error.
+func (c *Config) EffectiveTransport() string {
+	if c.Transport == "" {
+		return TransportAdvertisedAddress
+	}
+	return c.Transport
 }
 
 // DefaultSubflows is the kernel default and a sane ceiling for a mobile box.
@@ -146,6 +196,19 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("mptcp_bonding: uplink %q listed twice", u.Interface)
 		}
 		seen[u.Interface] = true
+		// #974: a CIDR here used to pass validation and render
+		// `ip mptcp endpoint add 10.0.1.1/30 …`, which the kernel rejects —
+		// and the apply script swallowed it, leaving a silently unbonded
+		// router. Reject the form loudly at load time; the kernel wants a
+		// bare address.
+		if addr := strings.TrimSpace(u.Address); addr != "" {
+			if _, _, err := net.ParseCIDR(addr); err == nil {
+				return fmt.Errorf("mptcp_bonding: uplinks[%d].address %q is a CIDR; the kernel wants a bare address (drop the /prefix)", i, addr)
+			}
+			if net.ParseIP(addr) == nil {
+				return fmt.Errorf("mptcp_bonding: uplinks[%d].address %q is not a bare IP address", i, addr)
+			}
+		}
 	}
 
 	switch c.Policy {
@@ -201,6 +264,17 @@ func (c *Config) Validate() error {
 					"them takes the default route, so both tunnels share one uplink)",
 				i, t.Name)
 		}
+	}
+
+	// The transport value is validated rather than ignored. Guessing which shape
+	// was meant is how a bond ends up advertising private addresses again, which
+	// is exactly the failure D10 records.
+	switch c.EffectiveTransport() {
+	case TransportAdvertisedAddress, TransportProxyTerminated:
+	default:
+		return fmt.Errorf(
+			"mptcp_bonding: unknown transport %q (want %q or %q)",
+			c.Transport, TransportAdvertisedAddress, TransportProxyTerminated)
 	}
 
 	return nil

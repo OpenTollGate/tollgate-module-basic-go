@@ -20,7 +20,8 @@ import (
 // (NUT-07: states MUST match the request; correlation makes a lying
 // mint's job harder than counting did).
 
-const correlationTestKeysetsJSON = `{"keysets":[{"id":"009a1f293253e41e","unit":"sat","active":true,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}]}`
+var correlationTestKeysetsJSON = `{"keysets":[{"id":"` + honestV1KeysetID + `","unit":"sat","active":true,` +
+	`"keys":{"1":"` + generatorPointHex + `"}}]}`
 
 // newLyingCheckStateMint answers the requested Ys UNSPENT and then appends
 // the injected extra state entries — the shapes a mint must not be able to

@@ -69,7 +69,7 @@ sequenceDiagram
     Note over WGM: Reseller Mode Enabled
     WGM->>WGM: Periodic scan (30s)
     WGM->>WGM: Scan WiFi networks
-    WGM->>WGM: Filter "TollGate-*" SSIDs
+    WGM->>WGM: Filter "TollGate-*" SSIDs (leading "!" optional)
     WGM->>WGM: Score & rank gateways
 
     alt Not connected to top-3 gateway
@@ -173,14 +173,14 @@ graph TB
         PD[Payment Decision Engine]
         UT[Usage Trackers]
     end
-    
+
     subgraph External
         CS[upstream_detector]
         MR[merchant]
         GW[Upstream Gateway]
         CFG[ConfigManager]
     end
-    
+
     CS -->|HandleUpstreamTollgate| CH
     CS -->|HandleDisconnect| CH
     CH -->|Check trust| CFG
@@ -193,7 +193,7 @@ graph TB
     SM -->|Create tracker| UT
     UT -->|HandleUpcomingRenewal| CH
     CH -->|SessionChanged| UT
-    
+
     style CH fill:#ffe1f5
     style SM fill:#e1f5ff
     style PD fill:#fff4e1
@@ -460,63 +460,63 @@ sequenceDiagram
     participant MR as merchant
     participant GW as Upstream Gateway
     participant UT as UsageTracker
-    
+
     CS->>CH: HandleGatewayConnected(upstream)
     CH->>CH: Extract advertisement info
-    
+
     CH->>CFG: Get trust policy
     CFG-->>CH: Trust config
     CH->>CH: ValidateTrustPolicy()
-    
+
     alt Untrusted pubkey
         CH-->>CS: Error: Trust policy failed
     end
-    
+
     CH->>CH: Select compatible pricing
-    
+
     alt No compatible pricing
         CH-->>CS: Error: No matching mints
     end
-    
+
     CH->>MR: GetBalanceByMint(mint_url)
     MR-->>CH: Balance
-    
+
     alt Insufficient balance
         CH-->>CS: Error: Insufficient funds
     end
-    
+
     CH->>CH: Calculate payment steps
     CH->>CFG: Get budget constraints
     CFG-->>CH: Max prices
     CH->>CH: ValidateBudgetConstraints()
-    
+
     alt Budget exceeded
         CH-->>CS: Error: Budget constraints
     end
-    
+
     CH->>CH: Generate customer private key
     CH->>MR: CreatePaymentToken(mint, amount)
     MR-->>CH: Cashu token
-    
+
     CH->>CH: Create payment event (kind 21000)
     CH->>GW: POST payment to :2121/
-    
+
     alt Payment rejected
         GW-->>CH: 402 Payment Required
         CH-->>CS: Error: Payment rejected
     end
-    
+
     GW-->>CH: Session event (kind 1022)
     CH->>CH: Validate session event
     CH->>CH: Extract allotment
-    
+
     CH->>CH: Create UpstreamSession
     CH->>UT: Create usage tracker
     UT->>UT: Start monitoring
     CH->>CH: Store session (Active)
-    
+
     CH-->>CS: Success
-    
+
     Note over CH,UT: Session active, monitoring usage
 ```
 
@@ -529,45 +529,45 @@ sequenceDiagram
     participant CFG as ConfigManager
     participant MR as merchant
     participant GW as Upstream Gateway
-    
+
     Note over UT: Monitoring usage
     UT->>UT: Check usage vs allotment
     UT->>UT: Usage >= (Allotment - Offset)
-    
+
     UT->>CH: HandleUpcomingRenewal(pubkey, usage)
     CH->>CH: Get session by pubkey
     CH->>CH: Check advertisement changes
-    
+
     CH->>CH: Create renewal proposal
     CH->>CFG: Get budget constraints
     CFG-->>CH: Max prices
     CH->>CH: ValidateBudgetConstraints()
-    
+
     alt Budget exceeded
         CH->>CH: Pause session
         CH->>UT: Stop()
         CH-->>UT: Error: Budget exhausted
     end
-    
+
     CH->>MR: CreatePaymentToken(mint, amount)
     MR-->>CH: Cashu token
-    
+
     CH->>CH: Create payment event
     CH->>GW: POST renewal payment
-    
+
     alt Payment failed
         GW-->>CH: Error
         CH-->>UT: Error: Payment failed
         Note over UT: Continue until exhaustion
     end
-    
+
     GW-->>CH: Updated session event
     CH->>CH: Extract new allotment
-    
+
     CH->>CH: Update session
     CH->>UT: SessionChanged(session)
     UT->>UT: Update tracking with new allotment
-    
+
     Note over UT: Continue monitoring with new limits
 ```
 
@@ -579,26 +579,26 @@ sequenceDiagram
     participant CH as upstream_session_manager
     participant UT as UsageTracker
     participant SM as SessionsMap
-    
+
     CS->>CH: HandleDisconnect(wlan0)
-    
+
     CH->>SM: Find sessions on wlan0
     SM-->>CH: [session1, session2]
-    
+
     loop For each session
         CH->>UT: Stop()
         UT->>UT: Cancel monitoring
         UT-->>CH: Stopped
-        
+
         CH->>CH: Mark session as Expired
         CH->>SM: Add to disconnected list
     end
-    
+
     CH->>SM: Remove disconnected sessions
     SM->>SM: Delete sessions
-    
+
     CH-->>CS: Success
-    
+
     Note over CH: Sessions cleaned up
 ```
 
@@ -919,7 +919,7 @@ func (c *UpstreamSessionManager) HandleGatewayConnected(upstream *UpstreamTollga
         }
     }
     c.mu.Unlock()
-    
+
     // Create new session...
 }
 ```
@@ -976,15 +976,15 @@ func (c *UpstreamSessionManager) checkExistingSession(upstream *UpstreamTollgate
         return nil, err // No session or can't check
     }
     defer resp.Body.Close()
-    
+
     body, _ := io.ReadAll(resp.Body)
     parts := strings.Split(strings.TrimSpace(string(body)), "/")
-    
+
     if len(parts) == 2 && parts[0] != "-1" {
         // Session exists! Recover it
         usage, _ := strconv.ParseUint(parts[0], 10, 64)
         allotment, _ := strconv.ParseUint(parts[1], 10, 64)
-        
+
         // Create session object from existing session
         session := &UpstreamSession{
             UpstreamTollgate: upstream,
@@ -992,11 +992,11 @@ func (c *UpstreamSessionManager) checkExistingSession(upstream *UpstreamTollgate
             Status:           SessionActive,
             // ... other fields
         }
-        
+
         // Start usage tracker with current usage
         return session, nil
     }
-    
+
     return nil, nil // No session, proceed with new payment
 }
 ```
@@ -1062,7 +1062,7 @@ curl http://[gateway_ip]:2121/  # Current advertisement
 func (c *UpstreamSessionManager) pollAdvertisement(session *UpstreamSession) {
     ticker := time.NewTicker(60 * time.Second)
     defer ticker.Stop()
-    
+
     for range ticker.C {
         // Fetch fresh advertisement
         url := fmt.Sprintf("http://%s:2121/", session.UpstreamTollgate.GatewayIP)
@@ -1072,28 +1072,28 @@ func (c *UpstreamSessionManager) pollAdvertisement(session *UpstreamSession) {
             continue // Retry next cycle
         }
         defer resp.Body.Close()
-        
+
         data, _ := io.ReadAll(resp.Body)
-        
+
         // Validate and parse
         newAd, err := tollgate_protocol.ValidateAdvertisementFromBytes(data)
         if err != nil {
             logger.Warn("Invalid advertisement from upstream")
             continue
         }
-        
+
         // Compare with stored advertisement
         if newAd.ID != session.Advertisement.ID {
             logger.Info("Advertisement changed, updating session")
-            
+
             // Extract new info
             newInfo, _ := tollgate_protocol.ExtractAdvertisementInfo(newAd)
-            
+
             // Update session
             session.mu.Lock()
             session.Advertisement = newAd
             session.AdvertisementInfo = newInfo
-            
+
             // Re-evaluate pricing compatibility
             newPricing, err := c.selectCompatiblePricingOption(newInfo.PricingOptions)
             if err != nil {
