@@ -137,6 +137,14 @@ From the repo root, always:
 sh scripts/check-version-sync.sh <version>   # includes tag == VERSION
 ```
 
+When a release-candidate `.apk` is built ([scripts/build-sdk-package.sh](../scripts/build-sdk-package.sh))
+and a pristine OpenWrt 25.12 VM is provisioned, also run the
+installer-contract lane — `scripts/release-check.sh <version>` runs it
+inline when `TOLLGATE_RELEASE_CHECK_INSTALLER_ARTIFACT` and
+`..._SSH_KEY` are set (see [tests/installer-contract/README.md](../tests/installer-contract/README.md)).
+Its documented known-reds stay red on purpose: read `ICFAILED`, and do
+not waive one without its tracker.
+
 If `go test` fails with `creating work dir: stat .../.gotmp-*`, a stale
 `GOTMPDIR` is in `~/.config/go/env`; run with
 `GOTMPDIR=/tmp/gotmp-cross TMPDIR=/tmp`.

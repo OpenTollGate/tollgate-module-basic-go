@@ -17,6 +17,11 @@
 #     (the make release-check-fast profile sets both: go-battery, deps,
 #     contract, packaging, the invariant groups and version consistency in
 #     one pass — the per-push shape of the gate).
+#   TOLLGATE_RELEASE_CHECK_INSTALLER_{ARTIFACT,SSH_KEY,HOST,PORT,SERIAL}
+#     run the installer-contract lane (pristine 25.12 apk VM, #892) as part
+#     of the gate; without ARTIFACT+SSH_KEY it SKIPs — set
+#     TOLLGATE_RELEASE_CHECK_INSTALLER=1 to make that skip a failure on the
+#     machine that owns the lane.
 #     (default: binaries x86_64 — the cheap leg; run `make
 #     reproducibility-test T=... ARCH=...` for the full matrix).
 set -u
@@ -113,6 +118,39 @@ run_packaging() {
         record "Packaging" PASS "shell suites + uci-defaults + release pipeline"
     else
         record "Packaging" FAIL "see $log"
+    fi
+}
+
+run_installer_contract() {
+    # The pristine apk-era install contract on a real VM (#892) — the same
+    # skip/require shape as the conformance lane: it SKIPs when its
+    # prerequisites (a built .apk + VM access) are absent unless
+    # TOLLGATE_RELEASE_CHECK_INSTALLER=1 makes the skip a failure.
+    # Known-reds are kept visible on purpose (a permanently green lane that
+    # hides known failures stops being read): the lane's ICCHECK/ICFAILED
+    # output names them — see tests/installer-contract/README.md.
+    if [ "${TOLLGATE_RELEASE_CHECK_SKIP_INSTALLER:-0}" = 1 ]; then
+        record "Installer contract (pristine apk VM)" SKIP "disabled by env"
+        return
+    fi
+    local artifact="${TOLLGATE_RELEASE_CHECK_INSTALLER_ARTIFACT:-}"
+    local key="${TOLLGATE_RELEASE_CHECK_INSTALLER_SSH_KEY:-}"
+    if [ -z "$artifact" ] || [ ! -f "$artifact" ] || [ -z "$key" ]; then
+        if [ "${TOLLGATE_RELEASE_CHECK_INSTALLER:-0}" = 1 ]; then
+            record "Installer contract (pristine apk VM)" FAIL "required but prerequisites missing: set TOLLGATE_RELEASE_CHECK_INSTALLER_ARTIFACT (built .apk) and TOLLGATE_RELEASE_CHECK_INSTALLER_SSH_KEY — see tests/installer-contract/README.md"
+        else
+            record "Installer contract (pristine apk VM)" SKIP "lane prerequisites missing (built .apk + VM key) — set TOLLGATE_RELEASE_CHECK_INSTALLER=1 to require it; see tests/installer-contract/README.md"
+        fi
+        return
+    fi
+    local args=(--artifact "$artifact" --host "${TOLLGATE_RELEASE_CHECK_INSTALLER_HOST:-127.0.0.1}"
+        --port "${TOLLGATE_RELEASE_CHECK_INSTALLER_PORT:-2222}" --ssh-key "$key"
+        --source-sha "$(git -C "$ROOT" rev-parse HEAD)" --out "$tmpdir/installer-contract")
+    [ -n "${TOLLGATE_RELEASE_CHECK_INSTALLER_SERIAL:-}" ] && args+=(--serial "$TOLLGATE_RELEASE_CHECK_INSTALLER_SERIAL")
+    if bash "$ROOT/tests/installer-contract/run.sh" "${args[@]}" >"$tmpdir/installer-contract.log" 2>&1; then
+        record "Installer contract (pristine apk VM)" PASS
+    else
+        record "Installer contract (pristine apk VM)" FAIL "see $tmpdir/installer-contract.log (ICFAILED names the reds — the documented known-reds stay red by design)"
     fi
 }
 
@@ -243,6 +281,7 @@ run_invariant "Ambiguous swap output-reuse invariant" src/tollwallet \
 run_invariant "Payment/service-or-recovery invariant" src/merchant \
     -run 'TestPaidPurchaseWhoseGateFailsIsOwedThenGrantedExactlyOnce|TestOwedGrantSurvivesRestartAndConverges|TestOwedTimeGrantExpiresPastItsWindow'
 run_conformance
+run_installer_contract
 run_matrix
 run_repro
 run_version
