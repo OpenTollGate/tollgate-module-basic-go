@@ -613,6 +613,15 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		profitShareErr = config.ValidateProfitShare()
 	}
 	if unmarshalErr != nil {
+		// #929: valid JSON with a wrong shape (e.g. accepted_mints as a
+		// plain string array) is an operator edit, not corruption.
+		// Replacing the file with factory mints would silently swap the
+		// money path on a commissioned router. Refuse to start; only
+		// genuinely corrupt files (truncation, #402 class) take the
+		// backup-and-defaults recovery below.
+		if json.Valid(data) {
+			return nil, fmt.Errorf("config %s is valid JSON but does not match the schema (%v); refusing to fall back to factory defaults — fix the field and restart", filePath, unmarshalErr)
+		}
 		log.Printf("WARNING: Invalid config JSON, backing up and recreating: %v", unmarshalErr)
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
 			log.Printf("CRITICAL: Failed to backup invalid config: %v", backupErr)
