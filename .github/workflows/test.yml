@@ -207,6 +207,8 @@ jobs:
           # scan is not inert. This is a working-tree gutter, not a history
           # rewrite: the literal legitimately survives in old commits.
           bash tests/packaging/rebrand-literal-gutter_test.sh
+      - name: wifi rebind guard check
+        run: bash tests/contract/check-wifi-rebind-guard.sh
 
       - name: Admin TLS identity (HTTPS is not inherited from the image)
         run: |
