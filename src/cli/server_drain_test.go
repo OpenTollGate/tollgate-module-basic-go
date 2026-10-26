@@ -39,6 +39,16 @@ type scriptedDrainMerchant struct {
 	beforeDrain func(mintURL string)
 }
 
+// BindChannel satisfies merchant.MerchantInterface for this drain-focused
+// double. Channel binding is not what drain tests exercise, so it abstains the
+// way an unbound session must: no channel, no credit. If a drain test ever
+// starts depending on a bound channel, give this double a scripted channel
+// instead of quietly returning a credit here — a truthy answer from a double
+// that knows nothing about channels would fabricate credit.
+func (m *scriptedDrainMerchant) BindChannel(macAddress, channelID string) (uint64, bool) {
+	return 0, false
+}
+
 func (m *scriptedDrainMerchant) DrainMint(mintURL string) (string, uint64, error) {
 	if m.beforeDrain != nil {
 		m.beforeDrain(mintURL)
