@@ -132,7 +132,7 @@ docker compose down
 | `configs/upstream-config.json` | TollGate config for upstream container |
 | `configs/reseller-config.json` | TollGate config for reseller container |
 | `configs/*-identities.json` | Nostr identities for signing |
-| `configs/install.json` | Minimal install metadata |
+| `configs/install.json` | Minimal install metadata — a pristine template; containers stamp `install_time` at runtime through the bind mount, so `git restore` it after plain `docker compose` runs (RUNBOOK §Lessons learned, #550) |
 | `configs/dhcp.leases` | Fake DHCP lease table (maps client IP → MAC) |
 | `conftest.py` | Shared pytest fixtures |
 | `test_*.py` | Test suites |
