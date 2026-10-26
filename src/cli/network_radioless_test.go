@@ -23,10 +23,10 @@ func TestPrivateNetworkFamily_RefusalShapeIsUniformOnRadiolessSystem(t *testing.
 		resp CLIResponse
 		cmd  string
 	}{
-		"status":        {s.handlePrivateNetworkStatus(), "status"},
-		"enable":        {s.handlePrivateNetworkEnable(), "enable"},
-		"set-password":  {s.handlePrivateNetworkSetPassword("NewPass-123"), "set-password"},
-		"rename":        {s.handlePrivateNetworkRename("TestSSID"), "rename"},
+		"status":         {s.handlePrivateNetworkStatus(), "status"},
+		"enable":         {s.handlePrivateNetworkEnable(), "enable"},
+		"set-password":   {s.handlePrivateNetworkSetPassword("NewPass-123"), "set-password"},
+		"rename":         {s.handlePrivateNetworkRename("TestSSID"), "rename"},
 		"set-encryption": {s.handlePrivateNetworkSetEncryption("psk2+ccmp"), "set-encryption"},
 	}
 	for name, tc := range cases {
