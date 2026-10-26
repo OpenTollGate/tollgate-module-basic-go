@@ -89,7 +89,10 @@ is generated from
 ## Modules
 
 Source lives under [src/](src/). Go tooling runs from there
-(`cd src && go build ./...`, `cd src && go test ./...`).
+(`cd src && go build ./...`, `cd src && go test ./...`), or through
+`make test`, which runs every module's tests from any directory of any
+checkout — including git worktrees, where a root-level
+`go test ./src/...` cannot work ([#961](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/961)).
 
 | Module | Role |
 |---|---|
@@ -104,11 +107,52 @@ Source lives under [src/](src/). Go tooling runs from there
 | [cli](src/cli/) | `tollgate` CLI for service control, wallet, private network, upstream Wi-Fi, config, health, admin-UI links, and SSL/TLS certificates. Entry point: [src/cmd/tollgate-cli](src/cmd/tollgate-cli/). See [docs/operator-guide.md](docs/operator-guide.md). |
 | [tollgate_protocol](src/tollgate_protocol/) | Wire-type definitions shared across modules. |
 
+## Building from source
+
+For a release build, **checkout the release tag** (`git checkout v0.6.0`) — a
+fresh clone lands on `main`, which is development and may carry dependency
+changes that have not been through the release path. The tested build manual,
+including the cold-cache check that catches missing `go.sum` entries, is
+[docs/build-from-source.md](docs/build-from-source.md). Quick check:
+
+```sh
+make manual-check     # portal + all-module Go battery in a fresh module cache
+```
+
+## Packaging downstream (OpenWrt feeds)
+
+This repository is the module; OpenWrt distribution happens through a
+feed ecosystem that consumes it. One authority per fact, pointing both
+ways:
+
+| Repo | Owns | File bugs there for |
+| --- | --- | --- |
+| **this repo** | the Go source, the release tarball, the [build contract](packaging/build-contract.json) (generated: binary set, module map, go minimum, pinned toolchain) | anything in `src/`, packaging payloads under `packaging/files/`, contract contents |
+| [`FreedomTechFeed/packages`](https://github.com/FreedomTechFeed/packages) (`net/tollgate-wrt`) | the **canonical** OpenWrt feed recipe: builds the pinned tarball via `golang-package.mk`, vendors the portal under `vendor.lock.json`, publishes per-arch | the recipe, pin bumps, portal vendoring, feed CI |
+| [`FreedomTechFeed/feed`](https://github.com/FreedomTechFeed/feed) | a **wrapper mirror** of the canonical recipe for standalone `src-git` consumers (synced by `scripts/sync-from-canonical.sh`; do not hand-edit) | nothing — re-sync from canonical |
+
+The contract is the interface between the halves: it ships inside every
+release tarball (tags and SHA pins alike), the feed's
+`test-build-contract.sh` enforces recipe↔contract parity and the feed's
+own golang against the contract's language minimum, and this repo's
+`tests/contract/check-build-contract.py` fences every carrier here to the
+same set. A bug found on either side is fixed at its owner and every
+consumer inherits — single source of truth, single source of authority,
+single source of bugs and fixes.
+
 ## Installation
 
-Build artifacts produced by the CI matrix in
+> **Build setup status (October 2026):** we’re sorry the build setup is messy
+> at the moment. GitHub removed CI from all OpenTollGate repositories; we are
+> rebuilding the pipeline and working on reproducible builds. For a normal
+> install, use the
+> [installer runbook](https://github.com/OpenTollGate/tollgate-installer/blob/main/docs/install-runbook.md).
+
+The build workflow definition in
 [.github/workflows/build-package.yml](.github/workflows/build-package.yml)
-target both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats.
+targets both `apk` (OpenWrt 25.x) and `ipk` (OpenWrt ≤24.10) formats. The
+GitHub Actions lane is currently being rebuilt; use the release assets or the
+installer runbook above until it is restored.
 
 On OpenWrt 25.x:
 ```sh
@@ -534,15 +578,63 @@ firewall fragment, pre-auth entry or guest-path rule moves, and setting the
 field back to luci reverts the whole change without a downgrade. All four admin
 ports stay dropped for br-lan clients in both mappings.
 
-**The flip is released in two halves and applied only when both are present.**
-The two listeners are written by two packages that install through different
-paths (the module's 99-tollgate-setup and the feed's 92-tollgate-admin-setup). A
-module-only upgrade therefore *records* board and keeps serving the legacy
-mapping, logging one WARNING that names the feed re-vendor; the release that
-vendors both halves applies it. The alternative — binding 443 on both instances
-— is not a wrong answer but a listener that fails to start, so the gate is
-deliberate. See the entry-port decision record in docs/architecture for the
-mapping table, the invariants and the release boundary.
+**Both halves ship in this package; the mapping is applied only when the
+mode-aware admin half is present.** The module's 99-tollgate-setup writes
+LuCI's listener, and the portal's mode-aware admin script ships in the same
+package as `999-tollgate-admin-setup` (staged from the pinned portal at build
+time), which writes the board's listener and runs after `99` on install and at
+boot — the fail-closed credential gate must see the credential `99` can
+establish first. Because a fresh install has no mapping marker yet (its writer
+runs after `99`), `99` detects the staged mode-aware admin script itself,
+applies `board`, and records the mapping in `/etc/tollgate/entry-ui-mapping` —
+without that, `99` would hand the entry pair to LuCI and the admin script would
+then strip it, leaving LuCI with no listener at all (#849). Against a
+pre-switch admin writer (the feed lane, or an old staged script) the module
+instead keeps serving the legacy mapping, logging one WARNING that names the
+feed re-vendor; the release that vendors both halves applies it. The
+alternative — binding 443 on both instances — is not a wrong answer but a
+listener that fails to start, so the gate is deliberate. See the entry-port
+decision record in docs/architecture for the mapping table, the invariants and
+the release boundary.
+
+### Wallet storage requirements (shared mmap)
+
+The wallet database (`/etc/tollgate/wallet.db`) is a bbolt file, and bbolt
+maps it with a **shared `mmap`** — the mapped pages *are* the database. The
+filesystem holding `wallet.db` must therefore support shared mappings:
+
+| Overlay/filesystem | Wallet works | Typical targets |
+| --- | --- | --- |
+| ext4 / f2fs / ubifs | yes | bcm27xx (SD), mediatek-filogic (NAND/UBI), x86 |
+| tmpfs | yes, but **loses funds on reboot** | never for a funded wallet |
+| **jffs2** | **no — `mmap` returns `EINVAL`** | squashfs NOR-flash combo images (ipq40xx, ath79, ramips mt76x8 class) |
+
+On a jffs2-overlay device the service still boots — config, portal, SSIDs and
+mint probes all work — but the wallet can **never** initialize, and older
+releases reported this as `no reachable mints` even while every mint answered
+200 OK ([#583](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/583)).
+Current releases say so explicitly (`wallet storage does not support shared
+mmap`) at startup and on every wallet operation.
+
+**Workaround for jffs2-only devices**: keep `wallet.db` on a small ext4 image
+mounted via loop device, with `/etc/tollgate/wallet.db` symlinked into it
+(bbolt follows symlinks; the mapping lands on the ext4 inode). Sketch:
+
+```sh
+opkg install kmod-loop e2fsprogs
+truncate -s 16M /mnt/data/wallet.img        # any mmap-capable backing location
+mkfs.ext4 -F /mnt/data/wallet.img
+losetup /dev/loop0 /mnt/data/wallet.img
+mkdir -p /mnt/wallet && mount -t ext4 /dev/loop0 /mnt/wallet
+mv /etc/tollgate/wallet.db /mnt/wallet/ 2>/dev/null || true
+ln -s /mnt/wallet/wallet.db /etc/tollgate/wallet.db
+```
+
+Make the `losetup`/`mount` pair part of the boot (e.g. a hotplug or rc.local
+script) **before** the tollgate service starts. Do not point the wallet at
+tmpfs on a funded device — a reboot would destroy the proofs and the funds
+with them. The long-term fix is the CDK/sqlite wallet lane (no shared-mmap
+dependency).
 
 ## SSID conventions
 
@@ -550,12 +642,18 @@ On first boot the router derives its Wi-Fi names from a single generated
 device code (see [#605](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/605)
 and `docs/architecture/one-device-code.md`).
 
-- **Public open AP** — `TollGate-XXXX`, e.g. `TollGate-9C3F`. The `XXXX` is
-  the four-character device code of `[A-Z0-9]`, minted once on first boot.
-  Both the 2.4 GHz and 5 GHz radios advertise the **same** SSID (band
+- **Public open AP** — the brand name behind a **leading exclamation mark**
+  (a sort decoration, so the guest network appears first in an alphabetically
+  ordered WiFi list), a hyphen, then the four-character device code of uppercase
+  letters and digits, minted once on first boot. The decoration is not part of
+  the name: readers treat it as optional, so already-deployed routers
+  broadcasting the bare brand-and-code form (and third-party clients matching
+  the bare brand prefix) keep working. Both the
+  2.4 GHz and 5 GHz radios advertise the **same** SSID (band
   steering), so clients are handed off between radios seamlessly.
-- **Private management AP** — `c08r4d0r-XXXX` (same `XXXX` device code as
-  the public AP), WPA2/PSK. Both radios share it. The passphrase is a
+- **Private management AP** — the same four-character device code behind the
+  default nym prefix, **no** leading exclamation mark — guests never see it, WPA2/PSK. Both
+  radios share it. The passphrase is a
   memorable `Word-Word-Word-NN` string set on first boot and preserved on
   upgrade. The `c08r4d0r` prefix is the project's generic default nym —
   every installation shares it, so it names the product rather than any
@@ -563,8 +661,8 @@ and `docs/architecture/one-device-code.md`).
   choice. [#531](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/531)
   proposed renaming this default and was closed as superseded by that
   decision.
-- **nodogsplash name** — the captive-portal gate shows
-  `TollGate-XXXX Portal` as its `gatewayname`.
+- **nodogsplash name** — the captive-portal gate shows the public SSID followed
+  by a space and `Portal` as its `gatewayname`.
 
 Branding: a whitelabel installer can pin `/etc/tollgate/brand` to `net4sats`,
 which swaps the `TollGate` prefix for that brand's name everywhere. The
@@ -572,7 +670,13 @@ public AP format is pinned by `tests/contract/check-ssid-format.sh`.
 
 ## Testing
 
-Unit tests, from the [src/](src/) directory:
+Unit tests, from any directory of any checkout (worktrees included):
+
+```sh
+make test
+```
+
+or, from the [src/](src/) directory:
 
 ```sh
 cd src && go test -tags testenv ./...
@@ -581,11 +685,15 @@ cd src && go test -tags testenv ./...
 The `testenv` build tag provisions a hermetic temp config dir so the main
 package's `init()` does not depend on `/etc/tollgate/config.json` — letting the
 suite run off-router (CI, dev machines). The tag is a no-op for subpackages.
+(`make test` passes it on every module; a bare `go test ./...` at the repo
+root runs no tests — the root guard package fails with a remedy instead, see
+[#961](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/961).)
 
 A single package:
 
 ```sh
-cd src && go test ./upstream_session_manager/...
+make test M=src/upstream_session_manager
+# or: cd src && go test ./upstream_session_manager/...
 ```
 
 End-to-end tests live in [tests/](tests/) and use pytest against real

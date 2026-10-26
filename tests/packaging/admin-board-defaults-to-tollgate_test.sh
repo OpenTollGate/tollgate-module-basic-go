@@ -152,7 +152,7 @@ export PASSWD_FILE="$TMP/passwd.db"
 export ROUTER_HOME_DIR="$TMP/router-home"
 SCRIPT_UNDER_TEST="$TMP/99-tollgate-setup"
 sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-    -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
+    -e "s|^LOGFILE=\"\${LOGFILE:-/tmp/tollgate-setup\.log}\"\$|LOGFILE=$LOGFILE|" \
     "$ROOT/$SCRIPT" > "$SCRIPT_UNDER_TEST"
 if grep -q "^SETUP_FLAG=\"$FLAG\"\$" "$SCRIPT_UNDER_TEST" &&
    grep -q "^LOGFILE=$LOGFILE\$" "$SCRIPT_UNDER_TEST"; then

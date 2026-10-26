@@ -19,7 +19,7 @@ func validV3Token() string {
 		"token": []map[string]interface{}{
 			{
 				"proofs": []map[string]interface{}{
-					{"amount": 1, "id": "009a1f293253e41e", "secret": "test", "C": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"},
+					{"amount": 1, "id": "000f715baf5d4c2e", "secret": "test", "C": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"},
 				},
 				"mint": "https://test.example.com",
 			},

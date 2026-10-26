@@ -57,10 +57,13 @@ include $(INCLUDE_DIR)/package.mk
 #   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
 #     into the control file, where `Replaces` does supersede the named package.
 #
-# So: declare the daemon, never also claim to replace it. Same contract as the
-# shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
-# with FreedomTechFeed/packages#57, the feed-side mirror of this change).
+# So: declare the daemon, never also claim to replace it. The dependency
+# list for this recipe is declared once, in the DEPENDS below; the
+# shipping-path feed definition (net/tollgate-wrt/Makefile in
+# FreedomTechFeed/packages) owns its own list, and
+# tests/packaging/package-nodogsplash-dependency_test.sh fences this
+# module's recipes — and the artifacts they build — against drifting from
+# the contract.
 #
 # ca-bundle is the SAME class of defect, found the same way: on a GL-MT3000
 # (OpenWrt 25.12.5) installing the shipped package by hand, `wget` AND
@@ -148,6 +151,21 @@ for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
 done
 
 echo "Restarting network..."
+# A full netifd restart re-applies UCI-backed routes only. Default routes that
+# were added by hand (statically-routed bench/CI seats: no DHCP WAN, no uci
+# gateway) are silently wiped, which kills egress right after the install.
+# Snapshot them here; restore after the LAST restart below (the recheck block
+# may restart again). The restore is idempotent: a route netifd re-installed
+# identically is not re-added. Pinned by tests/packaging/postinst-default-route-preserve_test.sh.
+_pre_restart_defroutes="$$(ip route show default 2>/dev/null)"
+restore_default_routes() {
+    [ -n "$$1" ] || return 0
+    echo "$$1" | while IFS= read -r route; do
+        [ -n "$$route" ] || continue
+        ip route show default 2>/dev/null | grep -qxF "$$route" || \
+            ip route add $$route 2>/dev/null || true
+    done
+}
 /etc/init.d/network restart 2>/dev/null || true
 wait_for_iface br-lan
 wait_for_iface br-private || echo "Note: br-private not found — this is expected on devices without a private network configured."
@@ -162,6 +180,7 @@ if [ -x /etc/uci-defaults/99-tollgate-setup ]; then
           recheck_private_subnet && /etc/init.d/network restart 2>/dev/null || true
       fi )
 fi
+restore_default_routes "$$_pre_restart_defroutes"
 
 echo "Reloading remaining services..."
 wifi reload 2>/dev/null || true
@@ -239,6 +258,8 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nds-preauth-render $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nft-interfaces-render $(1)/usr/local/bin/
 
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
@@ -304,6 +325,7 @@ FILES_$(PKG_NAME) += \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart \
+	/etc/nftables.d/00-tollgate-defs.nft \
 	/etc/nftables.d/20-nds-enforce.nft \
 	/etc/nftables.d/30-backend-firewall.nft \
 	/etc/nftables.d/31-admin-board-not-guest-reachable.nft \
