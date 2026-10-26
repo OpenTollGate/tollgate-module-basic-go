@@ -20,7 +20,7 @@ import (
 func mustBuildTestToken(b *testing.B) string {
 	b.Helper()
 	proofs := cashu.Proofs{
-		{Amount: 1, Id: "009a1f293253e41e", C: "0224f1c4c564230ad3d96c5033efdc425582397a5a7691d600202732edc6d4b1ec", Secret: "test"},
+		{Amount: 1, Id: "000f715baf5d4c2e", C: "0224f1c4c564230ad3d96c5033efdc425582397a5a7691d600202732edc6d4b1ec", Secret: "test"},
 	}
 	token, err := cashu.NewTokenV4(proofs, "https://testmint.example.com", cashu.Sat, false)
 	if err != nil {

@@ -29,6 +29,13 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# The pinned-toolchain dir build-env.sh prefers. Defaulted HERE (unlike the
+# scripts that already do it) because node/npm are verified against the
+# manifest: without the default, a bare `make portal-build` on PATH node dies
+# with "node vX != pinned vY" instead of using the pinned install.
+TG_TOOLS="${TG_TOOLS:-$HOME/.cache/tollgate-tools}"
+export TG_TOOLS
+
 # shellcheck source=build-env.sh
 . "$REPO_ROOT/packaging/build-env.sh"
 

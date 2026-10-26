@@ -470,9 +470,10 @@ IPK_BUILD = """\
           #   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
           #     into the control file, where `Replaces` does supersede the named package.
           #
-          # So: declare the daemon, never also claim to replace it. Same contract as the
-          # shipping-path feed definition, net/tollgate-wrt/Makefile
-          # (`DEPENDS:=+nodogsplash +jq`).
+          # So: declare the daemon, never also claim to replace it. The dependency
+          # list for this lane is the DEPENDS below;
+          # tests/packaging/package-nodogsplash-dependency_test.sh fences it
+          # against divergence.
           mkdir -p artifacts
           env \\
             PKG_NAME="$PACKAGE_NAME" \\

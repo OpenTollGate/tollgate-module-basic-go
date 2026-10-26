@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # go-battery.sh — the canonical pre-PR Go gate across ALL modules.
+# contract-exempt: the test battery compiles per-module ./..., never a packaging set
 #
-# WHY A SCRIPT: src/ is a multi-module tree (16 nested go.mod files with
+# WHY A SCRIPT: src/ is a multi-module tree (18 nested go.mod files with
 # replace directives); `go <cmd> ./...` from src/ covers ONLY the root
 # module. A battery invoked that way silently skips every subpackage while
 # reporting success. AGENTS.md and CONTRIBUTING.md point here, and the
@@ -13,6 +14,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Pre-flight (#550): a replace directive whose target directory is missing
+# (a half-set-up local fork) makes every module below fail with a
+# module-resolution error indistinguishable from a code regression. Fail
+# fast, naming the go.mod, before any module work runs.
+bash "$ROOT/scripts/check-dangling-replace.sh" "$ROOT" || {
+    echo "go-battery: refusing to run over dangling replace directives (see above)" >&2
+    exit 1
+}
 
 mapfile -t mods < <(cd "$ROOT" && find src -name go.mod | xargs -n1 dirname | sort)
 
