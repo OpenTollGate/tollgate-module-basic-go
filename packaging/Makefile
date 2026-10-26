@@ -26,6 +26,10 @@ PKG_FLAGS:=overwrite
 # as tollgate-wrt (service) and tollgate (CLI). The SDK only packages them.
 PREBUILT_BIN:=$(PKG_MAKEFILE_DIR)tollgate-wrt
 PREBUILT_CLI:=$(PKG_MAKEFILE_DIR)tollgate
+# The CVM control-plane daemon (src/cmd/tollgate-cvm): exposes the CLI over
+# ContextVM on Nostr. Installed but inert until an operator claims the router
+# with a maintainer_npub — it refuses to serve unclaimed (claim gate).
+PREBUILT_CVM:=$(PKG_MAKEFILE_DIR)tollgate-cvm
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
@@ -53,10 +57,13 @@ include $(INCLUDE_DIR)/package.mk
 #   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
 #     into the control file, where `Replaces` does supersede the named package.
 #
-# So: declare the daemon, never also claim to replace it. Same contract as the
-# shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
-# with FreedomTechFeed/packages#57, the feed-side mirror of this change).
+# So: declare the daemon, never also claim to replace it. The dependency
+# list for this recipe is declared once, in the DEPENDS below; the
+# shipping-path feed definition (net/tollgate-wrt/Makefile in
+# FreedomTechFeed/packages) owns its own list, and
+# tests/packaging/package-nodogsplash-dependency_test.sh fences this
+# module's recipes — and the artifacts they build — against drifting from
+# the contract.
 #
 # ca-bundle is the SAME class of defect, found the same way: on a GL-MT3000
 # (OpenWrt 25.12.5) installing the shipped package by hand, `wget` AND
@@ -84,41 +91,18 @@ endef
 
 define Package/$(PKG_NAME)/preinst
 #!/bin/sh
-# The preinst runs BEFORE the package is unpacked, so a non-zero exit here
-# refuses the install cleanly (no half-installed files) — the operator sets a
-# root password and installs again. WHY: the :8090 admin board's login is checked
-# against root's /etc/shadow hash, and rpcd's session.login accepts ANY password
-# while that hash is EMPTY. The package never sets a credential (see the
-# no-generated-credentials changelog entries), so installing on a password-less
-# root would leave an unauthenticatable board; refuse instead of shipping a
-# half-working router.
+# No gate here any more. An earlier release REFUSED to install on a router whose
+# root account had no password (the admin board's login is checked against root's
+# /etc/shadow hash, and rpcd's session.login accepts ANY password while it is
+# EMPTY). That fail-closed install hurt more than it helped: apk-tools 3 treats a
+# failing pre-install as NON-FATAL, so the two lanes disagreed, and the operator
+# was forced to set a credential before the package could even land.
 #
-# Dependency-free by design: a previous jq-dependent preinst aborted upgrades on
-# jq-less minimal systems (see Amperstrand/tollgate-module-basic-go#93), so this
-# uses only awk. It also no longer records install_time — the binary owns
-# install.json (config_manager.EnsureDefaultInstall) and stamps it itself.
-
-# Offline/image builds (opkg/apk building an image under IPKG_INSTROOT) have no
-# live root to authenticate against; the gate applies at runtime, not here.
-[ -n "$${IPKG_INSTROOT:-}" ] && exit 0
-
-# Documented escape hatch for CI / runtime smoke installs whose container root
-# is empty (e.g. the feed's "Test via Docker container" lane). Never a default.
-[ "$${TOLLGATE_ALLOW_EMPTY_ROOT:-0}" = "1" ] && exit 0
-
-# Absolute path into the live system; the offline test redirects it, exactly as
-# 99-tollgate-setup redirects its SHADOW_FILE.
-SHADOW_FILE="$${SHADOW_FILE:-/etc/shadow}"
-root_hash="$$(awk -F: '$$1 == "root" { print $$2; exit }' "$$SHADOW_FILE" 2>/dev/null)"
-if [ -z "$$root_hash" ]; then
-	printf '%s\n' "ERROR: root has no password — refusing to install." \
-		"       The TollGate admin board's login is checked against root's" \
-		"       /etc/shadow hash, and rpcd accepts ANY password while it is" \
-		"       empty. Set one with 'passwd root' (or the LuCI password page)," \
-		"       then install again." >&2
-	exit 1
-fi
-
+# The refusal is replaced by a FIXED default: 99-tollgate-setup now sets root to
+# TOLLGATE_DEFAULT_CREDENTIAL when none exists and marks it PROVISIONAL, so the
+# operator is never locked out and the admin/config UI forces them to choose
+# their own at first login. Kept as a no-op (rather than removed) so the control
+# script keeps a stable shape across the opkg/apk lanes and offline builds.
 exit 0
 endef
 
@@ -167,9 +151,36 @@ for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
 done
 
 echo "Restarting network..."
+# A full netifd restart re-applies UCI-backed routes only. Default routes that
+# were added by hand (statically-routed bench/CI seats: no DHCP WAN, no uci
+# gateway) are silently wiped, which kills egress right after the install.
+# Snapshot them here; restore after the LAST restart below (the recheck block
+# may restart again). The restore is idempotent: a route netifd re-installed
+# identically is not re-added. Pinned by tests/packaging/postinst-default-route-preserve_test.sh.
+_pre_restart_defroutes="$$(ip route show default 2>/dev/null)"
+restore_default_routes() {
+    [ -n "$$1" ] || return 0
+    echo "$$1" | while IFS= read -r route; do
+        [ -n "$$route" ] || continue
+        ip route show default 2>/dev/null | grep -qxF "$$route" || \
+            ip route add $$route 2>/dev/null || true
+    done
+}
 /etc/init.d/network restart 2>/dev/null || true
 wait_for_iface br-lan
 wait_for_iface br-private || echo "Note: br-private not found — this is expected on devices without a private network configured."
+
+# The uplink lease can arrive only AFTER the restart above, so the private subnet
+# chosen at uci-defaults time may now collide with the upstream — a router that
+# answers for the upstream gateway's own address breaks DNS. Re-check now that
+# the uplink is up, and reload the network only if the private subnet had to move.
+if [ -x /etc/uci-defaults/99-tollgate-setup ]; then
+    ( TOLLGATE_SETUP_LIB_ONLY=1 . /etc/uci-defaults/99-tollgate-setup 2>/dev/null
+      if command -v recheck_private_subnet >/dev/null 2>&1; then
+          recheck_private_subnet && /etc/init.d/network restart 2>/dev/null || true
+      fi )
+fi
+restore_default_routes "$$_pre_restart_defroutes"
 
 echo "Reloading remaining services..."
 wifi reload 2>/dev/null || true
@@ -194,8 +205,10 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	[ -f "$(PREBUILT_BIN)" ] || { echo "ERROR: prebuilt binary not found at $(PREBUILT_BIN). CI should stage it before invoking the SDK." >&2; exit 1; }
 	[ -f "$(PREBUILT_CLI)" ] || { echo "ERROR: prebuilt CLI not found at $(PREBUILT_CLI)." >&2; exit 1; }
+	[ -f "$(PREBUILT_CVM)" ] || { echo "ERROR: prebuilt CVM daemon not found at $(PREBUILT_CVM)." >&2; exit 1; }
 	$(CP) $(PREBUILT_BIN) $(PKG_BUILD_DIR)/tollgate-wrt
 	$(CP) $(PREBUILT_CLI) $(PKG_BUILD_DIR)/tollgate
+	$(CP) $(PREBUILT_CVM) $(PKG_BUILD_DIR)/tollgate-cvm
 	# Required, not best-effort (#751): the license text ships with the
 	# binary (see Package/install), so a build that cannot find it fails
 	# loudly instead of silently shipping a GPL binary without its license.
@@ -224,9 +237,11 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/tollgate-wrt $(1)/usr/bin/tollgate-wrt
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/tollgate $(1)/usr/bin/tollgate
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/tollgate-cvm $(1)/usr/bin/tollgate-cvm
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/init.d/tollgate-wrt $(1)/etc/init.d/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/init.d/tollgate-cvm $(1)/etc/init.d/
 
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/etc/uci-defaults/90-tollgate-captive-portal-symlink $(1)/etc/uci-defaults/
@@ -243,6 +258,8 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nds-preauth-render $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nft-interfaces-render $(1)/usr/local/bin/
 
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
@@ -308,6 +325,7 @@ FILES_$(PKG_NAME) += \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart \
+	/etc/nftables.d/00-tollgate-defs.nft \
 	/etc/nftables.d/20-nds-enforce.nft \
 	/etc/nftables.d/30-backend-firewall.nft \
 	/etc/nftables.d/31-admin-board-not-guest-reachable.nft \

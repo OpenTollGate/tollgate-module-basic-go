@@ -173,7 +173,7 @@ func TestSwitchUpstream_DisablesCompetingSTAOnTargetRadio(t *testing.T) {
 	// DHCPTimeout of ~0 makes waitForSTAIP return immediately (the fake has
 	// no netdevs to find), so the switch takes its documented revert path.
 	c := &Connector{runUCI: f.exec, DHCPTimeout: time.Millisecond}
-	err := c.SwitchUpstream("upstream_oldnet", "upstream_newnet", "NewNet")
+	err := c.SwitchUpstream("upstream_oldnet", "upstream_newnet", "NewNet", "")
 
 	assert.Error(t, err, "with no joinable netdev the switch reports its DHCP-timeout revert")
 	assert.Equal(t, "1", mustGet(t, f, "wireless.tollgate_uplink.disabled"),
@@ -217,4 +217,33 @@ func TestDetectEncryptionMapsAmbiguousWPAPSKToMixed(t *testing.T) {
 			t.Errorf("DetectEncryption(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
+}
+
+// One SSID can be served by several BSSIDs on different upstream networks
+// (some routed to the internet, some captive or isolated). The switch must
+// pin the exact BSSID the scan selected, or the driver may rejoin the wrong
+// one and the manager settles on a network with no internet.
+func TestSwitchUpstream_PinsCandidateBSSID(t *testing.T) {
+	f := newFakeUCI()
+	seedSTA(f, "upstream_newnet", "NewNet", "radio0", "psk2", "new-password", "1")
+
+	c := &Connector{runUCI: f.exec, DHCPTimeout: time.Millisecond}
+	_ = c.SwitchUpstream("", "upstream_newnet", "NewNet", "AA:BB:CC:DD:EE:11")
+
+	assert.Equal(t, "AA:BB:CC:DD:EE:11", mustGet(t, f, "wireless.upstream_newnet.bssid"),
+		"the candidate must be pinned to the scanned BSSID")
+	assert.True(t, f.saw("set wireless.upstream_newnet.bssid=AA:BB:CC:DD:EE:11"),
+		"the pin must be written, not just resolved")
+}
+
+func TestSwitchUpstream_ClearsStaleBSSIDWhenEmpty(t *testing.T) {
+	f := newFakeUCI()
+	seedSTA(f, "upstream_newnet", "NewNet", "radio0", "psk2", "new-password", "1")
+	f.set("wireless.upstream_newnet.bssid", "AA:BB:CC:DD:EE:11")
+
+	c := &Connector{runUCI: f.exec, DHCPTimeout: time.Millisecond}
+	_ = c.SwitchUpstream("", "upstream_newnet", "NewNet", "")
+
+	_, has := f.get("wireless.upstream_newnet.bssid")
+	assert.False(t, has, "an empty candidate BSSID must clear a stale pin")
 }

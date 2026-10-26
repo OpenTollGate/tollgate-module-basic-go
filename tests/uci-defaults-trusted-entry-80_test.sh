@@ -135,7 +135,7 @@ LOGFILE="$TMP/setup.log"
 export LOGFILE
 SCRIPT_UNDER_TEST="$TMP/99-tollgate-setup"
 sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-    -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
+    -e "s|^LOGFILE=\"\${LOGFILE:-/tmp/tollgate-setup\.log}\"\$|LOGFILE=$LOGFILE|" \
     -e "s|> */proc/sys/kernel/hostname|> $TMP/kernel-hostname|" \
     -e "s|/etc/profile|$TMP/profile|g" \
     "$ROOT/$SCRIPT" > "$SCRIPT_UNDER_TEST"
@@ -167,6 +167,10 @@ export PASSWD_FILE="$TMP/passwd.db"
 printf 'root:$1$fixture$0123456789abcdef:0:0:99999:7:::\n' > "$SHADOW_FILE"
 : > "$PASSWD_FILE"
 export ROUTER_HOME_DIR="$TMP/router-home"
+# The credential markers default to absolute paths; pin them into the sandbox so
+# the private-WiFi default does not try to write the build host's /etc/tollgate.
+export ADMIN_PROVISIONAL_MARKER="$TMP/etc/tollgate/admin-credential-provisional"
+export PRIVATE_WIFI_PROVISIONAL_MARKER="$TMP/etc/tollgate/private-wifi-credential-provisional"
 
 seed_stock() { # a stock-router seed: LAN address, radio bands, guest/private APs
     : > "$UCI_STATE"

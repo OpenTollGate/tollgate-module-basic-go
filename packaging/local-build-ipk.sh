@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Local .ipk builder — replicates CI pipeline for one architecture.
-# Usage: [ARCH=… PKG_VERSION=…] bash packaging/local-build-ipk.sh
+# Usage: [ARCH=… TG_VERSION=… PKG_VERSION=…] bash packaging/local-build-ipk.sh
 # Deterministic given the inputs pinned in packaging/build-inputs.json.
 set -euo pipefail
 
@@ -13,10 +13,13 @@ cd "$REPO_ROOT"
 . "$REPO_ROOT/packaging/build-env.sh"
 
 PKG_NAME="tollgate-wrt"
-# The release version comes from the repository-root VERSION file, the single
-# source of truth (see CONTRIBUTING.md). CI ignores this script and derives the same
-# string from the git tag; set PKG_VERSION to override for a one-off build.
-PKG_VERSION="${PKG_VERSION:-$(cat "$REPO_ROOT/VERSION")}"
+# One version knob (#941): TG_VERSION overrides the ldflags stamp, the
+# package version and the __TOLLGATE_VERSION__ marker together; the
+# repository-root VERSION file is the fallback (build-env.sh tg_version).
+# PKG_VERSION stays as the package-only legacy override and feeds the
+# ldflags too, so stamp and package cannot diverge in this script —
+# the post-build fence below asserts it.
+PKG_VERSION="${PKG_VERSION:-$(tg_version)}"
 ARCH="${ARCH:-aarch64_cortex-a53}"
 
 case "$ARCH" in
@@ -88,6 +91,18 @@ CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
   "$GO_BIN" build -C src/cmd/tollgate-cli -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate" \
   -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 
+# The CVM control-plane daemon is likewise its own module. No version
+# ldflags: its build identity travels in the CEP-6 announcement's pubkey, and
+# no caller authenticates on a version string.
+CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOMIPS=$GOMIPS \
+  "$GO_BIN" build -C src/cmd/tollgate-cvm -o "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-cvm" \
+  -trimpath -buildvcs=false
+
+# #941: the rc5 package shipped a binary stamped from a lagged VERSION
+# file. Assert the stamp landed before any UPX pass hides the strings.
+tg_assert_version_consistency "$REPO_ROOT/bin/$COMPILE_KEY/tollgate-wrt" "$PKG_VERSION"
+tg_assert_version_consistency "$REPO_ROOT/bin/$COMPILE_KEY/tollgate" "$PKG_VERSION"
+
 ls -lh "bin/$COMPILE_KEY/"
 
 if [ "${USE_UPX:-0}" = "1" ]; then
@@ -121,11 +136,14 @@ sed "s|__TOLLGATE_VERSION__|$PKG_VERSION|g" \
   packaging/files/etc/uci-defaults/99-tollgate-setup > "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
 chmod 0755 "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
 install -D -m 0755 packaging/files/usr/local/bin/first-login-setup                   "$PAYLOAD/usr/local/bin/first-login-setup"
+install -D -m 0755 packaging/files/usr/local/bin/tollgate-nds-preauth-render         "$PAYLOAD/usr/local/bin/tollgate-nds-preauth-render"
+install -D -m 0755 packaging/files/usr/local/bin/tollgate-nft-interfaces-render      "$PAYLOAD/usr/local/bin/tollgate-nft-interfaces-render"
 install -D -m 0755 packaging/files/usr/bin/check_package_path                        "$PAYLOAD/usr/bin/check_package_path"
 install -D -m 0755 packaging/files/usr/bin/tollgate-apply-ssl                        "$PAYLOAD/usr/bin/tollgate-apply-ssl"
 install -D -m 0755 packaging/files/usr/bin/tollgate-remove-ssl                       "$PAYLOAD/usr/bin/tollgate-remove-ssl"
 install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                        "$PAYLOAD/lib/upgrade/keep.d/tollgate"
 install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart           "$PAYLOAD/etc/hotplug.d/iface/95-tollgate-restart"
+install -D -m 0644 packaging/files/etc/nftables.d/00-tollgate-defs.nft               "$PAYLOAD/etc/nftables.d/00-tollgate-defs.nft"
 install -D -m 0644 packaging/files/etc/nftables.d/20-nds-enforce.nft                 "$PAYLOAD/etc/nftables.d/20-nds-enforce.nft"
 install -D -m 0644 packaging/files/etc/nftables.d/30-backend-firewall.nft            "$PAYLOAD/etc/nftables.d/30-backend-firewall.nft"
 install -D -m 0644 packaging/files/etc/nftables.d/31-admin-board-not-guest-reachable.nft "$PAYLOAD/etc/nftables.d/31-admin-board-not-guest-reachable.nft"
@@ -179,10 +197,10 @@ normalize_mtime "$PAYLOAD"
 #   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
 #     into the control file, where `Replaces` does supersede the named package.
 #
-# So: declare the daemon, never also claim to replace it. Same contract as the
-# shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
-# with FreedomTechFeed/packages#57, which this module's change mirrors).
+# So: declare the daemon, never also claim to replace it. The dependency
+# list for this lane is the DEPENDS below; packaging/Makefile owns the SDK
+# lane's list, and tests/packaging/package-nodogsplash-dependency_test.sh
+# fences every in-tree recipe against divergence.
 #
 # ca-bundle is the same class of defect: this module does money over TLS with
 # Go's system root pool and no insecure escape hatch, so an image with no CA

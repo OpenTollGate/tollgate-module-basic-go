@@ -16,9 +16,9 @@ func TestDiscoveryLogger_LogScan(t *testing.T) {
 	dl := NewDiscoveryLogger(logPath)
 
 	networks := []NetworkInfo{
-		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-Alpha", Signal: -55, IsTollGate: true, PricePerStep: 1, StepSize: 22020096, Radio: "radio0"},
+		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-Alpha", Signal: -55, IsTollGate: true, AdvertisedPricePerStep: 1, AdvertisedStepSize: 22020096, Radio: "radio0"},
 		{BSSID: "aa:bb:cc:dd:ee:02", SSID: "HomeWiFi", Signal: -70, IsTollGate: false, Radio: "radio0"},
-		{BSSID: "aa:bb:cc:dd:ee:03", SSID: "TollGate-Beta", Signal: -62, IsTollGate: true, PricePerStep: 2, StepSize: 22020096, Radio: "radio1"},
+		{BSSID: "aa:bb:cc:dd:ee:03", SSID: "TollGate-Beta", Signal: -62, IsTollGate: true, AdvertisedPricePerStep: 2, AdvertisedStepSize: 22020096, Radio: "radio1"},
 	}
 
 	dl.LogScan(networks)
@@ -34,18 +34,18 @@ func TestDiscoveryLogger_LogScan(t *testing.T) {
 	assert.Equal(t, "TollGate-Alpha", first.SSID)
 	assert.Equal(t, true, first.IsTollGate)
 	assert.Equal(t, -55, first.Signal)
-	assert.Equal(t, 1, first.PricePerStep)
+	assert.Equal(t, 1, first.AdvertisedPricePerStep)
 }
 
 func TestDiscoveryLogger_RegistryAccumulation(t *testing.T) {
 	dl := NewDiscoveryLogger(filepath.Join(t.TempDir(), "test.jsonl"))
 
 	scan1 := []NetworkInfo{
-		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-X", Signal: -60, IsTollGate: true, PricePerStep: 1},
+		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-X", Signal: -60, IsTollGate: true, AdvertisedPricePerStep: 1},
 	}
 	scan2 := []NetworkInfo{
-		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-X", Signal: -50, IsTollGate: true, PricePerStep: 1},
-		{BSSID: "aa:bb:cc:dd:ee:02", SSID: "TollGate-Y", Signal: -65, IsTollGate: true, PricePerStep: 3},
+		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-X", Signal: -50, IsTollGate: true, AdvertisedPricePerStep: 1},
+		{BSSID: "aa:bb:cc:dd:ee:02", SSID: "TollGate-Y", Signal: -65, IsTollGate: true, AdvertisedPricePerStep: 3},
 	}
 
 	dl.LogScan(scan1)
@@ -78,12 +78,12 @@ func TestDiscoveryLogger_LoadExistingLog_CountsScanBatchesNotLines(t *testing.T)
 
 	dl1 := NewDiscoveryLogger(logPath)
 	dl1.LogScan([]NetworkInfo{
-		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-A", Signal: -55, IsTollGate: true, PricePerStep: 1},
+		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-A", Signal: -55, IsTollGate: true, AdvertisedPricePerStep: 1},
 		{BSSID: "aa:bb:cc:dd:ee:02", SSID: "HomeWiFi", Signal: -70},
-		{BSSID: "aa:bb:cc:dd:ee:03", SSID: "TollGate-B", Signal: -62, IsTollGate: true, PricePerStep: 2},
+		{BSSID: "aa:bb:cc:dd:ee:03", SSID: "TollGate-B", Signal: -62, IsTollGate: true, AdvertisedPricePerStep: 2},
 	})
 	dl1.LogScan([]NetworkInfo{
-		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-A", Signal: -50, IsTollGate: true, PricePerStep: 1},
+		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-A", Signal: -50, IsTollGate: true, AdvertisedPricePerStep: 1},
 	})
 
 	dl2 := NewDiscoveryLogger(logPath)
@@ -101,7 +101,7 @@ func TestDiscoveryLogger_LoadExistingLog(t *testing.T) {
 	logPath := filepath.Join(tmpDir, "existing.jsonl")
 
 	networks := []NetworkInfo{
-		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-Old", Signal: -58, IsTollGate: true, PricePerStep: 1},
+		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-Old", Signal: -58, IsTollGate: true, AdvertisedPricePerStep: 1},
 	}
 	dl1 := NewDiscoveryLogger(logPath)
 	dl1.LogScan(networks)
@@ -131,15 +131,15 @@ func TestDiscoveryLogger_PriceUpdate(t *testing.T) {
 	dl := NewDiscoveryLogger(filepath.Join(t.TempDir(), "price.jsonl"))
 
 	dl.LogScan([]NetworkInfo{
-		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-X", Signal: -60, IsTollGate: true, PricePerStep: 1},
+		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-X", Signal: -60, IsTollGate: true, AdvertisedPricePerStep: 1},
 	})
 	dl.LogScan([]NetworkInfo{
-		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-X", Signal: -62, IsTollGate: true, PricePerStep: 5},
+		{BSSID: "aa:bb:cc:dd:ee:01", SSID: "TollGate-X", Signal: -62, IsTollGate: true, AdvertisedPricePerStep: 5},
 	})
 
 	summary := dl.Summary()
 	assert.Equal(t, 1, len(summary.KnownTollGates))
-	assert.Equal(t, 5, summary.KnownTollGates[0].PricePerStep, "should track latest price")
+	assert.Equal(t, 5, summary.KnownTollGates[0].AdvertisedPricePerStep, "should track latest price")
 }
 
 func TestDiscoveryLogger_LogProbe(t *testing.T) {

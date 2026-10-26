@@ -193,13 +193,22 @@ func (c *Connector) ExecuteUCI(args ...string) (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		if len(args) > 0 && args[0] == "delete" && strings.Contains(stderr.String(), "Entry not found") {
-			logger.WithField("command", strings.Join(args, " ")).Debug("UCI entry to delete was not found (which is okay)")
-			return "", nil
-		}
-		if len(args) > 0 && args[0] == "get" && strings.Contains(stderr.String(), "Entry not found") {
-			return "", fmt.Errorf("uci: Entry not found")
-		}
+	if len(args) > 0 && args[0] == "delete" && strings.Contains(stderr.String(), "Entry not found") {
+		logger.WithField("command", strings.Join(args, " ")).Debug("UCI entry to delete was not found (which is okay)")
+		return "", nil
+	}
+	if len(args) > 0 && args[0] == "get" && strings.Contains(stderr.String(), "Entry not found") {
+		return "", fmt.Errorf("uci: Entry not found")
+	}
+	if len(args) > 0 && args[0] == "show" && strings.Contains(stderr.String(), "Entry not found") {
+		// No /etc/config/<name> at all — uci's exact wording for a missing
+		// config file. Nothing to show is not a failure (the delete branch
+		// above makes the same call): radio-less systems carry no wireless
+		// config, and callers like GetSTASections parse an empty section
+		// list instead of surfacing a raw exit status (#1002 C1).
+		logger.WithField("command", strings.Join(args, " ")).Debug("UCI config absent for show (treating as empty)")
+		return "", nil
+	}
 		logger.WithFields(logrus.Fields{
 			"error":  err,
 			"stderr": stderr.String(),
@@ -211,6 +220,9 @@ func (c *Connector) ExecuteUCI(args ...string) (string, error) {
 }
 
 func (c *Connector) ExecuteUbus(args ...string) (string, error) {
+	if c.runUbus != nil {
+		return c.runUbus(args...)
+	}
 	cmd := exec.Command("ubus", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -960,7 +972,7 @@ func (c *Connector) RemoveDisabledSTA(ssid string) error {
 	return fmt.Errorf("no disabled upstream found with SSID '%s'", ssid)
 }
 
-func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID string) error {
+func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID, candidateBSSID string) error {
 	candidateRadio, _ := c.ExecuteUCI("get", "wireless."+candidateIface+".device")
 	candidateRadio = strings.TrimSpace(candidateRadio)
 	if candidateRadio == "" {
@@ -979,10 +991,24 @@ func (c *Connector) SwitchUpstream(activeIface, candidateIface, candidateSSID st
 		"candidate_radio": candidateRadio,
 		"active_radio":    activeRadio,
 		"ssid":            candidateSSID,
+		"bssid":           candidateBSSID,
 	}).Info("Switching upstream")
 
 	if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".disabled=0"); err != nil {
 		return fmt.Errorf("failed to enable candidate upstream %s: %w", candidateIface, err)
+	}
+
+	// Pin the candidate to the exact BSSID the scan selected. One SSID can be
+	// served by several BSSIDs across different upstream networks — some with
+	// internet, some captive or isolated — so leaving the choice to the driver
+	// can rejoin the wrong one and leave the manager cycling between them. An
+	// empty BSSID clears any stale pin so the driver may pick.
+	if strings.TrimSpace(candidateBSSID) != "" {
+		if _, err := c.ExecuteUCI("set", "wireless."+candidateIface+".bssid="+candidateBSSID); err != nil {
+			return fmt.Errorf("failed to pin bssid on candidate upstream %s: %w", candidateIface, err)
+		}
+	} else if _, err := c.ExecuteUCI("delete", "wireless."+candidateIface+".bssid"); err != nil {
+		logger.WithField("interface", candidateIface).Debug("no bssid pin to clear on candidate upstream")
 	}
 
 	if activeIface != "" {
