@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -92,6 +93,7 @@ func newIntentMerchant(t *testing.T, wallet *intentWallet, storeDir string) *Mer
 		m.receiveIntentStore = newReceiveIntentStore(filepath.Join(storeDir, "receive-intents.json"))
 	}
 	_ = valve.CloseGate(intentMAC)
+	drainOwedGrantMonitors(t, m)
 	return m
 }
 
@@ -111,6 +113,12 @@ func readIntentStore(t *testing.T, dir string) map[string]*persistedReceiveInten
 // TestReceiveIntentIsDurableBeforeTheMoneyMoves pins persist-before-effect:
 // with Receive blocked mid-call, the journal already holds a pending record
 // for the reference on disk — the crash window cannot orphan the attempt.
+//
+// The async PurchaseSession is the test's subject, but it must not outlive
+// it (#882, #733 class): its post-Receive path drives ndsctl through
+// whichever later test's PATH fake is live. Cleanup releases Receive
+// idempotently (t.Fatal paths cannot deadlock) and waits for the goroutine
+// before the ndsctl fake and store dir are torn down.
 func TestReceiveIntentIsDurableBeforeTheMoneyMoves(t *testing.T) {
 	ndsctl := installRenewalNdsctl(t)
 	ndsctl.setRegistered(t, true)
@@ -118,7 +126,17 @@ func TestReceiveIntentIsDurableBeforeTheMoneyMoves(t *testing.T) {
 	w := &intentWallet{receiveStarted: make(chan struct{}), receiveRelease: make(chan struct{})}
 	m := newIntentMerchant(t, w, dir)
 
-	go func() { _, _ = m.PurchaseSession("cashuBreceive-intent-fixture", intentMAC) }()
+	var purchaseExited sync.WaitGroup
+	purchaseExited.Add(1)
+	releaseReceive := sync.OnceFunc(func() { close(w.receiveRelease) })
+	t.Cleanup(func() {
+		releaseReceive()
+		purchaseExited.Wait()
+	})
+	go func() {
+		defer purchaseExited.Done()
+		_, _ = m.PurchaseSession("cashuBreceive-intent-fixture", intentMAC)
+	}()
 
 	select {
 	case <-w.receiveStarted:
@@ -141,7 +159,7 @@ func TestReceiveIntentIsDurableBeforeTheMoneyMoves(t *testing.T) {
 			t.Fatal("intent keyed by an empty reference")
 		}
 	}
-	close(w.receiveRelease)
+	releaseReceive()
 }
 
 // TestKilledAttemptConvergesAfterRestart is the kill-boundary row

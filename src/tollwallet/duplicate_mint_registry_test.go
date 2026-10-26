@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
@@ -25,7 +24,7 @@ func newTestMint(t *testing.T) (server *httptest.Server, keysetID, pubKeyHex str
 		t.Fatalf("generate private key: %v", err)
 	}
 	pubKeyHex = hex.EncodeToString(priv.PubKey().SerializeCompressed())
-	keysetID = strings.Repeat("ab", 16) // hex-decodable, as AddMint requires
+	keysetID = honestKeysetIDFromPriv(priv) // derived from the key, as AddMint requires (v0.14.0 #705 guard)
 
 	mux := http.NewServeMux()
 	// gonuts requests {mint-base}/v1/keys, i.e. with the mint's path

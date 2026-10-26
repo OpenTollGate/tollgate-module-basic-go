@@ -16,6 +16,10 @@ type upstreamDetector struct {
 	configManager          *config_manager.ConfigManager
 	networkMonitor         NetworkMonitor
 	upstreamSessionManager upstream_session_manager.UpstreamSessionManagerInterface
+	// bondSink is optional: nil on a node that has not opted into an MPTCP
+	// bond. Every call site guards for nil so behaviour is unchanged when it
+	// is absent.
+	bondSink InterfaceEventSink
 
 	// Control channels
 	stopChan chan struct{}
@@ -115,6 +119,23 @@ func (ud *upstreamDetector) SetUpstreamSessionManager(usm upstream_session_manag
 	logger.Info("UpstreamSessionManager set for UpstreamDetector")
 }
 
+// SetBondReconciler wires the MPTCP bond to this detector's interface events.
+//
+// Called by main.go when the node's config enables a bond. Passing nil (or
+// never calling it) leaves behaviour exactly as before, so a node that never
+// opted in is unaffected.
+func (ud *upstreamDetector) SetBondReconciler(sink InterfaceEventSink) {
+	ud.mu.Lock()
+	defer ud.mu.Unlock()
+
+	ud.bondSink = sink
+	if sink == nil {
+		logger.Info("MPTCP bond reconciler not set; bond disabled")
+		return
+	}
+	logger.Info("MPTCP bond reconciler set for UpstreamDetector")
+}
+
 // eventLoop is the main event processing loop
 func (ud *upstreamDetector) eventLoop() {
 	defer ud.wg.Done()
@@ -156,6 +177,16 @@ func (ud *upstreamDetector) handleNetworkEvent(event NetworkEvent) {
 
 // handleInterfaceUp handles interface up events
 func (ud *upstreamDetector) handleInterfaceUp(event NetworkEvent) {
+	// The bond learns about the uplink regardless of whether a gateway was
+	// resolved: an interface can be part of the bond before it has a default
+	// route, and the reconciler decides what that means.
+	if ud.bondSink != nil {
+		if err := ud.bondSink.HandleInterfaceUp(event.InterfaceName, event.GatewayIP); err != nil {
+			logger.WithError(err).WithField("interface", event.InterfaceName).
+				Error("MPTCP bond failed to register uplink")
+		}
+	}
+
 	if event.GatewayIP == "" {
 		logger.WithField("interface", event.InterfaceName).Debug("Interface is up but no gateway found")
 		return
@@ -174,6 +205,15 @@ func (ud *upstreamDetector) handleInterfaceUp(event NetworkEvent) {
 func (ud *upstreamDetector) handleInterfaceDown(event NetworkEvent) {
 	logger.WithField("interface", event.InterfaceName).Info("Interface is down - notifying upstream session manager")
 
+	// Withdraw the uplink from the bond: a departed interface's address must
+	// not stay advertised, or the peer wastes JOIN attempts on a dead path.
+	if ud.bondSink != nil {
+		if err := ud.bondSink.HandleInterfaceDown(event.InterfaceName); err != nil {
+			logger.WithError(err).WithField("interface", event.InterfaceName).
+				Error("MPTCP bond failed to withdraw uplink")
+		}
+	}
+
 	// Notify upstream session manager of disconnect
 	if ud.upstreamSessionManager != nil {
 		err := ud.upstreamSessionManager.HandleDisconnect(event.InterfaceName)
@@ -190,6 +230,15 @@ func (ud *upstreamDetector) handleInterfaceDown(event NetworkEvent) {
 
 // handleAddressAdded handles address added events
 func (ud *upstreamDetector) handleAddressAdded(event NetworkEvent) {
+	// A new address on an uplink is the common DHCP-renewal / STA-association
+	// path, and it is exactly when the bond needs to (re)register an endpoint.
+	if ud.bondSink != nil {
+		if err := ud.bondSink.HandleAddressAdded(event.InterfaceName, event.GatewayIP); err != nil {
+			logger.WithError(err).WithField("interface", event.InterfaceName).
+				Error("MPTCP bond failed to register uplink address")
+		}
+	}
+
 	// For address changes, report the gateway to upstream session manager
 	if event.GatewayIP != "" {
 		logger.WithFields(logrus.Fields{
@@ -203,6 +252,14 @@ func (ud *upstreamDetector) handleAddressAdded(event NetworkEvent) {
 // handleAddressDeleted handles address deleted events
 func (ud *upstreamDetector) handleAddressDeleted(event NetworkEvent) {
 	logger.WithField("interface", event.InterfaceName).Debug("Address deleted from interface - notifying upstream session manager of potential disconnection")
+
+	// The bond must drop the endpoint for a vanished address.
+	if ud.bondSink != nil {
+		if err := ud.bondSink.HandleAddressDeleted(event.InterfaceName, event.GatewayIP); err != nil {
+			logger.WithError(err).WithField("interface", event.InterfaceName).
+				Error("MPTCP bond failed to withdraw uplink address")
+		}
+	}
 
 	// Notify upstream session manager of potential disconnect
 	if ud.upstreamSessionManager != nil {
