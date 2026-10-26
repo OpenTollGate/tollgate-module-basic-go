@@ -76,6 +76,15 @@ jobs:
       - name: Schema lint
         run: node tests/contract/js-schema-lint.mjs
 
+      # The entry-UI marker (/etc/tollgate/entry-ui-mapping, D4 of the
+      # default-ui-and-entry-port decision) is read by three declarations in
+      # two languages and two Go modules (99-tollgate-setup's shell repair,
+      # config_manager's default population, tollgate-cli's resolver). The
+      # fence requires every declaration to use ONE path value; a drifted
+      # copy silently sees "marker absent" and converges the wrong mapping.
+      - name: Entry-UI marker path (one value across shell and Go)
+        run: bash tests/contract/check-entry-ui-marker-path.sh
+
       - name: Portal bundle contract (pin decode + admin-redirect coverage)
         run: |
           # The shipped captive portal is built from .portal.commit, so this
