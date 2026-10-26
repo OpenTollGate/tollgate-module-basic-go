@@ -61,13 +61,23 @@ func Validate(c *cm.MultiWANConfig, fwmark string) error {
 		return fmt.Errorf("multi_wan.mark_base: %w", err)
 	}
 	const mask uint64 = 0x3f00
+	// mwan3 only ever tests and sets bits INSIDE its member mask: it matches
+	// `-m mark --mark 0x0/$MMX_MASK` and writes `--set-xmark v/$MMX_MASK`
+	// (net/mwan3 files/lib/mwan3/mwan3.sh). So a multi_wan base must leave
+	// those bits clear, or mwan3 will overwrite the member index on it.
+	if base == 0 {
+		return fmt.Errorf("multi_wan.mark_base: must be non-zero")
+	}
+	if base&mask != 0 {
+		return fmt.Errorf("multi_wan.mark_base: must not use the mwan3 member bits (mask 0x3f00)")
+	}
 	if fwmark != "" {
 		mark, err := hex(fwmark)
 		if err != nil {
 			return fmt.Errorf("mptcp_bonding.fwmark: %w", err)
 		}
-		if base & ^mask == mark & ^mask {
-			return fmt.Errorf("multi_wan.mark_base range overlaps mptcp_bonding.fwmark (mask 0x3f00)")
+		if base&mark != 0 {
+			return fmt.Errorf("multi_wan.mark_base overlaps mptcp_bonding.fwmark (both use the same bits)")
 		}
 	}
 	if c.HealthCheck.IntervalS < 1 || c.HealthCheck.Down < 1 || c.HealthCheck.Up < 1 {
@@ -264,26 +274,17 @@ func Derive(c *cm.MultiWANConfig, objective string, measurements map[string]Meas
 	if len(members) == 0 {
 		return out, nil
 	}
+	const priceFloor = 1.0 // sats/GiB: keeps the rate/price ratio continuous at price 0
 	best := 0
 	if obj.Mode == "balanced" {
-		free := false
-		for _, x := range members {
-			if *x.price == 0 {
-				free = true
-			}
-		}
-		// Log scores avoid overflow/underflow in rate/price and their sum.
+		// Log scores avoid overflow/underflow in rate/price and their sum. A zero
+		// price is floored, not treated as exclusive: a free line dominates in
+		// practice, but a much faster paid line still earns a share and one flaky
+		// free line cannot zero out every alternative.
 		maxLog := math.Inf(-1)
 		for i := range members {
 			x := &members[i]
-			x.score = math.Inf(-1)
-			if free {
-				if *x.price == 0 {
-					x.score = math.Log(x.m.DownMbps)
-				}
-			} else {
-				x.score = math.Log(x.m.DownMbps) - math.Log(*x.price)
-			}
+			x.score = math.Log(x.m.DownMbps) - math.Log(math.Max(*x.price, priceFloor))
 			if x.score > maxLog {
 				maxLog = x.score
 				best = i

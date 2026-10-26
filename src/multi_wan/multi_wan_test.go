@@ -10,7 +10,7 @@ import (
 )
 
 func fixture() *cm.MultiWANConfig {
-	return &cm.MultiWANConfig{Enabled: true, Engine: "mwan3", AllowChange: "next_session", DefaultObjective: "o", MarkBase: "0x100", HealthCheck: cm.MultiWANHealthCheck{IntervalS: 5, Down: 3, Up: 2}, Sampler: cm.MultiWANSampler{WindowS: 60, MinSamples: 2}, Eligibility: cm.MultiWANEligibility{MinSamples: 2, MaxLossPct: 10, WeightMax: 100}, Uplinks: []cm.MultiWANUplink{{ID: "a", Source: "plain", Cost: &cm.MultiWANCost{Value: 10, Unit: "sats_gib"}}, {ID: "b", Source: "plain", Cost: &cm.MultiWANCost{Value: 20, Unit: "sats_gib"}}}, Objectives: []cm.MultiWANObjective{{ID: "o", Mode: "balanced"}}}
+	return &cm.MultiWANConfig{Enabled: true, Engine: "mwan3", AllowChange: "next_session", DefaultObjective: "o", MarkBase: "0x4000", HealthCheck: cm.MultiWANHealthCheck{IntervalS: 5, Down: 3, Up: 2}, Sampler: cm.MultiWANSampler{WindowS: 60, MinSamples: 2}, Eligibility: cm.MultiWANEligibility{MinSamples: 2, MaxLossPct: 10, WeightMax: 100}, Uplinks: []cm.MultiWANUplink{{ID: "a", Source: "plain", Cost: &cm.MultiWANCost{Value: 10, Unit: "sats_gib"}}, {ID: "b", Source: "plain", Cost: &cm.MultiWANCost{Value: 20, Unit: "sats_gib"}}}, Objectives: []cm.MultiWANObjective{{ID: "o", Mode: "balanced"}}}
 }
 func TestNormalize(t *testing.T) {
 	for _, tc := range []struct {
@@ -52,6 +52,8 @@ func TestValidation(t *testing.T) {
 		{"default", "default_objective", func(c *cm.MultiWANConfig) { c.DefaultObjective = "absent" }},
 		{"mark collision", "overlap", func(c *cm.MultiWANConfig) { c.MarkBase = "0x10000" }},
 		{"mark invalid", "mark_base", func(c *cm.MultiWANConfig) { c.MarkBase = "xyz" }},
+		{"mark in mwan3 mask", "mwan3 member bits", func(c *cm.MultiWANConfig) { c.MarkBase = "0x100" }},
+		{"mark overlaps fwmark", "overlaps", func(c *cm.MultiWANConfig) { c.MarkBase = "0x10001" }},
 		{"tollgate cost", "locally", func(c *cm.MultiWANConfig) { c.Uplinks[0].Source = "tollgate" }},
 		{"override key", "weight_override", func(c *cm.MultiWANConfig) { c.Objectives[0].WeightOverride = map[string]int{"z": 1} }},
 		{"override negative", "weight_override", func(c *cm.MultiWANConfig) { c.Objectives[0].WeightOverride = map[string]int{"a": -1} }},
@@ -161,8 +163,8 @@ func TestOverridesAndUnknownPrice(t *testing.T) {
 	c = fixture()
 	c.Uplinks[0].Cost.Value = 0
 	o, err = Derive(c, "", observations(), "0x10000")
-	if err != nil || o.Weights["a"] != 100 || o.Weights["b"] != 0 {
-		t.Fatal("free-line handling")
+	if err != nil || o.Weights["a"] <= o.Weights["b"] || o.Weights["b"] == 0 {
+		t.Fatalf("free line must dominate but not exclude: %+v %v", o.Weights, err)
 	}
 	if _, err := Derive(c, "missing", m, "0x10000"); err == nil {
 		t.Fatal("unknown objective accepted")
