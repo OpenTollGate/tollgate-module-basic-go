@@ -85,6 +85,15 @@ if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "is not the maintainer key"; th
 else
   bad "refuses a signing key that is not the maintainer key" "rc=$rc out=$out"
 fi
+# The rejection must NAME the offending key's public hex. An empty signer
+# prefix means the pubkey derivation failed (the nak ≥ v0.16 skew class:
+# `nak key public <nsec>` refuses bech32 input) and the guard is rejecting
+# every key for the wrong reason — including the right one.
+if printf '%s' "$out" | grep -qE 'signer [0-9a-f]{16}\.\.\.'; then
+  ok "the maintainer-guard rejection names the signer pubkey"
+else
+  bad "the maintainer-guard rejection names the signer pubkey" "out=$out"
+fi
 if printf '%s' "$out" | grep -q 'nsec1'; then
   bad "never prints the private key on refusal" "output contained an nsec1 token"
 else
@@ -103,7 +112,7 @@ fi
 #    (MAINT_HEX is set to that key's own pubkey), publish attempted. The relay
 #    is unreachable, so the run fails at the publish -- which is the point: it
 #    proves the guard is about identity, not about network reachability.
-SIGNER=$(nak key public "$GEN_NSEC")
+SIGNER=$(nak key public "$GEN_HEX")
 out=$(WT="$TMP/repo" KEYFILE="$TMP/wrong.key" MAINT_HEX="$SIGNER" RELAYS="ws://127.0.0.1:1" \
   bash "$SCRIPT" ".ngit/act/workflows/fake.yml" "$COMMIT" "refs/heads/main" 2>&1); rc=$?
 if printf '%s' "$out" | grep -q "sha256   : $WF_SHA"; then

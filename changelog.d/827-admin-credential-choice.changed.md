@@ -10,3 +10,4 @@
   recovery path (`passwd root` over SSH). A locked root account and an
   unreadable shadow are deliberately exempt
   ([#708](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/708)).
+ ([#827](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/827)).
