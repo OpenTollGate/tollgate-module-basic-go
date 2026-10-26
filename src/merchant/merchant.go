@@ -442,6 +442,17 @@ type Merchant struct {
 	monitorDone chan struct{}
 	monitorOn   bool
 
+	// payoutMu guards the payout routine's and the lightning-quote janitor's
+	// stop channels — same lifecycle discipline as the sweep's monitor fields
+	// above: the payout goroutines (one per accepted mint) and the janitor are
+	// started at construction and must die with the merchant, or a shut-down
+	// merchant keeps attempting payouts against its dead wallet and cleaning
+	// quote state nobody reads, one leaked goroutine set per downgrade/upgrade
+	// cycle (#733's family). nil = not running.
+	payoutMu    sync.Mutex
+	payoutStop  chan struct{}
+	janitorStop chan struct{}
+
 	// Session tickets (see session_ticket.go): a per-process signing key and the
 	// handle -> attachment store. Both are memory-only on purpose.
 	ticketMu sync.Mutex
@@ -477,6 +488,12 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 			}
 			if deg.onUpgrade != nil {
 				deg.onUpgrade(fullMerchant)
+			} else if s, ok := fullMerchant.(interface{ Shutdown() error }); ok {
+				// An upgraded merchant with nowhere to go must not leak the
+				// background work its construction started: nobody will ever
+				// Shut it down. Production always wires onUpgrade; this is the
+				// defensive seam the upgrade-strand tests exercise.
+				_ = s.Shutdown()
 			}
 		})
 		return deg, nil
@@ -509,7 +526,11 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false)
 
 	if walletErr != nil {
-		log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
+		if tollwallet.IsStorageMmapUnsupported(walletErr) {
+			log.Printf("WARNING: Wallet initialization failed — storage filesystem does not support shared mmap (jffs2 overlay?): %v — the wallet can never initialize on this filesystem; move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)", walletErr)
+		} else {
+			log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
+		}
 		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
 		mintHealthTracker.StartProactiveChecks()
 		mintHealthTracker.SetOnFirstReachableForDegraded(func() {
@@ -524,6 +545,11 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 			}
 			if deg.onUpgrade != nil {
 				deg.onUpgrade(fullMerchant)
+			} else if s, ok := fullMerchant.(interface{ Shutdown() error }); ok {
+				// An upgraded merchant with nowhere to go must not leak the
+				// background work its construction started: nobody will ever
+				// Shut it down. Production always wires onUpgrade.
+				_ = s.Shutdown()
 			}
 		})
 		return deg, nil
@@ -566,6 +592,15 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 }
 
 func (m *Merchant) Shutdown() error {
+	// A shut-down merchant must not leave its background work running: the
+	// runtime downgrade path (full -> degraded) Shuts the old merchant down,
+	// and before this the usage sweep it started at construction kept
+	// ticking forever — metering stale sessions and running client-list
+	// reconciliations through ndsctl on a router nobody is attending, one
+	// leaked goroutine per downgrade/upgrade cycle (#733's flake family is
+	// the test-visible face of this). Nil-safe when monitoring never ran.
+	m.stopDataUsageMonitoring()
+	m.stopPayoutAndJanitor()
 	return m.tollwallet.Shutdown()
 }
 
@@ -1326,13 +1361,25 @@ func (m *Merchant) reconcileStaleBinding(macAddress string) {
 func (m *Merchant) StartPayoutRoutine() {
 	log.Printf("Starting payout routine")
 
+	m.payoutMu.Lock()
+	if m.payoutStop == nil {
+		m.payoutStop = make(chan struct{})
+	}
+	payoutStop := m.payoutStop
+	m.payoutMu.Unlock()
+
 	for _, mint := range m.config.AcceptedMints {
 		go func(mintConfig config_manager.MintConfig) {
 			ticker := time.NewTicker(1 * time.Minute)
 			defer ticker.Stop()
 
-			for range ticker.C {
-				m.runPayoutForMint(mintConfig)
+			for {
+				select {
+				case <-payoutStop:
+					return
+				case <-ticker.C:
+					m.runPayoutForMint(mintConfig)
+				}
 			}
 		}(mint)
 	}
@@ -1340,6 +1387,24 @@ func (m *Merchant) StartPayoutRoutine() {
 	m.mintHealthTracker.StartProactiveChecks()
 
 	log.Printf("Payout routine started")
+}
+
+// stopPayoutAndJanitor ends the payout routine's and the lightning-quote
+// janitor's goroutines (one shared stop channel each). Idempotent and nil-safe
+// when neither was started; called from Shutdown so a merchant that is shut
+// down stops attempting payouts against its dead wallet.
+func (m *Merchant) stopPayoutAndJanitor() {
+	m.payoutMu.Lock()
+	payoutStop, janitorStop := m.payoutStop, m.janitorStop
+	m.payoutStop, m.janitorStop = nil, nil
+	m.payoutMu.Unlock()
+
+	if payoutStop != nil {
+		close(payoutStop)
+	}
+	if janitorStop != nil {
+		close(janitorStop)
+	}
 }
 
 // runPayoutForMint runs one payout pass for one mint, or does nothing when the
@@ -1496,7 +1561,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Validate MAC address
 	if !utils.ValidateMACAddress(macAddress) {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "invalid-mac-address",
-			fmt.Sprintf("Invalid MAC address: %s", macAddress), macAddress)
+			fmt.Sprintf("Invalid MAC address: %s", ""), "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("invalid MAC address and failed to create notice: %w", noticeErr)
 		}
@@ -1507,7 +1572,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	paymentCashuToken, err := m.tollwallet.DecodeToken(cashuToken)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-invalid-token",
-			fmt.Sprintf("Invalid cashu token: %v", err), macAddress)
+			fmt.Sprintf("Invalid cashu token: %v", err), "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("invalid cashu token and failed to create notice: %w", noticeErr)
 		}
@@ -1524,7 +1589,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			msg := fmt.Sprintf(
 				"This e-cash note is %d sat but mint %s charges a %d sat swap fee, so there is nothing left to spend. Use a larger token or a mint without fees.",
 				amount, paymentCashuToken.Mint(), fee)
-			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-below-swap-fee", msg, macAddress)
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-below-swap-fee", msg, "")
 			if noticeErr != nil {
 				return nil, fmt.Errorf("token below swap fee and failed to create notice: %w", noticeErr)
 			}
@@ -1553,7 +1618,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// deliberate — a hard refusal here guarantees no renewal can ever work.
 	if !m.sessionIsRenewal(macAddress) && !m.clientRegisteredForGate(macAddress) {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "client-not-registered",
-			"No captive-portal session found for this device. Reconnect to the TollGate Wi-Fi and try again.", macAddress)
+			"No captive-portal session found for this device. Reconnect to the TollGate Wi-Fi and try again.", "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("client not registered and failed to create notice: %w", noticeErr)
 		}
@@ -1574,7 +1639,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	if !m.beginReceive(reference) {
 		log.Printf("PurchaseSession: refusing concurrent duplicate of an in-flight note for mac=%s reference=%s — no second Receive was sent to the mint", macAddress, reference)
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-duplicate-inflight",
-			"This e-cash note is already being processed by this TollGate. Do not send it again — if the mint has taken it, a second attempt will be refused as already spent. Reload this page in a couple of minutes.", macAddress)
+			"This e-cash note is already being processed by this TollGate. Do not send it again — if the mint has taken it, a second attempt will be refused as already spent. Reload this page in a couple of minutes.", "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("duplicate in-flight note and failed to create notice: %w", noticeErr)
 		}
@@ -1605,7 +1670,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 						// refuse without a second Receive — the mint may have
 						// taken the note on the first attempt.
 						noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-outcome-unknown",
-							"This e-cash note was already submitted to this TollGate and its outcome is still being verified. Do not send it again. Reload this page in a couple of minutes.", macAddress)
+							"This e-cash note was already submitted to this TollGate and its outcome is still being verified. Do not send it again. Reload this page in a couple of minutes.", "")
 						if noticeErr != nil {
 							return nil, fmt.Errorf("pending-intent resubmission and failed to create notice: %w", noticeErr)
 						}
@@ -1617,7 +1682,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 				// owes or delivered service for this exact note: the honest
 				// answer is the grant-pending notice, never a second spend.
 				noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-received-grant-pending",
-					"This e-cash note was already received by this TollGate. Do not pay again — if access has not started yet, it will begin automatically (reload in a minute).", macAddress)
+					"This e-cash note was already received by this TollGate. Do not pay again — if access has not started yet, it will begin automatically (reload in a minute).", "")
 				if noticeErr != nil {
 					return nil, fmt.Errorf("resolved-intent resubmission and failed to create notice: %w", noticeErr)
 				}
@@ -1688,7 +1753,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		if reference != "" {
 			message += fmt.Sprintf(" If access does not start, show the operator this reference: %s.", reference)
 		}
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-outcome-unknown", message, macAddress)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-outcome-unknown", message, "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("payment outcome unknown and failed to create notice: %w", noticeErr)
 		}
@@ -1765,7 +1830,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			errorMessage = fmt.Sprintf("Payment processing failed: %v", err)
 		}
 
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode, errorMessage, macAddress)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode, errorMessage, "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("payment processing failed and failed to create notice: %w", noticeErr)
 		}
@@ -1779,7 +1844,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	allotment, err := m.calculateAllotment(amountAfterSwap, mintURL)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-error",
-			fmt.Sprintf("Failed to calculate allotment: %v", err), macAddress)
+			fmt.Sprintf("Failed to calculate allotment: %v", err), "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("failed to calculate allotment and failed to create notice: %w", noticeErr)
 		}
@@ -1801,7 +1866,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		if reference == "" {
 			message = "Your payment was received, but this TollGate could not open your access just now (the portal manager did not answer). Your access will start automatically — you do NOT need to pay again. Reload this page in a minute."
 		}
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-received-grant-pending", message, macAddress)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-received-grant-pending", message, "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("failed to manage session and failed to create notice: %w", noticeErr)
 		}
@@ -1866,6 +1931,10 @@ func isBelowSwapFeeError(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "nothing to swap") ||
 		strings.Contains(msg, "no outputs provided") ||
+		// gonuts-tollgate v0.13.1's belt check (#752): a swap that reached
+		// zero outputs through any path is refused before the mint is
+		// asked — same fee-vs-value family, same clean notice.
+		strings.Contains(msg, "produced no outputs") ||
 		strings.Contains(msg, "swap fees")
 }
 
@@ -2256,7 +2325,12 @@ func (m *Merchant) extractAllotment(sessionEvent *nostr.Event) (uint64, error) {
 	return 0, fmt.Errorf("no allotment tag found in session event")
 }
 
-// CreateNoticeEvent creates a notice event for error communication
+// CreateNoticeEvent creates a notice event for error communication.
+//
+// customerPubkey, when non-empty, MUST be a Nostr pubkey (64 hex chars,
+// tollgate#26): never a MAC or any other device identifier (#950). Values
+// that are not pubkeys are dropped, never emitted — the error message must
+// still reach the customer, but not on a spec-invalid envelope.
 func createNoticeEvent(configManager *config_manager.ConfigManager, level, code, message, customerPubkey string) (*nostr.Event, error) {
 	identities := configManager.GetIdentities()
 	if identities == nil {
@@ -2281,13 +2355,29 @@ func createNoticeEvent(configManager *config_manager.ConfigManager, level, code,
 		Content: message,
 	}
 	if customerPubkey != "" {
-		noticeEvent.Tags = append(noticeEvent.Tags, nostr.Tag{"p", customerPubkey})
+		if !isValidNostrPubkey(customerPubkey) {
+			log.Printf("notice p tag dropped: customerPubkey is not a Nostr pubkey (len=%d, code=%s) — device identifiers must never occupy p (#950)", len(customerPubkey), code)
+		} else {
+			noticeEvent.Tags = append(noticeEvent.Tags, nostr.Tag{"p", customerPubkey})
+		}
 	}
 	err = noticeEvent.Sign(merchantIdentity.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign notice event: %w", err)
 	}
 	return noticeEvent, nil
+}
+
+func isValidNostrPubkey(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {

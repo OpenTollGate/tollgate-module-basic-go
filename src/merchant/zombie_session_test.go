@@ -172,6 +172,10 @@ func TestAbandonedCloseIsNotLoggedAsRetried(t *testing.T) {
 	// gone and the close completes at once, which is the other contract.
 	ndsctl.setRegistered(t, true)
 	ndsctl.failDeauth(t, true)
+	// Lifted in cleanup, not at the end of the body: a mid-test Fatalf must
+	// not leave the marker armed, or the gate cleanup's reconcile cannot
+	// clear this MAC's spent streak (#841).
+	t.Cleanup(func() { ndsctl.failDeauth(t, false) })
 
 	abandonedBefore := valve.GateClosesAbandoned()
 	failuresBefore := valve.GateCloseFailures()
@@ -227,8 +231,6 @@ func TestAbandonedCloseIsNotLoggedAsRetried(t *testing.T) {
 	if got := deauthsFor(t, ndsctl, zombieAbandonedMAC); got != deauthsAfter {
 		t.Fatalf("the module kept driving ndsctl for a gate whose close budget is spent (%d -> %d deauths): that storm is what wedged the socket on the bench", deauthsAfter, got)
 	}
-
-	ndsctl.failDeauth(t, false)
 }
 
 // closeBudgetProbeLimit bounds how much unconfirmed_closes may grow for ONE

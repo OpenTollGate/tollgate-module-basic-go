@@ -718,6 +718,7 @@ func identitySecretState(identities *config_manager.IdentitiesConfig) []string {
 // applySummary renders the applier's results as one line for a CLI message.
 func applySummary(results []SettingResult) string {
 	applied := 0
+	unchanged := 0
 	refused := 0
 	failed := 0
 	skipped := 0
@@ -725,6 +726,8 @@ func applySummary(results []SettingResult) string {
 		switch r.Status {
 		case statusApplied:
 			applied++
+		case statusUnchanged:
+			unchanged++
 		case statusRefused:
 			refused++
 		case statusFailed:
@@ -737,6 +740,9 @@ func applySummary(results []SettingResult) string {
 	var parts []string
 	if applied > 0 {
 		parts = append(parts, fmt.Sprintf("%d applied", applied))
+	}
+	if unchanged > 0 {
+		parts = append(parts, fmt.Sprintf("%d unchanged", unchanged))
 	}
 	if refused > 0 {
 		parts = append(parts, fmt.Sprintf("%d refused", refused))

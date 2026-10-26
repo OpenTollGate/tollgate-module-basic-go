@@ -20,7 +20,10 @@ type Gateway struct {
 	MacAddress    string
 	GatewayIP     string
 	Session       *UpstreamSession
-	mu            sync.RWMutex
+	// portalTriggered enforces workaround TW-1's once-per-gateway-per-process
+	// invocation contract (#768); guarded by mu like Session.
+	portalTriggered bool
+	mu              sync.RWMutex
 }
 
 type UpstreamSessionManager struct {
@@ -107,6 +110,26 @@ func (c *UpstreamSessionManager) HandleGatewayConnected(interfaceName, macAddres
 			"error":   err,
 		}).Error("Failed to extract advertisement information")
 		return err
+	}
+
+	// Workaround TW-1 (#768): the upstream portal trigger fires only now —
+	// after the advertisement validated — and only once per gateway per
+	// process. Firing it from the probe path poked gateway:80 for any HTTP
+	// 200 on :2121, every 30 s detector tick, including gateways whose
+	// advertisement was then rejected (the rc1 bench-verify repro).
+	gateway.mu.Lock()
+	firstAdoption := !gateway.portalTriggered
+	gateway.portalTriggered = true
+	gateway.mu.Unlock()
+	if firstAdoption {
+		go func() {
+			if err := c.tollGateProber.TriggerCaptivePortalSession(context.Background(), gatewayIP); err != nil {
+				logger.WithFields(logrus.Fields{
+					"gateway": gatewayIP,
+					"error":   err,
+				}).Debug("Captive portal trigger failed (non-critical)")
+			}
+		}()
 	}
 
 	// Create session - it handles everything (pricing selection, payments, tracking)
