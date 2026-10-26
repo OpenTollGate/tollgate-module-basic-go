@@ -108,3 +108,6 @@ PR-BODY.md
 PROGRESS.md
 build-review-prompt*.py
 src/cmd/tollgate-cvm/tollgate-cvm
+
+# Per-checkout portal working tree (default PORTAL_DIR, see packaging/portal-build.sh)
+.portal-tree/
