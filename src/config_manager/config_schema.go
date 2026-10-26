@@ -181,6 +181,46 @@ func GetConfigSchema() []FieldSchema {
 			Enum: []string{"board", "luci"},
 		},
 		{
+			Name: "MultiWAN", JSONKey: "multi_wan", Type: "object", Description: "Optional multi-uplink policy intent; omission leaves existing behavior unchanged. Validation and derivation do not apply router configuration.", Editable: true,
+			Children: []FieldSchema{
+				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Enable multi-WAN policy intent.", Editable: true},
+				{Name: "Engine", JSONKey: "engine", Type: "string", Description: "Policy engine targeted by derived configuration.", Enum: []string{"mwan3", "mptcp_bond"}, Editable: true},
+				{Name: "DefaultObjective", JSONKey: "default_objective", Type: "string", Description: "ID of the default objective, referencing objectives.", Editable: true},
+				{Name: "AllowChange", JSONKey: "allow_change", Type: "string", Description: "Whether the buyer may change objective for the next session.", Enum: []string{"next_session", "never"}, Editable: true},
+				{Name: "MarkBase", JSONKey: "mark_base", Type: "string", Description: "Hexadecimal base for policy marks; validated for reserved-bit conflicts by the policy consumer.", Editable: true},
+				{Name: "HealthCheck", JSONKey: "health_check", Type: "object", Description: "Uplink reachability thresholds.", Editable: true, Children: []FieldSchema{
+					{Name: "IntervalS", JSONKey: "interval_s", Type: "int", Description: "Seconds between health checks.", Min: 1, Editable: true},
+					{Name: "Down", JSONKey: "down", Type: "int", Description: "Consecutive failed checks before declaring an uplink down.", Min: 1, Editable: true},
+					{Name: "Up", JSONKey: "up", Type: "int", Description: "Consecutive successful checks before declaring an uplink up.", Min: 1, Editable: true},
+					{Name: "TrackIPs", JSONKey: "track_ips", Type: "array", Description: "IP addresses probed to determine uplink reachability.", Editable: true},
+				}},
+				{Name: "Sampler", JSONKey: "sampler", Type: "object", Description: "Measurement sampling window.", Editable: true, Children: []FieldSchema{
+					{Name: "WindowS", JSONKey: "window_s", Type: "int", Description: "Rolling sample window in seconds.", Min: 1, Editable: true},
+					{Name: "MinSamples", JSONKey: "min_samples", Type: "int", Description: "Minimum samples needed for a measurement.", Min: 1, Editable: true},
+				}},
+				{Name: "Eligibility", JSONKey: "eligibility", Type: "object", Description: "Thresholds for uplink eligibility and policy weights.", Editable: true, Children: []FieldSchema{
+					{Name: "MinSamples", JSONKey: "min_samples", Type: "int", Description: "Minimum samples before an uplink is eligible.", Min: 1, Editable: true},
+					{Name: "MaxLossPct", JSONKey: "max_loss_pct", Type: "float64", Description: "Maximum eligible packet loss percentage.", Min: 0.0, Max: 100.0, Editable: true},
+					{Name: "WeightMax", JSONKey: "weight_max", Type: "int", Description: "Maximum normalized uplink weight.", Min: 1, Max: 256, Editable: true},
+				}},
+				{Name: "Uplinks", JSONKey: "uplinks", Type: "array", Description: "Available uplinks, identified by unique IDs.", Editable: true, Children: []FieldSchema{
+					{Name: "ID", JSONKey: "id", Type: "string", Description: "Stable unique uplink identifier.", Editable: true},
+					{Name: "Label", JSONKey: "label", Type: "string", Description: "Operator-facing uplink label.", Editable: true},
+					{Name: "Source", JSONKey: "source", Type: "string", Description: "Origin of uplink availability and cost information.", Enum: []string{"tollgate", "plain"}, Editable: true},
+					{Name: "Cost", JSONKey: "cost", Type: "object", Description: "Optional known cost; omission means unknown, not free.", Editable: true, Children: []FieldSchema{
+						{Name: "Value", JSONKey: "value", Type: "float64", Description: "Non-negative uplink cost in the declared unit.", Min: 0.0, Editable: true},
+						{Name: "Unit", JSONKey: "unit", Type: "string", Description: "Cost unit normalized at measured rate; flat_month is not comparable.", Enum: []string{"sats_gib", "sats_mib", "sats_min", "flat_month"}, Editable: true},
+					}},
+				}},
+				{Name: "Objectives", JSONKey: "objectives", Type: "array", Description: "Named policies; the default objective references one ID.", Editable: true, Children: []FieldSchema{
+					{Name: "ID", JSONKey: "id", Type: "string", Description: "Stable unique objective identifier.", Editable: true},
+					{Name: "Label", JSONKey: "label", Type: "string", Description: "Operator-facing objective label.", Editable: true},
+					{Name: "Mode", JSONKey: "mode", Type: "string", Description: "Objective policy selection mode.", Enum: []string{"balanced", "cost", "speed"}, Editable: true},
+					{Name: "WeightOverride", JSONKey: "weight_override", Type: "object", Description: "Optional map of uplink IDs to non-negative integer weights, bounded by eligibility.weight_max.", Editable: true},
+				}},
+			},
+		},
+		{
 			Name: "MPTCPBonding", JSONKey: "mptcp_bonding", Type: "object",
 			Description: "Optional MPTCP multi-WAN bond. Disabled by default; " +
 				"enabling it registers uplink addresses as MPTCP subflow endpoints.",
