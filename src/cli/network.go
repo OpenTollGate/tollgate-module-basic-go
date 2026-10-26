@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +68,15 @@ func (s *CLIServer) handlePrivateNetworkCommand(args []string, flags map[string]
 			return s.handlePrivateNetworkSetPassword("")
 		}
 		return s.handlePrivateNetworkSetPassword(args[1])
+	case "set-address":
+		if len(args) < 2 {
+			return CLIResponse{
+				Success:   false,
+				Error:     "set-address requires an IPv4 address with an optional /24 suffix (e.g. 10.9.8.1/24)",
+				Timestamp: time.Now(),
+			}
+		}
+		return s.handlePrivateNetworkSetAddress(args[1])
 	case "set-encryption":
 		if len(args) < 2 {
 			return CLIResponse{
@@ -79,7 +89,7 @@ func (s *CLIServer) handlePrivateNetworkCommand(args []string, flags map[string]
 	default:
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Unknown private network action: %s (supported: status, enable, disable, rename, set-password, set-encryption)", action),
+			Error:     fmt.Sprintf("Unknown private network action: %s (supported: status, enable, disable, rename, set-password, set-encryption, set-address)", action),
 			Timestamp: time.Now(),
 		}
 	}
@@ -511,6 +521,127 @@ func reloadWireless() error {
 	cmd := exec.Command("wifi", "reload")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to reload wireless: %v", err)
+	}
+	return nil
+}
+
+func (s *CLIServer) handlePrivateNetworkSetAddress(spec string) CLIResponse {
+	ip, err := parsePrivateAddressSpec(spec)
+	if err != nil {
+		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
+	}
+
+	// The interface section must be one the TollGate setup wrote: `uci set`
+	// on a missing section CREATES it, and a bare interface with no
+	// proto/device is not a private network (same refusal as the radio
+	// commands below).
+	if _, err := getUCIValue("network.private"); err != nil {
+		return CLIResponse{
+			Success:   false,
+			Error:     "this router has no private network (no network.private interface); run the TollGate setup first",
+			Timestamp: time.Now(),
+		}
+	}
+
+	// The durable store's named section, created on first pin exactly the way
+	// 99-tollgate-setup creates tollgate.device (`uci set cfg.sec=type`).
+	if _, err := getUCIValue("tollgate.private"); err != nil {
+		if err := setUCIValue("tollgate.private", "private"); err != nil {
+			return CLIResponse{
+				Success:   false,
+				Error:     fmt.Sprintf("Failed to create the private-address store: %v", err),
+				Timestamp: time.Now(),
+			}
+		}
+	}
+
+	for _, kv := range [][2]string{
+		{"network.private.ipaddr", ip},
+		{"network.private.netmask", "255.255.255.0"},
+		{"tollgate.private.ipaddr", ip},
+	} {
+		if err := setUCIValue(kv[0], kv[1]); err != nil {
+			return CLIResponse{
+				Success:   false,
+				Error:     fmt.Sprintf("Failed to set %s: %v", kv[0], err),
+				Timestamp: time.Now(),
+			}
+		}
+	}
+	if err := commitUCI("network"); err != nil {
+		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
+	}
+	if err := commitUCI("tollgate"); err != nil {
+		return CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}
+	}
+
+	// Deliver to a running netifd. Warning-only by design: both halves are
+	// committed, so a host without the init script (development) or a failed
+	// reload still converges at the next network restart or boot — the same
+	// durable-half reasoning as the admin-scope fragment.
+	warning := ""
+	if err := reloadNetwork(); err != nil {
+		cliLogger.WithError(err).Warn("Failed to reload the network after a private-address change")
+		warning = fmt.Sprintf(" (warning: could not reload the network now: %v — the address is committed and applies at the next network restart or reboot)", err)
+	}
+
+	return CLIResponse{
+		Success:   true,
+		Message:   fmt.Sprintf("Private network address set to %s/24 and pinned%s. Devices on the old subnet (including this session) must reconnect on %s/24.", ip, warning, ip),
+		Timestamp: time.Now(),
+	}
+}
+
+func parsePrivateAddressSpec(spec string) (string, error) {
+	spec = strings.TrimSpace(spec)
+	addr := spec
+	if i := strings.IndexByte(spec, '/'); i >= 0 {
+		addr = spec[:i]
+		if spec[i+1:] != "24" {
+			return "", fmt.Errorf("only a /24 is supported (got '%s'): the management network's DHCP pool and collision checks assume a /24; give the router's own address, e.g. 10.9.8.1/24", spec[i+1:])
+		}
+	}
+
+	octets := strings.Split(addr, ".")
+	if len(octets) != 4 {
+		return "", fmt.Errorf("'%s' is not an IPv4 address: give the router's own address in the management network, e.g. 10.9.8.1/24", spec)
+	}
+	for _, o := range octets {
+		if o == "" || len(o) > 3 {
+			return "", fmt.Errorf("'%s' is not an IPv4 address", spec)
+		}
+		for _, ch := range o {
+			if ch < '0' || ch > '9' {
+				return "", fmt.Errorf("'%s' is not an IPv4 address", spec)
+			}
+		}
+		if len(o) > 1 && o[0] == '0' {
+			return "", fmt.Errorf("'%s' is not an IPv4 address (octet '%s' has a leading zero)", spec, o)
+		}
+		if v, err := strconv.Atoi(o); err != nil || v > 255 {
+			return "", fmt.Errorf("'%s' is not an IPv4 address (octet '%s' is out of range)", spec, o)
+		}
+	}
+
+	host, err := strconv.Atoi(octets[3])
+	if err != nil {
+		return "", fmt.Errorf("'%s' is not an IPv4 address", spec)
+	}
+	if host == 0 || host == 255 {
+		return "", fmt.Errorf("'%s' is a network/broadcast address, not a usable router address: give the router's own address, e.g. %s.1", addr, strings.Join(octets[:3], "."))
+	}
+	return addr, nil
+}
+
+// networkReloadCommand is the reload seam for handlePrivateNetworkSetAddress:
+// tests point it at a shim, the router runs the real init script.
+var networkReloadCommand = []string{"/etc/init.d/network", "reload"}
+
+// reloadNetwork applies the committed network config to a running netifd.
+func reloadNetwork() error {
+	cmd := exec.Command(networkReloadCommand[0], networkReloadCommand[1:]...)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("network reload failed: %v", err)
 	}
 	return nil
 }
