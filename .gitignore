@@ -25,6 +25,14 @@ src/tollgate-module-basic-go
 src/cmd/tollgate-cli/tollgate-cli
 *.exe
 
+# Per-developer Go workspace overrides. Local fork redirects belong in a
+# go.work file (gitignored, never committed or stashed), never in go.mod —
+# a replace directive whose target directory is missing makes every build
+# fail like a code regression (#550). scripts/check-dangling-replace.sh
+# guards the go.mod side.
+go.work
+go.work.sum
+
 # Test artifacts
 **/tollwallet_db/*
 tests/*.bin
@@ -72,12 +80,12 @@ ulw-*.md
 # Captive portal build output (built from source via packaging/portal-build.sh)
 packaging/files/tollgate-captive-portal-site/assets/
 # The rest of the bundle staged from the same pinned portal commit: the admin
-# board SPA, the rpcd plugin + ACL and the 92-tollgate-admin-setup
+# board SPA, the rpcd plugin + ACL and the 999-tollgate-admin-setup
 # uci-default. Build products — never commit built JS (upstream issue #335).
 packaging/files/tollgate-admin/
 packaging/files/usr/libexec/rpcd/tollgate
 packaging/files/usr/share/rpcd/acl.d/tollgate.json
-packaging/files/etc/uci-defaults/92-tollgate-admin-setup
+packaging/files/etc/uci-defaults/999-tollgate-admin-setup
 # Portal build records written by packaging/portal-build.sh.
 packaging/portal-resolved.sha
 packaging/portal-build-inputs.json
@@ -94,3 +102,9 @@ tests/cloud-lab/conformance/__pycache__/
 # Conformance lane runtime state (tokens stashed between phases, generated
 # config, verdict parts, evidence logs) — see tests/cloud-lab/conformance/.
 tests/cloud-lab/.conformance/
+
+# session scratch (review prompts + PR body are session artifacts, not deliverables)
+PR-BODY.md
+PROGRESS.md
+build-review-prompt*.py
+src/cmd/tollgate-cvm/tollgate-cvm

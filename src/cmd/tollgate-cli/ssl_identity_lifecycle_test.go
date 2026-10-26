@@ -259,7 +259,7 @@ func TestSSLCoversJSONContract(t *testing.T) {
 	}{
 		{
 			name:       "covering identity",
-			certPath:   writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIP)),
+			certPath:   writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIP, "")),
 			wantCovers: true,
 		},
 		{

@@ -75,7 +75,7 @@ func TestCertPathFollowsTheEntryListener(t *testing.T) {
 // from have to live on the same section, or the entry serves HTTPS without a
 // redirect (or a redirect towards a listener that is not there).
 func TestRedirectIsWrittenOnTheEntryListener(t *testing.T) {
-	good := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIP))
+	good := writeTestCertPEM(t, selfSignedTemplate(testRouterHostname, testRouterLANIP, ""))
 	stubUCI(t, map[string]string{
 		"system.@system[0].hostname": testRouterHostname,
 		"network.lan.ipaddr":         testRouterLANIPWithPrefix,

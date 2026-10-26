@@ -42,7 +42,10 @@ infer_target_settings() {
             : "${GOARCH:=arm64}"
             ;;
         bcm27xx-bcm2709-*)
-            : "${EXPECTED_ARCH:=arm_cortex-a7}"
+            # The bcm2709 SDK packages under arm_cortex-a7_neon-vfpv4,
+            # not the bare arm_cortex-a7 — the short name fails the
+            # staged-packages dir check and kills the copy step.
+            : "${EXPECTED_ARCH:=arm_cortex-a7_neon-vfpv4}"
             : "${GOARCH:=arm}"
             : "${GOARM:=7}"
             ;;
@@ -79,18 +82,7 @@ HOST_ARTIFACT_PATH="$ARTIFACT_DIR/$ARTIFACT_SUBDIR"
 HOST_LOG_PATH="$HOST_ARTIFACT_PATH/build.log"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# VERSION at the repository root is the single source of truth for the release
-# version (see AGENTS.md, "Version single source of truth"). CI passes the tag
-# down as PACKAGE_VERSION; a local run with no override gets exactly the string
-# the release tag must equal. The 0.0.0-r0 stub is only for a tree with no
-# VERSION file (this script copied out of the repository).
-if [ -z "$PACKAGE_VERSION" ]; then
-    if [ -f "$REPO_ROOT/VERSION" ]; then
-        PACKAGE_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")"
-    else
-        PACKAGE_VERSION="0.0.0-r0"
-    fi
-fi
+
 STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 
@@ -101,6 +93,14 @@ TG_ROOT="$REPO_ROOT"
 export TG_ROOT
 . "$REPO_ROOT/packaging/build-env.sh"
 
+# One version knob (#941): TG_VERSION overrides the ldflags stamp, the
+# package version and the __TOLLGATE_VERSION__ marker together; the
+# repository-root VERSION file is the fallback (build-env.sh tg_version).
+# PACKAGE_VERSION stays as the package-only legacy override — CI passes
+# the tag down through it — and feeds the ldflags too, so stamp and
+# package cannot diverge here; the post-build fence below asserts it.
+PACKAGE_VERSION="${PACKAGE_VERSION:-$(tg_version)}"
+
 GO_BIN="${GO_BIN:-go}"
 ACTIVE_GO="$("$GO_BIN" version | awk '{print $3}')"
 if [ "$ACTIVE_GO" != "go$GO_VERSION" ] && [ "${TG_ALLOW_GO_MISMATCH:-0}" != "1" ]; then
@@ -109,7 +109,9 @@ if [ "$ACTIVE_GO" != "go$GO_VERSION" ] && [ "${TG_ALLOW_GO_MISMATCH:-0}" != "1" 
     exit 1
 fi
 
-SDK_IMAGE="$(sdk_image_ref "$SDK_TAG")"
+# The packaging format selects the SDK era (25.12/apk vs 24.10/ipk)
+export TG_PACKAGE_FORMAT="$PACKAGE_FORMAT"
+SDK_IMAGE="$(sdk_image_ref "$SDK_TAG" "$PACKAGE_FORMAT")"
 
 mkdir -p "$ARTIFACT_DIR"
 rm -rf "$HOST_ARTIFACT_PATH"
@@ -147,6 +149,36 @@ printf '%s\n' 'Building target binaries locally before invoking the OpenWrt SDK.
     env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
         "$GO_BIN" build -o "$STAGE_DIR/tollgate" -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 )
+(
+    cd "$REPO_ROOT/src/cmd/tollgate-cvm"
+    # No version ldflags: the CVM daemon's build identity travels in the
+    # CEP-6 announcement's pubkey, not a stamped string — same as the
+    # twin stanza in packaging/local-build-ipk.sh. The SDK Makefile refuses
+    # to build without PREBUILT_CVM staged (packaging/Makefile), and this
+    # script is the stager — missing it broke every apk-lane build since
+    # the CVM daemon landed (local-build-ipk.sh was never affected).
+    env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
+        "$GO_BIN" build -o "$STAGE_DIR/tollgate-cvm" -trimpath -buildvcs=false
+)
+
+# The CVM control-plane daemon is its own module. Build it when the pinned
+# tree carries it (main does; older tags predate it), matching the feed's
+# presence-conditional CVM stanza. No version ldflags: the daemon's identity
+# travels in its CEP-6 announcement pubkey, and packaging/Makefile stages it
+# the same way as packaging/local-build-ipk.sh.
+if [ -d "$REPO_ROOT/src/cmd/tollgate-cvm" ]; then
+    (
+        cd "$REPO_ROOT/src/cmd/tollgate-cvm"
+        env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
+            "$GO_BIN" build -o "$STAGE_DIR/tollgate-cvm" -trimpath -buildvcs=false .
+    )
+fi
+
+# #941: the rc5 package shipped a binary stamped from a lagged VERSION
+# file. Assert the stamp landed — the binaries are cross-compiled, so
+# the fence reads the embedded string rather than executing them.
+tg_assert_version_consistency "$STAGE_DIR/tollgate-wrt" "$PACKAGE_VERSION"
+tg_assert_version_consistency "$STAGE_DIR/tollgate" "$PACKAGE_VERSION"
 
 cp -r "$REPO_ROOT/packaging/." "$STAGE_DIR/"
 cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/LICENSE"
@@ -211,11 +243,13 @@ printf '[preflight] Using parallel jobs=%s\n' "$JOBS"
 
 env PACKAGE_VERSION="$PACKAGE_VERSION" make -j"$JOBS" V=s package/tollgate-wrt/compile
 
-if [ "$PACKAGE_FORMAT" = "ipk" ]; then
-    test -d "/builder/bin/packages/$EXPECTED_ARCH"
-else
-    compgen -G "/builder/build_dir/target-${EXPECTED_ARCH}_*" > /dev/null
-fi
+# The packages dir uses the canonical arch name (underscores) for BOTH
+# formats; the build_dir spells feature sets with "+" (e.g. target-
+# arm_cortex-a7+neon-vfpv4_musl_eabi), so globbing it from EXPECTED_ARCH
+# can only match arches without "+" — bcm2709 failed here after a
+# successful build. The packages-dir test is the real "SDK produced
+# packages for our arch" gate in both eras.
+test -d "/builder/bin/packages/$EXPECTED_ARCH"
 
 mapfile -t PACKAGE_PATHS < <(find /builder/bin/packages /builder/bin/targets -type f -name "tollgate-wrt*.${PACKAGE_EXTENSION}" 2>/dev/null | sort)
 if [ "${#PACKAGE_PATHS[@]}" -eq 0 ]; then
