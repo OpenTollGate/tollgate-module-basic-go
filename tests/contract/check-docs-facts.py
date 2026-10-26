@@ -70,7 +70,10 @@ def main() -> int:
         ROOT / "scripts" / "go-battery.sh",
         ROOT / "scripts" / "release-check.sh",
     ]
-    pattern = re.compile(r"(\d+)(?: nested)? (?:go\.mod files|modules)", re.IGNORECASE)
+    # backticked claims ("16 nested `go.mod` files") are the same claim and
+    # must be fenced too — they were invisible to the first pattern and had
+    # drifted on main while the check passed
+    pattern = re.compile(r"(\d+)(?: nested)? ?(?:`?go\.?mod`? ?)?(?:files|modules)", re.IGNORECASE)
     claims = 0
     for cf in claim_files:
         if not cf.exists():
