@@ -2274,12 +2274,16 @@ setup_tollgate_firewall_rules() {
 }
 
 setup_profile_hook() {
-    grep -q "first-login-setup" /etc/profile && return
+    # migrate pre-rename installs: the hook used to live at
+    # /usr/local/bin/first-login-setup (OpenWrt packages do not ship
+    # /usr/local) — drop the stale line so upgrades re-add the new one
+    sed -i '\|/usr/local/bin/first-login-setup|d' /etc/profile 2>/dev/null
+    grep -q "tollgate-first-login-setup" /etc/profile && return
     cat >> /etc/profile << 'EOF'
 
 # TollGate first login setup
 if [ ! -f /etc/first_login_done ] && [ -t 0 ] && [ -t 1 ]; then
-    /usr/local/bin/first-login-setup
+    /usr/bin/tollgate-first-login-setup
 fi
 EOF
 }
