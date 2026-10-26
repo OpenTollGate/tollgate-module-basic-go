@@ -58,6 +58,24 @@ func GetConfigSchema() []FieldSchema {
 			Description: "Enable reseller mode for upstream gateway discovery", Default: false, Required: true, Editable: true,
 		},
 		{
+			// The wholesale channel rail. DISABLED by default: a router that has
+			// not opted in must not expose a payment surface at all, and with
+			// enabled=false the /spilman routes are never registered, so every
+			// path under them 404s from the mux without a handler running.
+			//
+			// This entry exists because the config struct declares these fields:
+			// a field that is in Config but absent from the schema is invisible to
+			// the UI, which is how an operator ends up with a rail they cannot see
+			// or configure. TestSchemaCoversAllConfigStructFields enforces that.
+			Name: "Spilman", JSONKey: "spilman", Type: "object",
+			Description: "Wholesale Spilman payment-channel rail (disabled by default: the /spilman surface is not mounted unless enabled)", Required: false, Editable: true,
+			Children: []FieldSchema{
+				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Mount the /spilman channel surface. When false, every /spilman path 404s", Default: false, Required: true, Editable: true},
+				{Name: "ChannelDBPath", JSONKey: "channel_db_path", Type: "string", Description: "Durable channel ledger path. REQUIRED when enabled: the rail refuses to start without it rather than serving bytes against an in-memory ledger whose credit is lost on restart", Default: "", Required: false, Editable: true},
+				{Name: "InBytesPerMillisat", JSONKey: "in_bytes_per_millisat", Type: "int", Description: "Billed bytes per millisat. 0 means the parity rate (one 21 MiB step bills 1000 msat == 1 sat). Advertised over GET /spilman/params so buyer and seller price identically", Default: 0, Required: false, Editable: true, Min: 0},
+			},
+		},
+		{
 			Name: "AuthDelaySeconds", JSONKey: "auth_delay_seconds", Type: "int",
 			Description: "Delay in seconds before authorizing MAC after payment (0 = immediate)", Default: 0, Required: false, Editable: true, Min: 0, Max: 300,
 		},
