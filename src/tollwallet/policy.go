@@ -24,7 +24,7 @@ type PolicyMatch struct {
 // PolicyRule maps a target to a backend.
 type PolicyRule struct {
 	Match   PolicyMatch `json:"match"`
-	Backend string      `json:"backend"` // gonuts | cdk | nucula
+	Backend string      `json:"backend"` // gonuts | cdk
 	Socket  string      `json:"socket,omitempty"`
 	Note    string      `json:"note,omitempty"`
 }

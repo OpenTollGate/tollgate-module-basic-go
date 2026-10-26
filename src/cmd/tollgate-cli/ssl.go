@@ -218,7 +218,7 @@ func sslApply(args []string) error {
 	// identity.
 	var applyErr error
 	if len(args) == 0 {
-		applyErr = sslApplySelfSigned(lanIP)
+		applyErr = sslApplySelfSigned(lanIP, privateIPFromUCI())
 	} else {
 		applyErr = sslApplyRealCert(args, lanIP)
 	}
@@ -244,7 +244,7 @@ func identityInstalled() bool {
 	return err == nil && !key.IsDir() && key.Size() > 0
 }
 
-func sslApplySelfSigned(lanIP string) error {
+func sslApplySelfSigned(lanIP, privateIP string) error {
 	hostname, err := uciGet("system.@system[0].hostname")
 	if err != nil || hostname == "" {
 		hostname = "TollGate"
@@ -258,7 +258,7 @@ func sslApplySelfSigned(lanIP string) error {
 		return fmt.Errorf("failed to generate RSA key: %w", err)
 	}
 
-	tmpl := selfSignedTemplate(hostname, lanIP)
+	tmpl := selfSignedTemplate(hostname, lanIP, privateIP)
 
 	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
@@ -733,22 +733,38 @@ func parseLanIP(value string) string {
 	return ip.String()
 }
 
+// privateIPFromUCI reads network.private.ipaddr (the br-private management
+// address) and returns the bare address, or "" when it is unset (a router that
+// has not run the private-network setup, or an older install). Best-effort: a
+// missing management address must not fail the identity.
+func privateIPFromUCI() string {
+	return parseLanIP(uciGetOrEmpty("network.private.ipaddr"))
+}
+
 // routerSANs is the identity this router must present: the configured hostname,
 // its <hostname>.lan alias (dnsmasq serves the system hostname in the 'lan'
-// zone) and the LAN address the admin listeners bind.
-func routerSANs(hostname, lanIP string) (dnsNames []string, ipAddresses []net.IP) {
+// zone), and the addresses the admin listeners bind — the LAN address AND the
+// MANAGEMENT (br-private) address. The board and LuCI live on the management
+// bridge, so an operator who reaches the UI by its management IP must not hit a
+// hostname mismatch on top of the (expected) self-signed warning.
+func routerSANs(hostname, lanIP, privateIP string) (dnsNames []string, ipAddresses []net.IP) {
 	if h := strings.TrimSpace(hostname); h != "" {
 		dnsNames = append(dnsNames, h+".lan", h)
 	}
-	if ip := net.ParseIP(parseLanIP(lanIP)); ip != nil {
-		ipAddresses = append(ipAddresses, ip)
+	seen := map[string]bool{}
+	for _, raw := range []string{lanIP, privateIP} {
+		ip := net.ParseIP(parseLanIP(raw))
+		if ip != nil && !seen[ip.String()] {
+			seen[ip.String()] = true
+			ipAddresses = append(ipAddresses, ip)
+		}
 	}
 	return dnsNames, ipAddresses
 }
 
 // selfSignedTemplate is the ONE certificate template this product generates;
 // `ssl apply` and the unattended setup path both go through it.
-func selfSignedTemplate(hostname, lanIP string) *x509.Certificate {
+func selfSignedTemplate(hostname, lanIP, privateIP string) *x509.Certificate {
 	domain := strings.TrimSpace(hostname)
 	if domain == "" {
 		domain = "TollGate"
@@ -756,7 +772,7 @@ func selfSignedTemplate(hostname, lanIP string) *x509.Certificate {
 	if !strings.HasSuffix(domain, ".lan") {
 		domain += ".lan"
 	}
-	dnsNames, ipAddresses := routerSANs(hostname, lanIP)
+	dnsNames, ipAddresses := routerSANs(hostname, lanIP, privateIP)
 	serialNumber, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	return &x509.Certificate{
 		SerialNumber: serialNumber,
@@ -782,6 +798,20 @@ func routerTLSNames() (hosts, ips []string) {
 	}
 	if ip := parseLanIP(uciGetOrEmpty("network.lan.ipaddr")); ip != "" {
 		ips = append(ips, ip)
+	}
+	// The MANAGEMENT (br-private) address too: the board and LuCI answer there,
+	// so a certificate that covers it IS a usable identity for this router.
+	if ip := privateIPFromUCI(); ip != "" {
+		taken := false
+		for _, existing := range ips {
+			if existing == ip {
+				taken = true
+				break
+			}
+		}
+		if !taken {
+			ips = append(ips, ip)
+		}
 	}
 	return hosts, ips
 }

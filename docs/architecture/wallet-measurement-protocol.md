@@ -47,7 +47,7 @@ committed `env.txt` next to the raw output:
 | 1 | Hardware / arch | `uname -a`; `cat /proc/cpuinfo` (model, CPU count, MHz); `cat /proc/device-tree/model` if present; for a router also the exact device name and the `board_name` from `/tmp/sysinfo/board_name` |
 | 2 | OS image + version | `cat /etc/openwrt_release` and `cat /etc/openwrt_version` (on the build host: `uname -a`, distro `/etc/os-release`) |
 | 3 | Build commands | the literal `run.sh` line(s) run, including env vars (`CGO_ENABLED`, `GOARCH`, `GOARM`, `GOMIPS`, `RUSTFLAGS`, `CC`, `TARGET_CC`) |
-| 4 | Candidate revision | commit SHA of gonuts / CDK / nucula and the SHA of the adapter file under test; `sha256sum` of every produced binary |
+| 4 | Candidate revision | commit SHA of the backend (gonuts / CDK) and the SHA of the adapter file under test; `sha256sum` of every produced binary |
 | 5 | Raw output | unedited stdout/stderr + the machine-readable form (`.json`/`.csv`), committed |
 | 6 | Provenance | who ran it, when (UTC), on which host (router serial / QEMU invocation / build host name), and whether it is **on-device** or **emulated** |
 
@@ -431,7 +431,7 @@ Any disagreement that no scripted procedure can resolve is a **blocker**.
 One file per candidate per environment, at minimum containing:
 
 ```yaml
-candidate: gonuts-tollgate            # or cdk / cdk-go / nucula
+candidate: gonuts-tollgate            # or cdk / cdk-go
 revision: <sha>
 adapter_file: src/tollwallet/gonuts_wallet.go
 env: ENV-ROUTER-A64

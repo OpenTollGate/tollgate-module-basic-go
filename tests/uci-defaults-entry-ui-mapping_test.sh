@@ -86,6 +86,11 @@ export TOLLGATE_ENTRY_UI_CONFIG="$ENTRY_UI_CONFIG"
 # touch the build host's /etc/tollgate.
 export ADMIN_PROVISIONAL_MARKER="$TMP/etc/tollgate/admin-credential-provisional"
 export PRIVATE_WIFI_PROVISIONAL_MARKER="$TMP/etc/tollgate/private-wifi-credential-provisional"
+# The staged-admin-script probe (D4 signal 2): sandboxed, and ABSENT unless a
+# scenario deliberately stages it, so the default scenarios below exercise the
+# marker-only gate exactly as before.
+ADMIN_SETUP_PROBE="$TMP/etc/uci-defaults/999-tollgate-admin-setup"
+export TOLLGATE_ENTRY_UI_ADMIN_SETUP="$ADMIN_SETUP_PROBE"
 export ENTRY_UI_JQ_BIN="$TMP/bin/jq"
 export SHADOW_FILE="$TMP/shadow"
 export PASSWD_FILE="$TMP/passwd"
@@ -294,7 +299,7 @@ done
 # code, run by /bin/sh, with only the absolute live-system paths redirected.
 build_script() { # build_script <source-file>
     sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-        -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
+        -e "s|^LOGFILE=\"\${LOGFILE:-/tmp/tollgate-setup\.log}\"\$|LOGFILE=$LOGFILE|" \
         -e "s|^UHTTPD_INIT=\"/etc/init\.d/uhttpd\"\$|UHTTPD_INIT=\"$UHTTPD_INIT\"|" \
         -e "s|^TOLLGATE_CLI=\"/usr/bin/tollgate\"\$|TOLLGATE_CLI=\"$TOLLGATE_CLI\"|" \
         -e "s|^PROVISIONED_CERT=\"/etc/tollgate/ssl/server\.crt\"\$|PROVISIONED_CERT=\"$PROVISIONED_CERT\"|" \
@@ -315,10 +320,11 @@ build_script() { # build_script <source-file>
 build_script "$ROOT/$SCRIPT" || bad "harness could not build the script under test"
 if grep -q "^ENTRY_UI_CONFIG=\"\${TOLLGATE_ENTRY_UI_CONFIG" "$SCRIPT_UNDER_TEST" &&
    grep -q "^ENTRY_UI_MARKER=\"\${TOLLGATE_ENTRY_UI_MARKER" "$SCRIPT_UNDER_TEST" &&
+   grep -q "^ENTRY_UI_ADMIN_SETUP=\"\${TOLLGATE_ENTRY_UI_ADMIN_SETUP" "$SCRIPT_UNDER_TEST" &&
    grep -q "^TOLLGATE_CLI=\"$TOLLGATE_CLI\"\$" "$SCRIPT_UNDER_TEST"; then
-    ok "harness pinned the config + marker env seams and redirected the CLI"
+    ok "harness kept the env-override seams (config, marker, credential markers, admin-setup probe) and redirected the CLI"
 else
-    bad "harness could not redirect the entry_ui config path in the copied script"
+    bad "harness could not pin the entry_ui env seams in the copied script — a run would read the host's live paths"
 fi
 if sh -n "$ROOT/$SCRIPT" 2>"$TMP/syntax.err"; then
     ok "the shipped setup script is valid /bin/sh"
@@ -391,7 +397,8 @@ seed_base() {
     : > "$UHTTPD_CALLS"
     : > "$LOGFILE"
     rm -f "$FLAG" "$ENTRY_UI_MARKER" "$PROVISIONED_CERT" "$PROVISIONED_KEY" \
-          "$UHTTPD_IMAGE_CERT" "$UHTTPD_IMAGE_KEY" "$UHTTPD_RUNNING" "$OPTOUT_FILE"
+          "$UHTTPD_IMAGE_CERT" "$UHTTPD_IMAGE_KEY" "$UHTTPD_RUNNING" "$OPTOUT_FILE" \
+          "$ADMIN_SETUP_PROBE"
     mkdir -p "$TMP/config" "$(dirname "$UHTTPD_IMAGE_CERT")"
     printf 'IMAGE-PLACEHOLDER-CERT (DER: CN=OpenWrt, SAN DNS:OpenWrt)\n' > "$UHTTPD_IMAGE_CERT"
     printf 'IMAGE-PLACEHOLDER-KEY\n' > "$UHTTPD_IMAGE_KEY"
@@ -603,6 +610,48 @@ rc=$?
 [ "$rc" = 0 ] && ok "reinstall: the driver exits 0" \
               || bad "reinstall: exit $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
 assert_board_mapping "reinstall (board)"
+
+echo
+echo "== G. the staged-admin-script signal (the in-package lane, #849)"
+# D4 signal 2: when THIS package ships the mode-aware admin writer as
+# /etc/uci-defaults/999-tollgate-admin-setup, its presence at install time is
+# proof both halves arrive together — the marker cannot exist yet on a fresh
+# install (its writer runs numerically AFTER this script). Honoring board then,
+# and RECORDING it in the marker, is what keeps uhttpd.main off the entry pair
+# the admin writer later claims (the #849 tear).
+mkdir -p "$(dirname "$ADMIN_SETUP_PROBE")"
+
+# G1: the staged script is mode-aware (carries the marker protocol) -> board is
+# honoured with NO marker, and the mapping this run applied is recorded.
+seed_base; write_config '{"entry_ui":"board"}'; seed_main 8080 443; seed_admin 8080 443
+printf '#!/bin/sh\nTOLLGATE_ENTRY_UI_MARKER="${TOLLGATE_ENTRY_UI_MARKER:-/etc/tollgate/entry-ui-mapping}"\nexit 0\n' > "$ADMIN_SETUP_PROBE"
+run_driver __ABSENT__
+rc=$?
+[ "$rc" = 0 ] && ok "staged-mode-aware: the driver exits 0" \
+              || bad "staged-mode-aware: exit $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
+assert_board_mapping "staged-mode-aware"
+if [ "$(cat "$ENTRY_UI_MARKER" 2>/dev/null)" = board ]; then
+    ok "staged-mode-aware: the applied board mapping is recorded in the marker"
+else
+    bad "staged-mode-aware: the marker is '$(cat "$ENTRY_UI_MARKER" 2>/dev/null)' (want board — the persistent record)"
+fi
+[ "$(warn_count)" = 0 ] && ok "staged-mode-aware: no D4 repair WARNING" \
+                         || bad "staged-mode-aware: $(warn_count) WARNING line(s) — both halves are present, nothing to repair"
+
+# G2: a staged script WITHOUT the marker protocol is a pre-switch writer under
+# the 999 name — presence alone must NOT arm the board signal (that is the
+# #849 tear wearing a different filename). Repair to luci, one WARNING.
+seed_base; write_config '{"entry_ui":"board"}'; seed_main 8080 443; seed_admin 8090 8443
+printf '#!/bin/sh\n# pre-switch revision: hardcodes the secondary pair\nexit 0\n' > "$ADMIN_SETUP_PROBE"
+run_driver __ABSENT__
+rc=$?
+[ "$rc" = 0 ] && ok "staged-pre-switch: the driver exits 0" \
+              || bad "staged-pre-switch: exit $rc (stderr: $(head -n 3 "$TMP/run.err" | tr '\n' ' '))"
+assert_luci_mapping "staged-pre-switch"
+[ "$(warn_count)" = 1 ] && ok "staged-pre-switch: exactly one WARNING is logged" \
+                        || bad "staged-pre-switch: $(warn_count) WARNING line(s) logged (want exactly 1)"
+[ ! -e "$ENTRY_UI_MARKER" ] && ok "staged-pre-switch: no marker is written for a repaired mapping" \
+                            || bad "staged-pre-switch: a marker appeared for a repaired mapping ('$(cat "$ENTRY_UI_MARKER" 2>/dev/null)')"
 
 echo
 printf 'tests: %d passed, %d failed\n' "$PASS" "$FAIL"
