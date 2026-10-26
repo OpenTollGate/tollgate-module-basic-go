@@ -78,6 +78,10 @@ run_deps_imports() {
     python3 tests/contract/check-deps-sync.py >"$tmpdir/deps.log" 2>&1 || ok=1
     python3 tests/contract/check-mirror-sync.py >>"$tmpdir/deps.log" 2>&1 || ok=1
     python3 tests/contract/check-import-paths.py >>"$tmpdir/deps.log" 2>&1 || ok=1
+    # The go.sum fence (#976): a merge can leave importers' go.sum
+    # incomplete (#975 class) and every other gate stays green — the
+    # per-module `go build` probe is the only thing that catches it.
+    bash tests/contract/check-gosum-completeness.sh >>"$tmpdir/deps.log" 2>&1 || ok=1
     # The gonuts pin: identity offline, plus the --latest release-time verdict
     # (#791) — a release is not cut while the wallet fork has a newer stable
     # tag than the one every carrier pins (the #705-in-v0.13.2 near-miss).
