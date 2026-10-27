@@ -36,6 +36,38 @@
     "repo": "https://github.com/OpenTollGate/tollgate-captive-portal-site.git",
     "commit": "22a04f8f7557b491ea6a4998a60f814e9542fd1e"
   },
+  "nodogsplash": {
+    "comment": "The captive-portal daemon the module gates the network THROUGH. A RUNTIME dependency, not a byte of ours: we ship no part of it, we ship a DEPENDS on it (packaging/Makefile) and the SDK/feed resolves which one that is. Until this pin existed nothing in the repo named the version, so a feed bump silently changed what we ship. SOURCE OF TRUTH: the OpenWrt feed branch of each era (openwrt/routing, branch openwrt-<series>), which is what the era's digest-pinned SDK compiles against and what a router installs from. tests/contract/check-nodogsplash-pin.py audits this block three ways (offline identity, live feed, resolved artifact) and REFUSES on mismatch; it never edits, because bumping the daemon is a decision with its own risk, not a refresh.",
+    "upstream": {
+      "repo": "https://github.com/nodogsplash/nodogsplash",
+      "tag": "v5.0.2",
+      "comment": "The upstream release the feed recipe builds. Shared by both eras today; the per-era blocks below carry the feed's packaging release, which is where the eras actually differ."
+    },
+    "per_era": {
+      "apk": {
+        "version": "5.0.2",
+        "release": "2",
+        "feed_repo": "openwrt/routing",
+        "feed_package": "nodogsplash",
+        "feed_branch": "openwrt-25.12",
+        "downloads_arch": "x86_64",
+        "source_hash": "908d3674e93726fdcefb4c3b6705c745753435df9d46425781a57e3f6b417797",
+        "comment": "The only FEATURE target (25.12/apk). PKG_VERSION/PKG_RELEASE of openwrt/routing@openwrt-25.12; the released 25.12.0 feed publishes nodogsplash-5.0.2-r2.apk. source_hash is the feed recipe's PKG_HASH — the tarball the SDK unpacks. downloads_arch is the arch whose released-feed index is read to prove the package is PUBLISHED (the version is arch-independent; x86_64 always exists)."
+      },
+      "ipk": {
+        "version": "5.0.2",
+        "release": "1",
+        "feed_repo": "openwrt/routing",
+        "feed_package": "nodogsplash",
+        "feed_branch": "openwrt-24.10",
+        "downloads_arch": "x86_64",
+        "source_hash": "908d3674e93726fdcefb4c3b6705c745753435df9d46425781a57e3f6b417797",
+        "comment": "FROZEN compatibility lane (<=24.10/ipk, security and stop-ship fixes only). openwrt/routing@openwrt-24.10 has never taken -r2, so the released 24.10.8 feed publishes nodogsplash_5.0.2-r1_<arch>.ipk."
+      }
+    },
+    "era_divergence": "The two eras DO resolve different packaging releases of the same upstream version: apk 5.0.2-r2, ipk 5.0.2-r1 (the -r2 bump landed on the 25.12 branch only). That is why this pin is per-era rather than one string: a single value would be a false equality, passing for one lane while naming a package the other lane does not publish. Any consumer that names a nodogsplash version with a -rN suffix must name one of these two, and tests/contract/check-nodogsplash-pin.py reports which era each carrier matched instead of collapsing them.",
+    "rebuild": "Bumping this pin is NOT the way to get a fix: scripts/* do not rewrite it. Raise the feed's PKG_RELEASE upstream, or carry a deliberate decision (changelog fragment + ADR) — the daemon's behaviour is what every gate, session and pre-auth allow-list in this repo was bench-verified against, so a version change is a re-verification event."
+  },
   "openwrt_sdk": {
     "image": "openwrt/sdk",
     "go_per_release": {
