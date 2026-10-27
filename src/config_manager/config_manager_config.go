@@ -622,9 +622,15 @@ func migrateConfig(config *Config, defaults *Config) {
 	}
 	config.ConfigVersion = defaults.ConfigVersion
 	for i := range config.AcceptedMints {
-		if config.AcceptedMints[i].PriceUnit == "sats" {
-			config.AcceptedMints[i].PriceUnit = "sat"
-			log.Printf("INFO: Migrated price_unit sats to sat for mint %s", config.AcceptedMints[i].URL)
+		// Any non-canonical spelling, not just the one this migration was
+		// originally written for: "sats", "Sats", " sat " and an unset value
+		// all mean the satoshi unit. The advertisement is canonicalised
+		// independently, so a config that was missed here still cannot put a
+		// non-protocol unit on the wire.
+		if canonical := CanonicalPriceUnit(config.AcceptedMints[i].PriceUnit); canonical != config.AcceptedMints[i].PriceUnit {
+			log.Printf("INFO: Migrated price_unit %q to %q for mint %s",
+				config.AcceptedMints[i].PriceUnit, canonical, config.AcceptedMints[i].URL)
+			config.AcceptedMints[i].PriceUnit = canonical
 		}
 	}
 }

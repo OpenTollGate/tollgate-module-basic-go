@@ -2137,7 +2137,12 @@ func CreateAdvertisement(configManager *config_manager.ConfigManager, tracker *M
 			"price_per_step",
 			"cashu",
 			fmt.Sprintf("%d", mintConfig.PricePerStep),
-			mintConfig.PriceUnit,
+			// Advertise the protocol's spelling, never the config's. A config
+			// that says "sats" must not put "sats" on the wire: consumers
+			// compare this against the "sat" inside the customer's token and a
+			// literal mismatch rejects valid e-cash (the portal reports it as a
+			// keyset rotation). See config_manager.CanonicalPriceUnit.
+			config_manager.CanonicalPriceUnit(mintConfig.PriceUnit),
 			mintConfig.URL,
 			fmt.Sprintf("%d", mintConfig.MinPurchaseSteps),
 		})
