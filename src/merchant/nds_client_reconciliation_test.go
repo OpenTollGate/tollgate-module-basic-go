@@ -21,9 +21,23 @@ import (
 //
 //   - an `ndsctl auth` run by hand, by an operator script, or by a second
 //     process;
-//   - a client restored from NoDogSplash's own state file when the SERVICE
-//     restarts (nodogsplash exports its client list on SIGTERM and imports it at
-//     startup, nodogsplash 5.0.2 src/main.c:147/304);
+//   - a client NoDogSplash itself restored across a SERVICE restart, IF the
+//     running build imports client state at startup. Upstream v5.0.2 (the tag
+//     `net/nodogsplash/Makefile` pins) has NO state-file integration: the
+//     tarball has no `src/state_file.{c,h}`, its `src/conf.c` has no state-file
+//     option, and `termination_handler` calls `auth_client_deauth_all()` on
+//     SIGTERM. The feature landed POST-TAG in nodogsplash 9b2bc7b (committed
+//     2025-08-27, adding `src/state_file.{c,h}`), which the `v5.0.2...9b2bc7b`
+//     compare places 16 commits ahead of the tag — a descendant of it, not an
+//     ancestor — so it exists only on upstream HEAD, in no release.
+//     TODO(unverified): whether the nodogsplash package the DEPLOYED router
+//     actually runs carries a backport of 9b2bc7b. The feed's `net/nodogsplash`
+//     (PKG_VERSION 5.0.2, PKG_RELEASE 2, tarball hash 908d3674...417797 = the
+//     v5.0.2 tarball) declares no patch series, which suggests not — but that is
+//     the feed's Makefile, not the router, so the question is open either way.
+//     The reverse drift this pass closes does not depend on the answer — an
+//     `ndsctl auth` the module never made, and the degraded-boot case below,
+//     both stand without it;
 //   - a box that came up DEGRADED (no reachable mint), where
 //     MerchantDegraded.StartDataUsageMonitoring is a no-op, so the startup pass
 //     does not run at all until the upgrade constructs a full merchant.

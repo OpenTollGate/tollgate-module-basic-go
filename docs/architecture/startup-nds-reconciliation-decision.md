@@ -154,14 +154,49 @@ so the Go backend is the sole authority on session end): the window is a day, no
 1. **An authorisation the module did not make.** `ndsctl auth` run by hand, by an
    operator script, or by a second process authorises a client that never enters
    this module's session map at all. There is no restart, so no startup pass runs.
-2. **A client restored by NoDogSplash's own state file.** nodogsplash 5.0.2
-   exports its client list on SIGTERM and imports it at startup
-   (`src/main.c:147`/`:304`, `src/state_file.c`), and `state_file_import_client`
-   re-applies the recorded state through `auth_change_state`. A restart of the
-   **service** (an OpenWrt upgrade, a crash, `opkg` reinstalling it) therefore
-   restores Authenticated clients the module has never seen — and because
-   nodogsplash is not restarted with the module, the module's own startup pass may
-   not even run in the same event.
+2. **A client restored by a nodogsplash build that imports a state file across a
+   SERVICE restart — not by the version this repo pins.** An earlier revision of
+   this paragraph asserted the opposite: *nodogsplash 5.0.2 exports its client
+   list on SIGTERM and imports it at startup* (`src/main.c:147`/`:304`,
+   `src/state_file.c`, `state_file_import_client`, `auth_change_state`). **That
+   claim was false, and the upstream v5.0.2 source does not contain the feature
+   at all.** Checked on 2026-10-27 against the v5.0.2 source tarball — the exact
+   tarball `net/nodogsplash/Makefile` downloads (`PKG_VERSION:=5.0.2`,
+   `PKG_HASH:=908d3674e93726fdcefb4c3b6705c745753435df9d46425781a57e3f6b417797`;
+   the downloaded tarball's sha256 matches that pin):
+   `src/state_file.{c,h}` do not exist in it, `grep -rn state_file src/` is empty,
+   `src/conf.c` has no state-file option, and `termination_handler`
+   (`src/main.c:126-158`) calls `auth_client_deauth_all()` and destroys the
+   firewall on SIGTERM. `src/main.c` is 371 lines, so the `:304` half of the old
+   citation pointed at nothing like a state-file import.
+   The feature landed **POST-TAG** in nodogsplash commit `9b2bc7b`
+   ("Implement a state file to allow nodogsplash to be restarted", authored
+   2025-08-19, committed 2025-08-27; it adds `src/state_file.{c,h}`,
+   `tests/state_file/*`, and touches `src/main.c`, `src/conf.c`, `src/auth.c`,
+   `src/client_list.c`, `Makefile`, `debian/control`). GitHub's compare
+   `v5.0.2...9b2bc7b` reports *ahead by 16, behind by 0* with `9b2bc7b` the
+   newest of those 16, i.e. the state-file commit is **not an ancestor of the
+   tag**, and upstream's tag list stops at `v5.0.2`. So the symbol
+   `state_file_import_client` exists only on upstream HEAD. The door this item
+   names therefore exists only on a build that backports `9b2bc7b`.
+   **TODO(unverified): whether the nodogsplash package the DEPLOYED routers
+   actually run carries such a backport.** Feed-level evidence points the other
+   way — the feed's `net/nodogsplash` (`PKG_VERSION:=5.0.2`, `PKG_RELEASE:=2`,
+   that same tarball hash) declares no `patches/` series and its
+   `files/etc/init.d/nodogsplash` mentions no state file, and
+   `feed-freedomtech`'s copy of the package directory is identical — but a feed
+   Makefile is not proof about the binary on a given box. Settling it needs the
+   installed package's build dir or `ndsctl`/`nodogsplash` behaviour on a
+   deployed box. Record the answer here before citing this door again, in either
+   direction.
+   What the door WOULD be, on such a build: a restart of the **service** (an
+   OpenWrt upgrade, a crash, `opkg` reinstalling it) restores Authenticated
+   clients the module has never seen — and because nodogsplash is not restarted
+   with the module, the module's own startup pass may not even run in the same
+   event. The pass the amendment below decides does not depend on this item: doors
+   1 and 3 stand without it, which is why the decision is sound either way and
+   why citing an unreleased feature as a released one was never needed to justify
+   it.
 3. **A box whose merchant came up degraded.** `MerchantDegraded.StartDataUsageMonitoring`
    is a no-op, so `ReconcileNdsAuthorisationsOnStartup` does not run at all until a
    mint becomes reachable and the upgrade constructs a full merchant
