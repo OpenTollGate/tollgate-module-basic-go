@@ -31,6 +31,16 @@ if git diff --cached --name-only | grep -qE '(^|/)go\.mod$|(^|/)go\.sum$|^packag
     python3 tests/contract/check-gonuts-pin.py
 fi
 
+# The captive-portal daemon is a NAMED version, not a floating runtime
+# dependency. Offline identity leg only: it is a glob over the tree, so it
+# belongs here for the same reason the gonuts pin does — a doc edit or a
+# manifest edit can break it, and neither should reach a commit unnoticed.
+# The --feed leg needs the network and stays in CI/release-check.
+if git diff --cached --name-only | grep -qE '\.(md|sh|py|nft|json|ya?ml|go)$'; then
+    echo "🔍 Checking the nodogsplash pin (the captive-portal daemon is a named version)..."
+    python3 tests/contract/check-nodogsplash-pin.py
+fi
+
 # The cold-sums shadow (the #1036 class): a go.sum gap only fires when the
 # module graph resolves without a warm build cache — release lanes reused
 # built packages and shipped main with two carriers un-buildable cold.
