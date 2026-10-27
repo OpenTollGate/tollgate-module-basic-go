@@ -1,12 +1,58 @@
 # NDS fw4/nftables enforcement bridge
 #
-# NDS 5.0.2 inserts enforcement chains in ip filter FORWARD (iptables-nft).
-# On OpenWrt 24.10, fw4's inet fw4 forward chain (priority 0) accepts
-# forwarded traffic before the ip filter FORWARD chain (same priority)
-# ever sees it — leaving NDS's enforcement chain dead (0 packets).
+# WHAT WAS OBSERVED (the symptom, #283): NDS 5.0.2 inserts its enforcement
+# chains in `ip filter FORWARD` (iptables-nft) and its marking chains in
+# mangle PREROUTING. On the bench box the marks were being set correctly,
+# yet clients that should have been gated were not, and the NDS chains read
+# 0 packets. This file gates on the marks independently of NDS's own chains.
+# No counter dump, `fw4 print`, or per-chain capture survives with that
+# report: the 0-packet reading is remembered, not archived.
 #
-# This include hooks into inet fw4 forward at priority -1, BEFORE fw4's
-# accept. It checks marks set by NDS's mangle PREROUTING (priority -150):
+# WHAT IS *NOT* ESTABLISHED (retracting what this header used to say): the
+# old text claimed fw4's `inet fw4 forward` (priority 0) "accepts forwarded
+# traffic before the `ip filter FORWARD` chain (same priority) ever sees it
+# — leaving NDS's enforcement chain dead (0 packets)". That does not follow
+# from nftables semantics, and measurement contradicts it. An `accept`
+# verdict is final only for the base chain that issued it: a packet
+# accepted by one base chain still traverses later base chains on the same
+# hook. Measured 2026-10-27 on a three-namespace forwarding rig (nftables
+# 1.0.9, kernel 7.0.0-38; 3 echo requests = 6 forwarded packets):
+#   * accept at priority 0 in one chain, a same-priority chain in the other
+#     family behind it: BOTH counted 6/6, in both registration orders, and
+#     the flow completed.
+#   * accept at priority -1, a priority-0 chain behind it: 6/6 again.
+#   * drop at priority -1, a priority-0 chain behind it: 3, then 0.
+# So an accept cannot hide a flow from a later chain, and the cause of the
+# 0-packet observation is UNKNOWN. Do not repeat the shadowing explanation
+# as fact — in code, tests, docs or review. If it must be mentioned at all,
+# call it a refuted hypothesis and cite this header.
+#
+# THE STANDING HAZARD: same-priority base chains have UNSPECIFIED relative
+# order (AGENTS.md, "Firewall, nftables, and topology-naming rules of
+# engagement"). NDS's `ip filter FORWARD` and fw4's `inet fw4 forward` both
+# sit at priority filter, so nothing may be assumed about which runs first
+# — not on the box that failed, not on the next one. A new base chain at a
+# priority where cross-chain order matters is a bug; pick an earlier or
+# later priority deliberately, which is why this file sits at -1.
+#
+# A TRAP FOR THE NEXT MEASUREMENT: what does preempt a later chain is a
+# terminal verdict, and this chain ends in `reject` at priority -1 — ahead
+# of NDS's priority-0 chain. On the same rig the shipped shape left an
+# NDS-shaped chain at 0 packets for an unmarked flow, while a marked flow
+# this chain accepts still reached it (3/3). On any build carrying this
+# file, NDS `ndsNET`/`FORWARD` counters at 0 are therefore CONSISTENT WITH
+# THE FIX WORKING and say nothing about fw4. Never diagnose the gate from
+# that zero; read this chain's own counters.
+#
+# WHAT WOULD SETTLE THE ORIGINAL QUESTION: a packet-path measurement with a
+# known-marked single flow (one client MAC, one protocol, one destination),
+# read from ONE `nft list ruleset` snapshot, using counter-only probe chains
+# at every priority in the path (-150, -1, 0, +1) in BOTH the `ip` and
+# `inet` families, alongside the `fw4 print` output showing the chain set
+# and priorities fw4 actually rendered. Capture it per build lane: the
+# 24.10/ipk and 25.12/apk lanes do not necessarily render the same ruleset.
+#
+# This include checks marks set by NDS's mangle PREROUTING (priority -150):
 #   0x10000 = pre-authenticated → drop
 #   0x20000 = trusted           → accept
 #   0x30000 = authenticated     → accept

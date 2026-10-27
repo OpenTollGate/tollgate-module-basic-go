@@ -420,7 +420,12 @@ echo "== the guard fragments are unchanged and still br-lan-scoped"
 # br-lan). The RULES are unchanged — a diff of the two revisions with comment lines
 # stripped is empty — and the scope assertions below still prove the br-lan literal,
 # which is the property that matters. Re-pinned deliberately, with that proof.
-GUARD_DIGESTS='20-nds-enforce 4cae6ef31d23d10ee4a730e1b2797281
+#
+# 20-nds-enforce is re-pinned the same way, after the same proof: its false causal
+# header ("fw4's accept hides the flow from the later ip chain") was replaced with
+# the measured account and the refutation, comment-only — `git diff` of the fragment
+# filtered to non-comment lines is empty. The digest moves; the rules do not.
+GUARD_DIGESTS='20-nds-enforce 7e609b995d05064df3803c6fde1b9f59
 30-backend-firewall 9d4702bdc1d2b468fb39a402372bb27c
 31-admin-board-not-guest-reachable e854e0650a2a532cf787e69156b3ddae
 32-luci-not-guest-reachable c86e5dc022b8a4108f305eba7febefe1'
