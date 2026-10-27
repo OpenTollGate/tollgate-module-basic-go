@@ -61,12 +61,78 @@ func TestApplyIdenticalNoOp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	marks, err := RenderMarks(c, o)
+	if err != nil {
+		t.Fatal(err)
+	}
 	r.files["/etc/config/mwan3"] = []byte(text)
+	r.files[marksFragmentPath] = []byte(marks)
 	result, err := a.Apply(context.Background(), c, o, nil)
-	if err != nil || result.Changed || result.MWAN3Restarted || result.BackupPath != "" || result.MarksFragmentPath != "/etc/nftables.d/50-multiwan-marks.nft" {
+	if err != nil || result.Changed || result.MWAN3Restarted || result.BackupPath != "" || result.MarksFragmentPath != marksFragmentPath {
 		t.Fatalf("%+v %v", result, err)
 	}
-	if !reflect.DeepEqual(r.calls, []string{"read /etc/config/mwan3"}) {
+	want := []string{"read /etc/config/mwan3", "read " + marksFragmentPath}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatal(r.calls)
+	}
+}
+
+// An identical mwan3 config must still make a missing/stale marks fragment
+// converge: a partial apply (or a hand-deleted fragment) must not depend on
+// the mwan3 bytes changing.
+func TestApplyIdenticalConfigReconcilesMissingMarks(t *testing.T) {
+	a, r, o := applyFixture()
+	c := fixture()
+	text, err := RenderMWAN3(c, o, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marks, err := RenderMarks(c, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.files["/etc/config/mwan3"] = []byte(text)
+	result, err := a.Apply(context.Background(), c, o, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Changed || result.MWAN3Restarted || result.BackupPath != "" {
+		t.Fatalf("mwan3 must not be rewritten/restarted: %+v", result)
+	}
+	if got := string(r.files[marksFragmentPath]); got != marks {
+		t.Fatalf("marks fragment not reconciled: %q", got)
+	}
+	want := []string{"read /etc/config/mwan3", "read " + marksFragmentPath, "write " + marksFragmentPath, "run fw4 reload"}
+	if !reflect.DeepEqual(r.calls, want) {
+		t.Fatal(r.calls)
+	}
+}
+
+// Content cannot distinguish a completed apply from one whose commit/restart
+// failed; Force is the deliberate retry for that half.
+func TestApplyForceRetriesCommitAndRestart(t *testing.T) {
+	a, r, o := applyFixture()
+	c := fixture()
+	text, err := RenderMWAN3(c, o, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marks, err := RenderMarks(c, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.files["/etc/config/mwan3"] = []byte(text)
+	r.files[marksFragmentPath] = []byte(marks)
+	a.Force = true
+	result, err := a.Apply(context.Background(), c, o, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Changed || !result.MWAN3Restarted || result.BackupPath != "" {
+		t.Fatalf("%+v", result)
+	}
+	want := []string{"read /etc/config/mwan3", "run uci commit mwan3", "run /etc/init.d/mwan3 restart", "read " + marksFragmentPath}
+	if !reflect.DeepEqual(r.calls, want) {
 		t.Fatal(r.calls)
 	}
 }

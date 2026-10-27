@@ -34,6 +34,11 @@ type Applier struct {
 	Run       Runner
 	BackupDir string
 	Now       func() time.Time
+	// Force re-runs uci commit + the mwan3 restart even when the rendered
+	// config is byte-identical. The content cannot tell a completed apply
+	// from one whose commit/restart failed, so a deliberate retry of a
+	// partial apply sets this; the marks fragment is reconciled either way.
+	Force bool
 }
 
 // Result is also returned on error so callers retain the recovery handle.
@@ -73,8 +78,17 @@ func (a *Applier) Apply(ctx context.Context, cfg *cm.MultiWANConfig, objectives 
 	if err != nil {
 		return result, fmt.Errorf("read current mwan3: %w", err)
 	}
-	if bytes.Equal(current, []byte(mwan3)) {
-		return result, nil
+	identical := bytes.Equal(current, []byte(mwan3))
+	if identical {
+		// The config is already current. Still reconcile the marks fragment:
+		// a partial apply (or a hand-deleted fragment) must converge on retry.
+		if a.Force {
+			if err := a.commitAndRestart(ctx); err != nil {
+				return result, err
+			}
+			result.MWAN3Restarted = true
+		}
+		return a.reconcileMarks(ctx, marks, result)
 	}
 	if !filepath.IsAbs(a.BackupDir) || filepath.Clean(a.BackupDir) == "/" {
 		return result, fmt.Errorf("multi_wan: BackupDir must be a non-root absolute path")
@@ -108,6 +122,12 @@ func (a *Applier) Apply(ctx context.Context, cfg *cm.MultiWANConfig, objectives 
 		return result, err
 	}
 	result.MWAN3Restarted = true
+	return a.reconcileMarks(ctx, marks, result)
+}
+
+// reconcileMarks writes the rendered marks fragment when it is missing or
+// different, backing up any existing copy first, and reloads fw4 only then.
+func (a *Applier) reconcileMarks(ctx context.Context, marks string, result Result) (Result, error) {
 	currentMarks, err := a.Run.ReadFile(ctx, marksFragmentPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return result, fmt.Errorf("read marks fragment: %w", err)

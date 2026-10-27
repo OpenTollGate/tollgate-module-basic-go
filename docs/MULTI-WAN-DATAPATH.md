@@ -83,9 +83,13 @@ and other writers to these files. Use a trusted, absolute `BackupDir`; its
 permissions are set to 0700. The runner must execute literal argv, preserve
 `os.ErrNotExist`, and should replace files atomically and durably.
 
-An identical `/etc/config/mwan3` is a strict no-op: no backup, writes, commit,
-restart, or fragment reconciliation, even if the marks fragment is missing or
-stale. Otherwise the old configuration must be readable and is backed up as
+An identical `/etc/config/mwan3` is not rewritten or backed up, and mwan3 is
+not restarted. The **marks fragment is still reconciled** — a missing or stale
+fragment is written and `fw4` reloaded — so a partial apply (or a hand-deleted
+fragment) converges on the next Apply. Setting `Applier.Force` additionally
+re-runs `uci commit mwan3` and the restart: content alone cannot distinguish a
+completed apply from one whose commit/restart failed, so that recovery is
+explicit. Otherwise the old configuration must be readable and is backed up as
 `<BackupDir>/mwan3.<UTC timestamp with nanoseconds>.bak` (0600); an existing
 backup path is refused rather than overwritten. After the backup succeeds,
 the applier writes the new configuration (0600), runs `uci commit mwan3`, then
@@ -115,9 +119,10 @@ UCI, mwan3, and fw4. The durable backup precedes the first configuration write.
 If a later step fails (or the process dies), use
 `Restore(ctx, backupPath)` to write the old configuration, commit UCI, and
 restart mwan3 before retrying. Restore does not undo an already-written marks
-fragment or reload fw4: the caller must separately reconcile that fragment and
-ensure NDS keepalive recovery. A blind Apply retry after a partial failure can
-hit the strict identical-config no-op and will not finish the failed steps.
+fragment or reload fw4: the next Apply reconciles the fragment (that step is no
+longer gated on the mwan3 content) and the caller must still ensure NDS
+keepalive recovery. A failed commit/restart is invisible to a content
+comparison; recover it with `Applier.Force` (or `Restore` then re-apply).
 
 ## Non-goals
 
