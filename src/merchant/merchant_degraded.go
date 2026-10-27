@@ -2,6 +2,7 @@ package merchant
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -179,6 +180,14 @@ func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, 
 	wallet, err := walletFactory(walletPath, mintURLs)
 	if err != nil {
 		deg.walletInitErr = err
+		if errors.Is(err, tollwallet.ErrWalletLocked) {
+			// Not "first boot or no cached data": another process holds the
+			// DB, and no mint-state transition can change that (#504).
+			log.Printf("Degraded mode: wallet database is held by another process — "+
+				"stop the other wallet holder (daemon or sidecar); the mint-recovery "+
+				"upgrade cannot succeed while it runs: %v", err)
+			return deg
+		}
 		if tollwallet.IsStorageMmapUnsupported(err) {
 			log.Printf("Degraded mode: wallet storage filesystem does not support shared mmap (jffs2 overlay?): %v — the wallet can NEVER initialize on this filesystem; move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)", err)
 		} else {

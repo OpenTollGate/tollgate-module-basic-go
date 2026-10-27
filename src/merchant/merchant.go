@@ -539,6 +539,19 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	return newFullMerchant(configManager, mintHealthTracker)
 }
 
+// walletLockBootError decides the boot consequence of a wallet-open failure
+// for the single-writer invariant (#504): a database lock held by another
+// process fails the boot with an operator-actionable message — degrading
+// instead would put a second, wallet-less daemon behind the same config, and
+// the socket-steal race makes that daemon the one the CLI talks to. Any other
+// construction failure keeps the established degraded-mode behavior.
+func walletLockBootError(walletErr error) error {
+	if !errors.Is(walletErr, tollwallet.ErrWalletLocked) {
+		return nil
+	}
+	return fmt.Errorf("another process holds the wallet database — stop the other wallet holder (daemon or sidecar) before starting tollgate-wrt: %w", walletErr)
+}
+
 func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTracker *MintHealthTracker) (MerchantInterface, error) {
 	config := configManager.GetConfig()
 	if config == nil {
@@ -563,6 +576,9 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false)
 
 	if walletErr != nil {
+		if bootErr := walletLockBootError(walletErr); bootErr != nil {
+			return nil, bootErr
+		}
 		if tollwallet.IsStorageMmapUnsupported(walletErr) {
 			log.Printf("WARNING: Wallet initialization failed — storage filesystem does not support shared mmap (jffs2 overlay?): %v — the wallet can never initialize on this filesystem; move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)", walletErr)
 		} else {
