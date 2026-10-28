@@ -625,11 +625,54 @@ func (w *CdkWallet) AcceptMint(mintURL string) error {
 	return nil
 }
 
-// CheckTokenSpent is not implemented by the cdk adapter: it has no
-// NUT-07 surface on this build tag. Callers get a typed error and must
-// treat the outcome as unresolved — never guess.
+// CheckTokenSpent answers NUT-07 spent-state for a decoded token via
+// cdk-go's CheckProofsSpent. Any spent proof means the token's swap went
+// through; every proof unspent is the stable not-spent evidence. Errors
+// keep the outcome unresolved — never guess.
 func (w *CdkWallet) CheckTokenSpent(token Token) (bool, error) {
-	return false, ErrCheckStateUnsupported
+	ct, ok := token.(*cdkToken)
+	if !ok {
+		return false, fmt.Errorf("CdkWallet.CheckTokenSpent: expected *cdkToken, got %T", token)
+	}
+	mintURL := ct.Mint()
+	wallet, err := w.getOrCreateWallet(mintURL)
+	if err != nil {
+		return false, err
+	}
+	proofs, err := ct.inner.ProofsSimple()
+	if err != nil {
+		// V4 tokens carry SHORT keyset ids; resolving them needs the
+		// wallet's own keyset table (#952 spelling class). Fall back to
+		// the keyed Proofs() form before giving up.
+		keysets, kErr := wallet.Keysets(nil)
+		if kErr != nil {
+			return false, fmt.Errorf("token proofs: %v (keyset table: %v)", err, kErr)
+		}
+		infos := make([]cdk_ffi.KeySetInfo, 0, len(keysets))
+		for _, ks := range keysets {
+			active := ks.Active != nil && *ks.Active
+			infos = append(infos, cdk_ffi.KeySetInfo{Id: ks.Id, Unit: ks.Unit, Active: active})
+		}
+		proofs, err = ct.inner.Proofs(infos)
+		if err != nil {
+			return false, fmt.Errorf("token proofs: %w", err)
+		}
+	}
+	if len(proofs) == 0 {
+		return false, fmt.Errorf("token carries no proofs")
+	}
+	spentFlags, err := wallet.CheckProofsSpent(proofs)
+	if err != nil {
+		return false, mapCdkError(err)
+	}
+	anySpent := false
+	for _, s := range spentFlags {
+		if s {
+			anySpent = true
+			break
+		}
+	}
+	return anySpent, nil
 }
 
 // customUnitPaymentMethod names the payment method to use for a custom unit.

@@ -15,6 +15,7 @@ import (
 
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut05"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut07"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut10"
 	"github.com/OpenTollGate/gonuts-tollgate/crypto"
@@ -509,6 +510,18 @@ func (w *TollWallet) GetMintQuoteState(quoteID string) (*nut04.PostMintQuoteBolt
 // NUT #04: After requesting a mint quote and paying the request, the wallet proceeds with minting new tokens by calling the `POST /v1/mint/{method}` endpoint.
 func (w *TollWallet) MintQuoteTokens(quoteID string) (uint64, error) {
 	return w.wallet.MintTokens(quoteID)
+}
+
+// RequestMeltQuoteForInvoice is the port-pair passthrough for NUT-05 melt
+// quotes (GonutsWallet.RequestMeltQuote): the fork owns quote storage,
+// proof-selection locking and pending-state reconciliation.
+func (w *TollWallet) RequestMeltQuoteForInvoice(invoice, mintURL string) (*nut05.PostMeltQuoteBolt11Response, error) {
+	return w.wallet.RequestMeltQuote(invoice, normalizeMintURL(mintURL))
+}
+
+// MeltQuote executes a previously requested melt quote (the port's Melt).
+func (w *TollWallet) MeltQuote(quoteID string) (*nut05.PostMeltQuoteBolt11Response, error) {
+	return w.wallet.Melt(quoteID)
 }
 
 func ParseToken(token string) (cashu.Token, error) {
