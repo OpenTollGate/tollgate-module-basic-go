@@ -16,4 +16,4 @@
   trap the old story hid: this chain's terminal `reject` at priority −1 makes
   NDS's own counters read zero on a build where the fragment is WORKING, so that
   zero is not evidence of a fault. Comment-only — every rule line is byte-identical
-  ([#1130](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1130)).
+  ([#1133](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1133)).
