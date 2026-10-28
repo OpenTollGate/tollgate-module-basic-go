@@ -17,6 +17,7 @@ import (
 
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
 	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut04"
+	"github.com/OpenTollGate/gonuts-tollgate/cashu/nuts/nut05"
 	"github.com/OpenTollGate/gonuts-tollgate/wallet"
 )
 
@@ -224,19 +225,51 @@ func (w *GonutsWallet) MintTokens(quoteID string) (uint64, error) {
 }
 
 // --- Lightning melt quotes (NUT-05) ---
-// NOTE: TollWallet exposes MeltToLightning (a higher-level wrapper), not
-// the lower-level RequestMeltQuote/Melt pair. Wave 4 does not touch melt
-// code paths, so these return an error for now. A follow-up wave can wire
-// them by either adding passthrough methods to TollWallet or refactoring
-// MeltToLightning to use the port pattern.
+// The port's melt pair, wired onto the fork's wallet primitives
+// (RequestMeltQuote/Melt with proof-selection locking and pending-state
+// reconciliation inside the fork). This is the parity seam the cdk-go
+// adapter already implements; a flag flip must not turn these into
+// errors.
 
-// NUT #05: To request a melt quote, the wallet of `Alice` makes a `POST /v1/melt/quote/{method}` request where `method` is the payment method requested (e.g., `bolt11`, `bolt12`, etc.). `method` **MUST** match `[a-z0-9_-]+`.
+// NUT #05: To request a melt quote, the wallet of `Alice` makes a `POST /v1/melt/quote/{method}` request where `method` is the payment method requested (e.g. `bolt11`, `bolt12`, etc.). `method` **MUST** match `[a-z0-9_-]+`.
 func (w *GonutsWallet) RequestMeltQuote(invoice string, mintUrl string) (*MeltQuote, error) {
-	return nil, fmt.Errorf("GonutsWallet.RequestMeltQuote: not yet wired; TollWallet uses MeltToLightning at a higher level")
+	resp, err := w.inner.RequestMeltQuoteForInvoice(invoice, mintUrl)
+	if err != nil {
+		return nil, err
+	}
+	return &MeltQuote{
+		QuoteID:    resp.Quote,
+		Amount:     resp.Amount,
+		FeeReserve: resp.FeeReserve,
+		State:      meltStateToPort(resp.State),
+		Expiry:     resp.Expiry,
+	}, nil
 }
 
 func (w *GonutsWallet) Melt(quoteID string) (*MeltResult, error) {
-	return nil, fmt.Errorf("GonutsWallet.Melt: not yet wired; TollWallet uses MeltToLightning at a higher level")
+	resp, err := w.inner.MeltQuote(quoteID)
+	if err != nil {
+		return nil, err
+	}
+	return &MeltResult{
+		QuoteID:  resp.Quote,
+		Paid:     resp.State == nut05.Paid,
+		Preimage: resp.Preimage,
+	}, nil
+}
+
+// meltStateToPort maps the fork's NUT-05 quote states onto the port's.
+func meltStateToPort(s nut05.State) MintQuoteState {
+	switch s {
+	case nut05.Paid:
+		return StatePaid
+	case nut05.Pending:
+		return StatePending
+	case nut05.Unpaid:
+		return StateUnpaid
+	default:
+		return StateUnknown
+	}
 }
 
 // --- Lifecycle ---
