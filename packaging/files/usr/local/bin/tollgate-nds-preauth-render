@@ -165,6 +165,15 @@ emit_header() {
 # order, so "fw4 runs first" cannot be assumed on any box. Retracted — do not
 # restore it, and do not repeat it as fact.
 #
+# WHAT WOULD SETTLE THE ORIGINAL QUESTION (not done; needs the router, not a
+# host): one known-marked flow (one MAC, one proto, one destination), one
+# `nft list ruleset` snapshot plus `fw4 print` taken after it, and
+# counter-only probe chains — `counter` with no verdict, so they cannot
+# perturb the path — at priorities -150, -1, 0 and +1 in BOTH the ip and inet
+# families. A probe reading 0 while its neighbours read non-zero localises the
+# decision. Repeat per build lane (24.10/ipk and 25.12/apk do not necessarily
+# render the same ruleset) and count both directions.
+#
 # WHAT THIS FILE IS FOR rests on #754's bench evidence, which IS archived
 # (issue #754, comment 6066054958): the priority -1 reject below executes
 # before NDS's priority-0 allow chain, so an allowlist entry nodogsplash
