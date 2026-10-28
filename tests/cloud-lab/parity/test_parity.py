@@ -405,9 +405,14 @@ def test_40_duplicate_outputs_same_seed():
             break
         time.sleep(0.25)
     m2 = rpc(w2.sock, "mint_tokens", {"quote_id": qid2})
-    assert not m2.get("ok") and "already paid" in m2.get("error", "").lower(), (
-        f"unpatched cdk 0.18.2 must brick here; if this mint SUCCEEDED the "
-        f"duplicate-outputs heal landed — flip this assertion: {m2}"
+    err2 = m2.get("error", "").lower()
+    bricked = ("already paid" in err2
+               or "recovery" in err2 and "failed saga" in err2)
+    assert not m2.get("ok") and bricked, (
+        f"unpatched cdk 0.18.2 must brick here (mint refusal or the "
+        f"fail-closed gate on the permanently-failed saga); if this mint "
+        f"SUCCEEDED the duplicate-outputs heal landed — flip this "
+        f"assertion: {m2}"
     )
     w1.stop(); w2.stop()
 
@@ -422,7 +427,27 @@ def test_50_fail_closed_gate():
     d.capture_seed()
     fund(d, 1000)
 
-    # Crash the daemon, take the mint away, restart: recovery cannot run.
+    # Leave a PENDING saga before the crash — otherwise recovery
+    # completes locally with zero sagas (no mint contact) and the gate
+    # correctly opens: cdk 0.18 sends OFFLINE whenever an exact proof
+    # subset exists (measured 2026-10-28), so a saga-less wallet can
+    # build tokens with the mint down. Fail-closed is only observable
+    # when there is something to reconcile.
+    inv = cli(d.sock, "mintquote", "300")["request"]
+    mq = cli(d.sock, "meltquote", inv)
+    arm_proxy()
+    proc = subprocess.Popen(
+        [CLI, d.sock, "melt", mq["quote_id"]],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env={**os.environ, "MINT_URL": MINT_URL},
+    )
+    wait_marker()
+    d.stop(signal.SIGKILL)
+    release_proxy()
+    proc.wait(timeout=30)
+
+    # Mint away, restart: recovery CANNOT complete (pending melt saga,
+    # mint unreachable). Money ops must refuse.
     d.stop(signal.SIGKILL)
     subprocess.run(["docker", "stop", os.environ.get("PARITY_MINT_CONTAINER", "parity-mint")],
                    check=True, capture_output=True)
