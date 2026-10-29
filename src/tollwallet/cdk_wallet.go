@@ -165,7 +165,7 @@ func (w *CdkWallet) DecodeToken(tokenStr string) (Token, error) {
 	return DecodeToken(tokenStr)
 }
 
-func (w *CdkWallet) Receive(t Token) (uint64, error) {
+func (w *CdkWallet) Receive(t Token) (received uint64, err error) {
 	ct, ok := t.(*cdkToken)
 	if !ok {
 		return 0, fmt.Errorf("CdkWallet.Receive: expected *cdkToken, got %T", t)
@@ -181,6 +181,18 @@ func (w *CdkWallet) Receive(t Token) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// FFI boundary defense: cdk-ffi 0.18.2's Receive on ALREADY-SPENT
+	// proofs returns a broken response buffer — uniffi's Go reader then
+	// panics with EOF instead of surfacing the mint's spend error. The
+	// process is not poisoned, but a panic here crashes the daemon. Convert
+	// it to the error the port contract promises (upstream issue; this
+	// recover is the boundary, not a suppressor: the spent-verdict itself
+	// is unambiguous — the proofs cannot be received twice).
+	defer func() {
+		if r := recover(); r != nil {
+			received, err = 0, fmt.Errorf("cdk wallet receive failed at the FFI boundary (likely spent proofs; upstream cdk-ffi error-path bug): %v", r)
+		}
+	}()
 	// Same nil-enum discipline as Send: ReceiveOptions.AmountSplitTarget
 	// is an interface whose zero value panics uniffi's Write.
 	amount, err := wallet.Receive(ct.inner, cdk_ffi.ReceiveOptions{AmountSplitTarget: cdk_ffi.SplitTargetNone{}})
