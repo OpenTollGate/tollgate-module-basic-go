@@ -54,8 +54,27 @@ if [ "$MUTATION" = "1" ]; then
     (cd "$WALLETD" && cargo build --release 2>&1 | tail -1)
     cp "$TARGET_DIR/release/cdk-walletd" "$MUTANT_BIN"
     mv "$RUN/main.rs.orig" "$WALLETD/src/main.rs"
+    # mv preserves the ORIGINAL mtime, which is OLDER than the mutant
+    # build — cargo then considers the (mutant) target up-to-date and
+    # the "restore" rebuild is a NO-OP, leaving the gate-bypassed mutant
+    # as the DEFAULT daemon binary for every later run (measured
+    # 2026-10-29: a full night of phantom "regressions"). touch forces
+    # the rebuild; the strings check refuses to continue if the default
+    # binary is not verifiably the real one.
+    touch "$WALLETD/src/main.rs"
     (cd "$WALLETD" && cargo build --release 2>&1 | tail -1)  # restore
-    echo "mutation binary: $MUTANT_BIN"
+    # NOTE: no `strings | grep -q` here — under `set -o pipefail`,
+    # grep -q closing the pipe early SIGPIPEs strings (141) and the
+    # check false-fails. grep -a reads the binary directly.
+    if ! grep -aq "recovery complete" "$TARGET_DIR/release/cdk-walletd"; then
+        echo "FATAL: default daemon binary is not the restored build (still mutant?) — refusing to run" >&2
+        exit 3
+    fi
+    if grep -aq "recovery complete" "$MUTANT_BIN"; then
+        echo "FATAL: mutation binary contains the gate — the sed did not apply; mutation check would be blind" >&2
+        exit 3
+    fi
+    echo "mutation binary: $MUTANT_BIN (default daemon verified restored)"
 fi
 
 # --- WalletPort client, built against THIS worktree's tollwallet ---
@@ -119,7 +138,24 @@ done
 export PARITY_RUN="$RUN" \
        PARITY_CLI="$RUN/cdkinterop" PARITY_MINT_CONTAINER="$MINT_CONTAINER"
 export PARITY_DAEMON="${PARITY_DAEMON:-$TARGET_DIR/release/cdk-walletd}"
-[ -n "$MUTANT_BIN" ] && export PARITY_MUTANT="$MUTANT_BIN"
+if [ -n "$MUTANT_BIN" ]; then
+    # Mutation leg: run ONLY the gate case, against the MUTANT binary.
+    # (PARITY_DAEMON must be swapped, not just the PARITY_MUTANT flag —
+    # the original wiring ran the REAL binary with mutant expectations,
+    # which fails for the wrong reason and proves nothing.) The mutant
+    # bypasses the recovery gate on every money op; the case's MUTANT
+    # branch asserts the fail-closed refusal is ABSENT. If that branch
+    # FAILS, the mutant still fails closed and the check is blind.
+    PARITY_DAEMON="$MUTANT_BIN" PARITY_MUTANT="$MUTANT_BIN" \
+        /usr/bin/python3 -m pytest -v -k fail_closed test_parity.py
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        echo "MUTATION CHECK: PASS — the suite discriminates (mutant opens the gate, suite sees it)"
+    else
+        echo "MUTATION CHECK: FAIL — suite cannot detect the bypass; it is decoration" >&2
+    fi
+    exit $rc
+fi
 PYTEST_ARGS=${PARITY_PYTEST_ARGS:--x -v}
 /usr/bin/python3 -m pytest $PYTEST_ARGS test_parity.py
 # NOTE: PARITY_PYTEST_ARGS is intentionally unquoted for multi-word args

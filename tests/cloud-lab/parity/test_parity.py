@@ -266,21 +266,13 @@ def test_20_kill_melt_between_acceptance_and_proof_save():
     d.start()
     bal = rpc(d.sock, "get_balance")["result"]
     pending, sagas = saga_total_pending(d.sock)
-    # PRE-recovery, the kill can land in TWO shapes (both measured:
-    # 2026-10-28 reserved-shape, 2026-10-29 unreserved-shape):
-    #  - proofs RESERVED by the pending melt saga: balance 700, the 300
-    #    lives in the saga record (700 + 300 = 1000);
-    #  - the mint's settlement failure already compensated the FIRST
-    #    melt attempt (fakewallet cannot pay its own invoice), the saga
-    #    is mid-retry with its inputs back UNRESERVED: balance 1000
-    #    (which already contains the 300 — bal+pending would double
-    #    count). Which shape occurs depends on where the swallow lands
-    #    in cdk's multi-POST melt choreography.
-    # Both preserve all 1000 sats; what must NEVER happen is loss.
-    total = bal + pending if bal == 700 else bal
-    assert total == 1000, (
-        f"value lost across melt-kill: balance={bal} pending={pending} "
-        f"sagas={json.dumps(sagas)}"
+    # PRE-recovery (deterministic, 5/5 census under the real daemon,
+    # 2026-10-29): the melt saga holds the 300 RESERVED — 700 spendable
+    # + 300 in the saga = 1000. Nothing lost across the kill.
+    print(f"    [shape] pre-recovery: bal={bal} pending={pending}")
+    assert (bal, pending) == (700, 300), (
+        f"unexpected melt-kill state (census: always 700/300): "
+        f"balance={bal} pending={pending} sagas={json.dumps(sagas)}"
     )
     # A money op forces the fail-closed recovery gate. OUTCOME (measured
     # against cdk-mintd fakewallet, 2026-10-28): the melt COMPENSATES —
@@ -303,25 +295,22 @@ def test_20_kill_melt_between_acceptance_and_proof_save():
         f"sagas={json.dumps(sagas2)}"
     )
     melt_pending = [s for s in sagas2 if s["kind"] == "Melt"]
-    # THREE post-recovery shapes measured (2026-10-28/29, nondeterministic
-    # in cdk 0.18.2 — depends on where the swallow lands and the mint's
-    # async settlement state at recovery time):
-    #  A1 resolved: no pending melt saga, balance 999;
-    #  B  stale-unreserved: saga record stays Melt(MeltRequested), proofs
-    #     already unreserved — balance 999 (Amperstrand/cdk-walletd#1);
-    #  A2 stale-RESERVED: saga keeps the 300 reserved, balance 699 —
-    #     value LOCKED, not lost (recovery does not re-poll the melt
-    #     quote after its single pass; nothing re-drives the saga).
-    # The SAFETY invariant — enforced above as bal2+pending2 == 1000 —
-    # holds in all three. Resolution/lockout is a liveness concern filed
-    # as cdk-walletd#1 (updated with the A2 lockup shape); the suite
-    # must not encode a single shape.
-    if melt_pending:
-        locked = sum(s["amount"] for s in melt_pending)
-        assert bal2 + locked + 1 == 1000, (
-            f"pending melt saga accounting broken: balance={bal2} "
-            f"locked={locked} sagas={melt_pending}"
-        )
+    # Post-recovery (deterministic, 5/5 census under the real daemon):
+    # the melt saga is RESOLVED — the mint's settlement failure (a
+    # fakewallet cannot pay its own invoice) rolled the mint's saga
+    # back and the wallet's recovery compensated in agreement;
+    # two-sided saga coherence, no phantom money. bal2 999 + the 1-sat
+    # send token (a Send saga parks in TokenCreated until claimed — a
+    # monitoring record, value preserved) = 1000. A stale or
+    # still-reserved melt saga after recovery is a REGRESSION (value
+    # locked or observability lied to): Amperstrand/cdk-walletd#1
+    # tracks the single-pass-recovery hardening — the shapes that
+    # motivated it were observed under a gate-bypassed build during a
+    # rig incident (mutation harness left the mutant as the default
+    # binary), corrected there.
+    print(f"    [shape] post-recovery: bal2={bal2} pending2={pending2} "
+          f"melt_pending={[(x['state'], x['amount']) for x in melt_pending]}")
+    assert not melt_pending, f"melt saga not resolved by recovery: {melt_pending}"
     d.stop()
 
 
