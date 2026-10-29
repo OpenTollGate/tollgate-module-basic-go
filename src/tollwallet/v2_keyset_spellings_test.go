@@ -2,15 +2,19 @@ package tollwallet
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/OpenTollGate/gonuts-tollgate/cashu"
+	gonutscrypto "github.com/OpenTollGate/gonuts-tollgate/crypto"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 // The #952 release-readiness question: can the wallet path consume tokens
@@ -21,7 +25,14 @@ import (
 // (gonuts resolveShortKeysetIds, wallet.go:592). Everything runs against an
 // in-process stub mint — no live-mint traffic.
 
-const v2KeysetFull = "01e73e75a0809604372487732ee917e8f881cc4c882ccd9fbac094fbfd3e3a42e6"
+// The advertised id MUST be the honest V2 derivation of the stub keys
+// (NUT-02: hash of keys + unit + input fee). The pre-guard fixture
+// advertised an unrelated id, which gonuts v0.14's #705 forged-keyset
+// check correctly refuses — caught red on main by the post-merge
+// battery after the #1063 bump. TestKeysetIdIsHonestDerivation below
+// pins this so a derivation change breaks loudly here, not in every
+// subtest.
+const v2KeysetFull = "0131b33abca29b2977eeb24789c0baf0250aa6dcffe226b0cf9f20c9c7d2e86be7"
 
 const stubKeysJSON = `{"keysets":[{"id":"` + v2KeysetFull + `","unit":"sat","active":true,"input_fee_ppk":0,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798","2":"02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5","4":"02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13"}}]}`
 
@@ -180,5 +191,41 @@ func TestV2Keyset_V4TokenShortIdResolves(t *testing.T) {
 		if id != v2KeysetFull {
 			t.Fatalf("swap request carried id %q — the V4 8-byte keyset id must be resolved to the full canonical id (#952)", id)
 		}
+	}
+}
+
+// TestKeysetIdIsHonestDerivation pins the fixture: the advertised id
+// equals the NUT-02 V2 derivation of the stub keys (sat, 0 ppk).
+func TestKeysetIdIsHonestDerivation(t *testing.T) {
+	var parsed struct {
+		Keysets []struct {
+			ID   string            `json:"id"`
+			Unit string            `json:"unit"`
+			Keys map[string]string `json:"keys"`
+		} `json:"keysets"`
+	}
+	if err := json.Unmarshal([]byte(stubKeysJSON), &parsed); err != nil || len(parsed.Keysets) != 1 {
+		t.Fatalf("stub fixture unreadable: %v", err)
+	}
+	ks := parsed.Keysets[0]
+	pubkeys := gonutscrypto.PublicKeys{}
+	for amountHex, keyHex := range ks.Keys {
+		amount, err := strconv.ParseUint(amountHex, 10, 64)
+		if err != nil {
+			t.Fatalf("stub key amount %q: %v", amountHex, err)
+		}
+		raw, err := hex.DecodeString(keyHex)
+		if err != nil {
+			t.Fatalf("stub key %d: %v", amount, err)
+		}
+		pk, err := secp256k1.ParsePubKey(raw)
+		if err != nil {
+			t.Fatalf("stub pubkey %d: %v", amount, err)
+		}
+		pubkeys[amount] = pk
+	}
+	derived := gonutscrypto.DeriveKeysetIdV2(pubkeys, ks.Unit, 0)
+	if derived != ks.ID {
+		t.Fatalf("fixture drifted: advertised %s derives to %s — update v2KeysetFull", ks.ID, derived)
 	}
 }

@@ -101,7 +101,14 @@ func (m *MerchantDegraded) DegradeReason() string {
 // returns: the reason the wallet is down, not a hardcoded connectivity
 // claim.
 func (m *MerchantDegraded) notInitializedError() error {
-	return fmt.Errorf("wallet not initialized: %s", m.DegradeReason())
+	// Every degraded stub's error must name the honest cause: the
+	// storage-mmap class says storage (its remedy is a filesystem
+	// move, not mint recovery); everything else keeps the legacy
+	// "no reachable mints" (true for its own cause). Fund and the
+	// wallet-op stubs were still blaming the mints while the honest
+	// builder existed unused beside them (#583's misleading-errors
+	// half — caught by the post-merge battery, red on main).
+	return fmt.Errorf("wallet not initialized: %s", m.walletUnavailableReason())
 }
 
 // WireWalletRetry arms the repeating wallet-init retry. Idempotent: the
@@ -256,7 +263,12 @@ func (m *MerchantDegraded) walletUnavailableReason() string {
 	if m.StorageIncompatible() {
 		return "wallet storage does not support shared mmap (jffs2 overlay?) — move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs); see README storage requirements"
 	}
-	return "no reachable mints"
+	// Beyond the storage class, the recorded degrade reason IS the
+	// honest cause (the retry machinery records the actual wallet-init
+	// failure, e.g. a keyset-backend error while the mints are
+	// reachable) — surfacing the legacy default there would repeat
+	// #583's misdirection for every non-storage cause.
+	return m.DegradeReason()
 }
 
 func (m *MerchantDegraded) walletNotInitializedError() error {
