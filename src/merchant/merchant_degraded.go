@@ -271,10 +271,6 @@ func (m *MerchantDegraded) walletUnavailableReason() string {
 	return m.DegradeReason()
 }
 
-func (m *MerchantDegraded) walletNotInitializedError() error {
-	return fmt.Errorf("wallet not initialized: %s", m.walletUnavailableReason())
-}
-
 // WalletDegradedInfo reports the degraded state and its reason for the
 // status surfaces (CLI `status`, board): the degraded merchant is degraded
 // by construction, and the reason string distinguishes the permanent
