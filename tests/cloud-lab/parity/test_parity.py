@@ -30,6 +30,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import urllib.request
 import time
 
 import pytest
@@ -486,5 +487,56 @@ def test_50_fail_closed_gate():
     finally:
         subprocess.run(["docker", "start", os.environ.get("PARITY_MINT_CONTAINER", "parity-mint")],
                        check=True, capture_output=True)
-        time.sleep(2)
+        # Wait for mintd to actually serve again — a blind sleep let the
+        # NEXT test's first money op hit a mid-boot mint (listening socket
+        # closes during init -> reqwest "unexpected end of file").
+        for _ in range(60):
+            try:
+                urllib.request.urlopen(
+                    "http://127.0.0.1:43340/v1/keys", timeout=2)
+                break
+            except Exception:
+                time.sleep(0.5)
+        else:
+            raise RuntimeError("mint did not come back after test_50")
     d.stop()
+
+
+def test_60_locked_token_refused():
+    """Demotion gate, fork fix #324/#325 through WalletPort: a payment
+    whose proofs are locked to a key the gateway does NOT hold must be
+    REFUSED with zero credit — the 'free internet with unspendable
+    tokens' attack. The gonuts fork enforces this LOCALLY
+    (TollWallet.hasLockedProofs -> ErrLockedToken, before any wire
+    round-trip); the cdk path is enforced by the MINT (the receive-swap
+    requires the witness; without the key the mint rejects and nothing
+    is consumed). The case asserts the OUTCOME both layers must share:
+    refusal, zero credit, payer debited."""
+    payer = Daemon("w60-payer")
+    victim = Daemon("w60-victim")
+    payer.start(); payer.capture_seed()
+    victim.start(); victim.capture_seed()
+    fund(payer, 1000)
+
+    # secp256k1 generator G: a valid curve point whose secret the
+    # victim certainly does not hold (any random valid key works).
+    g = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    r = cli(payer.sock, "send_p2pk", "100", g)
+    assert r.get("ok") and r.get("token"), r
+    tok = r["token"]
+
+    # The victim must NOT be able to credit it.
+    res = cli(victim.sock, "receive", tok)
+    assert not res.get("ok"), (
+        f"locked token credited — the #324 attack through the cdk "
+        f"backend: {res}"
+    )
+    # Record the enforcement layer's error shape (mint-side witness
+    # refusal on cdk; gonuts would give ErrLockedToken locally).
+    print(f"    [layer] receive refusal: {res.get('error', '')[:120]}")
+    vbal = rpc(victim.sock, "get_balance")["result"]
+    assert vbal == 0, "victim credited for a locked token"
+    # And the payer's send was real (value left the payer's wallet).
+    pbal = rpc(payer.sock, "get_balance")["result"]
+    assert pbal == 900, f"payer balance after locked send: {pbal}"
+    payer.stop(); victim.stop()

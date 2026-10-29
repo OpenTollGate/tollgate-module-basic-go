@@ -112,9 +112,13 @@ EOF
 # mint's.
 echo "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about" > "$RUN/mintseed.txt"
 docker rm -f "$MINT_CONTAINER" >/dev/null 2>&1 || true
+# The `|| true` makes config init idempotent across docker start/stop —
+# test_50 stops and starts the mint, and a re-run of --new-mint against
+# the initialized DB errors out, leaving cdk-mintd never executed (the
+# mint then never comes back; measured 2026-10-29).
 docker run -d --name "$MINT_CONTAINER" --network host \
     -v "$RUN":/gate cashubtc/mintd:0.18.2 \
-    sh -c "cdk-mintd config init --new-mint --file /gate/mint.toml && exec cdk-mintd" \
+    sh -c "cdk-mintd config init --new-mint --file /gate/mint.toml || true; exec cdk-mintd" \
     >/dev/null
 for _ in $(seq 1 50); do
     curl -sf "http://127.0.0.1:$MINT_PORT/v1/keys" >/dev/null 2>&1 && break

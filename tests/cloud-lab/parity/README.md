@@ -30,6 +30,7 @@ WalletPort client built from THIS worktree.
 | 30 | kill receive @ swap acceptance | credited EXACTLY once after recovery; token provably spent via WalletPort |
 | 40 | duplicate outputs (same seed) | #257/#266/#480 class: unpatched cdk-mintd maps the collision to InvoiceAlreadyPaid (not NUT-19 11003) and the wallet bricks — pinned as a flip detector for Amperstrand/cdk fix/duplicate-outputs-error-identity (fixed mint: wallet walks past the burn) |
 | 50 | fail-closed recovery gate | mint down at restart with a PENDING saga → money ops refused; mutation check bypasses the gate and the suite must see the difference |
+| 60 | locked token refused (demotion gate) | fork fix #324/#325 through WalletPort: P2PK-locked-to-unknown-key token must be refused with zero credit (cdk enforces mint-side: "Witness signatures not provided"; gonuts enforces locally via ErrLockedToken). The swap-proof-loss half of the demotion gate maps to cases 20/30's conservation invariants. |
 
 ## Mutation check
 
