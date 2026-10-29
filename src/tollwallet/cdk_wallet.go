@@ -90,7 +90,9 @@ func (t *cdkToken) Mint() string {
 	if err != nil {
 		return ""
 	}
-	return fmt.Sprintf("%v", mu)
+	// MintUrl is a record ({Url string}) — %v of the struct would
+	// render "{https://...}" and break every URL comparison downstream.
+	return mu.Url
 }
 
 func (t *cdkToken) Amount() uint64 {
@@ -134,7 +136,11 @@ func (w *CdkWallet) Receive(t Token) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	amount, err := wallet.Receive(ct.inner, cdk_ffi.ReceiveOptions{})
+	amount, err := wallet.Receive(ct.inner, cdk_ffi.ReceiveOptions{
+		// Same uniffi zero-value rule as SendOptions: the enum field
+		// must carry an explicit variant or Lower panics.
+		AmountSplitTarget: cdk_ffi.SplitTargetNone{},
+	})
 	if err != nil {
 		return 0, mapCdkError(err)
 	}
@@ -228,6 +234,12 @@ func (w *CdkWallet) Send(amount uint64, mintUrl string, includeFees bool) (Token
 	}
 	opts := cdk_ffi.SendOptions{
 		IncludeFee: includeFees,
+		// 0.18 bindings: the enum fields are interfaces — zero values
+		// panic in uniffi's Lower ("invalid enum value `<nil>`"); every
+		// field needs an explicit variant (measured 2026-10-29).
+		AmountSplitTarget:      cdk_ffi.SplitTargetNone{},
+		SendKind:               cdk_ffi.SendKindOnlineExact{},
+		P2pkLockedProofSendMode: cdk_ffi.P2pkLockedProofSendModeSwap,
 	}
 	prepared, err := wallet.PrepareSend(cdk_ffi.Amount{Value: amount}, opts)
 	if err != nil {
@@ -470,9 +482,52 @@ func (w *CdkWallet) AcceptMint(mintURL string) error {
 	return nil
 }
 
-// CheckTokenSpent is not implemented by the cdk adapter: it has no
-// NUT-07 surface on this build tag. Callers get a typed error and must
-// treat the outcome as unresolved — never guess.
+// CheckTokenSpent asks the mint (NUT-07, via CheckProofsSpent) whether
+// any proof in the token is already spent. VERDICT SEMANTICS NOTE: the
+// FFI surface collapses cdk's tri-state (Spent/Unspent/Pending) to a
+// bool — a pending proof reads as not-spent here, unlike the sidecar
+// protocol whose check_state surfaces pending as an ERROR. Callers
+// needing the ambiguity-preserving verdict must use the sidecar
+// backend; this adapter's answer is spend-evidence-only.
 func (w *CdkWallet) CheckTokenSpent(token Token) (bool, error) {
-	return false, ErrCheckStateUnsupported
+	ct, ok := token.(*cdkToken)
+	if !ok {
+		return false, fmt.Errorf("CheckTokenSpent: expected *cdkToken, got %T", token)
+	}
+	mintUrl := ct.Mint()
+	if mintUrl == "" {
+		return false, fmt.Errorf("token has no mint URL")
+	}
+	wallet, err := w.getOrCreateWallet(mintUrl)
+	if err != nil {
+		return false, err
+	}
+	keysets, err := wallet.Keysets(nil)
+	if err != nil {
+		return false, mapCdkError(err)
+	}
+	infos := make([]cdk_ffi.KeySetInfo, 0, len(keysets))
+	for _, ks := range keysets {
+		active := ks.Active != nil && *ks.Active
+		infos = append(infos, cdk_ffi.KeySetInfo{
+			Id: ks.Id, Unit: ks.Unit, Active: active, InputFeePpk: ks.InputFeePpk,
+		})
+	}
+	proofs, err := ct.inner.Proofs(infos)
+	if err != nil {
+		return false, mapCdkError(err)
+	}
+	if len(proofs) == 0 {
+		return false, fmt.Errorf("token produced no proofs for check-state")
+	}
+	spent, err := wallet.CheckProofsSpent(proofs)
+	if err != nil {
+		return false, mapCdkError(err)
+	}
+	for _, s := range spent {
+		if s {
+			return true, nil
+		}
+	}
+	return false, nil
 }
