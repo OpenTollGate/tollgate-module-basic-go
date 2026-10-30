@@ -114,6 +114,10 @@ var (
 	// privateRadioSections is the write order for the credential convergence.
 	privateRadioSections = []string{privateRadio0Section, privateRadio1Section}
 
+	// brandFilePath is the first-boot brand selector, read here for the guest
+	// SSID prefix. A var so tests can point it at a fixture.
+	brandFilePath = "/etc/tollgate/brand"
+
 	// privateEncryptionAlgorithms mirrors the schema enum. Kept here too because
 	// a wholesale `config save` does not run per-key schema validation, and an
 	// unknown encryption string is a management interface that will not come up.
@@ -289,6 +293,7 @@ func ApplyOperatorSettings(cfg *config_manager.Config) []SettingResult {
 
 	results := []SettingResult{applyAdminAccess(cfg.AdminAccess)}
 	results = append(results, applyPrivateNetworkCredentials(cfg)...)
+	results = append(results, applySSIDNames(cfg)...)
 	return results
 }
 
@@ -553,6 +558,237 @@ func applyPrivateNetworkCredentials(cfg *config_manager.Config) []SettingResult 
 	}
 
 	return results
+}
+
+// applySSIDNames converges the operator-visible SSID names. The device code
+// stays the identity (hostname + TLS); the suffix and operator token are
+// display aliases so an operator can choose the names without re-keying the
+// router. The guest name is !<brand>-<suffix>; the private name is
+// Private-<operator>-<suffix>, unless the operator declared a full
+// private_ssid override.
+func applySSIDNames(cfg *config_manager.Config) []SettingResult {
+	const defaultOperator = "c08r4d0r"
+	const defaultBrand = "TollGate"
+
+	code, err := getUCIValue("tollgate.device.code")
+	if err != nil || strings.TrimSpace(code) == "" {
+		return []SettingResult{{
+			Setting: "ssid_suffix/private_ssid_operator",
+			Status:  statusSkipped,
+			Detail:  "the stored device code is missing (99-tollgate-setup has not run); the SSID names are unchanged",
+		}}
+	}
+	code = strings.TrimSpace(code)
+
+	storedOperator, _ := getUCIValue("tollgate.device.nym")
+	storedSuffix, _ := getUCIValue("tollgate.device.ssid_suffix")
+
+	suffix := strings.TrimSpace(cfg.SSIDSuffix)
+	if suffix == "" {
+		suffix = code
+	}
+	operator := strings.TrimSpace(cfg.PrivateSSIDOperator)
+	if operator == "" {
+		operator = strings.TrimSpace(storedOperator)
+	}
+	if operator == "" {
+		operator = defaultOperator
+	}
+	brand := brandHostname(defaultBrand)
+	guestSSID := "!" + brand + "-" + suffix
+	privateSSID := "Private-" + operator + "-" + suffix
+	if strings.TrimSpace(cfg.PrivateSSID) != "" {
+		privateSSID = strings.TrimSpace(cfg.PrivateSSID)
+	}
+
+	var results []SettingResult
+	if err := validateSSIDToken("ssid_suffix", suffix, 12); err != nil {
+		results = append(results, SettingResult{Setting: "ssid_suffix", Status: statusRefused, Detail: err.Error(), Warning: err.Error()})
+	}
+	if err := validateSSIDToken("private_ssid_operator", operator, 32); err != nil {
+		results = append(results, SettingResult{Setting: "private_ssid_operator", Status: statusRefused, Detail: err.Error(), Warning: err.Error()})
+	}
+	if len(guestSSID) > ssidMaxLen {
+		results = append(results, SettingResult{Setting: "captive_ssid", Status: statusRefused, Detail: fmt.Sprintf("captive SSID %q is longer than %d bytes; the router keeps its previous SSID", guestSSID, ssidMaxLen), Warning: "captive SSID too long"})
+	}
+	if len(privateSSID) > ssidMaxLen {
+		results = append(results, SettingResult{Setting: "private_ssid", Status: statusRefused, Detail: fmt.Sprintf("private SSID %q is longer than %d bytes; the router keeps its previous SSID", privateSSID, ssidMaxLen), Warning: "private SSID too long"})
+	}
+	if len(results) > 0 {
+		return results
+	}
+
+	if _, err := exec.LookPath("uci"); err != nil {
+		return []SettingResult{{
+			Setting: "ssid_suffix/private_ssid_operator",
+			Status:  statusSkipped,
+			Detail:  "uci is not available on this host (not an OpenWrt router); the values are recorded in config.json and stay here",
+		}}
+	}
+
+	// The store is authoritative for the installer too, so persist the
+	// effective values even when they came from the device-code fallback.
+	storeDirty := false
+	if strings.TrimSpace(storedSuffix) != strings.TrimSpace(suffix) {
+		if err := setUCIValue("tollgate.device.ssid_suffix", suffix); err != nil {
+			results = append(results, SettingResult{Setting: "ssid_suffix", Status: statusFailed, Detail: fmt.Sprintf("cannot store ssid_suffix: %v", err)})
+		} else {
+			storeDirty = true
+		}
+	}
+	if strings.TrimSpace(storedOperator) != strings.TrimSpace(operator) {
+		if err := setUCIValue("tollgate.device.nym", operator); err != nil {
+			results = append(results, SettingResult{Setting: "private_ssid_operator", Status: statusFailed, Detail: fmt.Sprintf("cannot store operator token: %v", err)})
+		} else {
+			storeDirty = true
+		}
+	}
+	if storeDirty {
+		if err := commitUCI("tollgate"); err != nil {
+			results = append(results, SettingResult{Setting: "ssid_suffix/private_ssid_operator", Status: statusFailed, Detail: fmt.Sprintf("UCI written but not committed: %v", err)})
+		}
+	}
+	results = append(results,
+		SettingResult{Setting: "ssid_suffix", Status: statusApplied, Detail: "effective suffix is " + suffix},
+		SettingResult{Setting: "private_ssid_operator", Status: statusApplied, Detail: "effective operator is " + operator},
+	)
+
+	forced := strings.TrimSpace(cfg.SSIDSuffix) != "" || strings.TrimSpace(cfg.PrivateSSIDOperator) != "" || strings.TrimSpace(cfg.PrivateSSID) != ""
+	wirelessDirty := false
+
+	guestSections := []string{"wireless.tollgate_2g_open", "wireless.tollgate_5g_open"}
+	guestChanged := []string{}
+	for _, section := range guestSections {
+		current, err := getUCIValue(section + ".ssid")
+		if err != nil {
+			continue
+		}
+		if !forced && !isMachineGuestSSID(current, brand) {
+			continue
+		}
+		if current == guestSSID {
+			continue
+		}
+		if err := setUCIValue(section+".ssid", guestSSID); err != nil {
+			results = append(results, SettingResult{Setting: "captive_ssid", Status: statusFailed, Detail: fmt.Sprintf("cannot set %s.ssid: %v", section, err)})
+			continue
+		}
+		guestChanged = append(guestChanged, section)
+	}
+	if len(guestChanged) > 0 {
+		wirelessDirty = true
+		results = append(results, SettingResult{Setting: "captive_ssid", Status: statusApplied, Detail: "set on " + strings.Join(guestChanged, ", ")})
+	} else {
+		results = append(results, SettingResult{Setting: "captive_ssid", Status: statusUnchanged, Detail: "guest SSIDs already match " + guestSSID})
+	}
+
+	if strings.TrimSpace(cfg.PrivateSSID) == "" {
+		privateChanged := []string{}
+		for _, section := range existingPrivateRadioSections() {
+			current, err := getUCIValue(section + ".ssid")
+			if err != nil {
+				continue
+			}
+			if !forced && !isMachinePrivateSSID(current, operator) {
+				continue
+			}
+			if current == privateSSID {
+				continue
+			}
+			if err := setUCIValue(section+".ssid", privateSSID); err != nil {
+				results = append(results, SettingResult{Setting: "private_ssid", Status: statusFailed, Detail: fmt.Sprintf("cannot set %s.ssid: %v", section, err)})
+				continue
+			}
+			privateChanged = append(privateChanged, section)
+		}
+		if len(privateChanged) > 0 {
+			wirelessDirty = true
+			results = append(results, SettingResult{Setting: "private_ssid", Status: statusApplied, Detail: "set on " + strings.Join(privateChanged, ", ")})
+		} else {
+			results = append(results, SettingResult{Setting: "private_ssid", Status: statusUnchanged, Detail: "private SSIDs already match " + privateSSID})
+		}
+	}
+
+	if wirelessDirty {
+		if err := commitUCI("wireless"); err != nil {
+			results = append(results, SettingResult{Setting: "captive_ssid/private_ssid", Status: statusFailed, Detail: fmt.Sprintf("UCI written but not committed: %v", err)})
+		} else if err := reloadWireless(); err != nil {
+			results = append(results, SettingResult{Setting: "captive_ssid/private_ssid", Status: statusApplied, Detail: "SSIDs committed", Warning: fmt.Sprintf("wireless did not reload (%v): the change takes effect at the next wifi reload or reboot", err)})
+		}
+	}
+
+	if currentGateway, err := getUCIValue("nodogsplash.@nodogsplash[0].gatewayname"); err == nil && currentGateway != guestSSID+" Portal" {
+		if err := setUCIValue("nodogsplash.@nodogsplash[0].gatewayname", guestSSID+" Portal"); err != nil {
+			results = append(results, SettingResult{Setting: "gatewayname", Status: statusFailed, Detail: fmt.Sprintf("cannot set nodogsplash gatewayname: %v", err)})
+		} else if err := commitUCI("nodogsplash"); err != nil {
+			results = append(results, SettingResult{Setting: "gatewayname", Status: statusFailed, Detail: fmt.Sprintf("UCI written but not committed: %v", err)})
+		} else {
+			results = append(results, SettingResult{Setting: "gatewayname", Status: statusApplied, Detail: "set to " + guestSSID + " Portal"})
+		}
+	}
+
+	return results
+}
+
+func brandHostname(fallback string) string {
+	data, err := os.ReadFile(brandFilePath)
+	if err != nil {
+		return fallback
+	}
+	brand := strings.TrimSpace(string(data))
+	if brand == "" {
+		return fallback
+	}
+	if strings.EqualFold(brand, "tollgate") {
+		return "TollGate"
+	}
+	runes := []rune(brand)
+	if len(runes) == 0 {
+		return fallback
+	}
+	return strings.ToUpper(string(runes[0])) + string(runes[1:])
+}
+
+func validateSSIDToken(setting, value string, max int) error {
+	if value == "" {
+		return fmt.Errorf("%s must not be empty", setting)
+	}
+	if len(value) > max {
+		return fmt.Errorf("%s must be at most %d characters", setting, max)
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return fmt.Errorf("%s may contain only letters, digits, '-' and '_'", setting)
+	}
+	return nil
+}
+
+func isMachineGuestSSID(current, brand string) bool {
+	name := strings.TrimPrefix(strings.TrimSpace(current), "!")
+	if name == "" {
+		return true
+	}
+	prefix := brand + "-"
+	if !strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix)) {
+		return false
+	}
+	return validateSSIDToken("suffix", name[len(prefix):], 12) == nil
+}
+
+func isMachinePrivateSSID(current, operator string) bool {
+	current = strings.TrimSpace(current)
+	if current == "" {
+		return true
+	}
+	if strings.HasPrefix(current, "Private-"+operator+"-") {
+		return true
+	}
+	if strings.HasPrefix(current, operator+"-") {
+		return true
+	}
+	return false
 }
 
 // existingPrivateRadioSections returns the private wifi-ifaces that exist. UCI

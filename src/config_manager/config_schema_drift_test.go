@@ -364,8 +364,8 @@ func assertFieldValue(t *testing.T, cfg *Config, jsonKey, value, typ string) {
 			t.Error("show_setup: got true, want false")
 		}
 	case "reseller_mode":
-		if cfg.ResellerMode != true {
-			t.Error("reseller_mode: got false, want true")
+		if cfg.ResellerMode != (value == "true") {
+			t.Errorf("reseller_mode: got %v, want %s", cfg.ResellerMode, value)
 		}
 	case "margin":
 		if cfg.Margin != 0.5 {

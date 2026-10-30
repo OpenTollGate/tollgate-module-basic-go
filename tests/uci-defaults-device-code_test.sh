@@ -317,10 +317,10 @@ eq "the store is repaired"                    "$(state_get tollgate.device.code)
 
 # ------------------------------------------------------- the private SSID
 echo "== the private SSID shares the code, and the rename escape hatch holds"
-CODE="OQ3Q"; NYM="c08r4d0r"
-eq "a missing SSID is built from nym+code"     "$(private_ssid_for_code '')" "c08r4d0r-OQ3Q"
-eq "a machine SSID converges (legacy hex)"     "$(private_ssid_for_code 'c08r4d0r-0GLK')" "c08r4d0r-OQ3Q"
-eq "a machine SSID converges (digits)"         "$(private_ssid_for_code 'c08r4d0r-123456')" "c08r4d0r-OQ3Q"
+CODE="OQ3Q"; NYM="c08r4d0r"; SSID_SUFFIX="OQ3Q"
+eq "a missing SSID is built from operator+suffix" "$(private_ssid_for_code '')" "Private-c08r4d0r-OQ3Q"
+eq "a machine SSID converges (legacy hex)"     "$(private_ssid_for_code 'c08r4d0r-0GLK')" "Private-c08r4d0r-OQ3Q"
+eq "a machine SSID converges (digits)"         "$(private_ssid_for_code 'c08r4d0r-123456')" "Private-c08r4d0r-OQ3Q"
 eq "renamed SSID (no nym) is preserved"        "$(private_ssid_for_code 'MyNewNetwork')" "MyNewNetwork"
 eq "renamed SSID (other nym) is preserved"     "$(private_ssid_for_code 'office-lan')" "office-lan"
 eq "renamed SSID (nym + word) is preserved"    "$(private_ssid_for_code 'c08r4d0r-Office')" "c08r4d0r-Office"
@@ -352,7 +352,25 @@ eq "a banged operator name survives"       "$(captive_ssid_for_code '!CafeWiFi')
 eq "a brand word without a code survives"  "$(captive_ssid_for_code 'TollGate-CafeNet')" "TollGate-CafeNet"
 eq "a missing SSID is built from the code" "$(captive_ssid_for_code '')" "!TollGate-OQ3Q"
 
+echo "== a custom display suffix drives both SSIDs"
+CODE="OQ3Q"; NYM="c08r4d0r"; SSID_SUFFIX="myplace"
+eq "the private SSID uses the custom suffix" "$(private_ssid_for_code '')" "Private-c08r4d0r-myplace"
+DEVICE_SSID="!TollGate-myplace"
+eq "a missing captive SSID uses the custom suffix" "$(captive_ssid_for_code '')" "!TollGate-myplace"
+eq "an old machine SSID converges on the custom suffix" "$(captive_ssid_for_code '!TollGate-OQ3Q')" "!TollGate-myplace"
+eq "an operator name still survives" "$(captive_ssid_for_code 'CafeWiFi')" "CafeWiFi"
+seed "tollgate.device=device" "tollgate.device.code=OQ3Q" "tollgate.device.ssid_suffix=myplace"
+reset_log
+setup_device_identity
+eq "the stored suffix is adopted" "$SSID_SUFFIX" "myplace"
+eq "the stored suffix is written back" "$(state_get tollgate.device.ssid_suffix)" "myplace"
+eq "the captive SSID uses the stored suffix" "$DEVICE_SSID" "!TollGate-myplace"
+
 echo "== the nym is adopted from an existing machine-shaped private SSID"
+seed "tollgate.device=device" "tollgate.device.code=OQ3Q" \
+     "wireless.private_radio0=wifi-iface" "wireless.private_radio0.ssid=Private-amperstrand-myplace"
+resolve_nym
+eq "the operator token is adopted from Private-<operator>-<suffix>" "$NYM" "amperstrand"
 seed "tollgate.device=device" "tollgate.device.code=OQ3Q" \
      "wireless.private_radio0=wifi-iface" "wireless.private_radio0.ssid=amperstrand-11AA"
 resolve_nym
@@ -382,7 +400,7 @@ grep -q 'private_ssid="c08r4d0r-' "$ROOT/$SCRIPT" \
     || ok "the private SSID is derived from the code"
 
 echo "== the sort decoration ('!') is on the captive SSID and nowhere else"
-grep -q -F 'DEVICE_SSID="!${BRAND_HOSTNAME}-${CODE}"' "$ROOT/$SCRIPT" \
+grep -q -F 'DEVICE_SSID="!${BRAND_HOSTNAME}-${SSID_SUFFIX}"' "$ROOT/$SCRIPT" \
     && ok "the captive SSID is written with the leading '!' (it sorts first in a WiFi list)" \
     || bad "the captive SSID is not decorated with the leading '!'"
 # Exactly ONE assignment in the shipped script opens its value with '!': the

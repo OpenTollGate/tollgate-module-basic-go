@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +41,7 @@ type CLIServer struct {
 	connector        wireless_gateway_manager.ConnectorInterface
 	scanner          wireless_gateway_manager.ScannerInterface
 	upstreamManager  *wireless_gateway_manager.UpstreamManager
+	peeringProvider  PeeringStatusProvider
 	startTime        time.Time
 	listener         net.Listener
 	// running is read by the accept loop (another goroutine) and written
@@ -79,6 +81,12 @@ func NewCLIServer(configManager *config_manager.ConfigManager, merchantProvider 
 		upstreamManager:  upstreamManager,
 		startTime:        time.Now(),
 	}
+}
+
+// SetPeeringStatusProvider wires the live upstream-session view used by the
+// admin board. It is optional: a CLI-only build still answers with no peers.
+func (s *CLIServer) SetPeeringStatusProvider(p PeeringStatusProvider) {
+	s.peeringProvider = p
 }
 
 func (s *CLIServer) manualPauseDuration() time.Duration {
@@ -781,6 +789,11 @@ func (s *CLIServer) handleUpstreamScan() CLIResponse {
 			IsTollGate:             net.IsTollGate,
 			AdvertisedPricePerStep: net.AdvertisedPricePerStep,
 			AdvertisedStepSize:     net.AdvertisedStepSize,
+			IsReseller:             net.IsReseller,
+			HasInternet:            net.HasInternet,
+			OpenNetwork:            net.OpenNetwork,
+			MintURL:                net.MintURL,
+			Pubkey:                 hex.EncodeToString(net.Pubkey),
 		})
 	}
 
