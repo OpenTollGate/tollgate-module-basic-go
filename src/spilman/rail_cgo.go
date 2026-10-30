@@ -207,9 +207,44 @@ func (cgoValidator) Name() string { return "cdk-spilman-go/cgo-validate_payment"
 type cgoValidatorHost struct {
 	funding FundingRecord
 	state   string
+	// receiverPubkey is this payee's own compressed-hex receiver key, or "" when it
+	// holds none. It is what `ReceiverKeyIsAcceptable` compares against.
+	receiverPubkey string
 }
 
-func (h *cgoValidatorHost) ReceiverKeyIsAcceptable(string) bool           { return true }
+// ReceiverKeyIsAcceptable answers "is this channel addressed to the key this payee
+// signs closes with?".
+//
+// It is a REAL comparison, not a constant. Returning `true` here — which this used to
+// do — meant upstream's own funding validation accepted a channel addressed to any
+// key at all, so a payer could open a channel against a throwaway key: the funding
+// lands at the mint, only the missing key could ever release it, and the failure
+// surfaced only at close, long after the money moved. `receiverPubkey` is the payee's
+// own compressed-hex key, supplied by the caller from the same value `/spilman/params`
+// advertises.
+//
+// An empty `receiverPubkey` means this payee holds no key, and it must refuse: there
+// is no key such a payee could honestly accept.
+func (h *cgoValidatorHost) ReceiverKeyIsAcceptable(offered string) bool {
+	if h.receiverPubkey == "" {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(offered), h.receiverPubkey)
+}
+
+// MintAndKeysetIsAcceptable answers "will this payee redeem at this mint/keyset?".
+//
+// Left as `true` deliberately, and this is the honest answer here rather than a
+// placeholder: this host is constructed on the PAYMENT-VERIFICATION path, where
+// upstream has already been handed the funding record for a channel this payee
+// itself accepted. There is no trusted keyset cache in this shape to compare against,
+// and inventing one would assert a policy the caller never configured. A constant
+// `false` would be equally dishonest in the other direction — it would refuse every
+// payment on a channel that was legitimately registered.
+//
+// The registration path (spilman_http.go) enforces the mint/keyset policy from actual
+// configuration before a channel is stored. When this host gains a real trusted-keyset
+// cache, this becomes a comparison like the one above.
 func (h *cgoValidatorHost) MintAndKeysetIsAcceptable(string, string) bool { return true }
 
 func (h *cgoValidatorHost) GetFundingAndParams(channelID string) (string, string, string, string, bool) {

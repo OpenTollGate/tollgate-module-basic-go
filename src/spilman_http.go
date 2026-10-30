@@ -168,17 +168,34 @@ func railOrRefuse(w http.ResponseWriter) *spilman.SellerRail {
 // wire, whether this build can authenticate at all — in a default build it reads
 // "not-compiled" and every payment will be refused, which is worth knowing before
 // funding a channel rather than after.
+//
+// # receiver_pubkey
+//
+// The key a payer MUST name as the channel's `receiver_pubkey`. Without it a payer
+// can only open against a key of its own choosing — and this payee signs every close
+// with its own, so such a channel funds at the mint and can never be settled. That
+// was a real, silent money loss, not a hypothetical: the field was absent here while
+// the registration handler accepted whatever the caller sent.
+//
+// It is `null` when the payee has no merchant identity to derive from. Advertising a
+// key we cannot sign with would be worse than advertising none.
 func handleSpilmanParams(w http.ResponseWriter, r *http.Request) {
 	rail := railOrRefuse(w)
 	if rail == nil {
 		return
 	}
-	writeSpilmanJSON(w, http.StatusOK, map[string]any{
+	receiver := spilmanReceiverPubkeyHex()
+	body := map[string]any{
 		"status":                1,
 		"unit":                  spilman.UnitSat,
 		"in_bytes_per_millisat": spilman.TollgateParityInBytesPerMillisat,
 		"validator":             rail.Validator(),
-	})
+		"receiver_pubkey":       nil,
+	}
+	if receiver != "" {
+		body["receiver_pubkey"] = receiver
+	}
+	writeSpilmanJSON(w, http.StatusOK, body)
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +236,18 @@ func handleSpilmanChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(req.Unit) == "" {
 		req.Unit = spilman.UnitSat
+	}
+	// REFUSE A CHANNEL WE COULD NEVER SETTLE.
+	//
+	// This happens BEFORE rail.Open, so nothing is written: the payer's funding is
+	// already committed at the mint by the time this body arrives, and a 200 here
+	// would take responsibility for a channel only some other key can close. The
+	// answer is a 400 that names the field, not a 200 that hides the problem until
+	// the close silently fails.
+	if err := requireOwnReceiverKey(req.ReceiverPubkey); err != nil {
+		writeSpilmanJSON(w, http.StatusBadRequest, map[string]any{
+			"status": 0, "error": err.Error()})
+		return
 	}
 	status, err := rail.Open(r.Context(), spilman.ChannelOpenRequest{
 		ChannelID:         req.ChannelID,
