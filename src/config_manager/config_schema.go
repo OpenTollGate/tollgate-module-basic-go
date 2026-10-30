@@ -58,6 +58,24 @@ func GetConfigSchema() []FieldSchema {
 			Description: "Enable reseller mode for upstream gateway discovery", Default: false, Required: true, Editable: true,
 		},
 		{
+			// The wholesale channel rail. DISABLED by default: a router that has
+			// not opted in must not expose a payment surface at all, and with
+			// enabled=false the /spilman routes are never registered, so every
+			// path under them 404s from the mux without a handler running.
+			//
+			// This entry exists because the config struct declares these fields:
+			// a field that is in Config but absent from the schema is invisible to
+			// the UI, which is how an operator ends up with a rail they cannot see
+			// or configure. TestSchemaCoversAllConfigStructFields enforces that.
+			Name: "Spilman", JSONKey: "spilman", Type: "object",
+			Description: "Wholesale Spilman payment-channel rail (disabled by default: the /spilman surface is not mounted unless enabled)", Required: false, Editable: true,
+			Children: []FieldSchema{
+				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Mount the /spilman channel surface. When false, every /spilman path 404s", Default: false, Required: true, Editable: true},
+				{Name: "ChannelDBPath", JSONKey: "channel_db_path", Type: "string", Description: "Durable channel ledger path. REQUIRED when enabled: the rail refuses to start without it rather than serving bytes against an in-memory ledger whose credit is lost on restart", Default: "", Required: false, Editable: true},
+				{Name: "InBytesPerMillisat", JSONKey: "in_bytes_per_millisat", Type: "int", Description: "Billed bytes per millisat. 0 means the parity rate (one 21 MiB step bills 1000 msat == 1 sat). Advertised over GET /spilman/params so buyer and seller price identically", Default: 0, Required: false, Editable: true, Min: 0},
+			},
+		},
+		{
 			Name: "AuthDelaySeconds", JSONKey: "auth_delay_seconds", Type: "int",
 			Description: "Delay in seconds before authorizing MAC after payment (0 = immediate)", Default: 0, Required: false, Editable: true, Min: 0, Max: 300,
 		},
@@ -179,6 +197,33 @@ func GetConfigSchema() []FieldSchema {
 			Description: "Which UI answers the router's entry ports (:8080 over HTTP and :443 over HTTPS). board = the TollGate board answers https://<hostname>.lan/ and LuCI moves to :8090/:8443 (the default); luci = LuCI answers the entry pair and the board stays on :8090/:8443, the mapping shipped before 0.6.0. The two packages that write the listeners are released separately, so a router carrying only the first half records this value and keeps serving the legacy mapping until the matching writer is installed.",
 			Default:     "board", Required: true, Editable: true,
 			Enum: []string{"board", "luci"},
+		},
+		{
+			Name: "MPTCPBonding", JSONKey: "mptcp_bonding", Type: "object",
+			Description: "Optional MPTCP multi-WAN bond. Disabled by default; " +
+				"enabling it registers uplink addresses as MPTCP subflow endpoints.",
+			Required: false, Editable: true,
+			Children: []FieldSchema{
+				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Enable the MPTCP bond on this node", Default: false, Required: true, Editable: true},
+				{Name: "Policy", JSONKey: "policy", Type: "string", Description: "When the bond is used", Default: "guest_only", Required: false, Editable: true, Enum: []string{"guest_only", "always"}},
+				{Name: "Server", JSONKey: "server", Type: "string", Description: "Peer endpoint host:port", Default: "", Required: false, Editable: true},
+				{Name: "Method", JSONKey: "method", Type: "string", Description: "Cipher suite", Default: "chacha20-ietf-poly1305", Required: false, Editable: true},
+				{Name: "Password", JSONKey: "password", Type: "string", Description: "Shared secret for the bond (sensitive)", Default: "", Required: false, Editable: true, Secret: true},
+				{
+					Name: "Uplinks", JSONKey: "uplinks", Type: "array",
+					Description: "Uplink interfaces to register as subflow endpoints", Required: false, Editable: true,
+					Children: []FieldSchema{
+						{Name: "Interface", JSONKey: "interface", Type: "string", Description: "Interface name", Default: "", Required: true, Editable: true},
+						{Name: "Address", JSONKey: "address", Type: "string", Description: "Address to advertise (optional; learned at runtime if empty)", Required: false, Editable: true},
+					},
+				},
+				{Name: "Subflows", JSONKey: "subflows", Type: "int", Description: "Subflow ceiling; must cover the uplink count", Default: 8, Required: false, Editable: true, Min: 1, Max: 64},
+				{Name: "SteeringCIDR", JSONKey: "steering_cidr", Type: "string", Description: "Client networks whose traffic is steered over the bond", Default: "", Required: false, Editable: true},
+				{Name: "SocksPort", JSONKey: "socks_port", Type: "int", Description: "Local SOCKS port", Default: 1081, Required: false, Editable: true, Min: 1, Max: 65535},
+				{Name: "TproxyPort", JSONKey: "tproxy_port", Type: "int", Description: "Transparent proxy port", Default: 1082, Required: false, Editable: true, Min: 1, Max: 65535},
+				{Name: "FwMark", JSONKey: "fwmark", Type: "string", Description: "Firewall mark for policy routing", Default: "0x1", Required: false, Editable: true},
+				{Name: "FwMarkTable", JSONKey: "fwmark_table", Type: "int", Description: "Routing table for marked traffic", Default: 100, Required: false, Editable: true, Min: 1, Max: 9999},
+			},
 		},
 		{
 			Name: "MaintainerNpub", JSONKey: "maintainer_npub", Type: "string",
