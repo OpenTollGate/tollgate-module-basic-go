@@ -72,8 +72,16 @@ match NET4SATS-AA11
 match !Net4sats-7D2K
 match !net4sats-7d2k
 
+# --- operator-supplied prefix (read from /etc/tollgate/ssid-prefixes) --------
+match Archipelago-OQ3Q
+match archipelago-oq3q
+match !Archipelago-OQ3Q
+match !Archipelago-7D2K
+match !archipelago-7d2k
+
 # --- decoration is at most ONE '!' ------------------------------------------
 nomatch !!TollGate-A1B2
+nomatch !!Archipelago-A1B2
 nomatch !!Net4sats-A1B2
 nomatch !tollgate
 
@@ -110,6 +118,7 @@ nomatch !
 banner-suffix Portal
 banner !TollGate-OQ3Q
 banner !Net4sats-OQ3Q
+banner !Archipelago-OQ3Q
 nomatch-banner !TollGate-OQ3Q
 
 # The banner SSIDs above are recognized names in their own right (the banner is

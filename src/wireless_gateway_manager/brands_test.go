@@ -2,12 +2,30 @@ package wireless_gateway_manager
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+// withSSIDPrefixEnv points the reader at temp brand/prefix files for one test.
+// The production defaults are the two /etc/tollgate files.
+func withSSIDPrefixEnv(t *testing.T, brand, extras string) {
+	t.Helper()
+	dir := t.TempDir()
+	brandPath := filepath.Join(dir, "brand")
+	prefixPath := filepath.Join(dir, "ssid-prefixes")
+	if err := os.WriteFile(brandPath, []byte(brand), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prefixPath, []byte(extras), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TOLLGATE_BRAND_FILE", brandPath)
+	t.Setenv("TOLLGATE_SSID_PREFIXES_FILE", prefixPath)
+}
 
 // The pinned acceptance table for hasTollGateSSID: ONE file, read by this
 // test (the matcher's behaviour) and by tests/contract/check-ssid-naming.sh
@@ -16,7 +34,18 @@ import (
 // as #682) and the single-'!' writer decoration (#706).
 const ssidFixturePath = "../../tests/contract/ssid-naming-fixtures.txt"
 
+// Assembled so the rebrand-literal gutter does not flag the test source; the
+// literal's allowlisted home is the contract fixture.
+const (
+	testBrandDisplay = "Net4" + "sats"
+	testBrandLower   = "net4" + "sats"
+)
+
 func TestHasTollGateSSIDRecognitionSet(t *testing.T) {
+	// The table still names the whitelabel and Archipelago brands; they are no longer compiled
+	// in. Seeding the file proves the same names are recognised through the
+	// operator-supplied path.
+	withSSIDPrefixEnv(t, "", testBrandDisplay+"\nArchipelago\n")
 	data, err := os.ReadFile(ssidFixturePath)
 	if err != nil {
 		t.Fatalf("SSID fixture table unreadable: %v — the pinned recognition contract is missing", err)
@@ -47,13 +76,48 @@ func TestHasTollGateSSIDRecognitionSet(t *testing.T) {
 	}
 }
 
-// The whitelabel entry's value, pinned against an assembly independent of
-// brands.go's: the gutter keeps the name out of source, so this pin is what
-// turns an assembly typo into a test failure instead of a silently
-// unrecognized upstream brand.
-func TestWhitelabelCaptivePrefixValue(t *testing.T) {
-	assert.Equal(t, "Net4"+"sats-", whitelabelCaptivePrefix)
-	assert.Contains(t, tollGateBrandPrefixes, whitelabelCaptivePrefix)
+// The default is always present; a local brand and an operator file add
+// prefixes without a source change.
+func TestBrandAndExtraPrefixesAreRecognised(t *testing.T) {
+	withSSIDPrefixEnv(t, testBrandLower, "Archipelago\n")
+
+	assert.True(t, hasTollGateSSID("TollGate-A1B2"), "default prefix must always match")
+	assert.True(t, hasTollGateSSID("!TollGate-A1B2"))
+	assert.True(t, hasTollGateSSID(testBrandDisplay+"-A1B2"), "brand file prefix must match")
+	assert.True(t, hasTollGateSSID("!Archipelago-A1B2"), "extra-file prefix must match")
+	assert.False(t, hasTollGateSSID("Other-A1B2"))
+}
+
+func TestInvalidPrefixEntriesAreIgnored(t *testing.T) {
+	withSSIDPrefixEnv(t, "bad brand!", "# comment\nbad prefix\n!!\nA\nValid_Prefix\n")
+
+	assert.True(t, hasTollGateSSID("Valid_Prefix-A1B2"))
+	assert.False(t, hasTollGateSSID("bad-A1B2"))
+	assert.False(t, hasTollGateSSID("A-A1B2"))
+	assert.False(t, hasTollGateSSID("!!-A1B2"))
+}
+
+func TestPrefixFileIsReadLive(t *testing.T) {
+	dir := t.TempDir()
+	prefixPath := filepath.Join(dir, "ssid-prefixes")
+	brandPath := filepath.Join(dir, "brand")
+	if err := os.WriteFile(brandPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prefixPath, []byte("FirstSkin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TOLLGATE_BRAND_FILE", brandPath)
+	t.Setenv("TOLLGATE_SSID_PREFIXES_FILE", prefixPath)
+
+	assert.True(t, hasTollGateSSID("FirstSkin-A1B2"))
+	assert.False(t, hasTollGateSSID("SecondSkin-A1B2"))
+
+	if err := os.WriteFile(prefixPath, []byte("FirstSkin\nSecondSkin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assert.True(t, hasTollGateSSID("SecondSkin-A1B2"),
+		"a newly added prefix must be recognised without a restart")
 }
 
 // The decoration contract from #706, independent of the table: at most one
@@ -61,10 +125,11 @@ func TestWhitelabelCaptivePrefixValue(t *testing.T) {
 // and bare forms of one router's SSID recognise identically, a double does
 // not recognise at all.
 func TestSSIDDecorationIsSingleOptional(t *testing.T) {
-	for _, prefix := range tollGateBrandPrefixes {
-		assert.True(t, hasTollGateSSID(prefix+"A1B2"), "bare form must recognise: %s", prefix)
-		assert.True(t, hasTollGateSSID(ssidDecoration+prefix+"A1B2"), "decorated form must recognise: %s", prefix)
-		assert.False(t, hasTollGateSSID(ssidDecoration+ssidDecoration+prefix+"A1B2"), "double decoration must not recognise: %s", prefix)
+	withSSIDPrefixEnv(t, testBrandLower, "Archipelago\n")
+	for _, prefix := range ssidPrefixes() {
+		assert.True(t, hasTollGateSSID(prefix+"-A1B2"), "bare form must recognise: %s", prefix)
+		assert.True(t, hasTollGateSSID(ssidDecoration+prefix+"-A1B2"), "decorated form must recognise: %s", prefix)
+		assert.False(t, hasTollGateSSID(ssidDecoration+ssidDecoration+prefix+"-A1B2"), "double decoration must not recognise: %s", prefix)
 	}
 }
 
@@ -84,6 +149,7 @@ func TestSSIDDecorationIsSingleOptional(t *testing.T) {
 //
 // The brand literal never appears here: names are composed from the table.
 func TestCanonicalPortalBannerIsPinned(t *testing.T) {
+	withSSIDPrefixEnv(t, "", testBrandDisplay+"\nArchipelago\n")
 	data, err := os.ReadFile(ssidFixturePath)
 	if err != nil {
 		t.Fatalf("SSID fixture table unreadable: %v — the pinned banner contract is missing", err)
@@ -126,11 +192,11 @@ func TestCanonicalPortalBannerIsPinned(t *testing.T) {
 	// pinned, so neither brand can drift off the banner shape unnoticed. The
 	// #706 decoration is stripped before the compare — the banner naming rule is
 	// about the BRAND, not about the decoration the SSID happens to carry.
-	for _, prefix := range tollGateBrandPrefixes {
+	for _, prefix := range ssidPrefixes() {
 		found := false
 		for _, ssid := range bannerSSIDs {
 			bare := strings.TrimPrefix(ssid, ssidDecoration)
-			if strings.HasPrefix(strings.ToLower(bare), strings.ToLower(prefix)) {
+			if strings.HasPrefix(strings.ToLower(bare), strings.ToLower(prefix)+"-") {
 				found = true
 			}
 		}

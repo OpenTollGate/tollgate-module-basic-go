@@ -179,6 +179,22 @@ eq "a bang alone is not a name"   "$(code_from_name '!')"           ""
 eq "short suffix yields none"     "$(code_from_name tollgate-abc)"  ""
 eq "empty yields none"            "$(code_from_name '')"            ""
 
+# The configurable fallback: a downstream skin adds its prefix to
+# /etc/tollgate/ssid-prefixes instead of asking for a source change.
+PREFIX_FILE="$TMP/ssid-prefixes"
+printf 'CustomSkin\n' > "$PREFIX_FILE"
+export TOLLGATE_SSID_PREFIXES_FILE="$PREFIX_FILE"
+eq "extra prefix, decorated"      "$(code_from_name '!CustomSkin-AB12')" "AB12"
+eq "extra prefix, bare"           "$(code_from_name CustomSkin-AB12)" "AB12"
+eq "unknown prefix still rejected" "$(code_from_name Otherbrand-AB12)" ""
+
+BRAND_FILE="$TMP/brand"
+printf 'archipelago' > "$BRAND_FILE"
+eq "brand file prefix" \
+   "$(unset BRAND; TOLLGATE_BRAND_FILE="$BRAND_FILE" code_from_name '!Archipelago-AB12')" "AB12"
+unset TOLLGATE_SSID_PREFIXES_FILE
+unset TOLLGATE_BRAND_FILE
+
 echo "== strip_ssid_decoration (one optional leading '!', never more)"
 eq "a decorated name is un-decorated" "$(strip_ssid_decoration '!TollGate-OQ3Q')" "TollGate-OQ3Q"
 eq "a bare name is untouched"         "$(strip_ssid_decoration 'TollGate-OQ3Q')"  "TollGate-OQ3Q"
