@@ -150,5 +150,15 @@
   "balance_time": "Время",
   "balance_data": "Данные",
   "refresh_balance": "Обновить баланс",
-  "return_to_portal": "Вернуться на портал"
+  "return_to_portal": "Вернуться на портал",
+  "gateway.choose.title": "Выберите свой шлюз",
+  "gateway.choose.subtitle": "Как ваш трафик покидает Интернет для этого сеанса.",
+  "gateway.objective.minimize_cost": "Минимизируйте затраты",
+  "gateway.objective.maximize_speed": "Максимальная скорость",
+  "gateway.objective.balanced": "Сбалансированный",
+  "gateway.applies_next_session": "Применяется к следующему сеансу. Ваш текущий сеанс сохраняет текущий шлюз до его завершения.",
+  "gateway.current": "Текущий шлюз",
+  "gateway.unavailable": "Выбор шлюза недоступен на этом маршрутизаторе.",
+  "gateway.choice_locked": "Заблокировано этим роутером",
+  "gateway.use_for_next_session": "Использовать для следующего сеанса"
 }

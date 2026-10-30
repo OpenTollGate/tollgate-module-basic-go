@@ -150,5 +150,15 @@
   "balance_time": "時間",
   "balance_data": "データ",
   "refresh_balance": "バランスをリフレッシュ",
-  "return_to_portal": "ポータルに戻る"
+  "return_to_portal": "ポータルに戻る",
+  "gateway.choose.title": "ゲートウェイを選択してください",
+  "gateway.choose.subtitle": "このセッションでトラフィックがインターネットからどのように流出するか。",
+  "gateway.objective.minimize_cost": "コストを最小限に抑える",
+  "gateway.objective.maximize_speed": "速度を最大化する",
+  "gateway.objective.balanced": "バランスの取れた",
+  "gateway.applies_next_session": "次回のセッションに適用されます。現在のセッションは、終了するまで現在のゲートウェイを保持します。",
+  "gateway.current": "現在のゲートウェイ",
+  "gateway.unavailable": "このルーターではゲートウェイを選択できません。",
+  "gateway.choice_locked": "このルーターによってロックされています",
+  "gateway.use_for_next_session": "次回のセッションに使用します"
 }

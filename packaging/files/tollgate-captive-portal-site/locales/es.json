@@ -150,5 +150,15 @@
   "balance_time": "Hora",
   "balance_data": "Datos",
   "refresh_balance": "Actualizar saldo",
-  "return_to_portal": "Volver al portal"
+  "return_to_portal": "Volver al portal",
+  "gateway.choose.title": "Elige tu puerta de enlace",
+  "gateway.choose.subtitle": "Cómo sale su tráfico de Internet para esta sesión.",
+  "gateway.objective.minimize_cost": "Minimizar costo",
+  "gateway.objective.maximize_speed": "Maximizar la velocidad",
+  "gateway.objective.balanced": "Equilibrado",
+  "gateway.applies_next_session": "Aplica para tu próxima sesión. Su sesión actual mantiene su puerta de enlace actual hasta que finaliza.",
+  "gateway.current": "Puerta de enlace actual",
+  "gateway.unavailable": "La opción de puerta de enlace no está disponible en este enrutador.",
+  "gateway.choice_locked": "Bloqueado por este enrutador",
+  "gateway.use_for_next_session": "Usar para la próxima sesión"
 }

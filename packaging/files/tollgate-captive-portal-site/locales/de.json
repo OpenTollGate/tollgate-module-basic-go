@@ -150,5 +150,15 @@
   "balance_time": "Zeit",
   "balance_data": "Daten",
   "refresh_balance": "Guthaben aktualisieren",
-  "return_to_portal": "Zurück zum Portal"
+  "return_to_portal": "Zurück zum Portal",
+  "gateway.choose.title": "Wählen Sie Ihr Gateway",
+  "gateway.choose.subtitle": "Wie Ihr Datenverkehr das Internet für diese Sitzung verlässt.",
+  "gateway.objective.minimize_cost": "Kosten minimieren",
+  "gateway.objective.maximize_speed": "Geschwindigkeit maximieren",
+  "gateway.objective.balanced": "Ausgewogen",
+  "gateway.applies_next_session": "Gilt für Ihre nächste Sitzung. Ihre aktuelle Sitzung behält ihr aktuelles Gateway, bis sie endet.",
+  "gateway.current": "Aktuelles Gateway",
+  "gateway.unavailable": "Die Gateway-Auswahl ist auf diesem Router nicht verfügbar.",
+  "gateway.choice_locked": "Von diesem Router gesperrt",
+  "gateway.use_for_next_session": "Für die nächste Sitzung verwenden"
 }

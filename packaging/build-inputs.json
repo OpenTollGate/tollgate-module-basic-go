@@ -34,7 +34,7 @@
   },
   "portal": {
     "repo": "https://github.com/OpenTollGate/tollgate-captive-portal-site.git",
-    "commit": "d09c978b67ded7e2dce9731b409be78617c250ad"
+    "commit": "5fd4cb3242ef46960b5777777dd92662e8ca8841"
   },
   "openwrt_sdk": {
     "image": "openwrt/sdk",

@@ -150,5 +150,15 @@
   "balance_time": "Waktu",
   "balance_data": "Data",
   "refresh_balance": "Segarkan saldo",
-  "return_to_portal": "Kembali ke portal"
+  "return_to_portal": "Kembali ke portal",
+  "gateway.choose.title": "Pilih gerbang Anda",
+  "gateway.choose.subtitle": "Bagaimana lalu lintas Anda meninggalkan internet untuk sesi ini.",
+  "gateway.objective.minimize_cost": "Minimalkan biaya",
+  "gateway.objective.maximize_speed": "Maksimalkan kecepatan",
+  "gateway.objective.balanced": "Seimbang",
+  "gateway.applies_next_session": "Berlaku untuk sesi Anda berikutnya. Sesi Anda saat ini mempertahankan gateway saat ini hingga sesi berakhir.",
+  "gateway.current": "Gerbang saat ini",
+  "gateway.unavailable": "Pilihan gateway tidak tersedia di router ini.",
+  "gateway.choice_locked": "Dikunci oleh router ini",
+  "gateway.use_for_next_session": "Gunakan untuk sesi berikutnya"
 }

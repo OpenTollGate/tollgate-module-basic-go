@@ -150,5 +150,15 @@
   "balance_time": "Thời gian",
   "balance_data": "Dữ liệu",
   "refresh_balance": "Làm mới số dư",
-  "return_to_portal": "Quay lại cổng thông tin"
+  "return_to_portal": "Quay lại cổng thông tin",
+  "gateway.choose.title": "Chọn cổng của bạn",
+  "gateway.choose.subtitle": "Lưu lượng truy cập của bạn rời khỏi Internet trong phiên này như thế nào.",
+  "gateway.objective.minimize_cost": "Giảm thiểu chi phí",
+  "gateway.objective.maximize_speed": "Tối đa hóa tốc độ",
+  "gateway.objective.balanced": "Cân bằng",
+  "gateway.applies_next_session": "Áp dụng cho buổi tiếp theo của bạn. Phiên hiện tại của bạn giữ cổng hiện tại cho đến khi kết thúc.",
+  "gateway.current": "Cổng hiện tại",
+  "gateway.unavailable": "Lựa chọn cổng không có sẵn trên bộ định tuyến này.",
+  "gateway.choice_locked": "Bị khóa bởi bộ định tuyến này",
+  "gateway.use_for_next_session": "Sử dụng cho phiên tiếp theo"
 }

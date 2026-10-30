@@ -150,5 +150,15 @@
   "balance_time": "Tempo",
   "balance_data": "Dados",
   "refresh_balance": "Atualizar saldo",
-  "return_to_portal": "Voltar ao portal"
+  "return_to_portal": "Voltar ao portal",
+  "gateway.choose.title": "Escolha seu portal",
+  "gateway.choose.subtitle": "Como o seu tráfego sai da Internet para esta sessão.",
+  "gateway.objective.minimize_cost": "Minimizar custos",
+  "gateway.objective.maximize_speed": "Maximizar a velocidade",
+  "gateway.objective.balanced": "Equilibrado",
+  "gateway.applies_next_session": "Aplica-se à sua próxima sessão. Sua sessão atual mantém o gateway atual até terminar.",
+  "gateway.current": "Portal atual",
+  "gateway.unavailable": "A escolha do gateway não está disponível neste roteador.",
+  "gateway.choice_locked": "Bloqueado por este roteador",
+  "gateway.use_for_next_session": "Usar na próxima sessão"
 }

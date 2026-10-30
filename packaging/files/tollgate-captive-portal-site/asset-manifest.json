@@ -1,16 +1,16 @@
 {
   "assets": {
     "js": [
-      "assets/balance-CFaYB8_g.js",
-      "assets/browser-ponyfill-BmvV8n9j.js",
-      "assets/index-BpeJIiVN.js",
-      "assets/portal-ukNCk8A6.js",
+      "assets/balance-KLPO4u3N.js",
+      "assets/browser-ponyfill-DQ6Hz6XR.js",
+      "assets/index-CBWBf9Tc.js",
+      "assets/portal-C3OB1_95.js",
       "assets/qr-scanner-worker.min-D85Z9gVD.js",
-      "assets/qr-scanner.min-Bk3Ms2_t.js"
+      "assets/qr-scanner.min-BrtpEA__.js"
     ],
     "css": [
       "assets/balance-Dm4CN0kg.css",
-      "assets/index-DIfXnncw.css",
+      "assets/index-BmK7JQqe.css",
       "assets/portal-BGdEux9b.css"
     ],
     "images": [

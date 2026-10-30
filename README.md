@@ -450,11 +450,11 @@ the CLI itself.
 ## Configuration
 
 TollGate writes a default `/etc/tollgate/config.json` on first boot.
-The current schema version is **`v0.0.10`**. An abridged example:
+The current schema version is **`v0.0.11`**. An abridged example:
 
 ```json
 {
-  "config_version": "v0.0.10",
+  "config_version": "v0.0.11",
   "log_level": "info",
   "metric": "bytes",
   "step_size": 22020096,
@@ -566,7 +566,7 @@ Notes that matter when you change them:
   are stored in `/etc/config/tollgate` (`ssid_suffix`, `nym`) and survive an
   in-place reinstall, an upgrade, and a sysupgrade that keeps settings.
 
-### Which UI answers the entry ports (v0.0.10)
+### Which UI answers the entry ports (v0.0.11)
 
 One field decides which of the two administration UIs owns the router's entry
 port pair — 8080 over plain HTTP and 443 over TLS. The field is **entry_ui**,

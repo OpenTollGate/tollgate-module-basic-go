@@ -2,7 +2,7 @@
 # go-battery.sh — the canonical pre-PR Go gate across ALL modules.
 # contract-exempt: the test battery compiles per-module ./..., never a packaging set
 #
-# WHY A SCRIPT: src/ is a multi-module tree (18 nested go.mod files with
+# WHY A SCRIPT: src/ is a multi-module tree (19 nested go.mod files with
 # replace directives); `go <cmd> ./...` from src/ covers ONLY the root
 # module. A battery invoked that way silently skips every subpackage while
 # reporting success. AGENTS.md and CONTRIBUTING.md point here, and the

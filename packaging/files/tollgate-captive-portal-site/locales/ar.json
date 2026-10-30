@@ -150,5 +150,15 @@
   "balance_time": "الوقت",
   "balance_data": "بيانات",
   "refresh_balance": "تحديث الرصيد",
-  "return_to_portal": "العودة إلى البوابة"
+  "return_to_portal": "العودة إلى البوابة",
+  "gateway.choose.title": "اختر البوابة الخاصة بك",
+  "gateway.choose.subtitle": "كيف تترك حركة المرور الخاصة بك الإنترنت لهذه الجلسة.",
+  "gateway.objective.minimize_cost": "تقليل التكلفة",
+  "gateway.objective.maximize_speed": "تعظيم السرعة",
+  "gateway.objective.balanced": "متوازن",
+  "gateway.applies_next_session": "ينطبق على جلستك القادمة. تحتفظ جلستك الحالية ببوابتها الحالية حتى تنتهي.",
+  "gateway.current": "البوابة الحالية",
+  "gateway.unavailable": "خيار البوابة غير متاح على جهاز التوجيه هذا.",
+  "gateway.choice_locked": "مؤمن بواسطة هذا جهاز التوجيه",
+  "gateway.use_for_next_session": "استخدم للدورة القادمة"
 }

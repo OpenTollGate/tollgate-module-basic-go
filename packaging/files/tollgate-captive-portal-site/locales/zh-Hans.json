@@ -150,5 +150,15 @@
   "balance_time": "时间",
   "balance_data": "数据",
   "refresh_balance": "刷新余额",
-  "return_to_portal": "返回门户"
+  "return_to_portal": "返回门户",
+  "gateway.choose.title": "选择您的网关",
+  "gateway.choose.subtitle": "您的流量如何在本次会话中离开互联网。",
+  "gateway.objective.minimize_cost": "成本最小化",
+  "gateway.objective.maximize_speed": "最大化速度",
+  "gateway.objective.balanced": "均衡",
+  "gateway.applies_next_session": "适用于您的下一次会议。 Your current session keeps its current gateway until it ends.",
+  "gateway.current": "当前网关",
+  "gateway.unavailable": "网关选择在此路由器上不可用。",
+  "gateway.choice_locked": "被该路由器锁定",
+  "gateway.use_for_next_session": "用于下一次会话"
 }

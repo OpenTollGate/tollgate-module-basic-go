@@ -151,5 +151,15 @@
   "balance_time": "Time",
   "balance_data": "Data",
   "refresh_balance": "Refresh balance",
-  "return_to_portal": "Back to portal"
+  "return_to_portal": "Back to portal",
+  "gateway.choose.title": "Choose your gateway",
+  "gateway.choose.subtitle": "How your traffic leaves the internet for this session.",
+  "gateway.objective.minimize_cost": "Minimize cost",
+  "gateway.objective.maximize_speed": "Maximize speed",
+  "gateway.objective.balanced": "Balanced",
+  "gateway.applies_next_session": "Applies to your next session. Your current session keeps its current gateway until it ends.",
+  "gateway.current": "Current gateway",
+  "gateway.unavailable": "Gateway choice is not available on this router.",
+  "gateway.choice_locked": "Locked by this router",
+  "gateway.use_for_next_session": "Use for next session"
 }

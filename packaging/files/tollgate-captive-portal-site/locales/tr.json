@@ -150,5 +150,15 @@
   "balance_time": "Zaman",
   "balance_data": "Veri",
   "refresh_balance": "Bakiyeyi yenile",
-  "return_to_portal": "Portala geri dön"
+  "return_to_portal": "Portala geri dön",
+  "gateway.choose.title": "Ağ geçidinizi seçin",
+  "gateway.choose.subtitle": "Trafiğinizin bu oturum için internetten nasıl ayrıldığı.",
+  "gateway.objective.minimize_cost": "Maliyeti en aza indirin",
+  "gateway.objective.maximize_speed": "Hızı en üst düzeye çıkarın",
+  "gateway.objective.balanced": "Dengeli",
+  "gateway.applies_next_session": "Bir sonraki oturumunuz için geçerlidir. Geçerli oturumunuz, sona erene kadar geçerli ağ geçidini korur.",
+  "gateway.current": "Geçerli ağ geçidi",
+  "gateway.unavailable": "Bu yönlendiricide ağ geçidi seçimi mevcut değil.",
+  "gateway.choice_locked": "Bu yönlendirici tarafından kilitlendi",
+  "gateway.use_for_next_session": "Sonraki oturum için kullanın"
 }

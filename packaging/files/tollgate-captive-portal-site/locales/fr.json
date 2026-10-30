@@ -150,5 +150,15 @@
   "balance_time": "Heure",
   "balance_data": "Données",
   "refresh_balance": "Actualiser le solde",
-  "return_to_portal": "Retour au portail"
+  "return_to_portal": "Retour au portail",
+  "gateway.choose.title": "Choisissez votre passerelle",
+  "gateway.choose.subtitle": "Comment votre trafic quitte Internet pour cette session.",
+  "gateway.objective.minimize_cost": "Minimiser les coûts",
+  "gateway.objective.maximize_speed": "Maximiser la vitesse",
+  "gateway.objective.balanced": "Équilibré",
+  "gateway.applies_next_session": "S'applique à votre prochaine séance. Votre session en cours conserve sa passerelle actuelle jusqu'à sa fin.",
+  "gateway.current": "Passerelle actuelle",
+  "gateway.unavailable": "Le choix de la passerelle n'est pas disponible sur ce routeur.",
+  "gateway.choice_locked": "Verrouillé par ce routeur",
+  "gateway.use_for_next_session": "A utiliser pour la prochaine session"
 }
