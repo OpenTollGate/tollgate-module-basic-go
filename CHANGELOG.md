@@ -56,9 +56,7 @@ and [Semantic Versioning](https://semver.org/).
   A client NoDogSplash reports as `Authenticated` that entered its list without
   going through this module at all — an `ndsctl auth` run by hand or by a script,
   a record restored from NoDogSplash's own state file when the *service* restarts
-  (state-file import exists only on nodogsplash upstream HEAD, post-`v5.0.2`
-  commit `9b2bc7b`; the pinned v5.0.2 has no such integration, and whether the
-  deployed package backports it is unverified), or a box whose merchant came up
+  (`state_file_import`, nodogsplash 5.0.2), or a box whose merchant came up
   degraded so the startup pass never ran — held an open, **unmetered** gate with
   no session, no metering baseline, no allotment and no `/balance` record, for as
   long as NoDogSplash's own session timeout (configured here at 86400 s, because

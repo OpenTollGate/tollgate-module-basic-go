@@ -29,7 +29,7 @@ import (
 //     SIGTERM. The feature landed POST-TAG in nodogsplash 9b2bc7b (committed
 //     2025-08-27, adding `src/state_file.{c,h}`), which the `v5.0.2...9b2bc7b`
 //     compare places 16 commits ahead of the tag — a descendant of it, not an
-//     ancestor — so it exists only on upstream HEAD, in no release.
+//     ancestor — so it is absent from that release.
 //     TODO(unverified): whether the nodogsplash package the DEPLOYED router
 //     actually runs carries a backport of 9b2bc7b. The feed's `net/nodogsplash`
 //     (PKG_VERSION 5.0.2, PKG_RELEASE 2, tarball hash 908d3674...417797 = the

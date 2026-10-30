@@ -155,7 +155,7 @@ so the Go backend is the sole authority on session end): the window is a day, no
    operator script, or by a second process authorises a client that never enters
    this module's session map at all. There is no restart, so no startup pass runs.
 2. **A client restored by a nodogsplash build that imports a state file across a
-   SERVICE restart — not by the version this repo pins.** An earlier revision of
+   SERVICE restart — absent from the upstream v5.0.2 tag.** An earlier revision of
    this paragraph asserted the opposite: *nodogsplash 5.0.2 exports its client
    list on SIGTERM and imports it at startup* (`src/main.c:147`/`:304`,
    `src/state_file.c`, `state_file_import_client`, `auth_change_state`). **That
@@ -169,7 +169,7 @@ so the Go backend is the sole authority on session end): the window is a day, no
    (`src/main.c:126-158`) calls `auth_client_deauth_all()` and destroys the
    firewall on SIGTERM. `src/main.c` is 371 lines, so the `:304` half of the old
    citation pointed at nothing like a state-file import.
-   The feature landed **POST-TAG** in nodogsplash commit `9b2bc7b`
+   The feature landed **POST-TAG** in [nodogsplash commit 9b2bc7b](https://github.com/nodogsplash/nodogsplash/commit/9b2bc7b)
    ("Implement a state file to allow nodogsplash to be restarted", authored
    2025-08-19, committed 2025-08-27; it adds `src/state_file.{c,h}`,
    `tests/state_file/*`, and touches `src/main.c`, `src/conf.c`, `src/auth.c`,
@@ -177,8 +177,8 @@ so the Go backend is the sole authority on session end): the window is a day, no
    `v5.0.2...9b2bc7b` reports *ahead by 16, behind by 0* with `9b2bc7b` the
    newest of those 16, i.e. the state-file commit is **not an ancestor of the
    tag**, and upstream's tag list stops at `v5.0.2`. So the symbol
-   `state_file_import_client` exists only on upstream HEAD. The door this item
-   names therefore exists only on a build that backports `9b2bc7b`.
+   `state_file_import_client` exists in post-tag source, not v5.0.2. The door
+   requires a build containing that later source or a backport, not merely a version label.
    **TODO(unverified): whether the nodogsplash package the DEPLOYED routers
    actually run carries such a backport.** Feed-level evidence points the other
    way — the feed's `net/nodogsplash` (`PKG_VERSION:=5.0.2`, `PKG_RELEASE:=2`,

@@ -31,8 +31,7 @@ import (
 //     `net/nodogsplash/Makefile` pins, has NO state-file integration: no
 //     src/state_file.{c,h}, no state-file option in src/conf.c, and
 //     termination_handler deauthorises everyone on SIGTERM. The feature landed
-//     post-tag in 9b2bc7b (not an ancestor of v5.0.2) and is on upstream HEAD
-//     only. TODO(unverified): whether the deployed package backports it. This
+//     post-tag in 9b2bc7b (not an ancestor of v5.0.2). TODO(unverified): whether the deployed package backports it. This
 //     pass does not rely on either answer;
 //   - a module restart on a box whose merchant came up DEGRADED (no reachable
 //     mint). MerchantDegraded.StartDataUsageMonitoring is a no-op, so the

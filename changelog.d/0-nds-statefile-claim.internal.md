@@ -1,0 +1,1 @@
+- Correct the state-file restoration claim: upstream nodogsplash v5.0.2 lacks it; commit 9b2bc7b adds it post-tag. Deployed backports remain unverified. The old CHANGELOG.md restoration wording is superseded by this correction; maintainers should correct it at fold time.
