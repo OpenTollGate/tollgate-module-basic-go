@@ -66,7 +66,7 @@ was built for:
 | 30 receive-kill | PASS (credited once) | FAIL — 600+0: the incoming 400 was swapped at the mint but never credited (response lost, no saga to re-drive) | receive crash = value loss without a saga |
 | 40 duplicate-outputs | brick pinned (flip detector) | mint SUCCEEDS on the "burned range" — random (non-seed-derived) secrets mean no burned ranges exist | immunity by design, different mechanism |
 | 50 fail-closed gate | PASS | PASS | the gate contract is daemon-side and portable |
-| 60 locked token | PASS | FAIL — send_p2pk unimplemented (known surface gap) | |
+| 60 locked token | PASS | PASS (after send_p2pk landed, 2026-10-31 — the lane caught a FAKE-LOCK bug on its first run: a malformed NUT-10 secret template made the "locked" token anyone-can-spend and the victim credited it, the #324 attack live; fixed + unit-pinned, Amperstrand/micronuts 2ef6a5c) | |
 
 Verdict (measured, not hypothesized): the no-saga design loses real
 value at exactly the boundaries cdk's sagas survive — empirical
