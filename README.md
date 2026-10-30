@@ -460,7 +460,7 @@ The current schema version is **`v0.0.10`**. An abridged example:
   "step_size": 22020096,
   "margin": 0.1,
   "show_setup": true,
-  "reseller_mode": false,
+  "reseller_mode": true,
   "private_ssid": "",
   "private_key": "",
   "private_encryption": "psk2+ccmp",
@@ -519,7 +519,7 @@ Key fields:
 - **`metric`** — `"bytes"` sells data, `"milliseconds"` sells time. `step_size` is the unit.
 - **`accepted_mints[*]`** — per-mint URL, pricing, and payout thresholds. Multiple mints are supported; the first mint holding sufficient balance wins on payout.
 - **`profit_share[*]`** — each entry references an `identity` that maps to an entry in `/etc/tollgate/identities.json`; `factor` values should sum to 1.0.
-- **`reseller_mode`** — when true, this router actively purchases from an upstream TollGate and resells to its own customers.
+- **`reseller_mode`** — when true, this router actively purchases from an upstream TollGate and resells to its own customers. **On by default; set it to false to opt out.**
 - **`upstream_detector`** / **`upstream_session_manager`** — control the *client* side (buying from an upstream).
 
 `ignore_interfaces` and `only_interfaces` gate which WAN-side interfaces

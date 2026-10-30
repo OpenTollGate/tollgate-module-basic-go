@@ -421,7 +421,7 @@ func NewDefaultConfig() *Config {
 		Margin:       0.1,
 		Metric:       "bytes",
 		ShowSetup:    true,
-		ResellerMode: false,
+		ResellerMode: true,
 		UpstreamDetector: UpstreamDetectorConfig{
 			ProbeTimeout:          10 * time.Second,
 			ProbeRetryCount:       3,
@@ -463,6 +463,7 @@ func NewDefaultConfig() *Config {
 			PostSwitchWaitSeconds:  5,
 			DHCPTimeoutSeconds:     180,
 			ManualPauseSeconds:     120,
+			VendorIEDiscovery:      true,
 		},
 		// Empty means "keep what the router already has" — see the field
 		// comments on Config. These two are the literals the schema declares,
@@ -579,6 +580,18 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		log.Printf("WARNING: Invalid profit_share, resetting to defaults: %v", profitShareErr)
 		config.ProfitShare = defaultConfig.ProfitShare
 	}
+	// The Cobrador defaults are opt-out, not opt-in. A field that is absent is
+	// a fresh/upgraded config that never made a choice, so it takes the new
+	// default. A field that is present (even false) is an explicit choice and
+	// is never overwritten.
+	if raw, rawErr := decodeConfigPresence(data); rawErr == nil {
+		if !raw.resellerMode {
+			config.ResellerMode = defaultConfig.ResellerMode
+		}
+		if raw.upstreamWifi && !raw.vendorIEDiscovery {
+			config.UpstreamWifi.VendorIEDiscovery = defaultConfig.UpstreamWifi.VendorIEDiscovery
+		}
+	}
 	if config.ConfigVersion != defaultConfig.ConfigVersion {
 		log.Printf("INFO: Config version %s → %s, migrating (preserving user settings)", config.ConfigVersion, defaultConfig.ConfigVersion)
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", config.ConfigVersion); backupErr != nil {
@@ -593,6 +606,29 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+type configPresence struct {
+	resellerMode      bool
+	upstreamWifi      bool
+	vendorIEDiscovery bool
+}
+
+func decodeConfigPresence(data []byte) (configPresence, error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return configPresence{}, err
+	}
+	p := configPresence{}
+	_, p.resellerMode = top["reseller_mode"]
+	if rawWifi, ok := top["upstream_wifi"]; ok {
+		p.upstreamWifi = true
+		var wifi map[string]json.RawMessage
+		if err := json.Unmarshal(rawWifi, &wifi); err == nil {
+			_, p.vendorIEDiscovery = wifi["vendor_ie_discovery"]
+		}
+	}
+	return p, nil
 }
 
 func migrateConfig(config *Config, defaults *Config) {

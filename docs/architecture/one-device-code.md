@@ -77,7 +77,7 @@ non-contiguous bytes rather than spelled — the rebrand-literal gutter
 (#684/#692/#722) keeps the name out of code surfaces — so the registry lives
 in `brands.go` with a value-pinning test that re-assembles it independently.
 The definitive, brand-independent identification remains
-the vendor IE, staged behind `VendorIEDiscovery` (default off) — when that
+the vendor IE, staged behind `VendorIEDiscovery` (default on; turn it off to opt out) — when that
 wiring lands, SSID matching stays as the weak heuristic, not the gate.
 
 **The `!` sort decoration is presentation, not a discovery signal.** The module

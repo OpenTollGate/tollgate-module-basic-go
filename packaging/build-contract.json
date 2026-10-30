@@ -6,7 +6,7 @@
     "minimum": "1.26.0",
     "pin": "1.26.10"
   },
-  "portal_commit": "f8a04b251842e715bb3de3768757b22b644f6bd0",
+  "portal_commit": "d09c978b67ded7e2dce9731b409be78617c250ad",
   "binaries": [
     {
       "name": "tollgate",
