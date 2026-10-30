@@ -1956,6 +1956,14 @@ func registerAPIHandlers(mux *http.ServeMux) {
 		CorsMiddleware(requireStarted(HandleSessionState))(w, r)
 	})
 
+	// /wan-health is intentionally not gated: the upstream Wi-Fi snapshot is
+	// useful while the wallet/mint is still starting, and it carries no money
+	// or secret data.
+	mux.HandleFunc("/wan-health", func(w http.ResponseWriter, r *http.Request) {
+		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /wan-health endpoint")
+		CorsMiddleware(handleWANHealth)(w, r)
+	})
+
 	registerIdentityRoutes(mux)
 }
 
