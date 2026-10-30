@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -75,10 +76,47 @@ func readFileString(t *testing.T, path string) string {
 // each key and value in ANSI escapes, so a field renders as `key=value` on a
 // terminal while the captured bytes are `key` + ESC + `=value` — the assertions
 // below would then pass or fail depending on whether the test ran under a TTY.
-func capturedLogs(t *testing.T) *bytes.Buffer {
+// syncBuffer is a bytes.Buffer that is safe to read while logrus is still writing
+// to it.
+//
+// # Why the plain bytes.Buffer was a bug
+//
+// `logrus.SetOutput` points the PROCESS-GLOBAL logger at the buffer, so every test
+// running concurrently in the package writes into it — including tests that have
+// nothing to do with log assertions, because init() and the daemon goroutines log
+// continuously. The assertions then call `buf.String()` while those writers are
+// still appending, which the race detector reports as "race detected during
+// execution of test" (`bytes.Buffer.tryGrowByReslice` writing while
+// `bytes.Buffer.String` reads).
+//
+// That is a real data race, not a detector artifact, and it made the full
+// `go test -race` battery fail intermittently — it passed on an idle shell and
+// failed once the machine's real network interfaces made the background scanners
+// chattier. A mutex around the buffer is the smallest change that removes it
+// without weakening any assertion: the tests still read exactly the bytes the
+// logger produced.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+// String returns everything written so far, under the same lock the writers take.
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func capturedLogs(t *testing.T) *syncBuffer {
 	t.Helper()
 
-	buf := &bytes.Buffer{}
+	buf := &syncBuffer{}
 	prevOut := logrus.StandardLogger().Out
 	prevLevel := logrus.GetLevel()
 	prevFormatter := logrus.StandardLogger().Formatter

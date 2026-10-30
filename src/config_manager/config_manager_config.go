@@ -85,21 +85,6 @@ type Config struct {
 	// keeps the legacy mapping rather than fighting over a port. See
 	// docs/architecture/default-ui-and-entry-port-decision.md (D1-D4).
 	EntryUI string `json:"entry_ui"`
-
-	// MaintainerNpub names the Nostr identity that owns this tollgate. It is
-	// the authorization boundary of the CVM control plane: only this npub may
-	// call a state-changing tool over Nostr (see
-	// docs/architecture/cvm-control-plane-decision.md, D3). It is ALSO the
-	// discovery key — the router publishes it in the `p` tag of its kind-11316
-	// announcement, which is how a dashboard finds every tollgate one
-	// maintainer owns without any registry (D4).
-	//
-	// Empty is the "unclaimed" sentinel and is legal: a router that has not
-	// been claimed still serves customers, it just cannot be managed remotely
-	// and does not appear in anyone's fleet view. Anything non-empty must be a
-	// bech32 npub1… key — see ValidateMaintainerNpub for why a raw hex pubkey
-	// is refused rather than normalized.
-	MaintainerNpub string `json:"maintainer_npub,omitempty"`
 }
 
 type UpstreamWifiConfig struct {
