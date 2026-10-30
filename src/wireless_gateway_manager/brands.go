@@ -27,11 +27,17 @@ import "strings"
 // dropping a whole brand from upstream recognition.
 const whitelabelCaptivePrefix = "Net4" + "sats" + "-"
 
+// archipelagoCaptivePrefix is the Archipelago node's captive prefix
+// (`!Archipelago-<code>`). It is a public product name, not a downstream
+// secret, so it can be spelled here; the Net4sats name stays assembled to
+// satisfy the rebrand gutter.
+const archipelagoCaptivePrefix = "Archipelago-"
+
 // tollGateBrandPrefixes is every captive-SSID prefix the first-boot writer
 // can emit. Mirrored by the shell side's load_brand table (99-tollgate-setup)
 // and pinned by tests/contract/check-ssid-format.sh; keep the three in
 // agreement.
-var tollGateBrandPrefixes = []string{"TollGate-", whitelabelCaptivePrefix}
+var tollGateBrandPrefixes = []string{"TollGate-", whitelabelCaptivePrefix, archipelagoCaptivePrefix}
 
 // ssidDecoration is the optional leading '!' the captive-SSID writer may emit
 // (#706: the guest SSID sorts first in alphabetically-ordered client lists; '!'
