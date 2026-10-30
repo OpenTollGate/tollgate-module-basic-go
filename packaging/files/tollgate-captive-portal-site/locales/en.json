@@ -139,5 +139,17 @@
   "balance_empty": "Enter or scan a Cashu token above to see your internet balance.",
   "balance_rate": "Rate: {{price}} {{unit}} per {{step}}",
   "balance_summary": "A {{token}} token grants {{access}} of internet access.",
-  "balance_go_purchase": "Purchase Internet Access"
+  "balance_go_purchase": "Purchase Internet Access",
+  "balance_active_label": "Active session",
+  "balance_active_message": "This token is valid and has not been redeemed yet.",
+  "balance_no_session_message": "No active session found for this device.",
+  "balance_remaining": "Remaining",
+  "balance_used": "Used",
+  "balance_total": "Total",
+  "balance_metric": "Metric",
+  "balance_started_at": "Started {{value}}",
+  "balance_time": "Time",
+  "balance_data": "Data",
+  "refresh_balance": "Refresh balance",
+  "return_to_portal": "Back to portal"
 }
