@@ -197,7 +197,14 @@ def test_00_handshake(tmp_path):
     d.start()
     d.capture_seed()
     info = cli(d.sock, "info")
-    assert info.get("ok") and info.get("backend") == "cdk", info
+    # The lane gates whichever daemon PARITY_DAEMON selects (cdk-walletd
+    # by default, micronuts-walletd for the no-saga comparison runs).
+    # The backend NAME is only pinned when running the default daemon —
+    # an alternative backend must still self-identify (non-empty).
+    if os.environ.get("PARITY_DAEMON"):
+        assert info.get("ok") and info.get("backend"), info
+    else:
+        assert info.get("ok") and info.get("backend") == "cdk", info
     assert oct(os.stat(d.sock).st_mode & 0o777) == "0o600", "socket must be 0600"
     d.stop()
 

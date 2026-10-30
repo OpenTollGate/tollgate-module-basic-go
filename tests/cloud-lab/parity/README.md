@@ -48,3 +48,30 @@ decoration — this lane proves it is not.
 - The HTLC signature-enforcement case (fork fix 296c7bf) and the
   gonuts-vs-cdk comparison matrix on the same mint zoo.
 - PRTA integration: the bench/QEMU legs with the daemon packaged.
+
+
+## Backend comparison (measured 2026-10-30)
+
+`PARITY_DAEMON=<binary> ./run-parity.sh` runs the lane against any
+daemon speaking the sidecar protocol. First full comparison run:
+cdk-walletd (sagas) vs micronuts-walletd (no saga, random secrets,
+journal-based pending sends) — the crash-boundary experiment the lane
+was built for:
+
+| Case | cdk-walletd | micronuts-walletd | reading |
+|---|---|---|---|
+| 00 handshake | PASS | PASS (after arches + backend-name fix) | protocol parity reachable |
+| 10 round-trip | PASS | PASS | full money cycle works on both |
+| 20 melt-kill | PASS (700+300 conserved) | FAIL — balance 0, pending 0: the melt spent the WHOLE wallet as inputs and the swallowed response carried the change — no saga, no recovery, change LOST | the saga machinery is what prevents melt-change loss |
+| 30 receive-kill | PASS (credited once) | FAIL — 600+0: the incoming 400 was swapped at the mint but never credited (response lost, no saga to re-drive) | receive crash = value loss without a saga |
+| 40 duplicate-outputs | brick pinned (flip detector) | mint SUCCEEDS on the "burned range" — random (non-seed-derived) secrets mean no burned ranges exist | immunity by design, different mechanism |
+| 50 fail-closed gate | PASS | PASS | the gate contract is daemon-side and portable |
+| 60 locked token | PASS | FAIL — send_p2pk unimplemented (known surface gap) | |
+
+Verdict (measured, not hypothesized): the no-saga design loses real
+value at exactly the boundaries cdk's sagas survive — empirical
+justification for the saga architecture and for cdk-walletd as the
+shipping default. micronuts's wins: no duplicate-outputs class (random
+secrets) and a 3-8 MB footprint; its loses: melt-change loss and
+receive loss under crash, until it grows equivalent recovery
+machinery (journal replay for melts + receives).
