@@ -526,9 +526,9 @@ Key fields:
 are probed. `ignore_interfaces` typically needs to list any wireless
 interfaces *the router itself serves on* to prevent self-probing.
 
-### Network settings (`v0.0.9`)
+### Network settings (`v0.0.11`)
 
-Four fields configure the router's own networks. They are **declared intent**:
+Six fields configure the router's own networks. They are **declared intent**:
 the service converges them onto the router (UCI `/etc/config/wireless` for the
 credentials, a generated `/etc/nftables.d/34-admin-access-scope.nft` for the
 scope) after every `config set`/`config save`, on `tollgate config apply`, and
@@ -536,7 +536,9 @@ at service start. All four are also on the admin board's Settings page.
 
 | Field | Values | Meaning |
 |---|---|---|
-| `private_ssid` | any SSID, ≤ 32 bytes | Name of the private (management) network, on both private radios. **Empty keeps the SSID the router minted at setup** — `<nym>-<code>`, built from your nym and the router's one stored device code, the same code that names the hostname and the captive SSID. |
+| `ssid_suffix` | 1–12 chars, or empty | Display suffix shared by the guest and private SSIDs. **Empty uses the router's stored four-character device code**, which keeps the suffix stable across reinstalls. A custom value renames both networks and disconnects current clients; the hostname and TLS identity do not change. |
+| `private_ssid_operator` | 1–32 chars, or empty | Operator token in `Private-<operator>-<suffix>`. **Empty keeps the stored token**; the shipped default is `c08r4d0r` (leetspeak for *cobrador*, Spanish for the person who collects the toll/fare). A brand build can set another default, for example `Archipelago`. |
+| `private_ssid` | any SSID, ≤ 32 bytes | Full override for the private (management) network, on both private radios. **Empty derives** `Private-<operator>-<suffix>`. A custom value is preserved. |
 | `private_key` | 8-63 characters | WPA passphrase of the private network. **Empty keeps the passphrase the router has.** Write-only: no read path ever returns it. |
 | `private_encryption` | `psk2+ccmp` (default), `psk2+tkip+ccmp`, `psk-mixed+ccmp` | Encryption mode of the private network. WPA3-SAE is not offered: the shipped `wpad` has no SAE support and selecting it would leave the management network unable to start. |
 | `admin_access` | `both` (default), `br-private`, `br-mgmt`, `loopback-only` | Which network may reach the administration surfaces — the board and LuCI, on whichever port pair `entry_ui` assigns (default `board`: the board on `:8080`/`:443`, LuCI on `:8090`/`:8443`). Since the physical LAN ports moved onto it, `br-private` is the private SSID **and the cable**. The guest network the customers pay on is **never** an administration path, whatever this says. |
@@ -558,9 +560,11 @@ Notes that matter when you change them:
 - Changing the passphrase from the router's shell
   (`tollgate network private set-password`) also updates `config.json`, so the
   two writers cannot disagree. Setting `private_ssid` to a custom name stops
-  the setup script's `<nym>-<code>` re-derivation for that SSID (a
-  machine-shaped one is re-derived from the stored code, a custom one is left
-  alone), so the applier and the setup writer agree on what you chose.
+  the setup script's `Private-<operator>-<suffix>` re-derivation for that SSID
+  (a machine-shaped one is re-derived, a custom one is left alone), so the
+  applier and the setup writer agree on what you chose. The suffix and operator
+  are stored in `/etc/config/tollgate` (`ssid_suffix`, `nym`) and survive an
+  in-place reinstall, an upgrade, and a sysupgrade that keeps settings.
 
 ### Which UI answers the entry ports (v0.0.10)
 

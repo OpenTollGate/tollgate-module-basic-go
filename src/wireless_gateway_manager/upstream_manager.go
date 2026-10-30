@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,6 +41,9 @@ type UpstreamManager struct {
 	cooldownUntil       time.Time
 	connectivityCheckFn func() bool
 	connectivityProbeFn func() ConnectivityResult
+	// fallbackVerifyFn overrides the post-switch route+connectivity check for
+	// the manual "stop peering" fallback. Tests use it; production leaves it nil.
+	fallbackVerifyFn func() bool
 	// #880: written by concurrent verifyPostSwitchConnectivity
 	// goroutines (overlapping scan cycles spawn one per switch), read by
 	// the Start loop — no shared lock, hence atomic.
@@ -649,6 +653,80 @@ func (um *UpstreamManager) probeTollGateGateway(bssid string) bool {
 	}
 
 	return result.Reachable && result.ResponseBytes > 0
+}
+
+// FallbackToKnownGoodNonTollGate stops peering by switching to the best
+// known, non-blacklisted, non-TollGate upstream. It verifies connectivity after
+// each switch and tries the next candidate on failure. If none passes, the
+// original peer is restored and an error is returned — the router never goes
+// silently offline because "stop peering" was pressed.
+func (um *UpstreamManager) FallbackToKnownGoodNonTollGate() (string, error) {
+	sections, err := um.connector.GetSTASections()
+	if err != nil {
+		return "", fmt.Errorf("list known upstreams: %w", err)
+	}
+	networks, _ := um.scanner.ScanAllRadios()
+	bySSID := make(map[string]NetworkInfo)
+	for _, n := range networks {
+		prev, ok := bySSID[n.SSID]
+		if !ok || n.Signal > prev.Signal {
+			bySSID[n.SSID] = n
+		}
+	}
+
+	type fallbackCandidate struct {
+		section STASection
+		net     NetworkInfo
+		signal  int
+	}
+	candidates := make([]fallbackCandidate, 0)
+	for _, section := range sections {
+		if !section.Disabled || section.SSID == "" {
+			continue
+		}
+		if hasTollGateSSID(section.SSID) || strings.HasPrefix(strings.TrimSpace(section.SSID), "Private-") {
+			continue
+		}
+		net, ok := bySSID[section.SSID]
+		if !ok {
+			net = NetworkInfo{SSID: section.SSID, Radio: section.Device, Signal: -999}
+		}
+		if um.isBlacklisted(section.SSID, net.BSSID) {
+			continue
+		}
+		candidates = append(candidates, fallbackCandidate{section: section, net: net, signal: net.Signal})
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no known good non-TollGate upstream; staying on the current peer")
+	}
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].signal > candidates[j].signal })
+
+	original, _ := um.connector.GetActiveSTA()
+	for _, candidate := range candidates {
+		activeIface := ""
+		if active, err := um.connector.GetActiveSTA(); err == nil && active != nil {
+			activeIface = active.Name
+		}
+		if err := um.connector.SwitchUpstream(activeIface, candidate.section.Name, candidate.section.SSID, candidate.net.BSSID); err != nil {
+			um.blacklistUpstream(candidate.section.SSID, candidate.net.BSSID)
+			continue
+		}
+		verified := false
+		if um.fallbackVerifyFn != nil {
+			verified = um.fallbackVerifyFn()
+		} else {
+			verified = um.waitForDefaultRoute(30*time.Second) && um.CheckConnectivity()
+		}
+		if verified {
+			return candidate.section.SSID, nil
+		}
+		um.blacklistUpstream(candidate.section.SSID, candidate.net.BSSID)
+	}
+
+	if original != nil {
+		_ = um.connector.SwitchUpstream("", original.Name, original.SSID, "")
+	}
+	return "", fmt.Errorf("no known good non-TollGate upstream passed the connectivity check; restored the current peer")
 }
 
 func (um *UpstreamManager) findCandidates(networks []NetworkInfo, isReseller bool, isEmergency bool) (*Candidate, error) {

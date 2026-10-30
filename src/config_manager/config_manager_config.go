@@ -66,10 +66,12 @@ type Config struct {
 	// PrivateKey is a SECRET: it is redacted on every read path (see
 	// cli.redactSecretFields) and a wholesale save that omits or blanks it
 	// preserves the stored value rather than clearing it.
-	PrivateSSID       string `json:"private_ssid,omitempty"`
-	PrivateKey        string `json:"private_key,omitempty"`
-	PrivateEncryption string `json:"private_encryption"`
-	AdminAccess       string `json:"admin_access"`
+	PrivateSSID         string `json:"private_ssid,omitempty"`
+	SSIDSuffix          string `json:"ssid_suffix,omitempty"`
+	PrivateSSIDOperator string `json:"private_ssid_operator,omitempty"`
+	PrivateKey          string `json:"private_key,omitempty"`
+	PrivateEncryption   string `json:"private_encryption"`
+	AdminAccess         string `json:"admin_access"`
 	// EntryUI decides which UI owns the router's entry port pair (:8080 + :443).
 	// It is declared intent, like the four fields above: nothing reads the value
 	// directly. The uci-defaults writers (the module's 99 and the portal's 92)
@@ -394,7 +396,7 @@ func NewDefaultConfig() *Config {
 	}
 
 	return &Config{
-		ConfigVersion: "v0.0.10",
+		ConfigVersion: "v0.0.11",
 		LogLevel:      "info",
 		AcceptedMints: mints,
 		ProfitShare: []ProfitShareConfig{
@@ -465,11 +467,13 @@ func NewDefaultConfig() *Config {
 		// Empty means "keep what the router already has" — see the field
 		// comments on Config. These two are the literals the schema declares,
 		// so defaults_parity_test.go pins them together.
-		PrivateSSID:       "",
-		PrivateKey:        "",
-		PrivateEncryption: "psk2+ccmp",
-		AdminAccess:       "both",
-		EntryUI:           "board",
+		PrivateSSID:         "",
+		SSIDSuffix:          "",
+		PrivateSSIDOperator: "",
+		PrivateKey:          "",
+		PrivateEncryption:   "psk2+ccmp",
+		AdminAccess:         "both",
+		EntryUI:             "board",
 		// MPTCP bonding is OPT-IN: Enabled is false, and the remaining fields
 		// carry the schema's declared defaults so defaults_parity_test.go
 		// keeps schema and code in step. An operator who never touches this

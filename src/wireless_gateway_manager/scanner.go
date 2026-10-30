@@ -466,6 +466,11 @@ func (s *Scanner) buildNetworkInfo(bssid, ssid string, signal int, encrypt, radi
 			continue
 		}
 		n.IsTollGate = true
+		n.IsReseller = adv.IsReseller
+		n.HasInternet = adv.HasInternet
+		n.OpenNetwork = adv.OpenNetwork
+		n.MintURL = adv.MintURL
+		n.Pubkey = append([]byte(nil), adv.Pubkey...)
 		if adv.PricePerStep > 0 {
 			n.AdvertisedPricePerStep = int(adv.PricePerStep)
 		}

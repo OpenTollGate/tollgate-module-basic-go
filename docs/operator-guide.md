@@ -39,7 +39,9 @@ tollgate upstream scan                    Scan all radios for networks
 tollgate upstream connect <SSID> [pass]   Connect to an upstream network
 tollgate upstream list                    Show configured upstream STAs
 tollgate upstream remove <SSID>           Remove a disabled upstream STA
-tollgate upstream known                   Show discovered TollGate APs
+tollgate upstream known                   Known TollGate peers from scan history
+tollgate upstream status                  Live peer session / SAT spend
+tollgate upstream disconnect              Stop peering; fall back to a known good non-TollGate upstream
 
 tollgate config get                       Print current config + identities
 tollgate config set <key> <value>         Set one value by dot-path
@@ -344,6 +346,26 @@ tollgate network private rename MyNewNetwork
 Changes the SSID on both radios and reloads wireless immediately. Any
 device currently connected to the old SSID will be disconnected.
 
+The default private SSID is `Private-c08r4d0r-<suffix>`. `c08r4d0r` is a
+leetspeak spelling of *cobrador*, Spanish for the person who collects the
+toll/fare — the TollGate operator. A brand build can set another operator
+token, for example `Private-Archipelago-<suffix>`.
+
+The suffix is shared by the guest and private SSIDs and is stable across
+reinstalls. Change it with the schema-backed setting rather than renaming each
+network by hand:
+
+```sh
+tollgate config set ssid_suffix myplace
+tollgate config set private_ssid_operator Archipelago
+```
+
+`ssid_suffix` renames both networks (`!<brand>-<suffix>` and
+`Private-<operator>-<suffix>`) and disconnects current clients. It does not
+change the router hostname or TLS identity. `private_ssid_operator` changes
+only the private SSID token. Leave either setting empty to keep the stored
+default (device code / `c08r4d0r`).
+
 ### Change the password
 
 ```sh
@@ -576,12 +598,14 @@ Two settings are the exception, and they are the reason `config set` also
 reports what it applied:
 
 ```sh
-tollgate config set private_ssid c08r4d0r-7F3A
+tollgate config set ssid_suffix myplace
+tollgate config set private_ssid_operator Archipelago
+tollgate config set private_ssid Private-Archipelago-myplace
 tollgate config set admin_access br-private
 ```
 
 ```
-Set private_ssid = c08r4d0r-7F3A; runtime: 1 applied, 1 not applicable here
+Set ssid_suffix = myplace; runtime: 4 applied, 0 not applicable here
 ```
 
 The private network's SSID, passphrase and encryption live in UCI

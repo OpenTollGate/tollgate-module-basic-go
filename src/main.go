@@ -802,6 +802,9 @@ func initUpstreamDetector() {
 		mainLogger.WithError(err).Fatal("Failed to create upstream session manager instance")
 	}
 	upstreamDetectorInstance.SetUpstreamSessionManager(usmInstance)
+	if concrete, ok := usmInstance.(*upstream_session_manager.UpstreamSessionManager); ok && cliServer != nil {
+		cliServer.SetPeeringStatusProvider(peeringStatusAdapter{usm: concrete})
+	}
 
 	// MPTCP bond (optional). When the config enables it, the detector's
 	// interface events drive the bond's endpoint reconciliation. A clean
@@ -863,6 +866,38 @@ func (r *resellerModeAdapter) IsResellerModeActive() bool {
 	}
 	cfg := r.cm.GetConfig()
 	return cfg != nil && cfg.ResellerMode
+}
+
+type peeringStatusAdapter struct {
+	usm *upstream_session_manager.UpstreamSessionManager
+}
+
+func (a peeringStatusAdapter) PeeringStatus() []cli.PeeringSession {
+	if a.usm == nil {
+		return nil
+	}
+	statuses := a.usm.PeeringStatus()
+	result := make([]cli.PeeringSession, 0, len(statuses))
+	for _, s := range statuses {
+		result = append(result, cli.PeeringSession{
+			GatewayIP:       s.GatewayIP,
+			InterfaceName:   s.InterfaceName,
+			Pubkey:          s.Pubkey,
+			MintURL:         s.MintURL,
+			Metric:          s.Metric,
+			PricePerStep:    s.PricePerStep,
+			PriceUnit:       s.PriceUnit,
+			StepSize:        s.StepSize,
+			TotalAllotment:  s.TotalAllotment,
+			TotalSpentSats:  s.TotalSpent,
+			Usage:           s.Usage,
+			Remaining:       s.Remaining,
+			Status:          s.Status,
+			BootstrapPhase:  s.BootstrapPhase,
+			BootstrapActive: s.BootstrapActive,
+		})
+	}
+	return result
 }
 
 func initCLIServer() {
