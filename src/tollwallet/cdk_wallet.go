@@ -133,7 +133,11 @@ func (t *cdkToken) Mint() string {
 	if err != nil {
 		return ""
 	}
-	return fmt.Sprintf("%v", mu)
+	// MintUrl can answer a set-spelling ("{url}") for multi-mint tokens;
+	// the port contract names ONE mint URL — strip the set braces and
+	// canonicalize so callers comparing against their configured spelling
+	// (normalizeMintURL equality) always match.
+	return normalizeMintURL(strings.Trim(fmt.Sprintf("%v", mu), "{}"))
 }
 
 func (t *cdkToken) Amount() uint64 {
@@ -161,7 +165,7 @@ func (w *CdkWallet) DecodeToken(tokenStr string) (Token, error) {
 	return DecodeToken(tokenStr)
 }
 
-func (w *CdkWallet) Receive(t Token) (uint64, error) {
+func (w *CdkWallet) Receive(t Token) (received uint64, err error) {
 	ct, ok := t.(*cdkToken)
 	if !ok {
 		return 0, fmt.Errorf("CdkWallet.Receive: expected *cdkToken, got %T", t)
@@ -177,7 +181,21 @@ func (w *CdkWallet) Receive(t Token) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	amount, err := wallet.Receive(ct.inner, cdk_ffi.ReceiveOptions{})
+	// FFI boundary defense: cdk-ffi 0.18.2's Receive on ALREADY-SPENT
+	// proofs returns a broken response buffer — uniffi's Go reader then
+	// panics with EOF instead of surfacing the mint's spend error. The
+	// process is not poisoned, but a panic here crashes the daemon. Convert
+	// it to the error the port contract promises (upstream issue; this
+	// recover is the boundary, not a suppressor: the spent-verdict itself
+	// is unambiguous — the proofs cannot be received twice).
+	defer func() {
+		if r := recover(); r != nil {
+			received, err = 0, fmt.Errorf("cdk wallet receive failed at the FFI boundary (likely spent proofs; upstream cdk-ffi error-path bug): %v", r)
+		}
+	}()
+	// Same nil-enum discipline as Send: ReceiveOptions.AmountSplitTarget
+	// is an interface whose zero value panics uniffi's Write.
+	amount, err := wallet.Receive(ct.inner, cdk_ffi.ReceiveOptions{AmountSplitTarget: cdk_ffi.SplitTargetNone{}})
 	if err != nil {
 		return 0, mapCdkError(err)
 	}
@@ -271,6 +289,18 @@ func (w *CdkWallet) Send(amount uint64, mintUrl string, includeFees bool) (Token
 	}
 	opts := cdk_ffi.SendOptions{
 		IncludeFee: includeFees,
+		// The enum-shaped fields are INTERFACES or non-zero enums: zero
+		// values either panic uniffi's Write ("invalid enum value <nil>")
+		// or are rejected by its arg conversion ("Invalid
+		// P2pkLockedProofSendMode enum value: 0") — an adapter-built
+		// SendOptions without explicit values crashes the process instead
+		// of erroring. SplitTargetNone is cdk's default split;
+		// SendKindOnlineExact swaps online for the exact amount (the
+		// port's Send semantics); Swap unlocks any P2PK-locked inputs
+		// into fresh proofs before tokenizing.
+		AmountSplitTarget:       cdk_ffi.SplitTargetNone{},
+		SendKind:                cdk_ffi.SendKindOnlineExact{},
+		P2pkLockedProofSendMode: cdk_ffi.P2pkLockedProofSendModeSwap,
 	}
 	prepared, err := wallet.PrepareSend(cdk_ffi.Amount{Value: amount}, opts)
 	if err != nil {
@@ -513,9 +543,52 @@ func (w *CdkWallet) AcceptMint(mintURL string) error {
 	return nil
 }
 
-// CheckTokenSpent is not implemented by the cdk adapter: it has no
-// NUT-07 surface on this build tag. Callers get a typed error and must
-// treat the outcome as unresolved — never guess.
+// CheckTokenSpent answers NUT-07 spent-state for a decoded token via
+// cdk-go's CheckProofsSpent. Any spent proof means the token's swap went
+// through; every proof unspent is the stable not-spent evidence. Errors
+// keep the outcome unresolved — never guess.
 func (w *CdkWallet) CheckTokenSpent(token Token) (bool, error) {
-	return false, ErrCheckStateUnsupported
+	ct, ok := token.(*cdkToken)
+	if !ok {
+		return false, fmt.Errorf("CdkWallet.CheckTokenSpent: expected *cdkToken, got %T", token)
+	}
+	mintURL := ct.Mint()
+	wallet, err := w.getOrCreateWallet(mintURL)
+	if err != nil {
+		return false, err
+	}
+	proofs, err := ct.inner.ProofsSimple()
+	if err != nil {
+		// V4 tokens carry SHORT keyset ids; resolving them needs the
+		// wallet's own keyset table (#952 spelling class). Fall back to
+		// the keyed Proofs() form before giving up.
+		keysets, kErr := wallet.Keysets(nil)
+		if kErr != nil {
+			return false, fmt.Errorf("token proofs: %v (keyset table: %v)", err, kErr)
+		}
+		infos := make([]cdk_ffi.KeySetInfo, 0, len(keysets))
+		for _, ks := range keysets {
+			active := ks.Active != nil && *ks.Active
+			infos = append(infos, cdk_ffi.KeySetInfo{Id: ks.Id, Unit: ks.Unit, Active: active})
+		}
+		proofs, err = ct.inner.Proofs(infos)
+		if err != nil {
+			return false, fmt.Errorf("token proofs: %w", err)
+		}
+	}
+	if len(proofs) == 0 {
+		return false, fmt.Errorf("token carries no proofs")
+	}
+	spentFlags, err := wallet.CheckProofsSpent(proofs)
+	if err != nil {
+		return false, mapCdkError(err)
+	}
+	anySpent := false
+	for _, s := range spentFlags {
+		if s {
+			anySpent = true
+			break
+		}
+	}
+	return anySpent, nil
 }

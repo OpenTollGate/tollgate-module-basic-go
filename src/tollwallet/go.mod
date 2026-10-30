@@ -44,7 +44,7 @@ require (
 	github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd // indirect
 	github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792 // indirect
 	github.com/btcsuite/winsvc v1.0.0 // indirect
-	github.com/cashubtc/cdk-go v0.17.3
+	github.com/cashubtc/cdk-go v0.18.2
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
@@ -88,3 +88,5 @@ require (
 )
 
 exclude github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
+
+replace github.com/cashubtc/cdk-go => github.com/Amperstrand/cdk-go v0.18.3-0.20261029060648-44b71970a0dd
