@@ -31,7 +31,7 @@ bash "$ROOT/scripts/check-dangling-replace.sh" "$ROOT" || {
 # victims from every other session (2026-10-11: 24 GiB swap 100% full,
 # earlyoom SIGTERM'd an unrelated session mid-review).
 run_bounded() {
-    if command -v systemd-run >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    if [ "${TG_NO_SYSTEMD_RUN:-0}" != "1" ] && command -v systemd-run >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
         systemd-run --quiet --scope -p MemoryMax=8G -p MemorySwapMax=2G "$@"
     else
         "$@"

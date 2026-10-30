@@ -33,7 +33,7 @@ keys, making them self-verifying (NUT-02).
 ## The 6 Combinations
 
 
-> **Re-verified against `gonuts-tollgate` v0.13.0 (2026-10-06), code-level
+> **Re-verified against `gonuts-tollgate` v0.14.1 (2026-10-06), code-level
 > plus the executable suite** (`src/tollwallet/compatibility_matrix_test.go`
 > and the round-trip/cross-vector tests, run under `-tags testenv` in
 > `make go-battery` — all green on the pinned baseline). What changed
@@ -53,12 +53,12 @@ keys, making them self-verifying (NUT-02).
 > Wallet-behavior deltas outside this matrix's token×keyset scope (the
 > fund-safety era: monotonic counters, canonical mint identity, the
 > ambiguity no-retry policy, NUT-20 quote signatures) live in the fork's
-> changelog, v0.8.0 → v0.13.0.
+> changelog, v0.8.0 → v0.14.1.
 
 | # | Token | Keyset | Status in gonuts v0.7.6 | Status in cdk-go | Production relevance |
 |---|-------|--------|------------------------|-------------------|---------------------|
-| 1 | V1 | V1 | ❌ Not decoded by the master path (v0.13.0) | ✅ | Rare — legacy wallets |
-| 2 | V1 | V2 | ❌ Not decoded by the master path (v0.13.0) | ✅ | Very rare |
+| 1 | V1 | V1 | ❌ Not decoded by the master path (v0.14.1) | ✅ | Rare — legacy wallets |
+| 2 | V1 | V2 | ❌ Not decoded by the master path (v0.14.1) | ✅ | Very rare |
 | 3 | V3 | V1 | ✅ Full support | ✅ | **Most common today** |
 | 4 | V3 | V2 | ✅ Full support (fixed in v0.7.6) | ✅ | Growing — CDK 0.16+ mints |
 | 5 | V4 | V1 | ✅ Full support | ✅ | Modern wallets |
@@ -68,7 +68,7 @@ keys, making them self-verifying (NUT-02).
 
 #### Cell 1: V1 token + V1 keyset
 - **What**: Legacy bare JSON token with 8-byte keyset ID
-- **gonuts (v0.13.0)**: `DecodeToken` tries V4 (fails, no cashuB prefix), then
+- **gonuts (v0.14.1)**: `DecodeToken` tries V4 (fails, no cashuB prefix), then
   V3 (fails, no cashuA prefix) — and stops. The bare-JSON fallback that
   existed in the v0.7.6 era is gone; a V1 token is refused as an invalid
   token. The executable suite documents this exactly (the V1 cells skip
@@ -80,7 +80,7 @@ keys, making them self-verifying (NUT-02).
 
 #### Cell 2: V1 token + V2 keyset
 - **What**: Legacy bare JSON token with 33-byte keyset ID
-- **gonuts (v0.13.0)**: not decoded (same master-path refusal as cell 1 —
+- **gonuts (v0.14.1)**: not decoded (same master-path refusal as cell 1 —
   the v0.7.6-era bare-JSON fallback is gone). The V2-keyset derivation bug
   this cell originally tracked stays fixed for the formats that do decode.
 - **Status**: ❌ Not decoded. Vanishingly rare (old wallet + new mint).
@@ -110,7 +110,7 @@ keys, making them self-verifying (NUT-02).
   valid CBOR tokens. V1 keyset path works (same as Cell 3).
 - **Status**: ✅ Working. Modern wallets (cashu-ts v4+, CDK wallets) send V4
   tokens by default. TollGate receives them correctly.
-- **v0.13.0 nuance**: V4 tokens store keyset IDs as 8-byte short IDs;
+- **v0.14.1 nuance**: V4 tokens store keyset IDs as 8-byte short IDs;
   mints of the coinos/minibits shape embed short IDs that must be
   resolved to full IDs before any swap — `Receive` does this via
   `resolveShortKeysetIds` (the fix behind the portal #517/#545-era
@@ -137,7 +137,7 @@ bigEndianBytes := binary.BigEndian.Uint64(keysetBytes)
 
 // v0.7.6: length guard — ≤8 bytes reads direct, >8 bytes hashed first.
 
-// CURRENT (v0.13.0), keysetIdToBigInt: the whole ID, any length, hex or
+// CURRENT (v0.14.1), keysetIdToBigInt: the whole ID, any length, hex or
 // base64, as one big integer — no truncation is possible by construction:
 result.SetString(id, 16)            // or base64-decode first
 result.Mod(result, big.NewInt(2147483647)) // 2^31 - 1
