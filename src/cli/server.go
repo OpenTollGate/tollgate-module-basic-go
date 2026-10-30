@@ -670,16 +670,39 @@ func (s *CLIServer) handleVersionCommand() CLIResponse {
 }
 
 func (s *CLIServer) handleHealthCommand() CLIResponse {
+	walletOK := false
+	degraded, reason := false, ""
+	if s.merchantProvider != nil {
+		if m := s.merchantProvider.GetMerchant(); m != nil {
+			walletOK = true
+			// Same optional-interface assertion as `status`: a degraded
+			// merchant is present but cannot sell, and `health` must say so.
+			if info, ok := m.(interface {
+				WalletDegradedInfo() (bool, string)
+			}); ok {
+				degraded, reason = info.WalletDegradedInfo()
+			}
+		}
+	}
+
+	status, message := "ok", "healthy"
+	if degraded {
+		status = "degraded"
+		message = "degraded: " + reason
+	}
+
 	health := map[string]interface{}{
-		"status":    "ok",
-		"version":   GetVersionInfo(),
-		"config_ok": s.configManager != nil,
-		"wallet_ok": s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
-		"uptime":    time.Since(s.startTime).String(),
+		"status":          status,
+		"version":         GetVersionInfo(),
+		"config_ok":       s.configManager != nil,
+		"wallet_ok":       walletOK, // unchanged: the merchant object exists
+		"wallet_degraded": degraded,
+		"wallet_reason":   reason,
+		"uptime":          time.Since(s.startTime).String(),
 	}
 	return CLIResponse{
 		Success:   true,
-		Message:   "healthy",
+		Message:   message,
 		Data:      health,
 		Timestamp: time.Now(),
 	}

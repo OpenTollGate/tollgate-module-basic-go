@@ -114,13 +114,21 @@ tollgate health
 ```
 
 A lighter check than `status`: prints `status: ok`, the config/wallet
-flags, and uptime. If the socket is unreachable it reports
+flags, and uptime. When the merchant is present but degraded (the wallet
+could not initialise, or no accepted mint is reachable), it prints
+`status: degraded` with `wallet_degraded: true` and a `wallet_reason`
+instead of claiming `healthy`. If the socket is unreachable it reports
 `Service not reachable` and exits non-zero, making it suitable for a
 monitoring cron job:
 
 ```sh
 # example: alert if the service is down
 tollgate health >/dev/null 2>&1 || echo "TollGate is DOWN on $(date)"
+
+# example: alert on a degraded merchant too (it is up but cannot sell)
+tollgate --json health \
+  | jq -e '.data.status == "ok"' >/dev/null \
+  || echo "TollGate is DEGRADED on $(date)"
 ```
 
 ### Version
