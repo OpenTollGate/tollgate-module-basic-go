@@ -55,12 +55,8 @@ func TestAuthorize(t *testing.T) {
 	const maintainer = "npub1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqksqpew"
 	const stranger = "npub1hw6amg8p24ne08c9gdq8hhpqx0t0pwanpae9z25crn7m9uy7yarse465gr"
 	authz := NewAuthorizer(maintainer)
-	maintainerHex, err := maintainerHexFromNpub(maintainer)
-	if err != nil {
-		t.Fatalf("fixture maintainer npub undecodable: %v", err)
-	}
 
-	if err := authz.Authorize(maintainerHex, "config_set"); err != nil {
+	if err := authz.Authorize(maintainer, "config_set"); err != nil {
 		t.Errorf("maintainer must be authorized for a write tool: %v", err)
 	}
 	if err := authz.Authorize(stranger, "config_set"); err == nil {

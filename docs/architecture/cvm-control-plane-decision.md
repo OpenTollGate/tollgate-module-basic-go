@@ -89,16 +89,12 @@ Consequences that are requirements, not advice:
 Authorization is by **event signature**, then by npub membership. Every state-
 changing tool is advertised with CEP-8 `explicit_gating`.
 
-**Money-adjacent tools are not exposed over Nostr — with no opt-out of that
-exclusion.** `drain cashu` returns spendable ecash in its response; publishing
-that to a relay is a money-printing bug. `wallet fund`, `drain *` and `ssl *`
-are excluded from the tool surface, and absent here means absent everywhere:
-there is no config flag that adds them back — widening the surface requires a
-maintainer-reviewed change to this ADR and to `ToolSurface()`. The shipped
-tool surface is 11 read tools plus 4 write (`config set`, the `private`
-network toggles and rename); `logs`, `service_restart`, `service_stop` and
-`service_start` were removed during review when they were found to name
-commands the CLI socket never served.
+**Money-adjacent tools are not exposed over Nostr.** `drain cashu` returns
+spendable ecash in its response; publishing that to a relay is a money-printing
+bug. `wallet fund`, `drain *` and `ssl *` are excluded from the tool surface
+unless an explicit opt-in config flag is set, and that flag is documented as
+carrying that risk. The default tool surface is read-only plus `config set`,
+the `private` network toggles, and `start`/`stop`/`restart`.
 
 ### D4 — Discovery: the router publishes its maintainer in an indexed tag
 

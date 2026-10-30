@@ -17,7 +17,7 @@ func mustJSON(t *testing.T, v interface{}) json.RawMessage {
 
 // TestDispatchToolsList: tools/list answers with the surface, no socket call.
 func TestDispatchToolsList(t *testing.T) {
-	d := NewDispatcher(NewAuthorizer(""), nil)
+	d := NewDispatcher(NewAuthorizer(""), nil, "npub1test")
 	resp := d.Dispatch("someone", JSONRPCRequest{JSONRPC: "2.0", ID: float64(1), Method: "tools/list"})
 	if resp.Error != nil {
 		t.Fatalf("tools/list errored: %+v", resp.Error)
@@ -56,7 +56,7 @@ func TestDispatchCall(t *testing.T) {
 		called = msg.Command
 		return CLIResponse{Success: true, Data: map[string]interface{}{"balance_sats": 5}}, nil
 	}}
-	d := NewDispatcher(NewAuthorizer(""), bridge)
+	d := NewDispatcher(NewAuthorizer(""), bridge, "npub1test")
 
 	params, _ := json.Marshal(map[string]interface{}{"name": "wallet_balance"})
 	resp := d.Dispatch("anyone", JSONRPCRequest{JSONRPC: "2.0", ID: float64(2), Method: "tools/call", Params: params})
@@ -88,7 +88,7 @@ func TestDispatchAuthzRefusal(t *testing.T) {
 		return CLIResponse{Success: true}, nil
 	}}
 	const maintainer = "npub1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqksqpew"
-	d := NewDispatcher(NewAuthorizer(maintainer), bridge)
+	d := NewDispatcher(NewAuthorizer(maintainer), bridge, "npub1test")
 
 	// Assert the premise: this tool must actually be on the surface and be a
 	// write tool, or the refusal below is not evidence of the maintainer gate.
@@ -127,14 +127,10 @@ func TestDispatchMaintainerWrite(t *testing.T) {
 		return CLIResponse{Success: true, Message: "set"}, nil
 	}}
 	const maintainer = "npub1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqksqpew"
-	maintainerHex, err := maintainerHexFromNpub(maintainer)
-	if err != nil {
-		t.Fatalf("fixture maintainer npub undecodable: %v", err)
-	}
-	d := NewDispatcher(NewAuthorizer(maintainer), bridge)
+	d := NewDispatcher(NewAuthorizer(maintainer), bridge, "npub1test")
 
 	params, _ := json.Marshal(map[string]interface{}{"name": "config_set", "arguments": map[string]interface{}{"key": "log_level", "value": "debug"}})
-	resp := d.Dispatch(strings.ToLower(maintainerHex), JSONRPCRequest{JSONRPC: "2.0", ID: float64(4), Method: "tools/call", Params: params})
+	resp := d.Dispatch(maintainer, JSONRPCRequest{JSONRPC: "2.0", ID: float64(4), Method: "tools/call", Params: params})
 	if resp.Error != nil {
 		t.Fatalf("maintainer's config_set refused: %+v", resp.Error)
 	}
@@ -150,7 +146,7 @@ func TestDispatchMaintainerWrite(t *testing.T) {
 
 // Unknown method → JSON-RPC method-not-found, not a crash.
 func TestDispatchUnknownMethod(t *testing.T) {
-	d := NewDispatcher(NewAuthorizer(""), nil)
+	d := NewDispatcher(NewAuthorizer(""), nil, "npub1test")
 	resp := d.Dispatch("x", JSONRPCRequest{JSONRPC: "2.0", ID: float64(5), Method: "bogus/method"})
 	if resp.Error == nil || resp.Error.Code != ErrMethodNF {
 		t.Fatalf("bogus method: %+v", resp.Error)
@@ -159,7 +155,7 @@ func TestDispatchUnknownMethod(t *testing.T) {
 
 // tools/call with missing name → params error.
 func TestDispatchCallNoName(t *testing.T) {
-	d := NewDispatcher(NewAuthorizer(""), nil)
+	d := NewDispatcher(NewAuthorizer(""), nil, "npub1test")
 	resp := d.Dispatch("x", JSONRPCRequest{JSONRPC: "2.0", ID: float64(6), Method: "tools/call", Params: json.RawMessage(`{}`)})
 	if resp.Error == nil || resp.Error.Code != ErrParams {
 		t.Fatalf("empty params: %+v", resp.Error)

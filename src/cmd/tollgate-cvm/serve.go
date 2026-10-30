@@ -56,7 +56,7 @@ func Serve(ctx context.Context, cfg *ServerConfig, bridge Bridge) error {
 	}
 
 	authz := NewAuthorizer(maintainer)
-	dispatcher := NewDispatcher(authz, bridge)
+	dispatcher := NewDispatcher(authz, bridge, serverPK)
 
 	pool := nostr.NewSimplePool(ctx)
 	events := pool.SubMany(ctx, cfg.Relays, nostr.Filters{

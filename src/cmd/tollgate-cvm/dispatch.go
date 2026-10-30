@@ -23,12 +23,13 @@ func (f *FakeBridge) Call(msg CLIMessage) (CLIResponse, error) { return f.fn(msg
 // JSON-RPC response. It owns the order of the gates: authorize FIRST, then
 // touch the socket — a refused call must never reach the service.
 type Dispatcher struct {
-	authz  *Authorizer
-	bridge Bridge
+	authz      *Authorizer
+	bridge     Bridge
+	serverNpub string
 }
 
-func NewDispatcher(authz *Authorizer, bridge Bridge) *Dispatcher {
-	return &Dispatcher{authz: authz, bridge: bridge}
+func NewDispatcher(authz *Authorizer, bridge Bridge, serverNpub string) *Dispatcher {
+	return &Dispatcher{authz: authz, bridge: bridge, serverNpub: serverNpub}
 }
 
 func errResp(id interface{}, code int, msg string) JSONRPCResponse {

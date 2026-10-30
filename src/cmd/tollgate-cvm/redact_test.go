@@ -89,7 +89,7 @@ func TestDispatcherAlwaysRedacts(t *testing.T) {
 			"ssid": "TG", "password": "leak-me-if-you-can",
 		}}, nil
 	}}
-	d := NewDispatcher(NewAuthorizer(""), bridge)
+	d := NewDispatcher(NewAuthorizer(""), bridge, "npub1test")
 	params, _ := json.Marshal(map[string]interface{}{"name": "private_status"})
 	resp := d.Dispatch("anyone", JSONRPCRequest{JSONRPC: "2.0", ID: float64(1), Method: "tools/call", Params: params})
 	if resp.Error != nil {

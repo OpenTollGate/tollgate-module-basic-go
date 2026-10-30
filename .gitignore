@@ -23,6 +23,7 @@ src/tollgate
 src/tollgate-wrt
 src/tollgate-module-basic-go
 src/cmd/tollgate-cli/tollgate-cli
+src/cmd/tollgate-cvm/tollgate-cvm
 *.exe
 
 # Test artifacts

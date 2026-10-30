@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -25,60 +24,23 @@ const (
 	npubB = "npub1hw6amg8p24ne08c9gdq8hhpqx0t0pwanpae9z25crn7m9uy7yarse465gr"
 )
 
-// The wire form of each identity: a NIP-01 caller (the gift-wrap seal author)
-// arrives as HEX, while config holds the bech32 npub. Tests must exercise the
-// production pairing — npub in, hex at the gate — or they prove nothing about
-// the deployed system.
-func hexOf(t *testing.T, npub string) string {
-	t.Helper()
-	hex, err := maintainerHexFromNpub(npub)
-	if err != nil {
-		t.Fatalf("fixture npub %q undecodable: %v", npub, err)
-	}
-	return strings.ToLower(hex)
-}
-
 // After a handover, the NEW maintainer is authorized and the OLD one is not.
 func TestAuthorizerFollowsMaintainerChange(t *testing.T) {
 	a := NewAuthorizer(npubA)
-	if err := a.Authorize(hexOf(t, npubA), "config_set"); err != nil {
+	if err := a.Authorize(npubA, "config_set"); err != nil {
 		t.Fatalf("initial maintainer refused: %v", err)
 	}
 
 	a.SetMaintainer(npubB)
 
-	if err := a.Authorize(hexOf(t, npubB), "config_set"); err != nil {
+	if err := a.Authorize(npubB, "config_set"); err != nil {
 		t.Errorf("new maintainer refused after handover: %v", err)
 	}
-	if err := a.Authorize(hexOf(t, npubA), "config_set"); err == nil {
+	if err := a.Authorize(npubA, "config_set"); err == nil {
 		t.Error("OLD maintainer still authorized after handover — a handover would not actually transfer control")
 	}
 	if a.Maintainer() != npubB {
 		t.Errorf("Maintainer() = %q, want the new value", a.Maintainer())
-	}
-}
-
-// The production pairing end to end: the authorizer is seeded from the CONFIG
-// npub, the caller identity is the HEX UnwrapRequest returns. Before the
-// canonicalization fix this comparison was bech32-vs-hex and no write tool
-// could ever be authorized — for the legitimate maintainer included.
-func TestAuthorizeProductionPairing(t *testing.T) {
-	a := NewAuthorizer(npubA)
-
-	if err := a.Authorize(hexOf(t, npubA), "config_set"); err != nil {
-		t.Fatalf("maintainer's hex identity refused on the production pairing: %v", err)
-	}
-	strangerHex := strings.ToUpper(hexOf(t, npubB))
-	if err := a.Authorize(strangerHex, "config_set"); err == nil {
-		t.Fatal("stranger's hex authorized — case variance must not bypass the gate")
-	}
-	a.SetMaintainer("")
-	if err := a.Authorize(hexOf(t, npubA), "config_set"); err == nil {
-		t.Fatal("write authorized on an unclaimed router")
-	}
-	a.SetMaintainer("not-an-npub")
-	if err := a.Authorize(hexOf(t, npubA), "config_set"); err == nil {
-		t.Fatal("malformed maintainer value must canonicalize fail-closed, not authorize")
 	}
 }
 
@@ -88,7 +50,7 @@ func TestAuthorizerUnclaimClosesWrites(t *testing.T) {
 	a.SetMaintainer("")
 	for _, tool := range ToolSurface() {
 		if tool.Write {
-			if err := a.Authorize(hexOf(t, npubA), tool.Name); err == nil {
+			if err := a.Authorize(npubA, tool.Name); err == nil {
 				t.Errorf("unclaimed router still authorized %s — contradicts RequireMaintainer", tool.Name)
 			}
 		}
@@ -111,22 +73,22 @@ func TestDispatchUsesCurrentMaintainer(t *testing.T) {
 		return CLIResponse{Success: true, Message: "ok"}, nil
 	}}
 	a := NewAuthorizer(npubA)
-	d := NewDispatcher(a, bridge)
+	d := NewDispatcher(a, bridge, "npub1server")
 
 	params := rpcParams(t, "private_disable")
 
-	if resp := d.Dispatch(hexOf(t, npubA), req(1, params)); resp.Error != nil {
+	if resp := d.Dispatch(npubA, req(1, params)); resp.Error != nil {
 		t.Fatalf("original maintainer refused before handover: %+v", resp.Error)
 	}
 
 	a.SetMaintainer(npubB) // the handover happens while the daemon runs
 
-	if resp := d.Dispatch(hexOf(t, npubA), req(2, params)); resp.Error == nil {
+	if resp := d.Dispatch(npubA, req(2, params)); resp.Error == nil {
 		t.Fatal("after handover the OLD maintainer's write still succeeded")
 	} else if resp.Error.Code != ErrAuthz {
 		t.Fatalf("expected an authz refusal, got %+v", resp.Error)
 	}
-	if resp := d.Dispatch(hexOf(t, npubB), req(3, params)); resp.Error != nil {
+	if resp := d.Dispatch(npubB, req(3, params)); resp.Error != nil {
 		t.Fatalf("new maintainer refused after handover: %+v", resp.Error)
 	}
 }

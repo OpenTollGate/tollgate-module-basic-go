@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 )
 
@@ -66,18 +65,9 @@ func ToolSurface() []Tool {
 // configured there is nobody to authorize, and allowing writes would mean
 // allowing them to everyone.
 type Authorizer struct {
-	mu sync.RWMutex
-	// maintainerNpub is the config field's bech32 spelling, kept verbatim for
-	// reporting and for the 15 s poll's change detection (which compares
-	// against the config form).
+	mu             sync.RWMutex
 	maintainerNpub string
-	// maintainerHex is the SAME key decoded to the hex form the wire carries:
-	// a NIP-01 caller identity (the gift-wrap seal author) is always hex, so
-	// the write gate must compare hex against hex — comparing the config's
-	// bech32 npub against the caller's hex could never match, leaving every
-	// write tool permanently refused for the legitimate maintainer.
-	maintainerHex string
-	byName        map[string]Tool
+	byName         map[string]Tool
 }
 
 func NewAuthorizer(maintainerNpub string) *Authorizer {
@@ -85,27 +75,7 @@ func NewAuthorizer(maintainerNpub string) *Authorizer {
 	for _, tool := range ToolSurface() {
 		byName[tool.Name] = tool
 	}
-	a := &Authorizer{maintainerNpub: maintainerNpub, byName: byName}
-	a.maintainerHex = canonicalMaintainerHex(maintainerNpub)
-	return a
-}
-
-// canonicalMaintainerHex decodes the config-form npub into the hex pubkey the
-// wire compares against. Empty input (the unclaimed router) canonicalizes to
-// empty. A malformed value canonicalizes to empty as well — fail-closed: an
-// unparseable maintainer authorizes nobody, which is the same state as no
-// maintainer at all (the config path's ValidateMaintainerNpub refuses
-// malformed values before they can reach here; this is the belt to that
-// braces).
-func canonicalMaintainerHex(npub string) string {
-	if npub == "" {
-		return ""
-	}
-	hex, err := maintainerHexFromNpub(npub)
-	if err != nil {
-		return ""
-	}
-	return strings.ToLower(hex)
+	return &Authorizer{maintainerNpub: maintainerNpub, byName: byName}
 }
 
 // SetMaintainer re-points authorization. It exists because resolving the
@@ -118,7 +88,6 @@ func (a *Authorizer) SetMaintainer(npub string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.maintainerNpub = npub
-	a.maintainerHex = canonicalMaintainerHex(npub)
 }
 
 // Maintainer reports the identity currently authorized for writes.
@@ -139,12 +108,12 @@ func (a *Authorizer) Authorize(callerNpub, toolName string) error {
 		return nil
 	}
 	a.mu.RLock()
-	maintainerHex := a.maintainerHex
+	maintainer := a.maintainerNpub
 	a.mu.RUnlock()
-	if maintainerHex == "" {
+	if maintainer == "" {
 		return fmt.Errorf("router is unclaimed (maintainer_npub empty): no write tools are authorized until a maintainer claims it")
 	}
-	if strings.ToLower(callerNpub) != maintainerHex {
+	if callerNpub != maintainer {
 		return fmt.Errorf("tool %q is maintainer-only", toolName)
 	}
 	return nil
