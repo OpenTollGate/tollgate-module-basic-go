@@ -63,7 +63,10 @@ services:
     volumes:
       # ro: the daemon must never be able to rewrite its own binary
       - ${CDK_WALLETD_BIN:-/root/.cargo-target/x86_64-unknown-linux-musl/release/cdk-walletd}:/walletd/cdk-walletd:ro
-      - walletd-socket:/run/walletd
+      # bind mount (not a named volume): LEG D places a host-side unix-socket
+      # proxy at w.sock that must be reachable from both the daemon container
+      # and the module container — same pattern as the procd lane's shared dir.
+      - ./walletd-socket:/run/walletd
       - walletd-data:/data
     networks:
       tollgate-lab:
@@ -97,7 +100,7 @@ services:
       - ./configs/upstream-cdk-config.json:/etc/tollgate/config.json
       - ./configs/install.json:/etc/tollgate/install.json
       - ./configs/dhcp.leases:/tmp/dhcp.leases
-      - walletd-socket:/var/run/cdk-walletd
+      - ./walletd-socket:/var/run/cdk-walletd
     ports:
       - "2122:2121"
     networks:
@@ -113,5 +116,4 @@ services:
       start_period: 10s
 
 volumes:
-  walletd-socket:
   walletd-data:
