@@ -89,4 +89,4 @@ require (
 
 exclude github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 
-replace github.com/cashubtc/cdk-go => github.com/Amperstrand/cdk-go v0.18.3-0.20261031141952-fe95aab611a4
+replace github.com/cashubtc/cdk-go => github.com/Amperstrand/cdk-go v0.18.3-0.20261031143254-5a6fb59bf133

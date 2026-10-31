@@ -1,7 +1,7 @@
 dario.cat/mergo v1.0.1 h1:Ra4+bf83h2ztPIQYNP99R6m+Y7KfnARDfID+a+vLl4s=
 dario.cat/mergo v1.0.1/go.mod h1:uNxQE+84aUszobStD9th8a29P2fMDhsBdgRYvZOxGmk=
-github.com/Amperstrand/cdk-go v0.18.3-0.20261031141952-fe95aab611a4 h1:oAUHz38+yJDZ4sFRtY2Dgegt7NO9o1RovF8j3si9QPc=
-github.com/Amperstrand/cdk-go v0.18.3-0.20261031141952-fe95aab611a4/go.mod h1:LkFjdm+QOW+35OIgA8cwPiElZDBDd5qlONTIs492PDE=
+github.com/Amperstrand/cdk-go v0.18.3-0.20261031143254-5a6fb59bf133 h1:zLxtMC1uf0juBLhZjSF3rRfoCrTgzeypGAcnTGiwZ/U=
+github.com/Amperstrand/cdk-go v0.18.3-0.20261031143254-5a6fb59bf133/go.mod h1:LkFjdm+QOW+35OIgA8cwPiElZDBDd5qlONTIs492PDE=
 github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 h1:L/gRVlceqvL25UVaW/CKtUDjefjrs0SPonmDGUVOYP0=
 github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161/go.mod h1:xomTg63KZ2rFqZQzSB4Vz2SUXa1BpHTVz9L5PTmPC4E=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
