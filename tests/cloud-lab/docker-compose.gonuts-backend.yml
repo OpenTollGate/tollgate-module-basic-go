@@ -13,6 +13,26 @@
 
 services:
 
+  # LEG D's deterministic ambiguity injector, in-network (the host INPUT
+  # firewall drops bridge->gateway traffic, so a host-side proxy is
+  # unreachable from the containers). Passthrough until the driver arms it
+  # via the shared kp-state bind mount.
+  killproxy:
+    image: python:3.12-alpine
+    container_name: tg-killproxy
+    depends_on:
+      mint:
+        condition: service_healthy
+    volumes:
+      - ./killproxy.py:/killproxy.py:ro
+      - ./kp-state:/tmp
+    entrypoint: ["python3", "/killproxy.py", "33390", "http://mint:8085", "/v1/swap", "/tmp/kp.marker", "/tmp/kp.arm"]
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.40
+        aliases:
+          - kp
+
   # Build-time egress on this bench host is firewall-blocked from the
   # default bridge (runtime container<->container traffic is unaffected);
   # every build below runs on the host network — same rule as the cdk
@@ -24,6 +44,15 @@ services:
   upstream:
     build:
       network: host
+    depends_on:
+      killproxy:
+        condition: service_started
+    # LEG D routes this lane's mint traffic through the in-network killproxy
+    # (the deterministic TCP swallow of a swap response).
+    volumes:
+      - ./configs/upstream-kp-config.json:/etc/tollgate/config.json
+      - ./configs/install.json:/etc/tollgate/install.json
+      - ./configs/dhcp.leases:/tmp/dhcp.leases
     # The base publishes 2121:2121 for debugging; the host side is contended
     # on this bench (a sibling session's mockgate binds it). The lane never
     # uses the host port (the client reaches the service by name) — remap.
@@ -38,5 +67,7 @@ services:
     depends_on: !override
       mint:
         condition: service_healthy
+      killproxy:
+        condition: service_started
       upstream:
         condition: service_healthy

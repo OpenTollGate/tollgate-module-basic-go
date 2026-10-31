@@ -18,6 +18,7 @@ import sys
 import requests
 
 BASE = os.environ["UPSTREAM_URL"]
+MINT = os.environ.get("MINT_URL", "http://mint:8085")
 MAC = "02:00:00:00:00:20"
 
 
@@ -33,7 +34,7 @@ def quote_body(r: requests.Response) -> dict:
 def create() -> None:
     r = requests.post(
         f"{BASE}/ln-invoice",
-        json={"amount": 100, "mac": MAC, "mint_url": "http://mint:8085"},
+        json={"amount": 100, "mac": MAC, "mint_url": MINT},
         timeout=30,
     )
     body = quote_body(r)

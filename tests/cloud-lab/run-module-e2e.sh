@@ -59,6 +59,7 @@ if [ "$BACKEND" = cdk ]; then
 fi
 
 COMPOSE="docker compose -f docker-compose.yml -f $OVERRIDE"
+LANE_ENV=""; [ "$BACKEND" = gonuts ] && LANE_ENV="-e MINT_URL=http://kp:33390"
 
 # Pre-build the client explicitly: `compose run client` builds its
 # dependencies implicitly WITHOUT honoring build.network on this compose
@@ -67,15 +68,15 @@ build() { $COMPOSE build $BUILDSET; }
 up()     { $COMPOSE up -d --build $UPSET "$@"; }
 down()   { $COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true; }
 depmode(){ $COMPOSE up -d "$DEP" >/dev/null; }
-pytest() { $COMPOSE run --rm -e UPSTREAM_URL=$URL --entrypoint pytest client "$@"; }
+pytest() { $COMPOSE run --rm -e UPSTREAM_URL=$URL $LANE_ENV --entrypoint pytest client "$@"; }
 # --no-deps is LOAD-BEARING in the kill legs: a plain `compose run` starts
 # the client's dependencies — including a money dependency we deliberately
 # stopped — resurrecting it before the payment fires and silently turning
 # every "outage" leg into a happy-path run (measured: allotment kept
 # growing "during" the outage).
-pay()    { $COMPOSE run --rm --no-deps -e UPSTREAM_URL=$URL --entrypoint python3 client /tests/cdk_e2e_pay.py "$@"; }
-replay() { $COMPOSE run --rm --no-deps -e UPSTREAM_URL=$URL --entrypoint python3 client /tests/cdk_e2e_replay.py "$@"; }
-quote()  { $COMPOSE run --rm --no-deps -e UPSTREAM_URL=$URL --entrypoint python3 client /tests/cdk_e2e_quote.py "$@"; }
+pay()    { $COMPOSE run --rm --no-deps -e UPSTREAM_URL=$URL $LANE_ENV --entrypoint python3 client /tests/cdk_e2e_pay.py "$@"; }
+replay() { $COMPOSE run --rm --no-deps -e UPSTREAM_URL=$URL $LANE_ENV --entrypoint python3 client /tests/cdk_e2e_replay.py "$@"; }
+quote()  { $COMPOSE run --rm --no-deps -e UPSTREAM_URL=$URL $LANE_ENV --entrypoint python3 client /tests/cdk_e2e_quote.py "$@"; }
 
 wait_healthy() {  # wait_healthy <container> <service>
   local c="$1" svc="$2" i=0
@@ -101,6 +102,15 @@ build >/dev/null
 up >/dev/null
 [ "$BACKEND" = cdk ] && wait_healthy tg-cdk-walletd cdk-walletd
 wait_healthy "$CONT" "$SVC"
+
+KP_DIR="$(pwd)/kp-state"
+KP_MARKER="$KP_DIR/kp.marker"; KP_ARM="$KP_DIR/kp.arm"; KP_REL="$KP_DIR/kp.marker.release"
+if [ "$BACKEND" = gonuts ]; then
+  # The killproxy is an in-network compose service (host INPUT firewall
+  # drops bridge->gateway traffic). Reset its control files BEFORE the
+  # stack comes up — the module's boot probes go through it (passthrough).
+  rm -f "$KP_MARKER" "$KP_ARM" "$KP_REL"
+fi
 
 echo "== happy path: full payment (in-container pytest) =="
 pytest -v test_cdk_backend_e2e.py
@@ -171,14 +181,22 @@ EVENT_FILE=".module-e2b-event.json"
 LEG_B_OK=0
 for ATTEMPT in 1 2; do
   rm -f "$EVENT_FILE"
-  # gonuts: the kill target is the mint, which also serves the helper's
-  # funding step — kill later than cdk so the POST (not the funding) is
-  # the in-flight op; one retry if the race eats the staging.
-  KILL_AT=0.4; [ "$BACKEND" = gonuts ] && KILL_AT=2.0
+  # Kill on STAGING, not on a fixed offset: the helper writes the event
+  # file immediately before its POST, so the file appearing means the
+  # payment is in flight — kill then. (A fixed offset kept landing during
+  # the helper's funding phase on the gonuts lane and the leg never
+  # staged; one retry if the race still eats it.)
   ( pay --event-out "/tests/$EVENT_FILE" >/tmp/module-e2b-first.out 2>&1 || true ) &
   PAYPID=$!
-  sleep "$KILL_AT"
-  docker kill "$DEPC" >/dev/null 2>&1 || true
+  KILLED=0
+  # 30s: funding through the proxy lane (quote+mint+send, cdk-cli cold
+  # start) can exceed a 5s window — a too-short window killed the mint
+  # mid-FUNDING and the event never staged (measured flake).
+  for i in $(seq 1 300); do
+    if [ -f "$EVENT_FILE" ]; then docker kill "$DEPC" >/dev/null 2>&1 || true; KILLED=1; break; fi
+    sleep 0.1
+  done
+  [ "$KILLED" = 1 ] || docker kill "$DEPC" >/dev/null 2>&1 || true
   wait $PAYPID 2>/dev/null || true
   # The event file alone is not enough: the first attempt must have
   # actually reached the module (non-empty verdict output) or the leg
@@ -277,7 +295,29 @@ if [ "$BACKEND" = cdk ]; then
   echo "  post-leg module recovered on the direct socket → $D2"
   echo "$D2" | grep -q '"kind": 1022' || { echo "FAIL: module did not recover after LEG D"; exit 1; }
 else
-  echo "== LEG D: skipped on gonuts (no proxyable socket; ambiguity class covered by the wallet-layer parity lane and unit tests) =="
+  echo "== LEG D (gonuts): deterministic ambiguity — mint's swap response swallowed =="
+  # The proxy has been passthrough-serving since boot (the module's probes
+  # and every payment so far went through it). Arm FIRST: the next watched
+  # response is processed by the mint and never delivered — no kill race.
+  touch "$KP_ARM"
+  EVENT_D=.module-e2d-event.json; rm -f "$EVENT_D"
+  D=$(pay --verbose --event-out "/tests/$EVENT_D" || true)
+  echo "  swallowed swap payment → $D"
+  echo "$D" | grep -q '"kind": 21023' || { echo "FAIL: expected a notice, got: $D"; exit 1; }
+  echo "$D" | grep -q '"payment-outcome-unknown"' && echo "  notice code = payment-outcome-unknown (do-not-resubmit) ✓" || { echo "FAIL: notice is NOT the outcome-unknown class: $D"; exit 1; }
+  [ -f "$KP_MARKER" ] || { echo "FAIL: killproxy never swallowed a swap (leg did not exercise the path)"; exit 1; }
+  # The mint DID process the swap (deterministic): the proofs are spent.
+  touch "$KP_REL"
+  sleep 1
+  DR=$(replay --verbose "/tests/$EVENT_D" || true)
+  echo "  replay of the deterministically-spent token → $DR"
+  echo "$DR" | grep -q '"kind": 1022' && { echo "FAIL: DOUBLE GRANT after a swallowed swap"; exit 1; }
+  echo "  spent-token replay refused, no double grant ✓"
+  rm -f "$EVENT_D"
+  D2=$(pay || true)
+  echo "  post-release payment through the proxy → $D2"
+  echo "$D2" | grep -q '"kind": 1022' || { echo "FAIL: no session after proxy release"; exit 1; }
+  echo "  passthrough recovered ✓"
 fi
 
 echo ""
