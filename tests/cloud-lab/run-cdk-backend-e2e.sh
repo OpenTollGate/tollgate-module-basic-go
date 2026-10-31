@@ -104,9 +104,13 @@ print('  quote state survived the restart ✓')" || exit 1
 
 echo "== LEG A: payment during sidecar outage =="
 docker stop tg-cdk-walletd >/dev/null
-A=$(pay || true)
+A=$(pay --verbose || true)
 echo "  outage payment → $A"
 echo "$A" | grep -q '"kind": 1022' && { echo "FAIL: session granted while sidecar was DOWN"; exit 1; }
+# The refusal must be the wallet-outage class (note NOT spent, safe to
+# retry) — never invalid-token, which tells a paying customer their money
+# is fake (the decode RPC dies with the daemon; caught 2026-11-01).
+echo "$A" | grep -q '"payment-processing-unavailable"' || { echo "FAIL: outage refusal is not payment-processing-unavailable: $A"; exit 1; }
 docker inspect -f '{{.State.Status}}' tg-upstream-cdk | grep -q running || { echo "FAIL: module died during sidecar outage"; $COMPOSE logs upstream-cdk | tail -20; exit 1; }
 echo "  module stayed alive through the outage ✓"
 $COMPOSE up -d cdk-walletd >/dev/null; sleep 2; wait_healthy tg-cdk-walletd cdk-walletd

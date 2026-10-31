@@ -1631,6 +1631,20 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Process payment
 	paymentCashuToken, err := m.tollwallet.DecodeToken(cashuToken)
 	if err != nil {
+		// A wallet-backend outage is not a verdict about the note. On the
+		// sidecar backend DecodeToken is an RPC, so a daemon outage lands
+		// here; classifying it as an invalid token tells a paying customer
+		// their money is fake. The note provably never moved (the connect
+		// failed before any money op), so try-again guidance is SAFE here —
+		// unlike the post-Receive ambiguity classes.
+		if errors.Is(err, tollwallet.ErrSidecarNotConnected) {
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-processing-unavailable",
+				"This TollGate cannot reach its wallet service right now. Your e-cash note was not spent — nothing was taken. Please try again in a moment.", "")
+			if noticeErr != nil {
+				return nil, fmt.Errorf("wallet backend unreachable and failed to create notice: %w", noticeErr)
+			}
+			return noticeEvent, nil
+		}
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-invalid-token",
 			fmt.Sprintf("Invalid cashu token: %v", err), "")
 		if noticeErr != nil {
