@@ -88,6 +88,15 @@ func GetConfigSchema() []FieldSchema {
 			},
 		},
 		{
+			Name: "Wallet", JSONKey: "wallet", Type: "object",
+			Description: "Cashu wallet backend selection (wallet.backend)",
+			Required:    true, Editable: true,
+			Children: []FieldSchema{
+				{Name: "Backend", JSONKey: "backend", Type: "string", Description: "Wallet backend: default = in-process gonuts wallet; cdk = cdk-walletd sidecar daemon", Default: "default", Required: true, Editable: true, Enum: []string{"default", "cdk"}},
+				{Name: "Socket", JSONKey: "socket", Type: "string", Description: "AF_UNIX socket of the cdk-walletd sidecar (backend=cdk)", Default: "/var/run/cdk-walletd.sock", Required: true, Editable: true},
+			},
+		},
+		{
 			Name: "UpstreamDetector", JSONKey: "upstream_detector", Type: "object",
 			Description: "Upstream gateway detector configuration", Required: true, Editable: true,
 			Children: []FieldSchema{

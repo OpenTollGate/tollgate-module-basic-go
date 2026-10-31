@@ -573,7 +573,11 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
 	}
-	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false)
+	// Backend selection (tbmg#1139): route through the selection seam so
+	// wallet.backend=cdk runs the service on the cdk-walletd sidecar.
+	// An absent wallet section (Backend "") selects the default
+	// in-process wallet — the pre-selection behavior, byte-identical.
+	tw, walletErr := openServiceWallet(configManager, walletDirPath, mintURLs)
 
 	if walletErr != nil {
 		if bootErr := walletLockBootError(walletErr); bootErr != nil {
@@ -2831,4 +2835,33 @@ func (m *Merchant) Fund(cashuToken string) (uint64, error) {
 
 	log.Printf("Successfully funded wallet with %d sats", amountReceived)
 	return amountReceived, nil
+}
+
+// openServiceWallet routes the merchant service's wallet through the
+// selection seam (tbmg#1139): wallet.backend=cdk opens the cdk-walletd
+// sidecar at wallet.socket; absent/"default" opens the in-process
+// wallet — the pre-selection behavior. Returns the wallet and logs the
+// selection.
+func openServiceWallet(configManager *config_manager.ConfigManager, walletPath string, mintURLs []string) (tollwallet.WalletPort, error) {
+	walletCfg := configManager.GetConfig().Wallet
+	tw, _, err := tollwallet.OpenWallet(tollwallet.WalletConfig{
+		Backend:                    walletCfg.Backend,
+		Socket:                     walletCfg.Socket,
+		Path:                       walletPath,
+		AcceptedMints:              mintURLs,
+		AllowAndSwapUntrustedMints: false,
+	})
+	if err == nil {
+		log.Printf("Wallet backend selected: %s", walletBackendName(walletCfg.Backend))
+	}
+	return tw, err
+}
+
+// walletBackendName renders the selected backend for logs; empty means
+// the default in-process wallet.
+func walletBackendName(backend string) string {
+	if backend == "" {
+		return "default (in-process)"
+	}
+	return backend
 }
