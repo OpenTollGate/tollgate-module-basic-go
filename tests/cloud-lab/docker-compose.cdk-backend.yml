@@ -1,0 +1,119 @@
+# docker-compose.cdk-backend.yml — P4 e2e override: the module on the CDK backend.
+#
+# Layered over docker-compose.yml (docker compose -f docker-compose.yml
+# -f docker-compose.cdk-backend.yml). Adds:
+#   - cdk-walletd: the Amperstrand sidecar daemon (musl static x86_64),
+#     AF_UNIX socket on a volume shared with the service below.
+#   - upstream-cdk: the SAME Dockerfile.tollgate build as `upstream`, but
+#     its config selects wallet.backend=cdk at the shared socket (tbmg#1155).
+#
+# The binary is bind-mounted from the cdk-walletd checkout/host build dir —
+# the same precedent as the parity lane's PARITY_DAEMON. Override with
+# CDK_WALLETD_BIN.
+#
+# Driver: run-cdk-backend-e2e.sh (happy path in-container; daemon-kill
+# boundary legs are host-side because they need `docker compose kill`).
+
+services:
+
+  mint:
+    build:
+      network: host
+
+  mint-fees:
+    build:
+      network: host
+
+  # The client's base depends_on waits on the ORIGINAL `upstream` service,
+  # which this composition does not start — retarget it to the cdk-backend
+  # services so `compose run client` works without booting both stacks.
+  # Build-time egress on this bench host is firewall-blocked from the
+  # default bridge (runtime container<->container traffic is unaffected);
+  # every build below runs on the host network.
+  client:
+    build:
+      network: host
+    # !override replaces (not merges) the base depends_on, which waits on
+    # mint-fees — a service this composition does not start.
+    depends_on: !override
+      mint:
+        condition: service_healthy
+      cdk-walletd:
+        condition: service_healthy
+      upstream-cdk:
+        condition: service_healthy
+
+  cdk-walletd:
+    image: alpine:3.20
+    pull_policy: missing
+    container_name: tg-cdk-walletd
+    depends_on:
+      mint:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p /run/walletd /data
+        exec /walletd/cdk-walletd \
+          --socket /run/walletd/w.sock \
+          --work-dir /data \
+          --mint http://mint:8085 \
+          --mnemonic-file /data/seed.txt
+    volumes:
+      # ro: the daemon must never be able to rewrite its own binary
+      - ${CDK_WALLETD_BIN:-/root/.cargo-target/x86_64-unknown-linux-musl/release/cdk-walletd}:/walletd/cdk-walletd:ro
+      # bind mount (not a named volume): LEG D places a host-side unix-socket
+      # proxy at w.sock that must be reachable from both the daemon container
+      # and the module container — same pattern as the procd lane's shared dir.
+      - ./walletd-socket:/run/walletd
+      - walletd-data:/data
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.30
+    healthcheck:
+      # The daemon speaks AF_UNIX only; liveness = the socket existing.
+      test: ["CMD", "test", "-S", "/run/walletd/w.sock"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  upstream-cdk:
+    build:
+      network: host
+      context: ../..
+      dockerfile: tests/cloud-lab/Dockerfile.tollgate
+      args:
+        GO_VERSION: ${TG_GO_VERSION:-1.26.10}
+        PACKAGE_VERSION: ${TG_PACKAGE_VERSION:-0.0.0-r0}
+        LDFLAGS: ${TG_LDFLAGS:-}
+    container_name: tg-upstream-cdk
+    depends_on:
+      mint:
+        condition: service_healthy
+      cdk-walletd:
+        condition: service_healthy
+    environment:
+      - TOLLGATE_TEST_CONFIG_DIR=/etc/tollgate
+      - TOLLGATE_RATE_LIMIT_RPM=600
+    volumes:
+      - ./configs/upstream-cdk-config.json:/etc/tollgate/config.json
+      - ./configs/install.json:/etc/tollgate/install.json
+      - ./configs/dhcp.leases:/tmp/dhcp.leases
+      - ./walletd-socket:/var/run/cdk-walletd
+    ports:
+      - "2122:2121"
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.31
+    healthcheck:
+      # Same probe as the base `upstream` service (curl is in the runtime
+      # image; wget is not — that mismatch kept this container "starting").
+      test: ["CMD", "curl", "-sf", "http://localhost:2121/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  walletd-data:

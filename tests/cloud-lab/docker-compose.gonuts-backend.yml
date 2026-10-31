@@ -1,0 +1,42 @@
+# docker-compose.gonuts-backend.yml — the DEFAULT (gonuts in-process) lane of
+# the module e2e conformance matrix (run-cdk-backend-e2e.sh BACKEND=gonuts).
+#
+# The base `upstream` service already runs the default backend: its config
+# (configs/upstream-config.json) has no wallet section, which selects the
+# in-process wallet — the pre-selection behavior. This override only
+# retargets the client's dependencies (the base waits on mint-fees, which
+# this composition does not start, and the cdk lane's cdk-walletd does not
+# exist here).
+#
+# Kill/restart legs in the gonuts lane target THE MINT — the only external
+# dependency this backend has (there is no sidecar to kill).
+
+services:
+
+  # Build-time egress on this bench host is firewall-blocked from the
+  # default bridge (runtime container<->container traffic is unaffected);
+  # every build below runs on the host network — same rule as the cdk
+  # override.
+  mint:
+    build:
+      network: host
+
+  upstream:
+    build:
+      network: host
+    # The base publishes 2121:2121 for debugging; the host side is contended
+    # on this bench (a sibling session's mockgate binds it). The lane never
+    # uses the host port (the client reaches the service by name) — remap.
+    ports: !override
+      - "2123:2121"
+
+  client:
+    build:
+      network: host
+    # !override replaces (not merges) the base depends_on, which waits on
+    # mint-fees — a service this composition does not start.
+    depends_on: !override
+      mint:
+        condition: service_healthy
+      upstream:
+        condition: service_healthy

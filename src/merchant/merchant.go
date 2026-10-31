@@ -529,7 +529,7 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	if len(reachableMints) == 0 {
 		log.Printf("WARNING: No reachable mints detected. Starting in degraded mode.")
 		walletDirPath := walletDirFor(configManager)
-		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, walletFactoryForBackend(configManager), walletDirPath)
 		deg.SetDegradeReason("no reachable mints")
 		mintHealthTracker.StartProactiveChecks()
 		deg.WireRecoveryTrigger()
@@ -573,7 +573,11 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
 	}
-	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false)
+	// Backend selection (tbmg#1139): route through the selection seam so
+	// wallet.backend=cdk runs the service on the cdk-walletd sidecar.
+	// An absent wallet section (Backend "") selects the default
+	// in-process wallet — the pre-selection behavior, byte-identical.
+	tw, walletErr := openServiceWallet(configManager, walletDirPath, mintURLs)
 
 	if walletErr != nil {
 		if bootErr := walletLockBootError(walletErr); bootErr != nil {
@@ -584,7 +588,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		} else {
 			log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
 		}
-		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, walletFactoryForBackend(configManager), walletDirPath)
 		// Honest reason: the mints may all be reachable — this is the
 		// #583/#1035 class where "no reachable mints" pointed triage at
 		// the network for days while the wallet was the broken half.
@@ -1627,6 +1631,20 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Process payment
 	paymentCashuToken, err := m.tollwallet.DecodeToken(cashuToken)
 	if err != nil {
+		// A wallet-backend outage is not a verdict about the note. On the
+		// sidecar backend DecodeToken is an RPC, so a daemon outage lands
+		// here; classifying it as an invalid token tells a paying customer
+		// their money is fake. The note provably never moved (the connect
+		// failed before any money op), so try-again guidance is SAFE here —
+		// unlike the post-Receive ambiguity classes.
+		if errors.Is(err, tollwallet.ErrSidecarNotConnected) {
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-processing-unavailable",
+				"This TollGate cannot reach its wallet service right now. Your e-cash note was not spent — nothing was taken. Please try again in a moment.", "")
+			if noticeErr != nil {
+				return nil, fmt.Errorf("wallet backend unreachable and failed to create notice: %w", noticeErr)
+			}
+			return noticeEvent, nil
+		}
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-invalid-token",
 			fmt.Sprintf("Invalid cashu token: %v", err), "")
 		if noticeErr != nil {
@@ -2831,4 +2849,33 @@ func (m *Merchant) Fund(cashuToken string) (uint64, error) {
 
 	log.Printf("Successfully funded wallet with %d sats", amountReceived)
 	return amountReceived, nil
+}
+
+// openServiceWallet routes the merchant service's wallet through the
+// selection seam (tbmg#1139): wallet.backend=cdk opens the cdk-walletd
+// sidecar at wallet.socket; absent/"default" opens the in-process
+// wallet — the pre-selection behavior. Returns the wallet and logs the
+// selection.
+func openServiceWallet(configManager *config_manager.ConfigManager, walletPath string, mintURLs []string) (tollwallet.WalletPort, error) {
+	walletCfg := configManager.GetConfig().Wallet
+	tw, _, err := tollwallet.OpenWallet(tollwallet.WalletConfig{
+		Backend:                    walletCfg.Backend,
+		Socket:                     walletCfg.Socket,
+		Path:                       walletPath,
+		AcceptedMints:              mintURLs,
+		AllowAndSwapUntrustedMints: false,
+	})
+	if err == nil {
+		log.Printf("Wallet backend selected: %s", walletBackendName(walletCfg.Backend))
+	}
+	return tw, err
+}
+
+// walletBackendName renders the selected backend for logs; empty means
+// the default in-process wallet.
+func walletBackendName(backend string) string {
+	if backend == "" {
+		return "default (in-process)"
+	}
+	return backend
 }

@@ -325,7 +325,27 @@ func (m *MerchantDegraded) AttemptUpgrade() {
 
 func NewMerchantDegradedFromFull(configManager *config_manager.ConfigManager, tracker *MintHealthTracker) *MerchantDegraded {
 	walletDirPath := walletDirFor(configManager)
-	return NewMerchantDegradedWithWallet(configManager, tracker, DefaultWalletFactory, walletDirPath)
+	return NewMerchantDegradedWithWallet(configManager, tracker, walletFactoryForBackend(configManager), walletDirPath)
+}
+
+// walletFactoryForBackend routes the degraded-mode wallet construction
+// through the backend selection (#1157): under wallet.backend=cdk the
+// degraded merchant must hold the SAME wallet the operator chose — a dead
+// sidecar yields a wallet-less degraded merchant (fail closed), never a
+// silent second wallet implementation whose value splits away from the
+// operator's balances. The default backend keeps DefaultWalletFactory
+// byte-identical (the pre-selection behavior).
+func walletFactoryForBackend(configManager *config_manager.ConfigManager) WalletFactory {
+	if backend := configManager.GetConfig().Wallet.Backend; backend == "cdk" {
+		return func(walletPath string, mintURLs []string) (Wallet, error) {
+			wp, err := openServiceWallet(configManager, walletPath, mintURLs)
+			if err != nil {
+				return nil, err
+			}
+			return wp, nil
+		}
+	}
+	return DefaultWalletFactory
 }
 
 func (m *MerchantDegraded) Shutdown() error {
