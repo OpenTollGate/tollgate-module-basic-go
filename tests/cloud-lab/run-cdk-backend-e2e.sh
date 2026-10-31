@@ -49,7 +49,14 @@ wait_healthy() {  # wait_healthy <container> <service>
   done
 }
 
-trap down EXIT
+dump_logs() {
+  mkdir -p /tmp/cdk-e2e-logs
+  $COMPOSE logs upstream-cdk > /tmp/cdk-e2e-logs/module.log 2>&1 || true
+  $COMPOSE logs cdk-walletd   > /tmp/cdk-e2e-logs/sidecar.log 2>&1 || true
+  docker logs walletd-legd    > /tmp/cdk-e2e-logs/legd.log 2>&1 || true
+  cp /tmp/cdk-legd-proxy.log  /tmp/cdk-e2e-logs/proxy.log 2>/dev/null || true
+}
+trap 'dump_logs; down' EXIT
 
 echo "== build + bring up (mint, cdk-walletd, upstream-cdk) =="
 build >/dev/null
@@ -74,6 +81,26 @@ echo "  (sidecar money-op log lines: $N)"
 [ "$N" -gt 0 ]
 
 if [ "$MODE" != "full" ]; then echo "== happy-only mode: done =="; exit 0; fi
+
+quote()  { $COMPOSE run --rm --no-deps -e UPSTREAM_URL=http://upstream-cdk:2121 --entrypoint python3 client /tests/cdk_e2e_quote.py "$@"; }
+
+echo "== LEG C: Lightning quote survives a sidecar restart =="
+Q=$(quote create || true)
+echo "  quote created → $Q"
+QID=$(echo "$Q" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('quote',''))" 2>/dev/null || true)
+[ -n "$QID" ] || { echo "FAIL: no quote id from /ln-invoice: $Q"; exit 1; }
+docker restart tg-cdk-walletd >/dev/null
+wait_healthy tg-cdk-walletd cdk-walletd
+sleep 3  # startup recovery pass
+P=$(quote poll "$QID" || true)
+echo "  post-restart poll → $P"
+echo "$P" | grep -qE '"quote".*not|unknown quote|no such quote' && { echo "FAIL: quote lost across sidecar restart"; exit 1; }
+echo "$P" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert d.get('http')==200, f'poll HTTP {d.get("http")}: {d}'
+assert d.get('quote')=='$QID' or d.get('quote','')=='', f'poll answered a different quote: {d}'
+print('  quote state survived the restart ✓')" || exit 1
 
 echo "== LEG A: payment during sidecar outage =="
 docker stop tg-cdk-walletd >/dev/null
@@ -143,6 +170,46 @@ else:
     print(f"  neither attempt granted (token settled nowhere yet) — acceptable")
 PY
 rm -f "$EVENT_FILE"
+
+echo "== LEG D: deterministic ambiguity — receive answered by silence =="
+# The module's receive must surface as outcome-unknown (do-not-resubmit),
+# never a generic "payment failed". A sock proxy at w.sock forwards the
+# receive to the daemon, reads the answer, and DROPS it: the swap
+# provably executed, the module provably unanswered — no kill race.
+DOCKER_NET=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' tg-cdk-walletd)
+docker rm -f walletd-legd >/dev/null 2>&1 || true
+docker stop tg-cdk-walletd >/dev/null
+rm -f walletd-socket/real.sock
+docker run -d --name walletd-legd --network "$DOCKER_NET" \
+  -v "$CDK_WALLETD_BIN":/walletd/cdk-walletd:ro \
+  -v "$(pwd)/walletd-socket":/run/walletd -v cloud-lab_walletd-data:/data \
+  alpine:3.20 /bin/sh -c \
+  "mkdir -p /run/walletd /data && exec /walletd/cdk-walletd --socket /run/walletd/real.sock --work-dir /data --mint http://mint:8085 --mnemonic-file /data/seed.txt" >/dev/null
+for i in $(seq 1 20); do [ -S walletd-socket/real.sock ] && break; sleep 0.5; done
+[ -S walletd-socket/real.sock ] || { echo "FAIL: leg D daemon never bound real.sock"; exit 1; }
+python3 "$(pwd)/cdk_e2e_sockproxy.py" walletd-socket/w.sock walletd-socket/real.sock --swallow receive > /tmp/cdk-legd-proxy.log 2>&1 &
+PROXY_PID=$!
+for i in $(seq 1 20); do [ -S walletd-socket/w.sock ] && break; sleep 0.5; done
+EVENT_D=.cdk-e2d-event.json; rm -f "$EVENT_D"
+D=$(pay --verbose --event-out "/tests/$EVENT_D" || true)
+echo "  swallowed receive payment → $D"
+echo "$D" | grep -q '"kind": 21023' || { echo "FAIL: expected a notice, got: $D"; kill $PROXY_PID 2>/dev/null; exit 1; }
+echo "$D" | grep -q '"payment-outcome-unknown"' && echo "  notice code = payment-outcome-unknown (do-not-resubmit) ✓" || { echo "FAIL: notice is NOT the outcome-unknown class — check code: $D"; kill $PROXY_PID 2>/dev/null; exit 1; }
+grep -q SWALLOWED /tmp/cdk-legd-proxy.log || { echo "FAIL: proxy never swallowed a receive (leg did not exercise the path)"; kill $PROXY_PID 2>/dev/null; exit 1; }
+# The daemon DID execute the swap (deterministic): the proofs are spent.
+# The replay must be refused — and must never grant.
+sleep 1
+DR=$(replay --verbose "/tests/$EVENT_D" || true)
+echo "  replay of the deterministically-spent token → $DR"
+echo "$DR" | grep -q '"kind": 1022' && { echo "FAIL: DOUBLE GRANT after a swallowed receive"; kill $PROXY_PID 2>/dev/null; exit 1; }
+echo "  spent-token replay refused, no double grant ✓"
+rm -f "$EVENT_D"
+kill $PROXY_PID 2>/dev/null || true
+docker rm -f walletd-legd >/dev/null 2>&1 || true
+$COMPOSE up -d cdk-walletd >/dev/null; sleep 2; wait_healthy tg-cdk-walletd cdk-walletd
+D2=$(pay || true)
+echo "  post-leg module recovered on the direct socket → $D2"
+echo "$D2" | grep -q '"kind": 1022' || { echo "FAIL: module did not recover after LEG D"; exit 1; }
 
 echo ""
 echo "ALL P4 E2E LEGS PASSED"

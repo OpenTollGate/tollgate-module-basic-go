@@ -378,3 +378,29 @@ func TestSidecarReadOnlyRequest_RetriedAfterWrite(t *testing.T) {
 		t.Fatalf("GetBalance = %d; want 42 (read-only retry must recover)", got)
 	}
 }
+
+// TestSidecarReceiveAmbiguity_SurfacesAsOutcomeUnknown pins the PORT
+// contract, not the client's: a written-but-unanswered receive on the
+// sidecar backend must reach the merchant as ErrOutcomeUnknown — the
+// do-not-resubmit class (#640) — exactly like the gonuts path's
+// AmbiguousOutcomeError mapping. Without it the merchant's generic
+// "payment failed" notice invites a resubmit that, if the daemon did
+// execute the swap, converts an ambiguous outcome into value-taken-
+// no-session (the #258 class, on the cdk backend).
+func TestSidecarReceiveAmbiguity_SurfacesAsOutcomeUnknown(t *testing.T) {
+	sock, _ := fakeDropDaemon(t, map[string]bool{"receive": true})
+	sw, _, err := NewSidecarWallet(sock)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer sw.Shutdown()
+
+	token := &sidecarToken{mint: "https://mint.example", amount: 100, serialized: "cashuBfake"}
+	_, err = sw.Receive(token)
+	if !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("Receive after an unanswered write = %v; want ErrOutcomeUnknown (port contract)", err)
+	}
+	if !errors.Is(err, ErrSidecarAmbiguous) {
+		t.Fatalf("Receive after an unanswered write = %v; want it still wrapping ErrSidecarAmbiguous for diagnostics", err)
+	}
+}
