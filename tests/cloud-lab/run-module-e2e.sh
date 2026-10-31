@@ -94,6 +94,9 @@ dump_logs() {
     docker logs walletd-legd    > /tmp/module-e2e-logs/legd.log 2>&1 || true
     cp /tmp/cdk-legd-proxy.log  /tmp/module-e2e-logs/proxy.log 2>/dev/null || true
   fi
+  if [ "$BACKEND" = gonuts ]; then
+    docker logs tg-killproxy > /tmp/module-e2e-logs/killproxy.log 2>&1 || true
+  fi
 }
 trap 'dump_logs; down' EXIT
 
@@ -296,12 +299,14 @@ if [ "$BACKEND" = cdk ]; then
   echo "$D2" | grep -q '"kind": 1022' || { echo "FAIL: module did not recover after LEG D"; exit 1; }
 else
   echo "== LEG D (gonuts): deterministic ambiguity — mint's swap response swallowed =="
-  # The proxy has been passthrough-serving since boot (the module's probes
-  # and every payment so far went through it). Arm FIRST: the next watched
-  # response is processed by the mint and never delivered — no kill race.
-  touch "$KP_ARM"
+  # Arm INSIDE the helper, between staging and the POST (#1163): both the
+  # driver-poll arm (0.1s granularity — the module's swap beat it ~1 in 4
+  # runs) and the funding-swap race (arming before the pay starts lets the
+  # swallow eat the helper's own funding swap) disappear when the helper
+  # itself arms with zero gap after staging — the module's receive-swap is
+  # then the FIRST watched request in flight, deterministically.
   EVENT_D=.module-e2d-event.json; rm -f "$EVENT_D"
-  D=$(pay --verbose --event-out "/tests/$EVENT_D" || true)
+  D=$(pay --verbose --event-out "/tests/$EVENT_D" --arm-file /kp-state/kp.arm || true)
   echo "  swallowed swap payment → $D"
   echo "$D" | grep -q '"kind": 21023' || { echo "FAIL: expected a notice, got: $D"; exit 1; }
   echo "$D" | grep -q '"payment-outcome-unknown"' && echo "  notice code = payment-outcome-unknown (do-not-resubmit) ✓" || { echo "FAIL: notice is NOT the outcome-unknown class: $D"; exit 1; }
