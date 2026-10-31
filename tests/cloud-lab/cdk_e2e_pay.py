@@ -52,7 +52,7 @@ def main() -> None:
     out = {"status": r.status_code, "kind": body.get("kind")}
     if args.verbose:
         tags = {t[0]: t[1:] for t in body.get("tags", [])}
-        keep = ("expiry", "expires", "allotment", "amount", "session")
+        keep = ("expiry", "expires", "allotment", "amount", "session", "code")
         out["tags"] = {k: tags[k] for k in tags if k in keep}
         out["id"] = body.get("id")
     print(json.dumps(out))
