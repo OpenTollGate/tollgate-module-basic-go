@@ -40,6 +40,11 @@ services:
   mint:
     build:
       network: host
+    environment:
+      # Forensics for the LEG D investigation (#1163): correlate the mint's
+      # own request view with the proxy's — a swap the mint sees but the
+      # proxy doesn't means the module bypassed kp somehow.
+      - RUST_LOG=info,tower_http=debug
 
   upstream:
     build:
@@ -62,6 +67,8 @@ services:
   client:
     build:
       network: host
+    volumes:
+      - ./kp-state:/kp-state
     # !override replaces (not merges) the base depends_on, which waits on
     # mint-fees — a service this composition does not start.
     depends_on: !override

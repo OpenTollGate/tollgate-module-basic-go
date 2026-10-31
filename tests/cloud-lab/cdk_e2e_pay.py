@@ -26,6 +26,12 @@ def main() -> None:
     ap.add_argument("--event-out", default=None)
     ap.add_argument("--verbose", action="store_true",
                     help="include session tags (discriminates a fresh grant from a cached re-serve)")
+    ap.add_argument("--no-post", action="store_true",
+                    help="stage the event (and fund) but do NOT post — for out-of-band protocol probes")
+    ap.add_argument("--arm-file", default=None,
+                    help="touch this file AFTER staging --event-out and BEFORE the POST: "
+                         "arms a deterministic injector with zero gap (the module's own "
+                         "request is then the first watched one in flight)")
     args = ap.parse_args()
 
     url = os.environ["UPSTREAM_URL"]
@@ -42,6 +48,18 @@ def main() -> None:
     if args.event_out:
         with open(args.event_out, "w") as f:
             json.dump(event, f)
+
+    if args.arm_file:
+        # Staged (funding done, event on disk) — arm NOW so the only
+        # watched request in flight after this point is the module's own
+        # (#1163: a driver-side poll here lost the race to the module's
+        # swap ~1 in 4 runs and the swallow never engaged).
+        with open(args.arm_file, "w") as f:
+            f.write("armed\n")
+
+    if args.no_post:
+        print(json.dumps({"staged": True}))
+        return
 
     r = requests.post(url, json=event, timeout=60)
     body = {}
