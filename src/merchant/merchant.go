@@ -529,7 +529,7 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	if len(reachableMints) == 0 {
 		log.Printf("WARNING: No reachable mints detected. Starting in degraded mode.")
 		walletDirPath := walletDirFor(configManager)
-		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, walletFactoryForBackend(configManager), walletDirPath)
 		deg.SetDegradeReason("no reachable mints")
 		mintHealthTracker.StartProactiveChecks()
 		deg.WireRecoveryTrigger()
@@ -588,7 +588,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		} else {
 			log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
 		}
-		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, walletFactoryForBackend(configManager), walletDirPath)
 		// Honest reason: the mints may all be reachable — this is the
 		// #583/#1035 class where "no reachable mints" pointed triage at
 		// the network for days while the wallet was the broken half.
