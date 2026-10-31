@@ -61,9 +61,29 @@ type degradedSetup struct {
 func newDegradedSetup(t *testing.T, mints []config_manager.MintConfig) *degradedSetup {
 	t.Helper()
 	cm, testDir := setupTestConfigManager(t)
+	configPath := filepath.Join(testDir, "config.json")
+	installPath := filepath.Join(testDir, "install.json")
+	identitiesPath := filepath.Join(testDir, "identities.json")
 	cfg := cm.GetConfig()
 	if mints != nil {
 		cfg.AcceptedMints = mints
+		// GetConfig returns a copy: persist the mints the way the sibling
+		// fixtures do, or the manager's authoritative state keeps the
+		// factory-default (mint-less) config and the degraded constructor
+		// returns at the no-configured-mints branch before the injected
+		// wallet error is ever recorded (#1158).
+		if err := config_manager.SaveConfig(cm.ConfigFilePath, cfg); err != nil {
+			t.Fatalf("SaveConfig: %v", err)
+		}
+		// The manager's in-memory state still holds the factory defaults —
+		// reload it so everything reading through the manager (the degraded
+		// constructor's configured-mints lookup) sees the test mints.
+		reloaded, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
+		if err != nil {
+			t.Fatalf("reload ConfigManager: %v", err)
+		}
+		cm = reloaded
+		cfg = cm.GetConfig()
 	}
 	tracker := newTestTracker(cfg, nil)
 	tracker.RunInitialProbe()

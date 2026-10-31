@@ -101,6 +101,13 @@ func (m *MerchantDegraded) DegradeReason() string {
 // returns: the reason the wallet is down, not a hardcoded connectivity
 // claim.
 func (m *MerchantDegraded) notInitializedError() error {
+	// The storage-mmap class must name the filesystem and its remedy in
+	// every op error — the #583 misdirection these surfaces exist to
+	// prevent. Everything else keeps the set degrade reason (or the
+	// historic "no reachable mints"), byte-compatible with before.
+	if m.StorageIncompatible() {
+		return m.walletNotInitializedError()
+	}
 	return fmt.Errorf("wallet not initialized: %s", m.DegradeReason())
 }
 
