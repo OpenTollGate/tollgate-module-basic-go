@@ -98,22 +98,28 @@ dump_logs() {
     docker logs tg-killproxy > /tmp/module-e2e-logs/killproxy.log 2>&1 || true
   fi
 }
-trap 'dump_logs; down' EXIT
+# KEEP_STACK=1 skips the teardown (investigation mode: catch a failing leg
+# with the live stack for immediate follow-up probes).
+trap 'dump_logs; [ -z "${KEEP_STACK:-}" ] && down || true' EXIT
+
+KP_DIR="$(pwd)/kp-state"
+KP_MARKER="$KP_DIR/kp.marker"; KP_ARM="$KP_DIR/kp.arm"; KP_REL="$KP_DIR/kp.marker.release"
+if [ "$BACKEND" = gonuts ]; then
+  # Reset the proxy's control files BEFORE any container starts: the
+  # killproxy's watcher reads the (bind-mounted) state dir from its first
+  # tick, and a stale release file from a previous run latches released=True
+  # in the fresh process before a later rm could run — silently disarming
+  # the first armed swallow of the run (#1163's grant-despite-arm
+  # signature). The proxy also self-heals this latch now, but the driver
+  # still cleans first so the invariant holds from tick one.
+  rm -f "$KP_MARKER" "$KP_ARM" "$KP_REL"
+fi
 
 echo "== BACKEND=$BACKEND: build + bring up ($UPSET) =="
 build >/dev/null
 up >/dev/null
 [ "$BACKEND" = cdk ] && wait_healthy tg-cdk-walletd cdk-walletd
 wait_healthy "$CONT" "$SVC"
-
-KP_DIR="$(pwd)/kp-state"
-KP_MARKER="$KP_DIR/kp.marker"; KP_ARM="$KP_DIR/kp.arm"; KP_REL="$KP_DIR/kp.marker.release"
-if [ "$BACKEND" = gonuts ]; then
-  # The killproxy is an in-network compose service (host INPUT firewall
-  # drops bridge->gateway traffic). Reset its control files BEFORE the
-  # stack comes up — the module's boot probes go through it (passthrough).
-  rm -f "$KP_MARKER" "$KP_ARM" "$KP_REL"
-fi
 
 echo "== happy path: full payment (in-container pytest) =="
 pytest -v test_cdk_backend_e2e.py
