@@ -278,7 +278,6 @@ export TOLLGATE_CLI
 # mapping harness pins), and the version placeholder pinned for determinism.
 SCRIPT99="$TMP/99-tollgate-setup"
 sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-    -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
     -e "s|^UHTTPD_INIT=\"/etc/init\.d/uhttpd\"\$|UHTTPD_INIT=\"$UHTTPD_INIT\"|" \
     -e "s|^NDS_INIT=\"/etc/init\.d/nodogsplash\"\$|NDS_INIT=\"$NDS_INIT\"|" \
     -e "s|^TOLLGATE_CLI=\"/usr/bin/tollgate\"\$|TOLLGATE_CLI=\"$TOLLGATE_CLI\"|" \
@@ -451,7 +450,7 @@ assert_mapping() { # assert_mapping <label> <board|luci> [refused]
 
 uhttpd_lines() { grep -E '^uhttpd\.' "$UCI_STATE" 2>/dev/null | sort; }
 
-run_99()  { : > "$LOGFILE"; sh "$SCRIPT99" > "$TMP/99.out" 2> "$TMP/99.err"; }
+run_99()  { : > "$LOGFILE"; LOGFILE="$LOGFILE" sh "$SCRIPT99" > "$TMP/99.out" 2> "$TMP/99.err"; }
 run_999() { sh "$NINETYNINE" > "$TMP/999.out" 2> "$TMP/999.err"; }
 
 # ------------------------------------------- controls: the fence can see it
