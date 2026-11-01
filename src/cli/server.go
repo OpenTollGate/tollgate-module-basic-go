@@ -70,6 +70,31 @@ func isStaleSocket(err error) bool {
 	return false
 }
 
+// isNonSocketDebris reports whether a dial failure that is NOT a stale
+// socket still proves no daemon can own the path: EINVAL from connect at
+// a path that lstat says is not a unix socket (#1167). A regular file
+// (or a directory, or anything else) at the socket path cannot be the
+// live surface of a daemon, so it is reclaimable exactly like stale
+// debris. A real socket file that dials EINVAL stays undetermined — the
+// fail-closed default holds.
+func isNonSocketDebris(socketPath string, err error) bool {
+	if err == nil {
+		return false
+	}
+	var sysErr *os.SyscallError
+	if !errors.As(err, &sysErr) || sysErr.Syscall != "connect" {
+		return false
+	}
+	if !errors.Is(sysErr.Err, syscall.EINVAL) {
+		return false
+	}
+	fi, serr := os.Lstat(socketPath)
+	if serr != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeSocket == 0
+}
+
 func NewCLIServer(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider, connector wireless_gateway_manager.ConnectorInterface, scanner wireless_gateway_manager.ScannerInterface, upstreamManager *wireless_gateway_manager.UpstreamManager) *CLIServer {
 	return &CLIServer{
 		configManager:    configManager,
@@ -132,7 +157,7 @@ func (s *CLIServer) Start() error {
 		conn.Close()
 		return fmt.Errorf("another tollgate daemon is already serving on %s — "+
 			"refusing to replace its CLI socket (stop it first)", socketPath)
-	} else if !isStaleSocket(derr) {
+	} else if !isStaleSocket(derr) && !isNonSocketDebris(socketPath, derr) {
 		return fmt.Errorf("cannot determine ownership of existing socket %s: %v", socketPath, derr)
 	}
 
