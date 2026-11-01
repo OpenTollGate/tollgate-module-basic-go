@@ -74,7 +74,20 @@ func TestMoneyPathAcceptsWhileMintDependentInitIsInFlight(t *testing.T) {
 	// the same SEVEN-mint shape — the incident's condition — pointed at a
 	// closed local port instead: probes refuse instantly, offline, and the
 	// construction-blocking stub keeps the test's semantics untouched.
-	cfgDir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR")
+	// A SHORT config dir: the CLI socket lives at <dir>/tollgate.sock and
+	// AF_UNIX caps the path at 108 bytes. t.TempDir() under a long TMPDIR
+	// (this test's name is 52 chars) lands the socket path at 107-109
+	// bytes by random-suffix length — over the limit the CLI server
+	// cannot bind, which is exactly the flake this test showed (EINVAL
+	// misread as an ownership problem before the server grew its length
+	// guard). /tmp keeps every path comfortably short.
+	shortDir, err := os.MkdirTemp("/tmp", "sg-gate-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(shortDir) })
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", shortDir)
+	cfgDir := shortDir
 	mints := make([]config_manager.MintConfig, 7)
 	for i := range mints {
 		mints[i] = config_manager.MintConfig{
