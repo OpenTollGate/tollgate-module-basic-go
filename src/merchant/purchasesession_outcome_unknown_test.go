@@ -88,3 +88,44 @@ func TestErrOutcomeUnknownWrapsClientAmbiguity(t *testing.T) {
 		t.Fatal("errors.Is must see the sentinel through wrapping")
 	}
 }
+
+// decodeUnreachableWallet stubs the wallet the way the SIDECAR backend
+// fails when the daemon is down: DecodeToken is an RPC there, so the
+// pre-flight decode itself dies with ErrSidecarNotConnected.
+type decodeUnreachableWallet struct {
+	tollwallet.WalletPort
+}
+
+func (w *decodeUnreachableWallet) DecodeToken(string) (tollwallet.Token, error) {
+	return nil, fmt.Errorf("tollwallet: sidecar connect /var/run/cdk-walletd/w.sock: %w: dial unix /var/run/cdk-walletd/w.sock: connect: connection refused", tollwallet.ErrSidecarNotConnected)
+}
+
+// TestPurchaseSessionWalletBackendOutageIsNotAnInvalidTokenNotice pins the
+// classification of infrastructure failures at the decode step: on
+// wallet.backend=cdk the decode is an RPC, and a daemon outage must surface
+// as "processing unavailable, your note was NOT spent, try again later" —
+// never as payment-error-invalid-token, which tells a paying customer their
+// money is fake. (Decode-before-Receive ordering assumed decode is local
+// and infallible; true for the in-process backend, false for the sidecar.)
+func TestPurchaseSessionWalletBackendOutageIsNotAnInvalidTokenNotice(t *testing.T) {
+	ndsctl := installRenewalNdsctl(t)
+	ndsctl.setRegistered(t, true)
+	m, _ := newRenewalMerchant(t, "milliseconds")
+	m.tollwallet = &decodeUnreachableWallet{}
+
+	event, err := m.PurchaseSession("cashuAstub", renewalMAC)
+	if err != nil {
+		t.Fatalf("PurchaseSession: %v", err)
+	}
+
+	code := noticeErrorCode(t, event)
+	if code == "payment-error-invalid-token" {
+		t.Fatalf("wallet-backend outage classified as payment-error-invalid-token — the customer is told their note is fake: %q", event.Content)
+	}
+	if code != "payment-processing-unavailable" {
+		t.Fatalf("notice code: want payment-processing-unavailable, got %q", code)
+	}
+	if !strings.Contains(event.Content, "was not spent") {
+		t.Fatalf("notice must state the note was not spent (safe to retry): %q", event.Content)
+	}
+}

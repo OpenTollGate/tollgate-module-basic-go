@@ -15,18 +15,23 @@ const profitShareSumTolerance = 1e-6
 // Config represents the main configuration for the Tollgate service.
 type Config struct {
 	// MultiWAN is optional declared intent; validation and policy derivation live in multi_wan.
-	MultiWAN               *MultiWANConfig              `json:"multi_wan,omitempty"`
-	ConfigVersion          string                       `json:"config_version"`
-	LogLevel               string                       `json:"log_level"`
-	AcceptedMints          []MintConfig                 `json:"accepted_mints"`
-	ProfitShare            []ProfitShareConfig          `json:"profit_share"`
-	StepSize               uint64                       `json:"step_size"`
-	Margin                 float64                      `json:"margin,omitempty"`
-	Metric                 string                       `json:"metric"`
-	ShowSetup              bool                         `json:"show_setup"`
-	ResellerMode           bool                         `json:"reseller_mode"`
-	RedirectURL            string                       `json:"redirect_url,omitempty"`
-	AuthDelaySeconds       int                          `json:"auth_delay_seconds,omitempty"`
+	MultiWAN         *MultiWANConfig     `json:"multi_wan,omitempty"`
+	ConfigVersion    string              `json:"config_version"`
+	LogLevel         string              `json:"log_level"`
+	AcceptedMints    []MintConfig        `json:"accepted_mints"`
+	ProfitShare      []ProfitShareConfig `json:"profit_share"`
+	StepSize         uint64              `json:"step_size"`
+	Margin           float64             `json:"margin,omitempty"`
+	Metric           string              `json:"metric"`
+	ShowSetup        bool                `json:"show_setup"`
+	ResellerMode     bool                `json:"reseller_mode"`
+	RedirectURL      string              `json:"redirect_url,omitempty"`
+	AuthDelaySeconds int                 `json:"auth_delay_seconds,omitempty"`
+	// Wallet selects the Cashu backend the merchant service runs on
+	// (tbmg#1139): "default" = the in-process gonuts wallet (byte-
+	// identical to the pre-selection behavior when absent), "cdk" =
+	// the cdk-walletd sidecar over AF_UNIX at Socket.
+	Wallet                 WalletBackendConfig          `json:"wallet,omitempty"`
 	UpstreamDetector       UpstreamDetectorConfig       `json:"upstream_detector"`
 	UpstreamSessionManager UpstreamSessionManagerConfig `json:"upstream_session_manager"`
 	UpstreamWifi           UpstreamWifiConfig           `json:"upstream_wifi"`
@@ -174,6 +179,16 @@ func (m *MintConfig) UnmarshalJSON(data []byte) error {
 type ProfitShareConfig struct {
 	Factor   float64 `json:"factor"`
 	Identity string  `json:"identity"`
+}
+
+// WalletBackendConfig selects the merchant service's Cashu backend.
+// Empty Backend (absent section in legacy configs) selects the default
+// in-process wallet — the selection seam is tollwallet.OpenWallet.
+type WalletBackendConfig struct {
+	// Backend: "default" (in-process gonuts) or "cdk" (cdk-walletd sidecar).
+	Backend string `json:"backend,omitempty"`
+	// Socket: the sidecar's AF_UNIX socket path (backend=cdk only).
+	Socket string `json:"socket,omitempty"`
 }
 
 // UpstreamDetectorConfig holds configuration for the upstream_detector module
@@ -414,6 +429,10 @@ func NewDefaultConfig() *Config {
 				Factor:   0.07,
 				Identity: "origami74",
 			},
+		},
+		Wallet: WalletBackendConfig{
+			Backend: "default",
+			Socket:  "/var/run/cdk-walletd.sock",
 		},
 		StepSize:     22020096, // 21 MiB
 		Margin:       0.1,
