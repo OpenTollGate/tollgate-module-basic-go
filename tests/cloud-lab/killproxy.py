@@ -96,7 +96,10 @@ def forward(method, path, headers, body):
         if h in headers:
             req.add_header(h, headers[h])
     try:
-        resp = urllib.request.urlopen(req, timeout=60)
+        # 8s, not 60: a restarting mint must fail the leg FAST — a long
+        # hold here turns into a hung module receive and flaky kill legs
+        # (measured: 7s+ hung receive during a mint-restart window).
+        resp = urllib.request.urlopen(req, timeout=8)
         return resp.status, resp.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()
