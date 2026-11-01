@@ -21,18 +21,17 @@ land time).
 | LEG B — dependency killed mid-payment, then replay (killed at STAGING: the event file appearing means the POST is in flight) | single-grant value verdict ✓ (first attempt settled nowhere; replay the single grant, allotment bound respected) | single-grant value verdict ✓ — first attempt refused 21023 through the module (the non-vacuous mint-outage refusal), replay refused, no double grant |
 | LEG D — deterministic ambiguity (the money dependency's answer to the receive/swap is processed then dropped) | sock proxy drops cdk-walletd's answer: `payment-outcome-unknown` (do-not-resubmit); deterministically-spent replay refused; recovery on the direct socket | killproxy (the parity lane's TCP injector, promoted here) drops the MINT's swap response: `payment-outcome-unknown` (do-not-resubmit); deterministically-spent replay refused; passthrough recovery |
 
-## Known flake (gonuts LEG D, filed)
+## Known flake (gonuts LEG D) — RESOLVED (#1163)
 
-The gonuts LEG D swallow is ~3/4 stable: in ~1 of 4 runs the swallowed
-payment still GRANTED (kind 1022) — a swap response reached the module
-despite the armed proxy (the marker proves a swallow fired; which swap
-it ate vs which one got through is the open question — candidate: the
-helper's own funding send-swap races the arm, or gonuts' client retry
-path lands a response between swallow cycles). The product's response
-to a real swallow was correct in every observed instance; the flake is
-a rig-timing question. Tracked in the follow-up issue; the leg is left
-ON because a genuine regression in the ambiguity handling still fails
-it in the other 3 runs.
+~1 in 4 runs granted despite the armed proxy. Root cause (caught by
+the DECIDE instrumentation): a stale kp.marker.release from the
+PREVIOUS run's successful leg latched released=True in the fresh
+killproxy before the driver's cleanup ran, and the latch could never
+clear — armed swallows were silently skipped. Fixed both layers (driver
+cleans the state dir before containers start; the proxy self-heals a
+stale latch on a clean dir). 6/6 consecutive green after the fix. The
+product was never at fault: gonuts' receive always swaps, and the
+ambiguity handling was correct every time the swallow engaged.
 
 ## What the matrix pins
 
