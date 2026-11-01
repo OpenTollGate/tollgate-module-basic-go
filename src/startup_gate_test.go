@@ -66,6 +66,36 @@ func TestMoneyPathAcceptsWhileMintDependentInitIsInFlight(t *testing.T) {
 	// init() leaves.
 	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", t.TempDir())
 
+	// The boot below reads the config dir BEFORE the merchant constructor
+	// stub can gate anything, and a MISSING config means factory defaults —
+	// whose accepted mints are seven REAL internet mints. That made this
+	// unit test probe the live network (and fail on any DNS-restricted
+	// runner: measured, mint.lnserver.com unresolvable on the bench). Seed
+	// the same SEVEN-mint shape — the incident's condition — pointed at a
+	// closed local port instead: probes refuse instantly, offline, and the
+	// construction-blocking stub keeps the test's semantics untouched.
+	cfgDir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR")
+	mints := make([]config_manager.MintConfig, 7)
+	for i := range mints {
+		mints[i] = config_manager.MintConfig{
+			URL:                     "http://127.0.0.1:9/m" + string(rune('0'+i)),
+			MinBalance:              64,
+			BalanceTolerancePercent: 10,
+			PayoutIntervalSeconds:   60,
+			MinPayoutAmount:         128,
+			PricePerStep:            1,
+			PriceUnit:               "sat",
+			MinPurchaseSteps:        1,
+		}
+	}
+	seedCfg, _ := json.Marshal(map[string]any{
+		"config_version": "v0.0.10", "log_level": "debug", "metric": "milliseconds",
+		"step_size": 60000, "accepted_mints": mints,
+	})
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), seedCfg, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	prevProvider, prevListener, prevServer, prevGate, prevCLI, prevUpstream :=
 		merchantProvider, apiListener, apiHTTPServer, apiStartup, cliServer, upstreamManager
 	defer func() {
