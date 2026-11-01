@@ -142,8 +142,25 @@ func TestMoneyPathAcceptsWhileMintDependentInitIsInFlight(t *testing.T) {
 	_ = conn.Close()
 
 	if dir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR"); dir != "" {
-		if _, err := os.Stat(filepath.Join(dir, "tollgate.sock")); err != nil {
-			t.Errorf("the CLI socket did not exist while the mint-dependent init was in flight: %v", err)
+		// Poll, do not stat once: the CLI server is started by its own
+		// goroutine inside the boot sequence, and a single stat races its
+		// bind (measured: passes under `go test .`, fails under
+		// `go test ./...` scheduling, deterministically on this bench).
+		// The construction is still BLOCKED here — releaseConstruction has
+		// not fired — so a bounded wait cannot outlive the in-flight
+		// window the assertion describes.
+		sock := filepath.Join(dir, "tollgate.sock")
+		deadline := time.Now().Add(5 * time.Second)
+		var sockErr error
+		for {
+			if _, sockErr = os.Stat(sock); sockErr == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Errorf("the CLI socket did not appear while the mint-dependent init was in flight: %v", sockErr)
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
 
