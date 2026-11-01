@@ -73,6 +73,18 @@ def watch_files():
             armed_flag["triggered"] = False
             released.clear()
             print("killproxy: RESET (cycle complete, rearmed)", flush=True)
+        elif (
+            released.is_set()
+            and not os.path.exists(marker + ".release")
+            and not os.path.exists(marker)
+        ):
+            # Self-heal (#1163): released latched from a STALE release file
+            # left by a previous run (the state dir is bind-mounted and
+            # outlives containers). A clean dir means idle — released must
+            # not survive it, or the first armed swallow of the next run is
+            # silently skipped (measured: the grant-despite-arm failure).
+            released.clear()
+            print("killproxy: RELEASED self-heal (stale latch, clean dir)", flush=True)
         time.sleep(0.1)
 
 
@@ -93,12 +105,28 @@ def forward(method, path, headers, body):
 class H(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    def setup(self):
+        super().setup()
+        print(f"killproxy: CONN open peer={self.client_address}", flush=True)
+
+    def finish(self):
+        print(f"killproxy: CONN close peer={self.client_address}", flush=True)
+        super().finish()
+
     def _relay(self):
         n = int(self.headers.get("content-length", 0) or 0)
         body = self.rfile.read(n) if n else None
-        print(f"killproxy: {self.command} {self.path}", flush=True)
+        print(f"killproxy: {self.command} {self.path} peer={self.client_address}", flush=True)
         code, rb = forward(self.command, self.path, self.headers, body)
 
+        _watched = self.command == "POST" and watched(self.path)
+        if _watched:
+            print(
+                f"killproxy: DECIDE path={self.path} code={code} "
+                f"armed={armed_now()} released={released.is_set()} "
+                f"arm_file_exists={os.path.exists(arm_file)}",
+                flush=True,
+            )
         if (
             self.command == "POST"
             and watched(self.path)
