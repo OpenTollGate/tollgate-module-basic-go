@@ -53,7 +53,6 @@ func TestUnmeterableSessionEscalationIsBounded(t *testing.T) {
 	// merchant, not the package global — the sweep goroutine reads it.
 	m.unmeterableReportInterval = time.Hour
 
-
 	buf := captureMerchantLog(t)
 	usageErr := errors.New("client counters unavailable")
 	for i := 0; i < usageMonitorGraceSweeps+3; i++ {
