@@ -231,6 +231,23 @@ chmod +x "$TMP/bin/hexdump"
 
 export PATH="$TMP/bin:$PATH"
 
+# ------------------------------------------------- fake nft/nds renderers
+# #784 made the setup call its renderers at ABSOLUTE paths
+# (/usr/local/bin/tollgate-{nds-preauth,nft-interfaces}-render); a PATH
+# stub cannot intercept those, so the sandbox sed chain below rewrites
+# them here like every other live path. No-op stubs: the scenarios assert
+# uhttpd/config state, not the rendered nft fragments (#1171). NOTE:
+# scenario 1 remains red with these in place — the renderer errors were
+# a symptom, not the cause; the missing Setup-branch log line is the
+# remaining thread.
+for r in tollgate-nds-preauth-render tollgate-nft-interfaces-render; do
+    cat > "$TMP/bin/$r" <<SHIM
+#!/bin/sh
+exit 0
+SHIM
+    chmod +x "$TMP/bin/$r"
+done
+
 # ------------------------------------------------------ sandboxed live paths
 FLAG="$TMP/tollgate-setup-done"
 LOGFILE="$TMP/setup.log"
@@ -290,6 +307,8 @@ sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
     -e "s|/etc/profile|$TMP/profile|g" \
     -e "s|/etc/config/nodogsplash|$TMP/config/nodogsplash|g" \
     -e "s|/etc/tollgate/brand|$TMP/etc/tollgate/brand|g" \
+    -e "s|/usr/local/bin/tollgate-nds-preauth-render|$TMP/bin/tollgate-nds-preauth-render|g" \
+    -e "s|/usr/local/bin/tollgate-nft-interfaces-render|$TMP/bin/tollgate-nft-interfaces-render|g" \
     packaging/files/etc/uci-defaults/99-tollgate-setup > "$SCRIPT99"
 sed -i "s|^SETUP_VERSION=\"__TOLLGATE_VERSION__\"\$|SETUP_VERSION=\"$FAKE_VERSION\"|" "$SCRIPT99"
 if grep -q "^SETUP_FLAG=\"$FLAG\"\$" "$SCRIPT99" &&
