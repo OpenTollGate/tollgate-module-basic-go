@@ -1,0 +1,1 @@
+- **Fixed**: when the wallet store itself is incompatible (jffs2/mmap), degraded-mode operation errors now name the storage class instead of misreporting "no reachable mints" — the #583 misdirection on the operator's status surface ([#1160](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1160))

@@ -63,7 +63,12 @@ func newDegradedSetup(t *testing.T, mints []config_manager.MintConfig) *degraded
 	cm, testDir := setupTestConfigManager(t)
 	cfg := cm.GetConfig()
 	if mints != nil {
-		cfg.AcceptedMints = mints
+		// GetConfig returns a copy: persist via the package's own
+		// saveAndReloadConfig helper (the #1077 pattern) so the
+		// manager's authoritative state — not just the local copy —
+		// carries the test mints.
+		saveAndReloadConfig(t, cm, mints)
+		cfg = cm.GetConfig()
 	}
 	tracker := newTestTracker(cfg, nil)
 	tracker.RunInitialProbe()
