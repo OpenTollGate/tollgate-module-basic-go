@@ -236,10 +236,22 @@ export PATH="$TMP/bin:$PATH"
 # (/usr/local/bin/tollgate-{nds-preauth,nft-interfaces}-render); a PATH
 # stub cannot intercept those, so the sandbox sed chain below rewrites
 # them here like every other live path. No-op stubs: the scenarios assert
-# uhttpd/config state, not the rendered nft fragments (#1171). NOTE:
-# scenario 1 remains red with these in place — the renderer errors were
-# a symptom, not the cause; the missing Setup-branch log line is the
-# remaining thread.
+# uhttpd/config state, not the rendered nft fragments (#1171).
+RENDERERS="tollgate-nds-preauth-render tollgate-nft-interfaces-render"
+# Fence-the-fence, comparing BOTH sides (#1172 review follow-up): every
+# absolute renderer path the 99 actually calls must (a) be declared here
+# and (b) have a sed rewrite below — a new renderer added to the script
+# without a sandbox rewrite would run the HOST binary (or fail not-found)
+# inside every scenario. Drift in either direction refuses the run.
+RAW99="packaging/files/etc/uci-defaults/99-tollgate-setup"
+for r in $(grep -o '/usr/local/bin/tollgate-[a-z-]*-render' "$RAW99" | sed 's|.*/||' | sort -u); do
+    case " $RENDERERS " in
+        *" $r "*) ;;
+        *) echo "FENCE: the 99 calls renderer $r but the harness does not declare/stub it" >&2; exit 1 ;;
+    esac
+    grep -q -- "|/usr/local/bin/$r|" "$0" \
+        || { echo "FENCE: renderer $r is declared but has no sandbox rewrite" >&2; exit 1; }
+done
 for r in tollgate-nds-preauth-render tollgate-nft-interfaces-render; do
     cat > "$TMP/bin/$r" <<SHIM
 #!/bin/sh
