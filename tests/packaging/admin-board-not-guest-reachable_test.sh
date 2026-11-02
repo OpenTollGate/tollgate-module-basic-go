@@ -203,7 +203,7 @@ else
            sh packaging/build-ipk.sh "$PAYLOAD" "$WORK/tollgate-wrt.ipk" >/dev/null 2>&1 &&
        [ -f "$WORK/tollgate-wrt.ipk" ]; then
         ok "built a test .ipk from that payload"
-        out=$(bash tests/packaging/assert-artifact-contents.sh "$WORK/tollgate-wrt.ipk" 2>&1)
+        out=$(TG_ASSERT_RUNTIME_SURFACE=0 bash tests/packaging/assert-artifact-contents.sh "$WORK/tollgate-wrt.ipk" 2>&1)
         rc=$?
         if [ "$rc" = 0 ]; then
             ok "assert-artifact-contents.sh passes on the built .ipk"

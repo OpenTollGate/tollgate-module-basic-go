@@ -154,7 +154,12 @@ fi
 # Peering/Settings routes and non-English guests fall back to raw keys. The
 # local .ipk lane previously checked for the staged admin/rpcd products but
 # never installed them, so only an artifact-level assertion catches that.
+#
+# The nftables-only packaging suites build a synthetic payload with no portal
+# staging and set TG_ASSERT_RUNTIME_SURFACE=0; every real package lane leaves
+# the default on.
 runtime_rc=0
+if [ "${TG_ASSERT_RUNTIME_SURFACE:-1}" = "1" ]; then
 for rel in \
     www/tollgate/index.html \
     etc/uci-defaults/999-tollgate-admin-setup \
@@ -212,6 +217,7 @@ if [ "$runtime_rc" -ne 0 ]; then
     echo "      every localized guest catalogue must ship in both package lanes."
     rm -rf "$WORK"
     exit 1
+fi
 fi
 
 # -------------------------------------------------- full runtime-set report
