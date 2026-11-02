@@ -1,0 +1,1 @@
+- **Fixed**: the package postinst (and its Makefile twin) now runs a bare `uci commit` right after the uci-defaults loop, so uci-defaults changes are not stranded uncommitted when a later per-config commit runs — the install-path cause of #1087 ([#1164](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1164))
