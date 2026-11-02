@@ -100,3 +100,16 @@ is safe *because* the lock covers both bundle directories.
   `portal-build.sh` today, so "the SDK cannot run npm" is **not** a
   constraint.
 - Until step 5 lands, the drift guard stays — it is guardrail, not legacy.
+
+
+## Brand-derived spellings (from #1122 / PR #1170)
+
+A re-brand shipping its own portal bundle installs it at
+`/etc/tollgate/<brand_token>-captive-portal-site` — the lowercased
+machine-name spelling the setup script's own convention gives directory
+names. The setup script's portal-docroot guard probes the
+`brand_token` spelling first, then the raw `BRAND` token, and falls
+back to the stock bundle when neither directory exists (unbranded
+installs are byte-identical to stock). Re-brand installers on the feed
+side must use the same spelling — this record is the cross-repo
+contract for it.
