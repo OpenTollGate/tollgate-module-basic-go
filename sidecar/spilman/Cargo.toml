@@ -1,0 +1,30 @@
+[package]
+name = "tollgate-spilman-sidecar"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "TollGate Spilman protocol sidecar. First milestone: capabilities-only local IPC transport."
+
+[[bin]]
+name = "tollgate-spilman-sidecar"
+path = "src/main.rs"
+
+[lib]
+name = "tollgate_spilman_sidecar"
+path = "src/lib.rs"
+
+# The protocol dependency (SatsAndSports/cashu_spilman_channels, pinned in the
+# reference at c2083defc2015ad0bae2a8a086a2876bc775ff79) is deliberately NOT a
+# dependency of this milestone: a capabilities-only transport proves no
+# signature, swap, or restore path. Adding it requires a manifest pin in
+# packaging/build-inputs.json and versioned RPC methods first
+# (see docs/architecture/spilman-sidecar-decision.md).
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+strip = true
+lto = true
