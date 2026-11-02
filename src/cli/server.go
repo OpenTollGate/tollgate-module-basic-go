@@ -118,7 +118,7 @@ func (s *CLIServer) Start() error {
 	// config dir under a long TMPDIR produced exactly-108-byte paths that
 	// flaked deterministically by random-suffix length).
 	if len(socketPath) >= 108 {
-		return fmt.Errorf("CLI socket path is %d bytes, at or over the AF_UNIX sun_path limit (108): %s — set TOLLGATE_TEST_CONFIG_DIR (or relocate the config dir) to a shorter path", len(socketPath), socketPath)
+		return fmt.Errorf("CLI socket path is %d bytes, at or over the AF_UNIX sun_path limit (108): %s — relocate the config dir to a shorter path (tests: set TOLLGATE_TEST_CONFIG_DIR)", len(socketPath), socketPath)
 	}
 
 	// A socket file can be leftover debris (crashed daemon) or the live

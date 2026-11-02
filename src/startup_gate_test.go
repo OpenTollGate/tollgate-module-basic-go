@@ -64,7 +64,6 @@ func TestMoneyPathAcceptsWhileMintDependentInitIsInFlight(t *testing.T) {
 	// therefore reported to the board rather than exercised from here. The
 	// socket this test starts is left to the test binary's exit, like the one
 	// init() leaves.
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", t.TempDir())
 
 	// The boot below reads the config dir BEFORE the merchant constructor
 	// stub can gate anything, and a MISSING config means factory defaults —
@@ -101,10 +100,13 @@ func TestMoneyPathAcceptsWhileMintDependentInitIsInFlight(t *testing.T) {
 			MinPurchaseSteps:        1,
 		}
 	}
-	seedCfg, _ := json.Marshal(map[string]any{
+	seedCfg, err := json.Marshal(map[string]any{
 		"config_version": "v0.0.10", "log_level": "debug", "metric": "milliseconds",
 		"step_size": 60000, "accepted_mints": mints,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), seedCfg, 0o600); err != nil {
 		t.Fatal(err)
 	}
