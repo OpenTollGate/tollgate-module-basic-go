@@ -231,6 +231,23 @@ chmod +x "$TMP/bin/hexdump"
 
 export PATH="$TMP/bin:$PATH"
 
+# ------------------------------------------------- fake nft/nds renderers
+# #784 made the setup call its renderers at ABSOLUTE paths
+# (/usr/local/bin/tollgate-{nds-preauth,nft-interfaces}-render); a PATH
+# stub cannot intercept those, so the sandbox sed chain below rewrites
+# them here like every other live path. No-op stubs: the scenarios assert
+# uhttpd/config state, not the rendered nft fragments (#1171). NOTE:
+# scenario 1 remains red with these in place — the renderer errors were
+# a symptom, not the cause; the missing Setup-branch log line is the
+# remaining thread.
+for r in tollgate-nds-preauth-render tollgate-nft-interfaces-render; do
+    cat > "$TMP/bin/$r" <<SHIM
+#!/bin/sh
+exit 0
+SHIM
+    chmod +x "$TMP/bin/$r"
+done
+
 # ------------------------------------------------------ sandboxed live paths
 FLAG="$TMP/tollgate-setup-done"
 LOGFILE="$TMP/setup.log"
@@ -278,7 +295,6 @@ export TOLLGATE_CLI
 # mapping harness pins), and the version placeholder pinned for determinism.
 SCRIPT99="$TMP/99-tollgate-setup"
 sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-    -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
     -e "s|^UHTTPD_INIT=\"/etc/init\.d/uhttpd\"\$|UHTTPD_INIT=\"$UHTTPD_INIT\"|" \
     -e "s|^NDS_INIT=\"/etc/init\.d/nodogsplash\"\$|NDS_INIT=\"$NDS_INIT\"|" \
     -e "s|^TOLLGATE_CLI=\"/usr/bin/tollgate\"\$|TOLLGATE_CLI=\"$TOLLGATE_CLI\"|" \
@@ -290,11 +306,14 @@ sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
     -e "s|/etc/profile|$TMP/profile|g" \
     -e "s|/etc/config/nodogsplash|$TMP/config/nodogsplash|g" \
     -e "s|/etc/tollgate/brand|$TMP/etc/tollgate/brand|g" \
+    -e "s|/usr/local/bin/tollgate-nds-preauth-render|$TMP/bin/tollgate-nds-preauth-render|g" \
+    -e "s|/usr/local/bin/tollgate-nft-interfaces-render|$TMP/bin/tollgate-nft-interfaces-render|g" \
     packaging/files/etc/uci-defaults/99-tollgate-setup > "$SCRIPT99"
 sed -i "s|^SETUP_VERSION=\"__TOLLGATE_VERSION__\"\$|SETUP_VERSION=\"$FAKE_VERSION\"|" "$SCRIPT99"
 if grep -q "^SETUP_FLAG=\"$FLAG\"\$" "$SCRIPT99" &&
    grep -q "^SETUP_VERSION=\"$FAKE_VERSION\"\$" "$SCRIPT99" &&
-   grep -q "^UHTTPD_INIT=\"$UHTTPD_INIT\"\$" "$SCRIPT99"; then
+   grep -q "^UHTTPD_INIT=\"$UHTTPD_INIT\"\$" "$SCRIPT99" &&
+   grep -q 'LOGFILE="$LOGFILE" sh "$SCRIPT99"' "$0"; then
     ok "harness redirected the live paths in the copied 99"
 else
     bad "could not redirect the live paths in the copied 99 — the run would touch the host"
@@ -451,7 +470,7 @@ assert_mapping() { # assert_mapping <label> <board|luci> [refused]
 
 uhttpd_lines() { grep -E '^uhttpd\.' "$UCI_STATE" 2>/dev/null | sort; }
 
-run_99()  { : > "$LOGFILE"; sh "$SCRIPT99" > "$TMP/99.out" 2> "$TMP/99.err"; }
+run_99()  { : > "$LOGFILE"; LOGFILE="$LOGFILE" sh "$SCRIPT99" > "$TMP/99.out" 2> "$TMP/99.err"; }
 run_999() { sh "$NINETYNINE" > "$TMP/999.out" 2> "$TMP/999.err"; }
 
 # ------------------------------------------- controls: the fence can see it
