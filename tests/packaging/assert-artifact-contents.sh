@@ -148,6 +148,72 @@ if [ "$rc" -ne 0 ] || [ "$unexpected" -ne 0 ]; then
     exit 1
 fi
 
+# --------------------------------------- admin surface + guest locales
+# The package must carry the management surface and the localized guest
+# portal. These are runtime-critical: without them the board cannot show the
+# Peering/Settings routes and non-English guests fall back to raw keys. The
+# local .ipk lane previously checked for the staged admin/rpcd products but
+# never installed them, so only an artifact-level assertion catches that.
+runtime_rc=0
+for rel in \
+    www/tollgate/index.html \
+    etc/uci-defaults/999-tollgate-admin-setup \
+    usr/libexec/rpcd/tollgate \
+    usr/share/rpcd/acl.d/tollgate.json \
+    usr/bin/tollgate-cvm \
+    etc/init.d/tollgate-cvm \
+    usr/lib/tollgate/wallet-storage.sh
+do
+    if ! grep -F -x "$rel" "$LIST" >/dev/null; then
+        echo "  MISSING $rel  (runtime admin surface)"
+        runtime_rc=1
+        continue
+    fi
+    art_size=$(artifact_size "$rel")
+    if [ -z "$art_size" ] || [ "$art_size" -eq 0 ]; then
+        echo "  EMPTY   $rel  (runtime admin surface)"
+        runtime_rc=1
+    else
+        echo "  ok   $rel ($art_size bytes)"
+    fi
+done
+
+if ! grep -Eq '^www/tollgate/assets/.+\.js$' "$LIST"; then
+    echo "  MISSING www/tollgate/assets/*.js  (admin SPA bundle)"
+    runtime_rc=1
+fi
+
+locale_expected=0
+for f in "$FILES_DIR"/tollgate-captive-portal-site/locales/*.json; do
+    [ -f "$f" ] || continue
+    locale_expected=$((locale_expected + 1))
+    rel="etc/tollgate/tollgate-captive-portal-site/locales/$(basename "$f")"
+    src_size=$(wc -c < "$f" | tr -d ' ')
+    art_size=$(artifact_size "$rel")
+    if [ -z "$art_size" ] || [ "$art_size" -eq 0 ]; then
+        echo "  MISSING $rel  (guest locale)"
+        runtime_rc=1
+    elif [ "$art_size" -ne "$src_size" ]; then
+        echo "  SIZE    $rel  (packaged $art_size bytes, source $src_size bytes)"
+        runtime_rc=1
+    fi
+done
+if [ "$locale_expected" -eq 0 ]; then
+    echo "  MISSING guest locale sources under $FILES_DIR/tollgate-captive-portal-site/locales/"
+    runtime_rc=1
+else
+    echo "  ok   $locale_expected guest locale file(s)"
+fi
+
+if [ "$runtime_rc" -ne 0 ]; then
+    echo
+    echo "FAIL: the package is missing the admin surface or guest locale files."
+    echo "      The admin SPA, 999-tollgate-admin-setup, rpcd plugin, ACL and"
+    echo "      every localized guest catalogue must ship in both package lanes."
+    rm -rf "$WORK"
+    exit 1
+fi
+
 # -------------------------------------------------- full runtime-set report
 # The recipes also install other packaging/files/ entries by explicit path.
 # Report any that this packaging path does not ship. This is informational:
@@ -159,6 +225,7 @@ while IFS= read -r f; do
     rel=${f#"$FILES_DIR"/}
     case "$rel" in
         tollgate-captive-portal-site/*) rel="etc/tollgate/$rel" ;;
+        tollgate-admin/*) rel="www/tollgate/${rel#tollgate-admin/}" ;;
         man/man8/*) rel="usr/share/man/man8/$(basename "$rel")" ;;
     esac
     grep -F -x "$rel" "$LIST" >/dev/null || echo "$rel" >> "$MISSING"
