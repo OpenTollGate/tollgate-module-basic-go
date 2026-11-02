@@ -656,10 +656,13 @@ ssid_prefix_known() {
     want=$(printf '%s' "$1" | tr 'A-Z' 'a-z')
     file="${TOLLGATE_SSID_PREFIXES_FILE:-/etc/tollgate/ssid-prefixes}"
     [ -r "$file" ] || return 1
-    while IFS= read -r line; do
-        line=$(printf '%s' "$line" | tr -d ' \011\015\012')
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Trim boundaries only: internal whitespace is invalid, not a new prefix.
+        line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         case "$line" in ''|'#'*) continue ;; esac
         line=${line#\!}
+        # Match the Go reader's ordering: trim after decoration, before suffix.
+        line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         line=${line%-}
         case "$line" in
             ''|*[!A-Za-z0-9_]*) continue ;;
