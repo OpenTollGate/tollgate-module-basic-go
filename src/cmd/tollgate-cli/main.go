@@ -412,6 +412,24 @@ var upstreamRemoveCmd = &cobra.Command{
 	},
 }
 
+var upstreamStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show active upstream peer sessions",
+	Long:  "Show the live upstream peer session(s): gateway, mint, pricing, allotment, usage and spend.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("upstream", []string{"status"}, nil)
+	},
+}
+
+var upstreamDisconnectCmd = &cobra.Command{
+	Use:   "disconnect",
+	Short: "Stop peering and fall back to a known good non-TollGate upstream",
+	Long:  "Stop the active TollGate peer and switch to the best known good non-TollGate upstream. Refuses if no fallback passes its connectivity check, keeping the peer active.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("upstream", []string{"disconnect"}, nil)
+	},
+}
+
 var upstreamKnownCmd = &cobra.Command{
 	Use:   "known",
 	Short: "Show discovered TollGate APs from scan history",
@@ -584,7 +602,7 @@ func init() {
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd)
 	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd, privateSetEncryptionCmd, privateSetAddressCmd)
 	networkCmd.AddCommand(privateCmd)
-	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd, upstreamKnownCmd)
+	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd, upstreamKnownCmd, upstreamStatusCmd, upstreamDisconnectCmd)
 	configCmd.AddCommand(configGetCmd, configSetCmd, configApplyCmd, configSchemaCmd, configSaveCmd, configSaveIdentitiesCmd)
 	rootCmd.AddCommand(walletCmd, networkCmd, upstreamCmd, statusCmd, versionCmd, startCmd, stopCmd, restartCmd, logsCmd, configCmd, healthCmd)
 	rootCmd.AddCommand(genManCmd)

@@ -21,7 +21,7 @@ import (
 // (gonuts resolveShortKeysetIds, wallet.go:592). Everything runs against an
 // in-process stub mint — no live-mint traffic.
 
-const v2KeysetFull = "01e73e75a0809604372487732ee917e8f881cc4c882ccd9fbac094fbfd3e3a42e6"
+const v2KeysetFull = "0131b33abca29b2977eeb24789c0baf0250aa6dcffe226b0cf9f20c9c7d2e86be7"
 
 const stubKeysJSON = `{"keysets":[{"id":"` + v2KeysetFull + `","unit":"sat","active":true,"input_fee_ppk":0,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798","2":"02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5","4":"02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13"}}]}`
 

@@ -1,6 +1,7 @@
 package wireless_gateway_manager
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"sync"
@@ -22,6 +23,11 @@ type DiscoveryEntry struct {
 	AdvertisedPricePerStep int       `json:"price_per_step,omitempty"` // unsigned IE hint; see NetworkInfo
 	AdvertisedStepSize     int       `json:"step_size,omitempty"`      // unsigned IE hint; see NetworkInfo
 	Encryption             string    `json:"encryption,omitempty"`
+	IsReseller             bool      `json:"is_reseller,omitempty"`
+	HasInternet            bool      `json:"has_internet,omitempty"`
+	OpenNetwork            bool      `json:"open_network,omitempty"`
+	MintURL                string    `json:"mint_url,omitempty"`
+	Pubkey                 string    `json:"pubkey,omitempty"`
 }
 
 type ProbeEntry struct {
@@ -43,6 +49,11 @@ type KnownTollGate struct {
 	SampleCount            int       `json:"sample_count"`
 	AdvertisedPricePerStep int       `json:"price_per_step,omitempty"` // unsigned IE hint; see NetworkInfo
 	AdvertisedStepSize     int       `json:"step_size,omitempty"`      // unsigned IE hint; see NetworkInfo
+	IsReseller             bool      `json:"is_reseller,omitempty"`
+	HasInternet            bool      `json:"has_internet,omitempty"`
+	OpenNetwork            bool      `json:"open_network,omitempty"`
+	MintURL                string    `json:"mint_url,omitempty"`
+	Pubkey                 string    `json:"pubkey,omitempty"`
 	LastRTTMs              int64     `json:"last_rtt_ms,omitempty"`
 	BestRTTMs              int64     `json:"best_rtt_ms,omitempty"`
 	ProbeCount             int       `json:"probe_count,omitempty"`
@@ -101,6 +112,11 @@ func (dl *DiscoveryLogger) LogScan(networks []NetworkInfo) {
 			AdvertisedPricePerStep: net.AdvertisedPricePerStep,
 			AdvertisedStepSize:     net.AdvertisedStepSize,
 			Encryption:             net.Encryption,
+			IsReseller:             net.IsReseller,
+			HasInternet:            net.HasInternet,
+			OpenNetwork:            net.OpenNetwork,
+			MintURL:                net.MintURL,
+			Pubkey:                 hex.EncodeToString(net.Pubkey),
 		})
 	}
 
@@ -170,12 +186,22 @@ func (dl *DiscoveryLogger) updateRegistry(net NetworkInfo) {
 			SampleCount:            1,
 			AdvertisedPricePerStep: net.AdvertisedPricePerStep,
 			AdvertisedStepSize:     net.AdvertisedStepSize,
+			IsReseller:             net.IsReseller,
+			HasInternet:            net.HasInternet,
+			OpenNetwork:            net.OpenNetwork,
+			MintURL:                net.MintURL,
+			Pubkey:                 hex.EncodeToString(net.Pubkey),
 		}
 		return
 	}
 
 	existing.LastSeen = time.Now()
 	existing.SampleCount++
+	existing.IsReseller = net.IsReseller
+	existing.HasInternet = net.HasInternet
+	existing.OpenNetwork = net.OpenNetwork
+	existing.MintURL = net.MintURL
+	existing.Pubkey = hex.EncodeToString(net.Pubkey)
 	if net.Signal > existing.BestSignal {
 		existing.BestSignal = net.Signal
 	}

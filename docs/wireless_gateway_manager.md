@@ -66,16 +66,23 @@ All upstream Wi-Fi settings are surfaced in `/etc/tollgate/config.json` under th
 ## CLI Commands
 
 ```
-tollgate upstream scan              # Scan for upstream networks
-tollgate upstream connect <SSID> [PASS]  # Connect to upstream
+tollgate upstream scan              # Scan for upstream networks (includes peer metadata)
+tollgate upstream connect <SSID> [PASS]  # Connect to upstream / peer
 tollgate upstream list              # List configured STA sections
 tollgate upstream remove <SSID>     # Remove a disabled STA
+tollgate upstream known             # Known TollGate peers from scan history
+tollgate upstream status            # Live peer session, spend and allotment
+tollgate upstream disconnect        # Stop peering; fall back to a known good non-TollGate upstream
 tollgate status                     # Service status (includes NetworkOK)
 ```
 
 ## Reseller Mode
 
 When `reseller_mode` is enabled in config, the daemon automatically discovers and connects to open `TollGate-*` SSIDs alongside known fallback networks (the shipped captive SSID carries a leading `!` sort decoration, `!TollGate-*`, which the recognizer treats as optional — the bare form still matches). Non-TollGate SSIDs are only considered if a disabled STA section already exists for them.
+
+The scan also carries the peer metadata from the TollGate vendor IE: reseller capability, internet advertised, open network, mint URL and pubkey. `upstream status` exposes the live session's allotment, usage, spend, price, mint and bootstrap phase to the admin Peering page.
+
+`upstream disconnect` is the explicit "stop peering" verb. It selects the best known, non-blacklisted, non-TollGate upstream, switches to it, verifies connectivity, and only reports success when that check passes. If every fallback fails, it restores the peer and returns an error instead of leaving the router offline.
 
 ## Circuit Breaker
 

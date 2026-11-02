@@ -66,10 +66,12 @@ type Config struct {
 	// PrivateKey is a SECRET: it is redacted on every read path (see
 	// cli.redactSecretFields) and a wholesale save that omits or blanks it
 	// preserves the stored value rather than clearing it.
-	PrivateSSID       string `json:"private_ssid,omitempty"`
-	PrivateKey        string `json:"private_key,omitempty"`
-	PrivateEncryption string `json:"private_encryption"`
-	AdminAccess       string `json:"admin_access"`
+	PrivateSSID         string `json:"private_ssid,omitempty"`
+	SSIDSuffix          string `json:"ssid_suffix,omitempty"`
+	PrivateSSIDOperator string `json:"private_ssid_operator,omitempty"`
+	PrivateKey          string `json:"private_key,omitempty"`
+	PrivateEncryption   string `json:"private_encryption"`
+	AdminAccess         string `json:"admin_access"`
 	// EntryUI decides which UI owns the router's entry port pair (:8080 + :443).
 	// It is declared intent, like the four fields above: nothing reads the value
 	// directly. The uci-defaults writers (the module's 99 and the portal's 92)
@@ -394,7 +396,7 @@ func NewDefaultConfig() *Config {
 	}
 
 	return &Config{
-		ConfigVersion: "v0.0.10",
+		ConfigVersion: "v0.0.11",
 		LogLevel:      "info",
 		AcceptedMints: mints,
 		ProfitShare: []ProfitShareConfig{
@@ -419,7 +421,7 @@ func NewDefaultConfig() *Config {
 		Margin:       0.1,
 		Metric:       "bytes",
 		ShowSetup:    true,
-		ResellerMode: false,
+		ResellerMode: true,
 		UpstreamDetector: UpstreamDetectorConfig{
 			ProbeTimeout:          10 * time.Second,
 			ProbeRetryCount:       3,
@@ -461,15 +463,18 @@ func NewDefaultConfig() *Config {
 			PostSwitchWaitSeconds:  5,
 			DHCPTimeoutSeconds:     180,
 			ManualPauseSeconds:     120,
+			VendorIEDiscovery:      true,
 		},
 		// Empty means "keep what the router already has" — see the field
 		// comments on Config. These two are the literals the schema declares,
 		// so defaults_parity_test.go pins them together.
-		PrivateSSID:       "",
-		PrivateKey:        "",
-		PrivateEncryption: "psk2+ccmp",
-		AdminAccess:       "both",
-		EntryUI:           "board",
+		PrivateSSID:         "",
+		SSIDSuffix:          "",
+		PrivateSSIDOperator: "",
+		PrivateKey:          "",
+		PrivateEncryption:   "psk2+ccmp",
+		AdminAccess:         "both",
+		EntryUI:             "board",
 		// MPTCP bonding is OPT-IN: Enabled is false, and the remaining fields
 		// carry the schema's declared defaults so defaults_parity_test.go
 		// keeps schema and code in step. An operator who never touches this
@@ -575,6 +580,18 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		log.Printf("WARNING: Invalid profit_share, resetting to defaults: %v", profitShareErr)
 		config.ProfitShare = defaultConfig.ProfitShare
 	}
+	// The Cobrador defaults are opt-out, not opt-in. A field that is absent is
+	// a fresh/upgraded config that never made a choice, so it takes the new
+	// default. A field that is present (even false) is an explicit choice and
+	// is never overwritten.
+	if raw, rawErr := decodeConfigPresence(data); rawErr == nil {
+		if !raw.resellerMode {
+			config.ResellerMode = defaultConfig.ResellerMode
+		}
+		if raw.upstreamWifi && !raw.vendorIEDiscovery {
+			config.UpstreamWifi.VendorIEDiscovery = defaultConfig.UpstreamWifi.VendorIEDiscovery
+		}
+	}
 	if config.ConfigVersion != defaultConfig.ConfigVersion {
 		log.Printf("INFO: Config version %s → %s, migrating (preserving user settings)", config.ConfigVersion, defaultConfig.ConfigVersion)
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", config.ConfigVersion); backupErr != nil {
@@ -589,6 +606,29 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+type configPresence struct {
+	resellerMode      bool
+	upstreamWifi      bool
+	vendorIEDiscovery bool
+}
+
+func decodeConfigPresence(data []byte) (configPresence, error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return configPresence{}, err
+	}
+	p := configPresence{}
+	_, p.resellerMode = top["reseller_mode"]
+	if rawWifi, ok := top["upstream_wifi"]; ok {
+		p.upstreamWifi = true
+		var wifi map[string]json.RawMessage
+		if err := json.Unmarshal(rawWifi, &wifi); err == nil {
+			_, p.vendorIEDiscovery = wifi["vendor_ie_discovery"]
+		}
+	}
+	return p, nil
 }
 
 func migrateConfig(config *Config, defaults *Config) {

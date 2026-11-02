@@ -101,7 +101,14 @@ func (m *MerchantDegraded) DegradeReason() string {
 // returns: the reason the wallet is down, not a hardcoded connectivity
 // claim.
 func (m *MerchantDegraded) notInitializedError() error {
-	return fmt.Errorf("wallet not initialized: %s", m.DegradeReason())
+	// A storage-mmap failure is permanent and must name the filesystem even
+	// when the constructor did not go through SetDegradeReason (the direct
+	// NewMerchantDegradedWithWallet path used by tests and some callers).
+	reason := m.DegradeReason()
+	if m.StorageIncompatible() {
+		reason = m.walletUnavailableReason()
+	}
+	return fmt.Errorf("wallet not initialized: %s", reason)
 }
 
 // WireWalletRetry arms the repeating wallet-init retry. Idempotent: the

@@ -203,3 +203,23 @@ func (e *UpstreamSessionManagerError) Error() string {
 	}
 	return e.Message
 }
+
+// PeeringStatus is the serialisable view of one active upstream peer session.
+// It is read by the admin board's Peering page; no secrets are included.
+type PeeringStatus struct {
+	GatewayIP       string `json:"gateway_ip"`
+	InterfaceName   string `json:"interface_name,omitempty"`
+	Pubkey          string `json:"pubkey,omitempty"`
+	MintURL         string `json:"mint_url,omitempty"`
+	Metric          string `json:"metric,omitempty"`
+	PricePerStep    uint64 `json:"price_per_step,omitempty"`
+	PriceUnit       string `json:"price_unit,omitempty"`
+	StepSize        uint64 `json:"step_size,omitempty"`
+	TotalAllotment  uint64 `json:"total_allotment"`
+	TotalSpent      uint64 `json:"total_spent_sats"`
+	Usage           uint64 `json:"usage"`
+	Remaining       uint64 `json:"remaining"`
+	Status          string `json:"status"`
+	BootstrapPhase  string `json:"bootstrap_phase,omitempty"`
+	BootstrapActive bool   `json:"bootstrap_active,omitempty"`
+}

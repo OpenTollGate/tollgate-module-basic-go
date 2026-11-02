@@ -49,7 +49,7 @@ record() { # record <label> <status: PASS|FAIL|SKIP> <detail>
 
 run_go_battery() {
     if make go-battery >"$tmpdir/go-battery.log" 2>&1; then
-        record "Go battery" PASS "18 modules, gofmt/vet/build/-race"
+        record "Go battery" PASS "19 modules, gofmt/vet/build/-race"
     else
         record "Go battery" FAIL "see $tmpdir/go-battery.log"
     fi

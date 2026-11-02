@@ -154,7 +154,7 @@ func TestResellerModeEnabled_ScanAllRadios(t *testing.T) {
 	}
 
 	// The reseller filter is the production recognizer, not a literal prefix
-	// slice: !TollGate- and !Net4sats- count exactly as the bare forms do.
+	// slice: !TollGate- and the whitelabel brand prefix  count exactly as the bare forms do.
 	tollGateCount := 0
 	for _, net := range networks {
 		if hasTollGateSSID(net.SSID) {

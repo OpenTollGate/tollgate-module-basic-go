@@ -594,6 +594,7 @@ brand_token() {
 # See docs/architecture/one-device-code.md for the decision record.
 DEVICE_CODE_STORE="${DEVICE_CODE_STORE:-/etc/config/tollgate}"
 DEVICE_CODE_DEFAULT_NYM="c08r4d0r"
+SSID_SUFFIX_MAX=12
 
 # The code, uppercase-normalised; empty when the input is not one (a mint is
 # exactly four [A-Z0-9] characters — never a longer, shorter or punctuated
@@ -667,6 +668,18 @@ is_minted_suffix() {
     return 0
 }
 
+# The display suffix carried by both SSIDs. Empty means "use the device code";
+# a custom value is the operator's chosen short token. It is deliberately not
+# the identity: the device code still owns the hostname and TLS certificate, so
+# changing the suffix renames the networks without re-keying the router.
+is_safe_ssid_suffix() {
+    case "$1" in
+        ''|*[!A-Za-z0-9_-]*) return 1 ;;
+    esac
+    [ "${#1}" -le "$SSID_SUFFIX_MAX" ] || return 1
+    return 0
+}
+
 # The nym, if the value is one this stack can carry. The nym is a prefix of the
 # private SSID, and the private SSID is later interpolated into a single-quoted
 # `uci -q set` line BY THE INSTALLER (deploy.go: privateSSIDCommand), on a chain
@@ -715,34 +728,57 @@ resolve_nym() {
         *) NYM="$stored"; return 0 ;;
     esac
     existing=$(uci -q get wireless.private_radio0.ssid 2>/dev/null)
-    prefix=${existing%%-*}
-    suffix=${existing#*-}
-    if [ "$suffix" != "$existing" ] && is_minted_suffix "$suffix"; then
-        # The adopted prefix is charset-checked too: an operator's existing SSID
-        # is arbitrary text, and this value ends up in the private SSID that the
-        # installer interpolates into a single-quoted shell command (safe_nym).
-        NYM=$(safe_nym "$prefix")
-        [ -n "$NYM" ] && return 0
-    fi
+    case "$existing" in
+        Private-*)
+            # Current shape: Private-<operator>-<suffix>. Adopt the operator
+            # even when the suffix is a custom display token.
+            rest=${existing#Private-}
+            prefix=${rest%%-*}
+            suffix=${rest#*-}
+            if [ "$suffix" != "$rest" ] && is_safe_ssid_suffix "$suffix"; then
+                NYM=$(safe_nym "$prefix")
+                [ -n "$NYM" ] && return 0
+            fi
+            ;;
+        *)
+            # Legacy shape: <nym>-<code>. Only a machine-shaped suffix is
+            # adopted; an operator's renamed SSID is not a nym source.
+            prefix=${existing%%-*}
+            suffix=${existing#*-}
+            if [ "$suffix" != "$existing" ] && is_minted_suffix "$suffix"; then
+                NYM=$(safe_nym "$prefix")
+                [ -n "$NYM" ] && return 0
+            fi
+            ;;
+    esac
     NYM="$DEVICE_CODE_DEFAULT_NYM"
 }
 
 # The private SSID, derived from the same code as the hostname and the captive
-# SSID. `tollgate network private rename <name>` (docs/operator-guide.md) is the
-# escape hatch and is honoured here: a renamed SSID is not machine-shaped, so it
-# is preserved. A machine-shaped one (the legacy <nym>-<suffix> mint) converges
-# on the code — the operator's admin LAN must read as THIS router, with the same
-# code the captive SSID carries. The PSK is never touched by this.
+# SSID: Private-<operator>-<suffix>. `tollgate network private rename <name>`
+# (docs/operator-guide.md) is the escape hatch and is honoured here: a renamed
+# SSID is not machine-shaped, so it is preserved. Machine-shaped forms — the
+# current Private-<nym>-<suffix> and the legacy <nym>-<code> — converge on the
+# stored suffix and operator. The PSK is never touched by this.
 private_ssid_for_code() {
     local current="$1" prefix suffix
     if [ -z "$current" ]; then
-        printf '%s-%s\n' "$NYM" "$CODE"
+        printf 'Private-%s-%s\n' "$NYM" "$SSID_SUFFIX"
         return 0
     fi
+    case "$current" in
+        "Private-${NYM}-"*)
+            suffix=${current#"Private-${NYM}-"}
+            if is_safe_ssid_suffix "$suffix"; then
+                printf 'Private-%s-%s\n' "$NYM" "$SSID_SUFFIX"
+                return 0
+            fi
+            ;;
+    esac
     prefix=${current%%-*}
     suffix=${current#*-}
     if [ "$prefix" = "$NYM" ] && [ "$suffix" != "$current" ] && is_minted_suffix "$suffix"; then
-        printf '%s-%s\n' "$NYM" "$CODE"
+        printf 'Private-%s-%s\n' "$NYM" "$SSID_SUFFIX"
     else
         printf '%s\n' "$current"
     fi
@@ -781,11 +817,25 @@ captive_ssid_for_code() {
     suffix=${probe#*-}
     brand=$(brand_token)
     if { [ "$prefix" = "tollgate" ] || [ "$prefix" = "$brand" ]; } &&
-       [ "$suffix" != "$probe" ] && is_minted_suffix "$suffix"; then
+       [ "$suffix" != "$probe" ] &&
+       { is_minted_suffix "$suffix" || [ "$suffix" = "$SSID_SUFFIX" ]; }; then
         printf '%s\n' "$DEVICE_SSID"
         return 0
     fi
     printf '%s\n' "$current"
+}
+
+# Resolve the display suffix: the stored value when it is a safe token, else the
+# device code. Stored in the same section so the module and installer converge
+# on one value.
+resolve_ssid_suffix() {
+    local stored
+    stored=$(uci -q get tollgate.device.ssid_suffix 2>/dev/null)
+    if is_safe_ssid_suffix "$stored"; then
+        SSID_SUFFIX="$stored"
+    else
+        SSID_SUFFIX="$CODE"
+    fi
 }
 
 # Resolve the device code and the nym, and STORE both. Runs on every setup path
@@ -834,6 +884,7 @@ setup_device_identity() {
     fi
 
     resolve_nym
+    resolve_ssid_suffix
     DEVICE_HOSTNAME="$(printf '%s' "$BRAND_HOSTNAME" | tr 'A-Z' 'a-z')-${CODE}"
     # The #706 decoration, then the brand prefix and the code — the SAME string
     # the installer writes (deploy.go: SSID="!TollGate-$CODE"), so the two
@@ -843,13 +894,14 @@ setup_device_identity() {
     # (strip_ssid_decoration above, and the Go matcher). It is SORT DECORATION,
     # presentation only: the DISCOVERY contract is the brand prefix underneath
     # it. The private SSID below deliberately does NOT get it.
-    DEVICE_SSID="!${BRAND_HOSTNAME}-${CODE}"
+    DEVICE_SSID="!${BRAND_HOSTNAME}-${SSID_SUFFIX}"
 
     uci -q get tollgate.device >/dev/null 2>&1 || uci set tollgate.device='device'
     uci set tollgate.device.code="$CODE"
     uci set tollgate.device.nym="$NYM"
+    uci set tollgate.device.ssid_suffix="$SSID_SUFFIX"
     uci commit tollgate
-    log "Device identity stored: code=${CODE} nym=${NYM} hostname=${DEVICE_HOSTNAME} captive_ssid=${DEVICE_SSID}"
+    log "Device identity stored: code=${CODE} nym=${NYM} ssid_suffix=${SSID_SUFFIX} hostname=${DEVICE_HOSTNAME} captive_ssid=${DEVICE_SSID}"
 }
 
 # LuCI's listener. Which pair it binds follows the `entry_ui` mapping (D2): the
@@ -1775,10 +1827,12 @@ configure_radio_ap() {
     # silently renamed to the generated one.
     local current_ssid machine_shaped=0
     current_ssid="$(uci -q get "wireless.$iface.ssid" 2>/dev/null || true)"
-    case "$current_ssid" in
-        ""|"$GATEWAY_NAME") machine_shaped=1 ;;
-        *-"$CODE")          machine_shaped=1 ;;
-    esac
+    # The same one-'!'-and-brand-aware matcher the repair path uses: a name
+    # this stack wrote (including an older code or a stored custom suffix)
+    # converges; an operator's own name is preserved.
+    if [ -z "$current_ssid" ] || [ "$(captive_ssid_for_code "$current_ssid")" = "$GATEWAY_NAME" ]; then
+        machine_shaped=1
+    fi
     if [ "$machine_shaped" = 1 ]; then
         uci set "wireless.$iface.ssid=$GATEWAY_NAME"
     else

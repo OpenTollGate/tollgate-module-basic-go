@@ -1,25 +1,41 @@
 {
   "assets": {
     "js": [
-      "assets/balance-CJspyFkd.js",
-      "assets/browser-ponyfill-BcgRRBVG.js",
-      "assets/index-YkGiQMp2.js",
-      "assets/portal-Cwphwxmb.js",
+      "assets/balance-KLPO4u3N.js",
+      "assets/browser-ponyfill-DQ6Hz6XR.js",
+      "assets/index-CBWBf9Tc.js",
+      "assets/portal-C3OB1_95.js",
       "assets/qr-scanner-worker.min-D85Z9gVD.js",
-      "assets/qr-scanner.min-DnbqbVsm.js"
+      "assets/qr-scanner.min-BrtpEA__.js"
     ],
     "css": [
-      "assets/balance-5KSP87Gz.css",
-      "assets/index-CSbRLgwZ.css"
+      "assets/balance-Dm4CN0kg.css",
+      "assets/index-BmK7JQqe.css",
+      "assets/portal-BGdEux9b.css"
     ],
     "images": [
+      "assets/TollGate_Logo-C-black-DhKg2Nb7.png",
       "assets/TollGate_Logo-C-white-D93CsdZc.png",
+      "assets/logo-white-CqceTNT2.png",
       "favicon.ico",
       "logo192.png",
       "logo512.png"
     ],
     "locales": [
-      "locales/en.json"
+      "locales/ar.json",
+      "locales/de.json",
+      "locales/en.json",
+      "locales/es.json",
+      "locales/fr.json",
+      "locales/id.json",
+      "locales/it.json",
+      "locales/ja.json",
+      "locales/pt.json",
+      "locales/ru.json",
+      "locales/tr.json",
+      "locales/vi.json",
+      "locales/zh-Hans.json",
+      "locales/zh-Hant.json"
     ],
     "html": [
       "404.html",

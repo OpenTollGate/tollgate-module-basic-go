@@ -288,3 +288,77 @@ func (c *UpstreamSessionManager) Stop() error {
 	logger.Info("UpstreamSessionManager stopped")
 	return nil
 }
+
+// PeeringStatus snapshots every tracked upstream peer session for the admin
+// board. The signed advertisement remains the authority for price and mint;
+// this is read-only presentation data.
+func (c *UpstreamSessionManager) PeeringStatus() []PeeringStatus {
+	c.mu.RLock()
+	gateways := make([]*Gateway, 0, len(c.gateways))
+	for _, gateway := range c.gateways {
+		gateways = append(gateways, gateway)
+	}
+	c.mu.RUnlock()
+
+	result := make([]PeeringStatus, 0, len(gateways))
+	for _, gateway := range gateways {
+		gateway.mu.RLock()
+		session := gateway.Session
+		gateway.mu.RUnlock()
+		if session == nil {
+			continue
+		}
+
+		session.paymentMu.Lock()
+		status := PeeringStatus{
+			GatewayIP:      gateway.GatewayIP,
+			InterfaceName:  gateway.InterfaceName,
+			TotalAllotment: session.TotalAllotment,
+			TotalSpent:     session.TotalSpent,
+			Status:         peeringSessionStatus(session.Status),
+		}
+		if session.Advertisement != nil {
+			status.Pubkey = session.Advertisement.PubKey
+		}
+		if session.AdvertisementInfo != nil {
+			status.Metric = session.AdvertisementInfo.Metric
+			status.StepSize = session.AdvertisementInfo.StepSize
+		}
+		if session.SelectedPricing != nil {
+			status.PricePerStep = session.SelectedPricing.PricePerStep
+			status.PriceUnit = session.SelectedPricing.PriceUnit
+			status.MintURL = session.SelectedPricing.MintURL
+		}
+		session.paymentMu.Unlock()
+
+		session.trackerMu.Lock()
+		if session.UsageTracker != nil {
+			status.Usage = session.UsageTracker.GetCurrentUsage()
+		}
+		session.trackerMu.Unlock()
+		if status.TotalAllotment >= status.Usage {
+			status.Remaining = status.TotalAllotment - status.Usage
+		}
+
+		bootstrap := session.BootstrapStatus()
+		status.BootstrapActive = bootstrap.Active
+		status.BootstrapPhase = string(bootstrap.Phase)
+		result = append(result, status)
+	}
+	return result
+}
+
+func peeringSessionStatus(status SessionStatus) string {
+	switch status {
+	case SessionActive:
+		return "active"
+	case SessionPaused:
+		return "paused"
+	case SessionExpired:
+		return "expired"
+	case SessionError:
+		return "error"
+	default:
+		return "unknown"
+	}
+}

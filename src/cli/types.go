@@ -88,6 +88,11 @@ type UpstreamNetwork struct {
 	IsTollGate             bool   `json:"is_tollgate"`
 	AdvertisedPricePerStep int    `json:"price_per_step,omitempty"` // scan-side hint; not authoritative
 	AdvertisedStepSize     int    `json:"step_size,omitempty"`
+	IsReseller             bool   `json:"is_reseller,omitempty"`
+	HasInternet            bool   `json:"has_internet,omitempty"`
+	OpenNetwork            bool   `json:"open_network,omitempty"`
+	MintURL                string `json:"mint_url,omitempty"`
+	Pubkey                 string `json:"pubkey,omitempty"` // hex-encoded signed advertisement key
 }
 
 type UpstreamSTA struct {
