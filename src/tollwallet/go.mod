@@ -3,13 +3,14 @@ module github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet
 go 1.26.0
 
 require (
-	github.com/OpenTollGate/gonuts-tollgate v0.14.1
+	github.com/OpenTollGate/gonuts-tollgate v0.16.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.12.1
 )
 
 require (
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
