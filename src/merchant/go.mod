@@ -3,7 +3,7 @@ module github.com/OpenTollGate/tollgate-module-basic-go/src/merchant
 go 1.26.0
 
 require (
-	github.com/OpenTollGate/gonuts-tollgate v0.14.1
+	github.com/OpenTollGate/gonuts-tollgate v0.16.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
@@ -80,6 +80,7 @@ require (
 	github.com/coder/websocket v1.8.13 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect

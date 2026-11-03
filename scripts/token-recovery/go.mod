@@ -2,7 +2,7 @@ module token-recovery
 
 go 1.26.0
 
-require github.com/OpenTollGate/gonuts-tollgate v0.14.1
+require github.com/OpenTollGate/gonuts-tollgate v0.16.0
 
 require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
@@ -31,6 +31,7 @@ require (
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/jessevdk/go-flags v1.4.0 // indirect
 	github.com/jrick/logrotate v1.1.2 // indirect

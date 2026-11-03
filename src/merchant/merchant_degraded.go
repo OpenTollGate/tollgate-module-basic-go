@@ -98,17 +98,22 @@ func (m *MerchantDegraded) DegradeReason() string {
 }
 
 // notInitializedError is the single honest answer every degraded stub
-// returns: the reason the wallet is down, not a hardcoded connectivity
-// claim.
+// returns. Reason precedence (#1158, preserving the #583 contract both
+// ways): an explicitly SET downgrade reason (the runtime downgrade path
+// names the actual failure) wins; otherwise the startup path's
+// wallet-init classification applies — the storage-mmap class names the
+// filesystem instead of hiding behind "no reachable mints", and only the
+// genuinely mint-less state keeps the legacy wording. This is the wiring
+// walletNotInitializedError() was written for and never received (#1135's
+// dead-function finding).
 func (m *MerchantDegraded) notInitializedError() error {
-	// A storage-mmap failure is permanent and must name the filesystem even
-	// when the constructor did not go through SetDegradeReason (the direct
-	// NewMerchantDegradedWithWallet path used by tests and some callers).
-	reason := m.DegradeReason()
-	if m.StorageIncompatible() {
-		reason = m.walletUnavailableReason()
+	m.reasonMu.RLock()
+	reason := m.degradeReason
+	m.reasonMu.RUnlock()
+	if reason != "" {
+		return fmt.Errorf("wallet not initialized: %s", reason)
 	}
-	return fmt.Errorf("wallet not initialized: %s", reason)
+	return m.walletNotInitializedError()
 }
 
 // WireWalletRetry arms the repeating wallet-init retry. Idempotent: the
