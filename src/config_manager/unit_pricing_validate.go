@@ -84,13 +84,58 @@ func ValidateUnitPricing(unit, metric string, stepSize uint64) error {
 }
 
 // ValidateUnitPricingForConfig applies the per-mint unit check to every
-// accepted mint in the configuration.
+// accepted mint in the configuration and, for custom-unit mints, checks that
+// the advertised price_unit agrees with the unit the mint actually issues.
 func (c *Config) ValidateUnitPricingForConfig() error {
 	for i := range c.AcceptedMints {
 		mint := &c.AcceptedMints[i]
 		if err := ValidateUnitPricing(mint.Unit, c.Metric, c.StepSize); err != nil {
 			return fmt.Errorf("accepted_mints[%d] (%s): %w", i, mint.URL, err)
 		}
+		if err := validateAdvertisedUnitMatchesMintUnit(mint.Unit, mint.PriceUnit); err != nil {
+			return fmt.Errorf("accepted_mints[%d] (%s): %w", i, mint.URL, err)
+		}
+	}
+	return nil
+}
+
+// validateAdvertisedUnitMatchesMintUnit refuses a mint that issues one unit but
+// advertises another in its kind:10021 `price_per_step` tag.
+//
+// The two fields are configured separately — `unit` says what the mint's keysets
+// are denominated in (and is what pricing compares a token against), while
+// `price_unit` is what goes on the wire in
+//
+//	["price_per_step","cashu",<price>,<price_unit>,<mint>,<min_steps>]
+//
+// Nothing compared them, so a mint set to unit "mb" while price_unit kept its
+// "sat" default published a satoshi price for a mint that only accepts
+// megabyte tokens. A client that trusts the advert pays in a unit the gate
+// refuses; a client that does not check units prices 1 mb as 1 sat. Both are
+// the silent-mispricing class this validator exists to stop, arriving through
+// the advertisement instead of the wallet.
+//
+// Empty means sat on both sides, so every pre-existing config is unaffected.
+func validateAdvertisedUnitMatchesMintUnit(unit, priceUnit string) error {
+	issued := strings.ToLower(strings.TrimSpace(unit))
+	if issued == "" {
+		issued = "sat"
+	}
+	advertised := strings.ToLower(strings.TrimSpace(priceUnit))
+	if advertised == "" {
+		advertised = "sat"
+	}
+	// "sats" is the spelling main canonicalises to "sat" on load; accept it
+	// here so an in-flight config that has not been through migration yet is
+	// not refused for a spelling the loader will fix.
+	if advertised == "sats" {
+		advertised = "sat"
+	}
+	if advertised != issued {
+		return fmt.Errorf("mint issues unit %q but advertises price_unit %q: the gateway would publish "+
+			"one unit and accept another, so a paying client prices the advert in the wrong unit — "+
+			"set price_unit to %q (or leave both unset for a satoshi mint)",
+			issued, advertised, issued)
 	}
 	return nil
 }

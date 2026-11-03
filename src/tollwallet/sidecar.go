@@ -208,7 +208,6 @@ func (t *sidecarToken) Amount() uint64 { return t.amount }
 // calculateAllotmentForUnit) rather than guessing from the amount.
 func (t *sidecarToken) Unit() string { return "" }
 
-
 // Serialize returns the canonical Cashu token string.
 func (t *sidecarToken) Serialize() (string, error) {
 	if t.serialized == "" {

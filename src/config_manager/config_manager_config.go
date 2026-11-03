@@ -144,8 +144,8 @@ type MintConfig struct {
 	// sat tokens against it without a config change. A token in any OTHER
 	// unit is refused rather than mispriced — the 2026-10 draft integration
 	// with an operator-run CDK mint depends on this being explicit.
-	Unit                    string `json:"unit"`
-	MinPurchaseSteps        uint64 `json:"purchase_min_steps"`
+	Unit             string `json:"unit"`
+	MinPurchaseSteps uint64 `json:"purchase_min_steps"`
 }
 
 // UnmarshalJSON accepts both "purchase_min_steps" (the Go field tag) and

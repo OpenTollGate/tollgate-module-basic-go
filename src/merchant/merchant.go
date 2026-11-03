@@ -372,9 +372,9 @@ type MerchantInterface interface {
 
 // Merchant represents the financial decision maker for the tollgate
 type Merchant struct {
-	config            *config_manager.Config
-	configManager     *config_manager.ConfigManager
-	tollwallet        tollwallet.WalletPort
+	config        *config_manager.Config
+	configManager *config_manager.ConfigManager
+	tollwallet    tollwallet.WalletPort
 	// issuePollInterval/issueTimeout bound how long IssueOnRequest waits for a
 	// quote to be paid. Zero means the package defaults; they are fields so a
 	// test can exercise the timeout path without waiting two minutes.

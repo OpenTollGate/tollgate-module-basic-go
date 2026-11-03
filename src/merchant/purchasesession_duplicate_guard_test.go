@@ -40,7 +40,7 @@ func (duplicateNote) Mint() string { return "https://preflight-mint.example.com"
 func (duplicateNote) Amount() uint64 {
 	return 1
 }
-func (duplicateNote) Unit() string { return "" }
+func (duplicateNote) Unit() string               { return "" }
 func (duplicateNote) Serialize() (string, error) { return duplicateNoteSerialized, nil }
 func (duplicateNote) Close()                     {}
 
