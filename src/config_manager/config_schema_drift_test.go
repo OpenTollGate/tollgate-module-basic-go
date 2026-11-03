@@ -219,7 +219,10 @@ func TestSchemaDotPathMintChildren(t *testing.T) {
 				t.Fatalf("SetDotPath(%s, %s) failed: %v", dotPath, testValue, err)
 			}
 
-			loaded, _ := LoadConfig(tmp + "/config.json")
+			loaded, loadErr := LoadConfig(tmp + "/config.json")
+			if loadErr != nil {
+				t.Fatalf("LoadConfig after SetDotPath(%s, %s): %v", dotPath, testValue, loadErr)
+			}
 			if len(loaded.AcceptedMints) == 0 {
 				t.Fatal("No mints loaded")
 			}
@@ -322,6 +325,15 @@ func getTestValueForType(field FieldSchema) string {
 	// public identities — is the value the field actually holds in production.
 	if field.JSONKey == "maintainer_npub" {
 		return "npub1nng5mxkdh2mu593twukfr7j3fk5wxfy0v8ujf0e5g8nwwtzlphhqksqpew"
+	}
+	// `unit` carries a cross-field contract the generic stand-in cannot satisfy:
+	// setting it to "test_value" makes the mint issue a unit its own advert does
+	// not price ("test_value" vs the "sat" default), which LoadConfig now refuses
+	// — correctly. This walk tests the dot-path plumbing, not unit semantics, so
+	// it uses a real unit that agrees with the default price_unit. The semantic
+	// cases live in the unit-pricing tests.
+	if field.JSONKey == "unit" {
+		return "sat"
 	}
 	switch field.Type {
 	case "string":

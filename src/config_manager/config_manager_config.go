@@ -277,6 +277,15 @@ func LoadConfig(filePath string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A mint that publishes a unit it does not issue must stop the router here,
+	// on every load — not only on first boot. The customer would pay in a unit
+	// the gate then refuses: value leaves and no access arrives. No pre-existing
+	// config can trip this (both unit fields empty mean sat; a mismatch needs an
+	// explicitly configured custom unit), so refusing cannot break a working
+	// router.
+	if err := config.ValidateAdvertisedUnitsForConfig(); err != nil {
+		return nil, fmt.Errorf("config %s advertises a unit it does not issue: %w", filePath, err)
+	}
 	return &config, nil
 }
 
@@ -596,6 +605,11 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	if err := config.ValidateUnitPricingForConfig(); err != nil {
 		log.Printf("WARNING: unit/step_size mismatch — this router is mispricing access: %v", err)
 	}
+	// A mint that publishes a unit it does not issue is a different class: the
+	// customer pays in a unit the gate then refuses, so value leaves and no
+	// access arrives. Enforced in LoadConfig, which every boot goes through; the
+	// step_size check above stays a warning because over-granting is survivable
+	// and refusing to boot is not.
 	// The Cobrador defaults are opt-out, not opt-in. A field that is absent is
 	// a fresh/upgraded config that never made a choice, so it takes the new
 	// default. A field that is present (even false) is an explicit choice and

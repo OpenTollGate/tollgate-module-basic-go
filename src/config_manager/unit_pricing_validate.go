@@ -92,6 +92,25 @@ func (c *Config) ValidateUnitPricingForConfig() error {
 		if err := ValidateUnitPricing(mint.Unit, c.Metric, c.StepSize); err != nil {
 			return fmt.Errorf("accepted_mints[%d] (%s): %w", i, mint.URL, err)
 		}
+	}
+	return nil
+}
+
+// ValidateAdvertisedUnitsForConfig checks only the advert/unit agreement:
+// that each mint publishes the unit it actually issues.
+//
+// It is separate from ValidateUnitPricingForConfig on purpose. A step_size that
+// does not match the unit over-grants access, which is a generosity bug the
+// router can survive: refusing to boot would stop serving customers who already
+// paid, so config load only warns. Publishing the wrong unit is not that class —
+// a client pays in a unit the gate then refuses, so money leaves and no access
+// arrives. That must refuse.
+//
+// No pre-existing config can trip this: both fields empty mean sat, and an
+// operator must have explicitly set a custom `unit` to reach the comparison.
+func (c *Config) ValidateAdvertisedUnitsForConfig() error {
+	for i := range c.AcceptedMints {
+		mint := &c.AcceptedMints[i]
 		if err := validateAdvertisedUnitMatchesMintUnit(mint.Unit, mint.PriceUnit); err != nil {
 			return fmt.Errorf("accepted_mints[%d] (%s): %w", i, mint.URL, err)
 		}
@@ -115,11 +134,17 @@ func (c *Config) ValidateUnitPricingForConfig() error {
 // the silent-mispricing class this validator exists to stop, arriving through
 // the advertisement instead of the wallet.
 //
-// Empty means sat on both sides, so every pre-existing config is unaffected.
+// Empty `unit` means the config never opted into a custom unit, so it is not
+// judged — every pre-existing config keeps its exact behaviour.
 func validateAdvertisedUnitMatchesMintUnit(unit, priceUnit string) error {
 	issued := strings.ToLower(strings.TrimSpace(unit))
+	// Only a config that has opted into an explicit unit is judged here. The
+	// `unit` key is new in this change, so every pre-existing config leaves it
+	// unset and keeps exactly its old behaviour — including one whose
+	// price_unit is some spelling this code does not know. Refusing those would
+	// break routers that work today for a mismatch no customer can reach.
 	if issued == "" {
-		issued = "sat"
+		return nil
 	}
 	advertised := strings.ToLower(strings.TrimSpace(priceUnit))
 	if advertised == "" {

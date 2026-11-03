@@ -33,7 +33,7 @@ func TestUnitPricing_CustomUnitMintCannotAdvertiseAnotherUnit(t *testing.T) {
 			},
 		},
 	}
-	if err := c.ValidateUnitPricingForConfig(); err == nil {
+	if err := c.ValidateAdvertisedUnitsForConfig(); err == nil {
 		t.Fatal("accepted a mint whose unit is \"mb\" but whose advertised price_unit is \"sat\": " +
 			"the gateway would publish one unit and accept another")
 	}
