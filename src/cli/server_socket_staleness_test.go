@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"path/filepath"
+
 	"errors"
 	"fmt"
 	"net"
@@ -180,5 +182,40 @@ func TestIsStaleSocketCleanupIsIdempotent(t *testing.T) {
 
 	if _, serr := os.Stat(p); serr != nil {
 		t.Fatalf("isStaleSocket must not delete the socket file (it only classifies): %v", serr)
+	}
+}
+
+// isNonSocketDebris (#1167): dialing a path that is not a unix socket
+// yields EINVAL — no daemon can own a non-socket FILE, so it is
+// reclaimable debris exactly like a stale socket. The lstat confirmation
+// keeps a WEIRD EINVAL on a REAL socket undetermined (fail closed).
+func TestIsNonSocketDebris(t *testing.T) {
+	dir := t.TempDir()
+
+	regular := filepath.Join(dir, "regular")
+	if err := os.WriteFile(regular, []byte("debris"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	einval := &net.OpError{
+		Op: "dial", Net: "unix",
+		Err: &os.SyscallError{Syscall: "connect", Err: syscall.EINVAL},
+	}
+	if !isNonSocketDebris(regular, einval) {
+		t.Fatal("EINVAL on dial at a regular file must classify as reclaimable debris")
+	}
+
+	// A REAL socket file that dials EINVAL (not expected on Linux, but the
+	// classification must not widen): ownership stays undetermined.
+	realSock := filepath.Join(dir, "real.sock")
+	ln, err := net.Listen("unix", realSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if isNonSocketDebris(realSock, einval) {
+		t.Fatal("EINVAL on dial at a real socket file must stay undetermined — a live daemon may own it")
+	}
+	if isNonSocketDebris(regular, nil) {
+		t.Fatal("nil error (a live daemon answered) is never debris")
 	}
 }
