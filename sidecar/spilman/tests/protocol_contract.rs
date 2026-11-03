@@ -54,7 +54,7 @@ fn reply(outcome: Outcome) -> (Value, bool) {
 // --- acceptance -----------------------------------------------------------
 
 #[test]
-fn capabilities_request_advertises_transport_only() {
+fn capabilities_request_advertises_transport_and_validation_only() {
     let (response, close) = reply(handle_frame(&frame(&valid_request())));
     assert!(
         !close,
@@ -71,11 +71,21 @@ fn capabilities_request_advertises_transport_only() {
         .map(|v| v.as_str().expect("capability strings"))
         .collect();
     assert_eq!(advertised, CAPABILITIES.to_vec());
+    // The set is pinned LITERALLY per build, not just compared to the constant,
+    // so a capability cannot be added by editing the constant alone, and the
+    // transport-only build's shorter list is asserted rather than assumed.
+    #[cfg(feature = "protocol")]
+    assert_eq!(advertised, vec!["transport.v1", "validate_registration.v1"]);
+    #[cfg(not(feature = "protocol"))]
     assert_eq!(advertised, vec!["transport.v1"]);
 }
 
 #[test]
 fn capabilities_reply_never_advertises_settlement() {
+    // The milestone gate: every advertised capability names a pure, offline
+    // operation. `validate_registration.v1` derives a channel id and proves
+    // agreement; it does not sign, swap, or restore, so settlement stays
+    // unadvertised and a peer gating on it must keep refusing this build.
     let (response, _) = reply(handle_frame(&frame(&valid_request())));
     let advertised = response["capabilities"]
         .as_array()
@@ -83,8 +93,12 @@ fn capabilities_reply_never_advertises_settlement() {
     for capability in advertised {
         let name = capability.as_str().expect("capability string");
         assert!(
-            name.starts_with("transport."),
-            "this build must advertise no capability beyond transport.*, got {name:?}"
+            !name.starts_with("settlement."),
+            "no settlement capability may be advertised, got {name:?}"
+        );
+        assert!(
+            name.starts_with("transport.") || name.starts_with("validate_registration."),
+            "capability {name:?} is outside the two known pure-operation families"
         );
     }
 }
@@ -165,7 +179,6 @@ fn rejects_unknown_method_as_unsupported_capability() {
 #[test]
 fn rejects_every_settlement_shaped_method() {
     for method in [
-        "validate_registration",
         "prepare_close",
         "verify_prepared",
         "complete_swap",
@@ -186,7 +199,8 @@ fn rejects_every_settlement_shaped_method() {
                 .as_array()
                 .expect("capabilities")
                 .iter()
-                .all(|c| c.as_str().is_some_and(|s| s.starts_with("transport."))),
+                .filter_map(|c| c.as_str())
+                .all(|s| !s.starts_with("settlement.")),
             "a refused method must not imply settlement readiness"
         );
     }
