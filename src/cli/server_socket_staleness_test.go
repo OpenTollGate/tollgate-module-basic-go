@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -180,5 +182,33 @@ func TestIsStaleSocketCleanupIsIdempotent(t *testing.T) {
 
 	if _, serr := os.Stat(p); serr != nil {
 		t.Fatalf("isStaleSocket must not delete the socket file (it only classifies): %v", serr)
+	}
+}
+
+// The socket PATH LENGTH guard (#1167 follow-up): AF_UNIX caps sun_path at
+// 108 bytes; at or over it, bind and dial fail with a bare EINVAL that the
+// ownership probe misreported as "cannot determine ownership of existing
+// socket" for a path that may not even exist. Start must say the real thing.
+func TestCLIServerStartRejectsOverLimitSocketPath(t *testing.T) {
+	// The socket path is <CONFIG_DIR>/tollgate.sock: make the DIR long
+	// enough that the joined path is exactly 108 bytes (the guard fires at
+	// >= 108; "/tollgate.sock" is 15 bytes).
+	base := t.TempDir()
+	need := 108 - len(base) - 1 - len("/tollgate.sock")
+	longDir := filepath.Join(base, strings.Repeat("s", need))
+	if err := os.Mkdir(longDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(filepath.Join(longDir, "tollgate.sock")); got != 108 {
+		t.Fatalf("fixture: socket path is %d bytes, want 108", got)
+	}
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", longDir)
+	s := &CLIServer{}
+	err := s.Start()
+	if err == nil {
+		t.Fatal("an over-limit socket path must fail Start")
+	}
+	if !strings.Contains(err.Error(), "sun_path limit") {
+		t.Fatalf("the failure must name the real cause, got: %v", err)
 	}
 }
