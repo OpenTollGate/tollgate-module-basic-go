@@ -27,6 +27,13 @@ for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
         "$script" || echo "Warning: $script exited with code $?"
     fi
 done
+# Commit any pending uci session the scripts left behind (#1087): this is
+# the one path with no outer commit - OpenWrt's own boot harness
+# (uci_apply_defaults) commits after each uci-defaults script, but the
+# postinst path had none, so an interrupted script's /tmp/.uci delta
+# waited for the next boot to be rescued. Bare `uci commit` flushes every
+# pending delta, matching the boot harness behavior.
+uci commit 2>/dev/null || true
 
 # IPv6 is disabled at INSTALL time, before the network restart below applies
 # it — the marker-driven setup driver may take a verify/repair path whose
