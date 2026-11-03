@@ -948,7 +948,29 @@ setup_uhttpd_portal() {
     uci -q delete uhttpd.portal.listen_http
     uci add_list uhttpd.portal.listen_http='0.0.0.0:2051'
     uci add_list uhttpd.portal.listen_http='[::]:2051'
-    uci set uhttpd.portal.home='/etc/tollgate/tollgate-captive-portal-site'
+    # The guest docroot is the one brand-derived path that used to be a
+    # literal (#1122): a re-brand shipping its own portal under
+    # /etc/tollgate/<brand>-captive-portal-site had it silently overwritten
+    # on first boot. Existence-guarded so an unbranded install is
+    # byte-identical to before; BRAND is loaded and coerced to one
+    # alphanumeric token by load_brand before this runs.
+    portal_home='/etc/tollgate/tollgate-captive-portal-site'
+    if [ -n "${BRAND:-}" ] && [ "$BRAND" != tollgate ]; then
+        # brand_token is the machine-name spelling (lowercased) the file's
+        # own convention gives directory names; probe it first, then the
+        # raw token, so a case-mismatched re-brand does not silently fall
+        # back to the stock portal — the #1122 symptom resurfacing via case.
+        local bt; bt=$(brand_token)
+        if [ -d "/etc/tollgate/${bt}-captive-portal-site" ]; then
+            portal_home="/etc/tollgate/${bt}-captive-portal-site"
+        elif [ -d "/etc/tollgate/${BRAND}-captive-portal-site" ]; then
+            portal_home="/etc/tollgate/${BRAND}-captive-portal-site"
+        fi
+        if [ "$portal_home" != '/etc/tollgate/tollgate-captive-portal-site' ]; then
+            log "brand portal docroot: ${portal_home} (brand=${BRAND})"
+        fi
+    fi
+    uci set uhttpd.portal.home="$portal_home"
     uci set uhttpd.portal.rfc1918_filter='0'
     # The SPA ships no index.html — without this, / would serve a file
     # inventory to pre-auth clients.
