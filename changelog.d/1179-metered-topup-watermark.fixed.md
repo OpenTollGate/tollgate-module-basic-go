@@ -30,4 +30,5 @@
   memory-only (R2 forbids a durable per-address table); a restart still loses paid
   time as before. Durable entitlement, the D5 client identity fork and Spillman
   channels are explicitly out of scope — see
-  `docs/architecture/incremental-topup-watermark-decision.md`.
+  `docs/architecture/incremental-topup-watermark-decision.md`
+  ([#1179](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1179)).
