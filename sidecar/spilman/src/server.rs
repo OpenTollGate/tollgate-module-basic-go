@@ -23,7 +23,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::protocol::MAX_FRAME_BYTES;
+use crate::protocol::{Response, MAX_FRAME_BYTES};
 use crate::{handle_frame, Outcome};
 
 /// How long a single connection may stall on I/O before it is dropped. A
@@ -298,7 +298,17 @@ pub fn serve_stream(stream: UnixStream) -> io::Result<()> {
                         return Ok(());
                     }
                 }
-                Outcome::Fatal { close, .. } => {
+                Outcome::Fatal { error, close } => {
+                    // A fatal refusal MUST be written before the close. Dropping
+                    // it left every client staring at a bare EOF, which is
+                    // indistinguishable from the sidecar crashing: a 1 MB flood
+                    // and a one-byte typo produced the same symptom and neither
+                    // carried its own code. The frame is deliberately
+                    // uncorrelated — the input was never parseable, so there is
+                    // no request id to echo honestly.
+                    let refusal = Response::new("", "", &error).encode();
+                    writer.write_all(&refusal)?;
+                    writer.flush()?;
                     if close {
                         return Ok(());
                     }
@@ -316,24 +326,37 @@ pub fn serve_stream(stream: UnixStream) -> io::Result<()> {
 fn read_frame(reader: &mut BufReader<UnixStream>) -> io::Result<Option<Vec<u8>>> {
     let mut frame = Vec::new();
     // `take` bounds the read: one byte past the limit is enough to refuse.
-    let read = reader
+    let read = match reader
         .by_ref()
         .take((MAX_FRAME_BYTES + 1) as u64)
-        .read_until(b'\n', &mut frame)?;
+        .read_until(b'\n', &mut frame)
+    {
+        Ok(read) => read,
+        // A peer that sends a partial frame and then stalls (or disconnects)
+        // hits the read timeout here. Propagating the io::Error would make
+        // `serve_stream` close silently, so the peer would learn about its
+        // malformed frame only by watching its own read() fail — the same
+        // unattributable symptom the fatal-write fix removed. With bytes in
+        // hand the frame is returned and refused as `invalid_request`.
+        Err(_) if !frame.is_empty() => frame.len(),
+        Err(err) => return Err(err),
+    };
     if read == 0 {
         return Ok(None);
     }
     if frame.len() > MAX_FRAME_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "frame exceeds the size bound",
-        ));
+        // Reported as a REFUSAL, not an io::Error: `serve_stream` turns the
+        // error into a silent close, so an oversized frame would reach the
+        // client as a bare EOF instead of `frame_too_large`.
+        return Ok(Some(frame));
     }
     if !frame.ends_with(b"\n") {
-        return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "frame is not newline terminated",
-        ));
+        // A peer that stops mid-frame never sends a newline, so `read_until`
+        // returns only on EOF or the 10 s read timeout. Both are reported as
+        // `invalid_request` for the same reason as above: the connection is
+        // still worth an attributable refusal, and the caller must not learn
+        // about it by watching read() time out.
+        return Ok(Some(frame));
     }
     Ok(Some(frame))
 }

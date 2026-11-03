@@ -80,6 +80,15 @@ fn serve_one(server: Server) -> std::thread::JoinHandle<()> {
 fn bounds_are_declared_once() {
     assert_eq!(tollgate_spilman_sidecar::MAX_FRAME_BYTES, 65536);
     assert_eq!(tollgate_spilman_sidecar::PROTOCOL_VERSION, 1);
+    // Pinned literally so the shipped set cannot drift by editing the constant
+    // alone, and so the transport-only build's SHORTER list is a visible
+    // difference rather than an accident.
+    #[cfg(feature = "protocol")]
+    assert_eq!(
+        tollgate_spilman_sidecar::CAPABILITIES,
+        &["transport.v1", "validate_registration.v1"]
+    );
+    #[cfg(not(feature = "protocol"))]
     assert_eq!(tollgate_spilman_sidecar::CAPABILITIES, &["transport.v1"]);
 }
 
@@ -184,7 +193,19 @@ fn serves_a_capabilities_request_over_the_real_socket() {
     assert!(reply.ends_with('\n'), "reply must be one line: {reply:?}");
     let value: serde_json::Value = serde_json::from_str(reply.trim_end()).expect("json");
     assert_eq!(value["request_id"], serde_json::json!("req-1"));
-    assert_eq!(value["capabilities"], serde_json::json!(["transport.v1"]));
+    assert_eq!(
+        value["capabilities"],
+        serde_json::to_value(tollgate_spilman_sidecar::CAPABILITIES).expect("serializable"),
+        "the served list is the build's advertised one"
+    );
+    assert!(
+        value["capabilities"]
+            .as_array()
+            .expect("array")
+            .iter()
+            .all(|c| c.as_str().is_some_and(|s| !s.starts_with("settlement."))),
+        "serving a request must never imply settlement"
+    );
     handle.join().expect("server thread");
 }
 
@@ -244,7 +265,37 @@ fn closes_on_an_oversize_frame_instead_of_truncating() {
     }
     let mut rest = Vec::new();
     let _ = std::io::Read::read_to_end(&mut stream, &mut rest);
-    assert!(rest.is_empty(), "an oversize frame must not be answered");
+
+    // The property this test exists for is TRUNCATION and correlation: the
+    // sidecar must not buffer forever, must not answer part of the flood as if
+    // it were a request, and must not echo ids it could not read. It is
+    // allowed — required, in fact — to say WHICH refusal happened, because a
+    // bare close is indistinguishable from a crashed daemon. (An earlier
+    // version asserted "no bytes at all"; that pinned the old silent-close
+    // bug in place. The refusal is now written and then the peer is closed.)
+    assert!(
+        !rest.is_empty(),
+        "an oversize frame must be refused with its own code, not a bare close"
+    );
+    let text = String::from_utf8_lossy(&rest);
+    let mut lines = text.split_inclusive('\n');
+    let refusal = lines.next().expect("one refusal frame").to_string();
+    assert_eq!(
+        lines.count(),
+        0,
+        "exactly one refusal frame, nothing after it: {text:?}"
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(refusal.trim_end()).expect("refusal is JSON");
+    let code = value["error"].as_str().unwrap_or_default();
+    assert!(
+        code == "frame_too_large" || code == "invalid_request",
+        "unexpected refusal code: {code:?}"
+    );
+    assert_eq!(
+        value["request_id"], "",
+        "an unreadable flood has no id to echo honestly"
+    );
     handle.join().expect("server thread");
 }
 
