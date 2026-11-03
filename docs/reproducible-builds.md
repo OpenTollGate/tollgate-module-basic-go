@@ -48,7 +48,8 @@ and how to verify a build yourself.
 | Node | `.node.version` (the portal's declared engine, e.g. `22.17.0`) + sha256 |
 | npm | `.npm.version` (bundled with the pinned Node; verified at build time) |
 | UPX (compressed builds) | `.upx.version` + tarball sha256, fetched by `scripts/fetch-upx.sh` |
-| OpenWrt SDK image | `.openwrt_sdk.targets[<target>].digest` — `openwrt/sdk:<tag>@sha256:…` |
+| OpenWrt SDK image | `.openwrt_sdk.releases[<era>].targets[<target>].digest` — `openwrt/sdk:<tag>@sha256:…` |
+| Captive-portal daemon | `.nodogsplash.per_era[<era>]` — upstream version + **packaging release** per era, fenced by `tests/contract/check-nodogsplash-pin.py`. We ship no byte of it; the pin NAMES what the feed resolves (see "The daemon we ship") |
 | Target architecture | caller-chosen (`x86_64`, `aarch64_cortex-a53`, …) |
 | Package format | `ipk` (opkg-build style tar.gz) or `apk` (OpenWrt SDK) |
 | Compression mode | none, or UPX flags (e.g. `--ultra-brute`) |
@@ -103,6 +104,9 @@ it for exactly that reason.
   release from the SDK's own sources (feed branch + released feed) and
   audits the manifest's SDK Go pins against them.
 - `scripts/fetch-upx.sh` — pinned UPX download with sha256 verification.
+- `tests/contract/check-nodogsplash-pin.py` — the captive-portal daemon pin:
+  carrier identity (glob-discovered), the live feed recipe per era, and a
+  built artifact's own dependency metadata.
 - `scripts/repro-test.sh` + `make reproducibility-test` — the test below.
 
 ## Building an artifact
@@ -188,6 +192,14 @@ Edit `packaging/build-inputs.json` — one value, one PR:
 - **Portal SHA**: paste the full commit SHA of the portal revision to ship.
   Never a branch name.
 - **UPX**: version + release-tarball sha256.
+- **Captive-portal daemon (nodogsplash)**: `.nodogsplash.per_era[<era>].version`
+  + `.release` (the feed's `PKG_VERSION` / `PKG_RELEASE`) + `.source_hash`
+  (`PKG_HASH`). This one is **not** a refresh: it has no `update` mode and no
+  script rewrites it. Raise the feed's `PKG_RELEASE` upstream, or carry a
+  deliberate decision (changelog fragment + ADR) — every gate, session and
+  pre-auth allow-list in this repo was bench-verified against the daemon we
+  run, so a version change is a re-verification event. See "The daemon we
+  ship" below.
 - **OpenWrt SDK digests**: `docker manifest inspect openwrt/sdk:<tag>` —
   paste the digest for each target into `packaging/build-inputs.json`.
   The CI package matrix injects every row's digest from the manifest at
@@ -199,6 +211,70 @@ Edit `packaging/build-inputs.json` — one value, one PR:
 
 Bumping a pin is a reproducibility event: expect artifact hashes to change
 once, then be stable again.
+
+## The daemon we ship (nodogsplash)
+
+The captive-portal daemon is the one shipped dependency this repo does not
+compile. `packaging/Makefile` declares it as a runtime dependency
+(`DEPENDS:=+nodogsplash …`); the OpenWrt feed decides which build of it lands
+on the router. Until `.nodogsplash` existed in the manifest, **nothing in this
+repository named a version** — a feed bump changed what an operator runs with
+no diff here, and the daemon is what every gate, session and pre-auth
+allow-list in this tree was bench-verified against.
+
+`packaging/build-inputs.json` → `.nodogsplash.per_era` names it, per era:
+
+| Era | Lane | Pinned | Why it differs |
+|---|---|---|---|
+| `apk` | 25.x — the only **feature** target | `5.0.2-r2` | `openwrt/routing@openwrt-25.12` carries `PKG_RELEASE:=2`; the released 25.12.0 feed publishes `nodogsplash-5.0.2-r2.apk` |
+| `ipk` | ≤24.10 — **frozen** compatibility lane (security / stop-ship only, #796) | `5.0.2-r1` | `openwrt/routing@openwrt-24.10` never took the `-r2` bump; the released 24.10.8 feed publishes `nodogsplash_5.0.2-r1_<arch>.ipk` |
+
+**The era difference is real, so the pin is per-era.** The upstream version is
+the same (5.0.2) and the source tarball hash is the same; only the feed's
+packaging release differs. A single-value pin would therefore be a **false
+equality** — correct for one lane, naming a package the other lane does not
+publish, and passing anyway. Instead the manifest carries both and the fence
+attributes each claim to an era: a carrier that says `5.0.2` (bare) matches
+both; a carrier that says `5.0.2-r2` matches the apk lane and is **refused**
+if it is talking about the ipk lane. `.nodogsplash.era_divergence` records the
+divergence in prose so a future reader does not "simplify" the map back into
+one string.
+
+If the feed ever converges (both branches on one release), the two entries
+simply carry the same value — the shape stays, because the lanes can diverge
+again at any point-release.
+
+**Three legs, three different failures** (`tests/contract/check-nodogsplash-pin.py`):
+
+```sh
+python3 tests/contract/check-nodogsplash-pin.py                     # identity (offline)
+python3 tests/contract/check-nodogsplash-pin.py --feed              # live feed + artifact
+python3 tests/contract/check-nodogsplash-pin.py --artifact out.apk  # built package's own metadata
+```
+
+- **identity** — every file in the tree that names a nodogsplash version
+  (discovered by glob, never a hand list — AGENTS.md rule 2) must name one the
+  manifest pins, packaging release included.
+- **`--feed`** — the manifest must match the *live* feed recipe of each era on
+  `PKG_VERSION`, `PKG_RELEASE` and `PKG_HASH`. A transport failure is a
+  **failure**, not a skip: a fence that passes because it could not look is
+  decoration (rule 4). This leg runs in CI and `release-check.sh`, never in
+  the pre-commit hook.
+- **`--artifact`** — a built `.apk`/`.ipk` that constrains the daemon's version
+  must constrain it to one the pin names. This reads the metadata apk/opkg
+  actually consumes, so no recipe edit can hide a wrong resolution.
+
+`tests/contract/nodogsplash-pin_test.sh` is the verdicts harness: it plants
+every drift shape and requires the refusal by name, including the case a
+single-value pin cannot catch (the apk era's `-r2` written for the ipk lane).
+
+**What this pin does NOT do — pinning is not testing.** This makes the version
+**NAMED**. It proves nothing about behaviour: that the daemon we ship is the
+one the gates were measured against, that its `ndsctl` surface answers the way
+the module expects, that the `-r2` bump changed nothing we rely on. That is
+PRTA's `nds_dependency_identity` (separate card, separate repo), which makes
+the resolved identity **PROVEN** on a real package. A green fence here means
+the name is honest, not that the daemon is verified.
 
 ## SDK Go alignment
 

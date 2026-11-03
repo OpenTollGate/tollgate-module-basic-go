@@ -412,6 +412,21 @@ jobs:
       - name: Toolchain parity (manifest is the single source of truth)
         run: python3 tests/contract/check-toolchain-parity.py
 
+      - name: Captive-portal daemon pin (nodogsplash is a named version)
+        run: |
+          # Offline legs only: every carrier in the tree that names a
+          # nodogsplash version must name the manifest's per-era value
+          # (packaging/build-inputs.json .nodogsplash.per_era), including the
+          # -rN packaging release when it states one. The verdicts harness
+          # plants every drift shape — including the apk era's -r2 written for
+          # the ipk lane, which a single-value pin would pass — and requires
+          # the refusal (AGENTS.md rule 4).
+          bash tests/contract/nodogsplash-pin_test.sh
+          python3 tests/contract/check-nodogsplash-pin.py
+          # The live-feed leg needs the network, so it runs here in CI and in
+          # release-check, never in the pre-commit hook.
+          python3 tests/contract/check-nodogsplash-pin.py --feed
+
       - name: Build-surface doctrine (two paths, no third)
         run: python3 tests/contract/check-build-surface.py
       - name: Stale import path check
