@@ -23,6 +23,7 @@ src/tollgate
 src/tollgate-wrt
 src/tollgate-module-basic-go
 src/cmd/tollgate-cli/tollgate-cli
+src/cmd/tg-vendor-ie-demo/tg-vendor-ie-demo
 *.exe
 
 # Per-developer Go workspace overrides. Local fork redirects belong in a
@@ -108,6 +109,12 @@ PR-BODY.md
 PROGRESS.md
 build-review-prompt*.py
 src/cmd/tollgate-cvm/tollgate-cvm
+# Each cmd/ module's built binary lands next to its sources (module
+# path = binary name). tollgate-ndsctl committed itself in #1140 and
+# #1151 — one line per module, anchored; a glob here would swallow the
+# modules' source files.
+src/cmd/tollgate-ndsctl/tollgate-ndsctl
+src/cmd/tollgate-cli/tollgate-cli
 
 # go workspace files are machine-local (absolute paths)
 src/go.work
