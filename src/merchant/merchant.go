@@ -575,6 +575,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 
 	mintURLs := make([]string, len(reachableMints))
 	mintUnits := make(map[string]string, len(reachableMints))
+	mintMethods := make(map[string]string, len(reachableMints))
 	for i, mint := range reachableMints {
 		mintURLs[i] = mint.URL
 		// Per-mint currency unit. Empty means sat, so a config written before
@@ -584,6 +585,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		for _, mc := range configManager.GetConfig().AcceptedMints {
 			if mc.URL == mint.URL {
 				mintUnits[mint.URL] = mc.Unit
+				mintMethods[mint.URL] = mc.PaymentMethod
 				break
 			}
 		}
@@ -594,7 +596,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
 	}
-	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false, mintUnits)
+	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false, mintUnits, mintMethods)
 
 	if walletErr != nil {
 		if bootErr := walletLockBootError(walletErr); bootErr != nil {
