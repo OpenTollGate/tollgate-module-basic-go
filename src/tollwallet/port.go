@@ -29,6 +29,14 @@ type Token interface {
 	// Amount returns the total token value in the token's unit
 	// (typically satoshis).
 	Amount() uint64
+	// Unit returns the token's unit as the mint declares it on the wire
+	// ("sat", "msat", "usd", or a custom unit an operator's CDK mint
+	// issues, e.g. "mb"/"min" — see the payment-processor pattern). The
+	// merchant needs it to price the amount: a number without its unit
+	// is not a price. Empty means the unit is unknown (legacy V3 tokens
+	// may omit it); callers treat unknown like they must treat any
+	// unpriced token: refuse rather than guess.
+	Unit() string
 	// Serialize returns the canonical Cashu token string representation
 	// ("cashuA..." for V3, "cashuB..." for V4).
 	Serialize() (string, error)

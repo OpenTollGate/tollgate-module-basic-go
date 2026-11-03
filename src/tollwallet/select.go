@@ -22,6 +22,10 @@ type WalletConfig struct {
 	// AcceptedMints / AllowAndSwapUntrustedMints are the in-process options.
 	AcceptedMints              []string
 	AllowAndSwapUntrustedMints bool
+	// MintUnits maps accepted mint URL -> unit ("" == sat). Used by the
+	// cdk in-process backend to open per-mint wallets in the unit that mint
+	// issues (PR #1040: operator-run mb/min mints). Ignored by gonuts.
+	MintUnits map[string]string
 }
 
 // OpenWallet opens the configured backend. For sidecar backends it returns the
@@ -29,7 +33,7 @@ type WalletConfig struct {
 func OpenWallet(cfg WalletConfig) (WalletPort, *Manifest, error) {
 	switch cfg.Backend {
 	case "", "gonuts", "default", "in_process":
-		p, err := NewWalletPort(cfg.Path, cfg.AcceptedMints, cfg.AllowAndSwapUntrustedMints)
+		p, err := NewWalletPort(cfg.Path, cfg.AcceptedMints, cfg.AllowAndSwapUntrustedMints, cfg.MintUnits)
 		return p, nil, err
 	case "cdk", "sidecar":
 		if cfg.Socket == "" {

@@ -137,7 +137,15 @@ type MintConfig struct {
 	MinPayoutAmount         uint64 `json:"min_payout_amount"`
 	PricePerStep            uint64 `json:"price_per_step"`
 	PriceUnit               string `json:"price_unit"`
-	MinPurchaseSteps        uint64 `json:"purchase_min_steps"`
+	// Unit names the ecash unit this mint issues and this config prices, as
+	// the mint declares it on the wire ("sat", "msat", "usd", or an
+	// operator-issued custom unit such as "mb"/"min"). Empty means "sat":
+	// every pre-existing config is a satoshi mint, and the merchant prices
+	// sat tokens against it without a config change. A token in any OTHER
+	// unit is refused rather than mispriced — the 2026-10 draft integration
+	// with an operator-run CDK mint depends on this being explicit.
+	Unit             string `json:"unit"`
+	MinPurchaseSteps uint64 `json:"purchase_min_steps"`
 }
 
 // UnmarshalJSON accepts both "purchase_min_steps" (the Go field tag) and
@@ -268,6 +276,15 @@ func LoadConfig(filePath string) (*Config, error) {
 	err = json.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err
+	}
+	// A mint that publishes a unit it does not issue must stop the router here,
+	// on every load — not only on first boot. The customer would pay in a unit
+	// the gate then refuses: value leaves and no access arrives. No pre-existing
+	// config can trip this (both unit fields empty mean sat; a mismatch needs an
+	// explicitly configured custom unit), so refusing cannot break a working
+	// router.
+	if err := config.ValidateAdvertisedUnitsForConfig(); err != nil {
+		return nil, fmt.Errorf("config %s advertises a unit it does not issue: %w", filePath, err)
 	}
 	return &config, nil
 }
@@ -580,6 +597,19 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		log.Printf("WARNING: Invalid profit_share, resetting to defaults: %v", profitShareErr)
 		config.ProfitShare = defaultConfig.ProfitShare
 	}
+	// A custom-unit mint priced with a step_size from another unit gives away
+	// access on every sale (unit "mb" with the bytes default 22020096 sold 21x
+	// the access for the same money in the 2026-10 CDK integration). Warn
+	// rather than refuse: the router must keep serving customers who already
+	// paid, but the operator has to see this in logread.
+	if err := config.ValidateUnitPricingForConfig(); err != nil {
+		log.Printf("WARNING: unit/step_size mismatch — this router is mispricing access: %v", err)
+	}
+	// A mint that publishes a unit it does not issue is a different class: the
+	// customer pays in a unit the gate then refuses, so value leaves and no
+	// access arrives. Enforced in LoadConfig, which every boot goes through; the
+	// step_size check above stays a warning because over-granting is survivable
+	// and refusing to boot is not.
 	// The Cobrador defaults are opt-out, not opt-in. A field that is absent is
 	// a fresh/upgraded config that never made a choice, so it takes the new
 	// default. A field that is present (even false) is an explicit choice and
