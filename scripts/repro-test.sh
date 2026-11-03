@@ -10,7 +10,7 @@
 #
 # Env:
 #   SOURCE_DATE_EPOCH  optional override; default = HEAD commit timestamp
-#   PKG_VERSION        default = VERSION at the repository root
+#   PKG_VERSION        default = tg_version (TG_VERSION > VERSION file)
 #   TG_GIT_COMMIT      optional override; default = `git rev-parse --short
 #                      HEAD` of this repository (never a placeholder, so the
 #                      stamped GitCommit matches the release lane's)
@@ -27,10 +27,6 @@ cd "$REPO_ROOT"
 
 TARGET="${1:?usage: scripts/repro-test.sh <binaries|portal|ipk|ipk-upx|apk> [arch]}"
 ARCH="${2:-x86_64}"
-# The release version comes from the repository-root VERSION file, the single
-# source of truth (see CONTRIBUTING.md). The clean-root copies below include
-# the file, so the default resolves identically in both roots.
-PKG_VERSION="${PKG_VERSION:-$(cat "$REPO_ROOT/VERSION")}"
 TG_TOOLS="${TG_TOOLS:-$HOME/.cache/tollgate-tools}"
 export TG_TOOLS
 
@@ -55,6 +51,12 @@ TG_ROOT="$REPO_ROOT"
 export TG_ROOT
 # shellcheck source=../packaging/build-env.sh
 . "$REPO_ROOT/packaging/build-env.sh"
+
+# One version knob (#941): resolve through tg_version (TG_VERSION > VERSION
+# file) ONCE here, then pin the string into both roots the way
+# SOURCE_DATE_EPOCH is pinned — the roots must build the identical version
+# whether or not the override came from the environment.
+PKG_VERSION="${PKG_VERSION:-$(tg_version)}"
 
 # GitCommit is stamped from the enclosing repository, not a placeholder: the
 # release lane stamps the same `git rev-parse --short HEAD` through the same
@@ -127,6 +129,13 @@ run_in_root() {
                 CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=${GOARM:-} GOMIPS=${GOMIPS:-} \
                   go build -C src/cmd/tollgate-cli -o "$ROOT/out/tollgate" \
                   -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
+                # The CVM daemon: third contract binary (no version ldflags —
+                # its identity travels in the CEP-6 announcement pubkey).
+                # T=binaries compares the full shipped set; the contract
+                # fence (check-build-contract.py) keeps this list honest.
+                CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=${GOARM:-} GOMIPS=${GOMIPS:-} \
+                  go build -C src/cmd/tollgate-cvm -o "$ROOT/out/tollgate-cvm" \
+                  -trimpath -buildvcs=false
                 ;;
             portal)
                 PORTAL_DIR="$ROOT/portal-src" OUTPUT_DIR="$ROOT/out-portal" \
@@ -161,7 +170,7 @@ run_in_root() {
 artifact_for() {
     ROOT="$BASE/$1"
     case "$TARGET" in
-        binaries) printf '%s\n' "$ROOT/out/tollgate-wrt" "$ROOT/out/tollgate" ;;
+        binaries) printf '%s\n' "$ROOT/out/tollgate-wrt" "$ROOT/out/tollgate" "$ROOT/out/tollgate-cvm" ;;
         portal)   printf '%s\n' "$ROOT/out-portal" ;;
         apk)      find "$ROOT/out" -name 'tollgate-wrt*.apk' -type f | sort ;;
         *)        printf '%s\n' "$ROOT/out/tollgate-wrt_${PKG_VERSION}_${ARCH}.ipk" ;;
@@ -172,7 +181,7 @@ artifact_for() {
 artifact_desc() {
     ROOT="$BASE/$1"
     case "$TARGET" in
-        binaries) printf '%s' "$ROOT/out/tollgate-wrt and $ROOT/out/tollgate" ;;
+        binaries) printf '%s' "$ROOT/out/tollgate-wrt, $ROOT/out/tollgate and $ROOT/out/tollgate-cvm" ;;
         portal)   printf '%s' "$ROOT/out-portal" ;;
         apk)      printf '%s' "$ROOT/out/tollgate-wrt*.apk" ;;
         *)        printf '%s' "$ROOT/out/tollgate-wrt_${PKG_VERSION}_${ARCH}.ipk" ;;

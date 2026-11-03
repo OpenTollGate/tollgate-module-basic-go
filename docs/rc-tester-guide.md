@@ -451,16 +451,25 @@ and quote `tollgate config get entry_ui`.
 **Confirm the mapping before you test.** Three checks, each on the router's own
 shell, agree when the flip has landed:
 
-- the marker: `cat /etc/tollgate/entry-ui-mapping` prints `board` (its content is
-  the resolved value; its existence means the mode-aware board-side writer ran);
+- the marker: `cat /etc/tollgate/entry-ui-mapping` prints `board` (its content
+  records the mapping this box applied; it is written by whichever writer
+  applied that mapping once the mode-aware admin half is installed — the
+  admin script itself, or the module's `99` when it detects the staged
+  mode-aware admin script);
 - the listeners: `uci show uhttpd | grep -E 'listen_http|listen_https'` shows
   `uhttpd.admin` on `:8080` + `:443` (the board) and `uhttpd.main` on `:8090` +
   `:8443` (LuCI);
 - the knob: `jq -r '.entry_ui' /etc/tollgate/config.json` (or
-  `tollgate config get entry_ui`) selects the mapping and defaults to `board`.
-  A router whose `entry_ui` reads `board` but whose listeners show the old
-  mapping is the torn-pair state above, not a fresh defect — re-vendor the feed
-  so both halves ship together.
+  `tollgate config get entry_ui`) selects the mapping. A fully-vendored
+  install records the default `board`; an install the captive-portal feed
+  never reached (an ipk-only deployment) records `luci` — the mapping that
+  deployment can actually back — because the daemon populates the marker-gated
+  value when it writes a default (#928), so config and listeners agree from
+  the first boot. A router whose `entry_ui` reads `board` but whose listeners
+  show the old mapping is the torn-pair state above, or a pre-#928 install
+  whose population ran after convergence — either way, not a fresh defect:
+  report both facts (the value and the measured listeners), and re-vendor the
+  feed so both halves ship together.
 
 **Admin cross-links must be HTTPS, and the board's link to LuCI is a router
 answer.** The board's header renders its "OpenWrt LuCI" cross-link only from

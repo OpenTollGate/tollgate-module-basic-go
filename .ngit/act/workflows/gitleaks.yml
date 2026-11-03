@@ -1,0 +1,34 @@
+name: gitleaks (build of record)
+
+# The ngit mirror is the build of record, so the secret scan must run
+# HERE too — not only on the GitHub side (the silent-job class of #520:
+# a check that only exists in a lane nobody watches is not a check).
+# Mirrors the OpenTollGate/.github reusable scanner's pinned binary and
+# reads the same in-repo .gitleaks.toml, so both lanes enforce one
+# config. Additive file: no release-critical workflow is touched
+# (the #712 doctrine).
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks (pinned, full history)
+        run: |
+          set -euo pipefail
+          VERSION="8.30.1"
+          curl -sSfL --retry 5 --retry-delay 5 --retry-all-errors \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks
+          CONFIG=""
+          [ -f .gitleaks.toml ] && CONFIG="--config .gitleaks.toml"
+          gitleaks git . --redact --verbose $CONFIG

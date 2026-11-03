@@ -18,6 +18,17 @@ dur=6
 
 : > "$out"
 
+# TRANSPORT: SIGNAL=1 selects the advertised-address shape (signal subflow),
+# otherwise proxy-terminated (subflow only). Both are measured with the same
+# runner so the two shapes are comparable.
+flags="subflow"
+if [ "$SIGNAL" = "1" ]; then flags="signal subflow"; fi
+echo "flags=$flags" >> "$out"
+ip mptcp endpoint flush
+ip mptcp limits set subflows 4 add_addr_accepted 4
+ip mptcp endpoint add 192.168.2.15 dev lan1 $flags
+ip mptcp endpoint add 10.2.1.122 dev phy0-sta0 $flags
+
 echo "=== MPTCP state ===" >> "$out"
 printf "enabled: " >> "$out"
 cat /proc/sys/net/mptcp/enabled >> "$out"

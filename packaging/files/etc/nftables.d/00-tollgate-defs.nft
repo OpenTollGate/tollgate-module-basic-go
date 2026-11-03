@@ -1,0 +1,11 @@
+# The interface defines every /etc/nftables.d guard resolves. This shipped
+# file is the STATIC DEFAULT (the shipped bridge names); the renderer
+# (/usr/local/bin/tollgate-nft-interfaces-render, run by 99-tollgate-setup
+# and the tollgate-wrt reload trigger) overwrites it from the router's own
+# config — nodogsplash's gatewayinterface and the module-owned private
+# bridge — so a renamed captive bridge keeps the guards matching it (#757).
+# The define must always exist: an unresolved $tg_portal_if would fail the
+# whole fw4 ruleset load, which is why the default ships rather than being
+# generated from nothing. This file sorts first; the guards follow.
+define tg_portal_if = "br-lan"
+define tg_private_if = "br-private"

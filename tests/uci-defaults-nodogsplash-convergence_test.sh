@@ -212,7 +212,7 @@ FLAG="$TMP/tollgate-setup-done"
 LOGFILE="$TMP/setup.log"
 SCRIPT_UNDER_TEST="$TMP/99-tollgate-setup"
 sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-    -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
+    -e "s|^LOGFILE=\"\${LOGFILE:-/tmp/tollgate-setup\.log}\"\$|LOGFILE=$LOGFILE|" \
     -e "s|^NDS_INIT=\"/etc/init.d/nodogsplash\"\$|NDS_INIT=\"$FAKE_INIT\"|" \
     "$ROOT/$SCRIPT" > "$SCRIPT_UNDER_TEST"
 if grep -q "^SETUP_FLAG=\"$FLAG\"\$" "$SCRIPT_UNDER_TEST" &&

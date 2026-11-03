@@ -62,6 +62,12 @@ type ServiceStatus struct {
 	ConfigOK  bool   `json:"config_ok"`
 	WalletOK  bool   `json:"wallet_ok"`
 	NetworkOK bool   `json:"network_ok"`
+	// WalletDegraded/Reason distinguish "wallet up" from "merchant present
+	// but degraded" — WalletOK alone reads true for a degraded merchant.
+	// Reason carries the classified cause (storage-mmap vs no reachable
+	// mints) so the board can show the operator the real story (#824).
+	WalletDegraded bool   `json:"wallet_degraded"`
+	WalletReason   string `json:"wallet_reason"`
 }
 
 // PrivateNetworkInfo represents private network configuration
@@ -82,6 +88,11 @@ type UpstreamNetwork struct {
 	IsTollGate             bool   `json:"is_tollgate"`
 	AdvertisedPricePerStep int    `json:"price_per_step,omitempty"` // scan-side hint; not authoritative
 	AdvertisedStepSize     int    `json:"step_size,omitempty"`
+	IsReseller             bool   `json:"is_reseller,omitempty"`
+	HasInternet            bool   `json:"has_internet,omitempty"`
+	OpenNetwork            bool   `json:"open_network,omitempty"`
+	MintURL                string `json:"mint_url,omitempty"`
+	Pubkey                 string `json:"pubkey,omitempty"` // hex-encoded signed advertisement key
 }
 
 type UpstreamSTA struct {

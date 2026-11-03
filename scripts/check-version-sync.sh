@@ -2,20 +2,28 @@
 # Enforce the single source of truth for the release version.
 #
 # VERSION, at the repository root, is the one place the release version is
-# written down. Everything else derives from it:
+# written down. Everything else derives from it — or overrides it in exactly
+# one way: TG_VERSION (packaging/build-env.sh tg_version) is the single
+# documented override knob, wired through every consumer (#941):
 #
 #   * CI (.github/workflows/build-package.yml) refuses to build a tag that
-#     disagrees with VERSION, passes VERSION's value to -ldflags through the
-#     go_ldflags helper in packaging/build-env.sh (the same helper
+#     disagrees with VERSION, derives the ldflags stamp from the tag on tag
+#     builds (from TG_VERSION on a dispatch override, else VERSION) through
+#     the go_ldflags helper in packaging/build-env.sh (the same helper
 #     scripts/repro-test.sh calls), and version-stamps the .ipk control file
 #     and the OpenWrt SDK Makefile with the tag / branch-derived
 #     package_version;
 #   * scripts/build-sdk-package.sh takes PACKAGE_VERSION from its caller (CI
-#     passes the tag) and otherwise derives it from VERSION;
+#     passes the tag) and otherwise resolves it with tg_version;
 #   * the .ipk payload staging and the SDK Makefile substitute the
 #     __TOLLGATE_VERSION__ placeholder that packaging/files/etc/uci-defaults/
 #     99-tollgate-setup carries;
-#   * packaging/local-build-ipk.sh falls back to reading VERSION itself.
+#   * packaging/local-build-ipk.sh resolves through the same tg_version
+#     helper;
+#   * every build lane asserts, post-build, that the binary's embedded
+#     version equals the version it packaged (tg_assert_version_consistency;
+#     TG_REQUIRE_VERSION_CONSISTENCY=1 makes it fail — #941, the rc5
+#     package carried a binary stamped from a lagged VERSION file).
 #
 # This script refuses to let a hand-written version literal creep back in,
 # refuses a workflow Go pin that disagrees with packaging/build-inputs.json
@@ -78,14 +86,14 @@ fi
 
 # --- 4. the local .ipk builder derives from VERSION -------------------------
 if grep -qE 'PKG_VERSION="?v[0-9]' packaging/local-build-ipk.sh; then
-    fail "packaging/local-build-ipk.sh hardcodes a version literal; it must read VERSION"
+    fail "packaging/local-build-ipk.sh hardcodes a version literal; it must resolve via tg_version"
 else
     pass "packaging/local-build-ipk.sh hardcodes no version"
 fi
-if grep -q 'cat "$REPO_ROOT/VERSION"' packaging/local-build-ipk.sh; then
-    pass "packaging/local-build-ipk.sh reads VERSION"
+if grep -q 'tg_version' packaging/local-build-ipk.sh; then
+    pass "packaging/local-build-ipk.sh resolves the version through tg_version (TG_VERSION > VERSION)"
 else
-    fail "packaging/local-build-ipk.sh no longer reads VERSION"
+    fail "packaging/local-build-ipk.sh does not call tg_version; it must not re-derive the version itself (#941)"
 fi
 if grep -q '__TOLLGATE_VERSION__' packaging/local-build-ipk.sh; then
     pass "packaging/local-build-ipk.sh substitutes the setup-script placeholder"
@@ -170,14 +178,72 @@ fi
 
 # --- 8. the SDK build helper derives from VERSION too -----------------------
 if grep -nE 'PACKAGE_VERSION="v?[0-9]' scripts/build-sdk-package.sh | grep -v '0\.0\.0-r0' | grep -q .; then
-    fail "scripts/build-sdk-package.sh hardcodes a version literal; it must default to VERSION"
+    fail "scripts/build-sdk-package.sh hardcodes a version literal; it must resolve via tg_version"
 else
     pass "scripts/build-sdk-package.sh hardcodes no version"
 fi
-if grep -q 'cat.*VERSION\|< "\$REPO_ROOT/VERSION"' scripts/build-sdk-package.sh; then
-    pass "scripts/build-sdk-package.sh falls back to VERSION"
+if grep -q 'tg_version' scripts/build-sdk-package.sh; then
+    pass "scripts/build-sdk-package.sh resolves the version through tg_version (TG_VERSION > VERSION)"
 else
-    fail "scripts/build-sdk-package.sh does not read VERSION"
+    fail "scripts/build-sdk-package.sh does not call tg_version; it must not re-derive the version itself (#941)"
+fi
+
+# --- 8b. one override knob, one resolver, one fence (#941) -------------------
+# TG_VERSION must be declared exactly once (build-env.sh's tg_version:
+# TG_VERSION > VERSION file) and consumed everywhere; the tag-derived stamp
+# and the post-build consistency fence are what keep a lagged VERSION file
+# from shipping a mis-stamped binary again (rc5 carried a rc4 stamp).
+if grep -q 'tg_version()' packaging/build-env.sh && grep -q 'TG_VERSION' packaging/build-env.sh; then
+    pass "packaging/build-env.sh owns the tg_version resolver (TG_VERSION > VERSION)"
+else
+    fail "packaging/build-env.sh no longer defines tg_version with the TG_VERSION override"
+fi
+for script in packaging/local-build-ipk.sh scripts/build-sdk-package.sh; do
+    if grep -q 'tg_assert_version_consistency' "$script"; then
+        pass "$script asserts the built binary's embedded version"
+    else
+        fail "$script lost the post-build version-consistency fence (#941)"
+    fi
+done
+if grep -q 'TG_REQUIRE_VERSION_CONSISTENCY: "1"' .github/workflows/build-package.yml \
+    && grep -q 'tg_assert_version_consistency' .github/workflows/build-package.yml; then
+    pass "build-package.yml runs the consistency fence in failing mode"
+else
+    fail "build-package.yml must run tg_assert_version_consistency with TG_REQUIRE_VERSION_CONSISTENCY=1 (#941)"
+fi
+# The ngit mirror is the build of record (README): its stage-1 compile
+# shard must fence the same way — a committed "every build lane asserts"
+# claim that skips the lane releases actually come from is the drift-doc
+# class this repo fences.
+if grep -q 'TG_REQUIRE_VERSION_CONSISTENCY: "1"' .ngit/act/workflows/build-package-binaries.yml \
+    && grep -q 'tg_assert_version_consistency' .ngit/act/workflows/build-package-binaries.yml; then
+    pass "the ngit build-of-record lane runs the consistency fence in failing mode"
+else
+    fail ".ngit/act/workflows/build-package-binaries.yml must run tg_assert_version_consistency with TG_REQUIRE_VERSION_CONSISTENCY=1 (#941)"
+fi
+# Fence subjects derive from TARGETS, never an enumerated key copy: an
+# enumerated fence silently skips a target added later (#791 class).
+for lane in .github/workflows/build-package.yml .ngit/act/workflows/build-package-binaries.yml; do
+    if grep -qE 'for key in (arm64|armv7|mips|mipsle|amd64|riscv)' "$lane"; then
+        fail "$lane enumerates the compile keys in its fence loop; derive them from TARGETS (#791 class)"
+    else
+        pass "$lane derives its fence subjects from TARGETS"
+    fi
+done
+
+# --- 8c. tg_version is the only VERSION reader among build scripts ----------
+# Discovery by glob, never enumeration: any script under scripts/ or
+# packaging/ that still reads the VERSION file directly re-declares the
+# resolver — the per-script re-derivation is exactly what let rc5's stamp
+# lag the tag (#941). The resolver itself (packaging/build-env.sh) and this
+# fence are the only sanctioned readers.
+DIRECT_VERSION_READERS="$(grep -rln 'REPO_ROOT/VERSION' scripts/*.sh packaging/*.sh 2>/dev/null \
+    | grep -v 'scripts/check-version-sync.sh' || true)"
+if [ -z "$DIRECT_VERSION_READERS" ]; then
+    pass "no build script reads VERSION directly; build-env.sh tg_version is the only resolver"
+else
+    printf '%s\n' "$DIRECT_VERSION_READERS" >&2
+    fail "a build script reads the VERSION file directly; resolve through build-env.sh tg_version instead (#941)"
 fi
 
 # --- 9. the release documents carry the version being released --------------

@@ -63,6 +63,14 @@ func saveTokenForRecovery(token, mintURL string, originalErr error) {
 		logger.WithError(err).Error("Failed to write token to recovery file")
 		return
 	}
+	// fsync before close: these are bearer tokens whose manual recovery is
+	// the whole point of the file — an unsynced append is a token the
+	// operator can never get back after a power cut (#505 audit; the drain
+	// journal's fsync'd-append precedent).
+	if err := f.Sync(); err != nil {
+		logger.WithError(err).Error("Failed to sync token recovery file")
+		return
+	}
 
 	logger.WithFields(logrus.Fields{
 		"file": tokenRecoveryFile,

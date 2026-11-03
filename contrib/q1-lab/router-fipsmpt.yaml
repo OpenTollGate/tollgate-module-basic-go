@@ -1,0 +1,20 @@
+# FIPS test node — router side (the multi-WAN node).
+# Replace the peer npub with the VPS test node's npub (its log prints `npub:` at start).
+node:
+  identity:
+    persistent: true
+  data_dir: /tmp/fipsmpt/data
+  control_socket: /tmp/fipsmpt/run/control.sock
+tun:
+  enabled: true
+transports:
+  tcp:
+    bind_addr: "0.0.0.0:17443"
+    mptcp: true
+peers:
+  - npub: "npub1jc9zd6d0plvlwap3kynddcdnj848l58w8j6qq57esv8uscfg7nkqnv90nr"
+    alias: "vps-test"
+    addresses:
+      - transport: tcp
+        addr: "23.182.128.51:17443"
+    connect_policy: auto_connect   # REQUIRED — without this the peering layer never dials

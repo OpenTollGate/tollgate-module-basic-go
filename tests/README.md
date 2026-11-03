@@ -12,6 +12,15 @@ very different worlds — pick the right one for the job:
 | **sim** | Offline renewal-policy simulation with committed results. | [sim/](sim/) |
 | **happy-path** | Published-artifact happy-path regression suite. | [happy-path/](happy-path/) |
 
+> **Deprecated — retired pending migration, do not extend.** The hardware
+> fleet (the pytest suite in this directory) is superseded by
+> [physical-router-test-automation](https://github.com/OpenTollGate/physical-router-test-automation)
+> as the single source of truth for router testing. The file-by-file
+> migration audit, each file's PRTA equivalent, and the deletion gate live
+> in PRTA's `docs/authoritative-test-suite.md` → "Runner consolidation".
+> The files remain until every mapping row is proven green on hardware;
+> new router tests belong in PRTA, not here.
+
 The cloud-lab is the default for anything logic-level (payments, fees,
 sessions, mints); the hardware fleet is the only place router-visible
 behavior (portal, Wi-Fi, gate) is real. Before running anything on a

@@ -25,13 +25,16 @@
 #
 # See: https://github.com/OpenTollGate/tollgate-module-basic-go/issues/226
 
-# Note: assumes the shipped bridge names, br-lan and br-private. Operators who
-# rename a bridge will lose API access from it (the same assumption 31- and 32-
-# make about the captive bridge, and every other TollGate firewall rule makes).
+# Note: the bridge names resolve through 00-tollgate-defs.nft's defines
+# ($tg_portal_if = nodogsplash's gatewayinterface, $tg_private_if = the
+# module-owned private bridge), rendered from the router's own config by
+# /usr/local/bin/tollgate-nft-interfaces-render — a renamed captive bridge no
+# longer silently loses API access (#757). The shipped default defines carry
+# br-lan/br-private for a router the renderer has not run on yet.
 
 chain backend_input_firewall {
 	type filter hook input priority -1; policy accept
 
-	meta nfproto ipv4 iifname != { "br-lan", "br-private", "lo" } tcp dport 2121 counter drop
-	meta nfproto ipv6 iifname != { "br-lan", "br-private", "lo" } tcp dport 2121 counter drop
+	meta nfproto ipv4 iifname != { $tg_portal_if, $tg_private_if, "lo" } tcp dport 2121 counter drop
+	meta nfproto ipv6 iifname != { $tg_portal_if, $tg_private_if, "lo" } tcp dport 2121 counter drop
 }

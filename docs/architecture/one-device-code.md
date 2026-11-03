@@ -14,8 +14,8 @@ the router is built from it, so the three names can never disagree:
 | Identifier | Value | Writer |
 |---|---|---|
 | hostname | `tollgate-<code>` | module `setup_hostname`, installer `brandingCommands` |
-| captive SSID | `!TollGate-<code>` | module `setup_public_wifi`, installer `brandingCommands` |
-| private SSID | `<nym>-<code>` | module `setup_private_network`, installer `brandingCommands` |
+| captive SSID | `!<brand>-<suffix>` | module `setup_public_wifi`, installer `brandingCommands` |
+| private SSID | `Private-<nym>-<suffix>` | module `setup_private_network`, installer `brandingCommands` |
 | portal banner (`nodogsplash.gatewayname`) | `<captive SSID> Portal` | module `setup_nodogsplash` **and** the verify/repair convergence in `99-tollgate-setup`; installer `brandingCommands` writes `<captive SSID>` with **no** ` Portal` suffix — see "The portal banner is written by three places" below |
 
 The captive SSID carries a **leading `!`** (the #706 decoration — see "The
@@ -29,6 +29,7 @@ The store is `/etc/config/tollgate`:
 config device 'device'
 	option code 'OQ3Q'
 	option nym  'c08r4d0r'
+	option ssid_suffix 'OQ3Q'
 ```
 
 ## Context — the measured drift
@@ -76,8 +77,20 @@ non-contiguous bytes rather than spelled — the rebrand-literal gutter
 (#684/#692/#722) keeps the name out of code surfaces — so the registry lives
 in `brands.go` with a value-pinning test that re-assembles it independently.
 The definitive, brand-independent identification remains
-the vendor IE, staged behind `VendorIEDiscovery` (default off) — when that
+the vendor IE, staged behind `VendorIEDiscovery` (default on; turn it off to opt out) — when that
 wiring lands, SSID matching stays as the weak heuristic, not the gate.
+
+**The `!` sort decoration is presentation, not a discovery signal.** The module
+writes the captive SSID with a leading `!` (`!TollGate-<code>`, `!Net4sats-<code>`):
+`!` is `0x21`, so the guest network sorts first in an alphabetically ordered
+WiFi list. It is **not** part of the name or of the recognition set — routers
+already deployed carry the bare `TollGate-<code>` form and third-party clients
+match `TollGate-*`, so every reader strips **at most one** leading `!` before
+matching: the Go reader is `hasTollGateSSID` (`ssidDecoration`), the shell
+reader is `strip_ssid_decoration` (`code_from_name`, `captive_ssid_for_code`),
+and the hardware-fleet scan (`tests/conftest.py`) matches both forms. The
+**private** SSID (`Private-<nym>-<suffix>`) never carries it — guests never see
+it, and it is renamed by nothing in this change.
 
 * module: `tests/uci-defaults-device-code_test.sh`
 * installer: `branding_test.go`
@@ -89,7 +102,9 @@ wiring lands, SSID matching stays as the weak heuristic, not the gate.
 2. a **machine-shaped hostname** (`tollgate-OQ3Q`, `TollGate-OQ3Q`, or a
    whitelabel build's `<brand>-OQ3Q`) — this is what the installer has always
    written.
-3. a **machine-shaped captive SSID** (`TollGate-OQ3Q`, `tollgate-0GLK`).
+3. a **machine-shaped captive SSID** (`TollGate-OQ3Q`, `tollgate-0GLK`, or the
+   decorated `!TollGate-OQ3Q` — the sort decoration is stripped before the code
+   is read).
 4. **mint** — four characters of `[A-Z0-9]` from `/dev/urandom`, BusyBox
    `hexdump` idiom (no `od` on the target).
 
@@ -98,17 +113,40 @@ exist for routers that are already deployed: the store is empty on every one of
 them, so an upgrade adopts the code the router is *already known by* instead of
 collecting a third one. That is what heals the bench box on the next install.
 
-### The nym
+### The operator token and display suffix
 
-`<nym>` is the operator's own prefix for the private SSID (`c08r4d0r` by
-default). It is stored in the same section so both writers agree, and it is
-adopted from an existing machine-shaped private SSID, so a module deployed under
-another nym keeps it. It is used for the **private** SSID only — the captive SSID
-keeps the brand prefix (`TollGate-` / a whitelabel build's `<brand>-`), because
-reseller-mode
-upstream discovery in `src/wireless_gateway_manager` matches `"TollGate-*"`
-**case-sensitively** (`discovery_log.go`, `vendor_element_manager.go`,
-`upstream_manager.go`).
+`<nym>` is the operator token in the private SSID (`c08r4d0r` by default). It is
+stored in the same section so both writers agree, and it is adopted from an
+existing machine-shaped private SSID, so a module deployed under another nym
+keeps it. It is used for the **private** SSID only — the captive SSID keeps the
+brand prefix (`TollGate-` / a whitelabel build's `<brand>-`), because
+reseller-mode upstream discovery in `src/wireless_gateway_manager` matches the
+brand prefix **case-insensitively, with the optional `!` sort decoration
+stripped** (`discovery_log.go` `hasTollGateSSID`, `vendor_element_manager.go`,
+`upstream_manager.go`). The private SSID never carries the `!`.
+
+`c08r4d0r` is a leetspeak spelling of **cobrador**, Spanish for the person who
+collects the toll/fare — the TollGate operator. A brand build can set a
+different default token (for example `Archipelago`), and the schema field
+`private_ssid_operator` lets the operator override it. The resulting private
+SSID is `Private-<operator>-<suffix>`.
+
+`<suffix>` is the display suffix on both SSIDs. It defaults to the device code
+and is stored as `tollgate.device.ssid_suffix`, so it survives an in-place
+reinstall, an upgrade, and a sysupgrade that keeps settings. A custom suffix can
+be set through the schema field `ssid_suffix` and is written to both the guest
+and private networks. It is an explicit rename: current clients disconnect. It
+does **not** change the hostname or TLS identity, which remain tied to the
+device code.
+
+The default names are therefore:
+
+- hostname: `tollgate-<code>`
+- captive SSID: `!TollGate-<code>`
+- private SSID: `Private-c08r4d0r-<code>`
+
+A later brand build can publish `!Archipelago-<suffix>` and
+`Private-Archipelago-<suffix>` without changing the device code.
 
 ### The leading `!` on the captive SSID
 
@@ -261,7 +299,7 @@ the splash page, and three writers touch it:
 |---|---|---|
 | module full setup (`setup_nodogsplash`) | `"${GATEWAY_NAME} Portal"` | yes — the full path's `commit_all` |
 | module verify/repair convergence (reinstall of the same version) | `"${GATEWAY_NAME} Portal"` — same string | yes — committed in the block that writes it (see below) |
-| installer `brandingCommands` | `id.SSID` → `TollGate-<code>`, **no** ` Portal` suffix | yes (the installer's own `uci commit`) |
+| installer `brandingCommands` | `id.SSID` → `TollGate-<code>` (bare — no ` Portal` suffix, and no `!` sort decoration) | yes (the installer's own `uci commit`) |
 
 Both module paths now write one identical value, and the repair path **commits it
 where it writes it**: the block runs before the nodogsplash export-diff snapshot
@@ -307,9 +345,10 @@ than merely different.
 * **Already-deployed routers change names once**, on the first install that
   carries this change: the captive SSID converges on the adopted code (and on the
   `TollGate-` prefix, which the installer had been writing lowercased), and the
-  private SSID converges on `<nym>-<code>`. The paired PSK does not change, so an
-  admin device re-joins the renamed SSID with the same password. Clients see one
-  rename, not a re-key.
+  private SSID converges on `<nym>-<code>`. The captive SSID additionally gains
+  the leading `!` sort decoration (`!TollGate-<code>`); the private SSID never
+  does. The paired PSK does not change, so an admin device re-joins the renamed
+  SSID with the same password. Clients see one rename, not a re-key.
 * **The hostname is part of the identity now.** The module's hostname is
   `tollgate-<code>` instead of the constant `TollGate`, which is what makes the
   name readable at a glance (and what the installer has been writing all along).

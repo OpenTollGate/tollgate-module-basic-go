@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	gonutsclient "github.com/OpenTollGate/gonuts-tollgate/wallet/client"
@@ -343,6 +344,12 @@ type MerchantInterface interface {
 	GetBalance() uint64
 	GetBalanceByMint(mintURL string) uint64
 	GetAllMintBalances() map[string]uint64
+	// PurchaseSession processes a Cashu payment for macAddress and grants a
+	// session. macAddress must be the client identity resolved from the
+	// request socket (see clientIdentity in the API layer) — that resolution,
+	// not an NDS listing, is the presence proof on which the purchase proceeds
+	// (#582); unresolvable identities are refused by the caller before this
+	// method runs.
 	PurchaseSession(cashuToken string, macAddress string) (*nostr.Event, error)
 	GetAdvertisement() string
 	StartPayoutRoutine()
@@ -439,6 +446,11 @@ type Merchant struct {
 	// money-moving Receive deadline; zero keeps the default. Per merchant for
 	// the same -race reason as the probe seam above (#821).
 	receiveTimeout time.Duration
+	// unmeterableReportInterval overrides
+	// defaultUnmeterableReportInterval for this merchant's unmeterable-session
+	// repeats; zero keeps the default. Per merchant for the same -race reason
+	// as the probe seam above (#858).
+	unmeterableReportInterval time.Duration
 	// monitorMu guards the usage sweep's stop/done channels. They are created by
 	// startUsageSweep and closed by stopDataUsageMonitoring, which exists so a
 	// test that drives the real startup path can end the sweep it started: the
@@ -452,10 +464,64 @@ type Merchant struct {
 	monitorDone chan struct{}
 	monitorOn   bool
 
+	// payoutMu guards the payout routine's and the lightning-quote janitor's
+	// stop channels — same lifecycle discipline as the sweep's monitor fields
+	// above: the payout goroutines (one per accepted mint) and the janitor are
+	// started at construction and must die with the merchant, or a shut-down
+	// merchant keeps attempting payouts against its dead wallet and cleaning
+	// quote state nobody reads, one leaked goroutine set per downgrade/upgrade
+	// cycle (#733's family). nil = not running.
+	payoutMu    sync.Mutex
+	payoutStop  chan struct{}
+	janitorStop chan struct{}
+
 	// Session tickets (see session_ticket.go): a per-process signing key and the
 	// handle -> attachment store. Both are memory-only on purpose.
 	ticketMu sync.Mutex
 	tickets  *ticketState
+}
+
+// walletDirFor returns the directory the wallet's bbolt DB and its JSON
+// stores live in: the config directory by default, or the config directory's
+// "wallet" subdirectory when setup mounted the ext4 loop image there
+// (mmap-incapable overlays — jffs2 cannot host bbolt's shared mmap; see
+// docs/architecture/wallet-storage-mmap-incapable-overlay-decision.md).
+// The subdirectory wins ONLY when it is a mountpoint, so a plain empty
+// directory next to the config can never silently move the wallet.
+func walletDirFor(configManager *config_manager.ConfigManager) string {
+	base := filepath.Dir(configManager.ConfigFilePath)
+	walletSub := filepath.Join(base, "wallet")
+	if isMountpoint(walletSub) {
+		return walletSub
+	}
+	return base
+}
+
+// isMountpoint reports whether dir is the root of a mounted filesystem,
+// without /proc: a directory's ".." is on the same device unless a mount
+// boundary sits between them. (Inode identity is NOT the signal — a plain
+// directory and its parent always differ in inode; and a BIND mount shares
+// the source's st_dev, so it is invisible here — neither matters for the
+// one consumer: the loop-image wallet dir is ext4 on a loop device while
+// its parent sits on the overlay, which IS a device change.)
+func isMountpoint(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	parentInfo, err := os.Stat(filepath.Join(dir, ".."))
+	if err != nil {
+		return false
+	}
+	pst, ok := parentInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	return st.Dev != pst.Dev
 }
 
 func New(configManager *config_manager.ConfigManager) (MerchantInterface, error) {
@@ -472,27 +538,28 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	reachableMints := mintHealthTracker.GetReachableMintConfigs()
 	if len(reachableMints) == 0 {
 		log.Printf("WARNING: No reachable mints detected. Starting in degraded mode.")
-		walletDirPath := filepath.Dir(configManager.ConfigFilePath)
+		walletDirPath := walletDirFor(configManager)
 		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		deg.SetDegradeReason("no reachable mints")
 		mintHealthTracker.StartProactiveChecks()
-		mintHealthTracker.SetOnFirstReachableForDegraded(func() {
-			log.Printf("Mint became reachable — attempting to upgrade from degraded mode")
-			if err := deg.Shutdown(); err != nil {
-				log.Printf("ERROR: Failed to shutdown degraded wallet before upgrade: %v", err)
-			}
-			fullMerchant, err := newFullMerchant(configManager, mintHealthTracker)
-			if err != nil {
-				log.Printf("ERROR: Failed to upgrade from degraded mode: %v", err)
-				return
-			}
-			if deg.onUpgrade != nil {
-				deg.onUpgrade(fullMerchant)
-			}
-		})
+		deg.WireRecoveryTrigger()
 		return deg, nil
 	}
 
 	return newFullMerchant(configManager, mintHealthTracker)
+}
+
+// walletLockBootError decides the boot consequence of a wallet-open failure
+// for the single-writer invariant (#504): a database lock held by another
+// process fails the boot with an operator-actionable message — degrading
+// instead would put a second, wallet-less daemon behind the same config, and
+// the socket-steal race makes that daemon the one the CLI talks to. Any other
+// construction failure keeps the established degraded-mode behavior.
+func walletLockBootError(walletErr error) error {
+	if !errors.Is(walletErr, tollwallet.ErrWalletLocked) {
+		return nil
+	}
+	return fmt.Errorf("another process holds the wallet database — stop the other wallet holder (daemon or sidecar) before starting tollgate-wrt: %w", walletErr)
 }
 
 func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTracker *MintHealthTracker) (MerchantInterface, error) {
@@ -523,30 +590,33 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	}
 
 	log.Printf("Setting up wallet...")
-	walletDirPath := filepath.Dir(configManager.ConfigFilePath)
+	walletDirPath := walletDirFor(configManager)
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
 	}
 	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false, mintUnits)
 
 	if walletErr != nil {
-		log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
+		if bootErr := walletLockBootError(walletErr); bootErr != nil {
+			return nil, bootErr
+		}
+		if tollwallet.IsStorageMmapUnsupported(walletErr) {
+			log.Printf("WARNING: Wallet initialization failed — storage filesystem does not support shared mmap (jffs2 overlay?): %v — the wallet can never initialize on this filesystem; move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)", walletErr)
+		} else {
+			log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
+		}
 		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		// Honest reason: the mints may all be reachable — this is the
+		// #583/#1035 class where "no reachable mints" pointed triage at
+		// the network for days while the wallet was the broken half.
+		deg.SetDegradeReason(fmt.Sprintf("wallet initialization failed: %v", walletErr))
 		mintHealthTracker.StartProactiveChecks()
-		mintHealthTracker.SetOnFirstReachableForDegraded(func() {
-			log.Printf("Mint became reachable — attempting to upgrade from degraded mode")
-			if err := deg.Shutdown(); err != nil {
-				log.Printf("ERROR: Failed to shutdown degraded wallet before upgrade: %v", err)
-			}
-			fullMerchant, err := newFullMerchant(configManager, mintHealthTracker)
-			if err != nil {
-				log.Printf("ERROR: Failed to upgrade from degraded mode: %v", err)
-				return
-			}
-			if deg.onUpgrade != nil {
-				deg.onUpgrade(fullMerchant)
-			}
-		})
+		// The first-reachable trigger alone is a one-shot latch: it fires
+		// once, and when the wallet error is persistent the attempt fails
+		// and nothing ever fires again. WireRecoveryTrigger also arms the
+		// bounded wallet retry loop, which re-attempts while mints are
+		// reachable.
+		deg.WireRecoveryTrigger()
 		return deg, nil
 	}
 	balance := tw.GetBalance()
@@ -587,6 +657,15 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 }
 
 func (m *Merchant) Shutdown() error {
+	// A shut-down merchant must not leave its background work running: the
+	// runtime downgrade path (full -> degraded) Shuts the old merchant down,
+	// and before this the usage sweep it started at construction kept
+	// ticking forever — metering stale sessions and running client-list
+	// reconciliations through ndsctl on a router nobody is attending, one
+	// leaked goroutine per downgrade/upgrade cycle (#733's flake family is
+	// the test-visible face of this). Nil-safe when monitoring never ran.
+	m.stopDataUsageMonitoring()
+	m.stopPayoutAndJanitor()
 	return m.tollwallet.Shutdown()
 }
 
@@ -792,12 +871,16 @@ type unmeteredSession struct {
 	lastCloseAbandoned   bool
 }
 
-// unmeterableSessionReportInterval is how often the module repeats the state of a
-// session it can neither meter nor close. The sweep runs every 2 s, so without
-// this the module wrote an ERROR — and the close failure under it — on every
-// sweep for as long as NoDogSplash refused (the bench log's "has been unreadable
-// for 39 sweeps"). A var so tests can shrink it.
-var unmeterableSessionReportInterval = time.Minute
+// defaultUnmeterableReportInterval is how often the module repeats the state
+// of a session it can neither meter nor close. The sweep runs every 2 s, so
+// without this the module wrote an ERROR — and the close failure under it —
+// on every sweep for as long as NoDogSplash refused (the bench log's "has
+// been unreadable for 39 sweeps"). It is the zero-value default of
+// Merchant.unmeterableReportInterval — per merchant, like the Receive
+// deadline seam, because this one was a package-level var once too, and the
+// same -race discipline applies: the read runs on the sweep goroutine while
+// a harness write would race it (#858).
+const defaultUnmeterableReportInterval = time.Minute
 
 // unmeteredStateLocked returns the bookkeeping of mac, creating it on first use.
 // Caller must hold unmeteredMu.
@@ -856,7 +939,11 @@ func (m *Merchant) noteUnmeterableCloseFailure(macAddress string, closeErr error
 	state := m.unmeteredStateLocked(macAddress)
 	escalate = !state.forceCloseEscalated
 	changed = !escalate && abandoned != state.lastCloseAbandoned
-	repeat = escalate || now.Sub(state.lastForceCloseReport) >= unmeterableSessionReportInterval
+	reportInterval := m.unmeterableReportInterval
+	if reportInterval <= 0 {
+		reportInterval = defaultUnmeterableReportInterval
+	}
+	repeat = escalate || now.Sub(state.lastForceCloseReport) >= reportInterval
 
 	if escalate {
 		state.forceCloseEscalated = true
@@ -1032,7 +1119,7 @@ func (m *Merchant) establishBaseline(macAddress string) {
 // The REPORTING of that state is bounded, because the sweep runs every 2 s: the
 // force-close is escalated once, a change of state (the close being abandoned, or
 // coming back) is reported at once, and the same state repeating is reported at
-// most once per unmeterableSessionReportInterval. Before this, one session NoDogSplash
+// most once per unmeterableReportInterval. Before this, one session NoDogSplash
 // would not deauthorize wrote two ERROR lines every second for ever, which is how
 // the bench log's real escalation ("has been unreadable for 39 sweeps") became
 // unreadable itself.
@@ -1050,8 +1137,12 @@ func (m *Merchant) closeUnmeterableSession(macAddress string, usageErr error) {
 
 		switch {
 		case escalate:
+			reportInterval := m.unmeterableReportInterval
+			if reportInterval <= 0 {
+				reportInterval = defaultUnmeterableReportInterval
+			}
 			log.Printf("ERROR: the usage of the bytes session of %s has been unreadable for %d sweeps (%v): the session cannot be metered, so its gate is closed rather than left open unmetered (escalated once: the session stays TRACKED until the close is confirmed, and this state is repeated at most every %s — a change of state is reported at once)",
-				macAddress, sweeps, usageErr, unmeterableSessionReportInterval)
+				macAddress, sweeps, usageErr, reportInterval)
 			log.Printf("ERROR: could not close the gate of the unmeterable session of %s: %v — the session is retained and %s (unconfirmed gate closes=%d)",
 				macAddress, err, closeRetryStateClause(err), valve.GateCloseFailures())
 		case changed:
@@ -1347,13 +1438,25 @@ func (m *Merchant) reconcileStaleBinding(macAddress string) {
 func (m *Merchant) StartPayoutRoutine() {
 	log.Printf("Starting payout routine")
 
+	m.payoutMu.Lock()
+	if m.payoutStop == nil {
+		m.payoutStop = make(chan struct{})
+	}
+	payoutStop := m.payoutStop
+	m.payoutMu.Unlock()
+
 	for _, mint := range m.config.AcceptedMints {
 		go func(mintConfig config_manager.MintConfig) {
 			ticker := time.NewTicker(1 * time.Minute)
 			defer ticker.Stop()
 
-			for range ticker.C {
-				m.runPayoutForMint(mintConfig)
+			for {
+				select {
+				case <-payoutStop:
+					return
+				case <-ticker.C:
+					m.runPayoutForMint(mintConfig)
+				}
 			}
 		}(mint)
 	}
@@ -1361,6 +1464,24 @@ func (m *Merchant) StartPayoutRoutine() {
 	m.mintHealthTracker.StartProactiveChecks()
 
 	log.Printf("Payout routine started")
+}
+
+// stopPayoutAndJanitor ends the payout routine's and the lightning-quote
+// janitor's goroutines (one shared stop channel each). Idempotent and nil-safe
+// when neither was started; called from Shutdown so a merchant that is shut
+// down stops attempting payouts against its dead wallet.
+func (m *Merchant) stopPayoutAndJanitor() {
+	m.payoutMu.Lock()
+	payoutStop, janitorStop := m.payoutStop, m.janitorStop
+	m.payoutStop, m.janitorStop = nil, nil
+	m.payoutMu.Unlock()
+
+	if payoutStop != nil {
+		close(payoutStop)
+	}
+	if janitorStop != nil {
+		close(janitorStop)
+	}
 }
 
 // runPayoutForMint runs one payout pass for one mint, or does nothing when the
@@ -1517,7 +1638,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Validate MAC address
 	if !utils.ValidateMACAddress(macAddress) {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "invalid-mac-address",
-			fmt.Sprintf("Invalid MAC address: %s", macAddress), macAddress)
+			fmt.Sprintf("Invalid MAC address: %s", ""), "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("invalid MAC address and failed to create notice: %w", noticeErr)
 		}
@@ -1528,7 +1649,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	paymentCashuToken, err := m.tollwallet.DecodeToken(cashuToken)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-invalid-token",
-			fmt.Sprintf("Invalid cashu token: %v", err), macAddress)
+			fmt.Sprintf("Invalid cashu token: %v", err), "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("invalid cashu token and failed to create notice: %w", noticeErr)
 		}
@@ -1545,7 +1666,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			msg := fmt.Sprintf(
 				"This e-cash note is %d sat but mint %s charges a %d sat swap fee, so there is nothing left to spend. Use a larger token or a mint without fees.",
 				amount, paymentCashuToken.Mint(), fee)
-			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-below-swap-fee", msg, macAddress)
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-below-swap-fee", msg, "")
 			if noticeErr != nil {
 				return nil, fmt.Errorf("token below swap fee and failed to create notice: %w", noticeErr)
 			}
@@ -1553,32 +1674,30 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		}
 	}
 
-	// Pre-flight of issue #403 L1: a payment whose MAC NDS does not know cannot
-	// have its gate opened, so accepting it would consume the customer's token
-	// with no session and no refund path.
+	// The pre-Receive identity gate (#403 L1, relaxed by #582): a payment
+	// whose client cannot be identified is refused earlier, at the API layer,
+	// with `device-unresolved` — by the time execution reaches here, the MAC
+	// came through the socket-identity contract (DHCP lease or ARP entry,
+	// resolved from the request's source IP), so the device is demonstrably
+	// present on this network. NDS *listing* the client is no longer a
+	// precondition for a first purchase: the classes the old refusal caught —
+	// wired LAN-side hosts NoDogSplash never intercepts, direct API payments
+	// that never rendered the portal, NDS entries that lapsed between portal
+	// load and payment — are present, paying, clients, and telling them to
+	// "reconnect to the TollGate Wi-Fi" was a dead end (#582).
 	//
-	// A returning customer is the exception, and the reason this pre-flight used
-	// to block every renewal: once the session ran out we deauthorised the MAC,
-	// and NDS then reports it as not listed — so the next purchase was refused
-	// before Receive with `client-not-registered` ("No captive-portal session
-	// found for this device. Reconnect to the TollGate Wi-Fi and try again."),
-	// the exact "disconnect and reconnect" the portal showed. But a MAC with an
-	// active session, or one that expired here, is a device we know: the client
-	// is demonstrably present (it just submitted a token through the captive
-	// portal) and the valve's bounded auth retry is what re-registers it. So the
-	// renewal proceeds and the gate-open decides.
-	//
-	// Residual risk, unchanged in kind from #403: if NDS genuinely cannot
-	// re-authorise the client after the valve's retries, the token has been
-	// received and grantSessionAccess rolls the session back. That exposure is
-	// deliberate — a hard refusal here guarantees no renewal can ever work.
-	if !m.sessionIsRenewal(macAddress) && !m.clientRegisteredForGate(macAddress) {
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "client-not-registered",
-			"No captive-portal session found for this device. Reconnect to the TollGate Wi-Fi and try again.", macAddress)
-		if noticeErr != nil {
-			return nil, fmt.Errorf("client not registered and failed to create notice: %w", noticeErr)
-		}
-		return noticeEvent, nil
+	// What still protects the customer is what already protected renewals
+	// (same evidence, same machinery): the valve's bounded auth retry performs
+	// the just-in-time registration, and if the gate genuinely cannot open
+	// after Receive, grantSessionAccess rolls the session back and the durable
+	// owed-grant store records the entitlement — the customer is told access
+	// will start automatically, never to pay again.
+	if !m.sessionIsRenewal(macAddress) {
+		// A returning customer's registration is re-established by the valve
+		// at grant time; a first-time client waits here, bounded, only to let
+		// NoDogSplash's asynchronous client registration (the reseller flow)
+		// catch up before the money moves — the verdict does not refuse.
+		m.awaitClientRegistration(macAddress)
 	}
 
 	log.Printf("PurchaseSession: calling Receive for mint=%s token_amount=%d mac=%s", paymentCashuToken.Mint(), paymentCashuToken.Amount(), macAddress)
@@ -1595,7 +1714,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	if !m.beginReceive(reference) {
 		log.Printf("PurchaseSession: refusing concurrent duplicate of an in-flight note for mac=%s reference=%s — no second Receive was sent to the mint", macAddress, reference)
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-duplicate-inflight",
-			"This e-cash note is already being processed by this TollGate. Do not send it again — if the mint has taken it, a second attempt will be refused as already spent. Reload this page in a couple of minutes.", macAddress)
+			"This e-cash note is already being processed by this TollGate. Do not send it again — if the mint has taken it, a second attempt will be refused as already spent. Reload this page in a couple of minutes.", "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("duplicate in-flight note and failed to create notice: %w", noticeErr)
 		}
@@ -1626,7 +1745,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 						// refuse without a second Receive — the mint may have
 						// taken the note on the first attempt.
 						noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-outcome-unknown",
-							"This e-cash note was already submitted to this TollGate and its outcome is still being verified. Do not send it again. Reload this page in a couple of minutes.", macAddress)
+							"This e-cash note was already submitted to this TollGate and its outcome is still being verified. Do not send it again. Reload this page in a couple of minutes.", "")
 						if noticeErr != nil {
 							return nil, fmt.Errorf("pending-intent resubmission and failed to create notice: %w", noticeErr)
 						}
@@ -1638,7 +1757,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 				// owes or delivered service for this exact note: the honest
 				// answer is the grant-pending notice, never a second spend.
 				noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-received-grant-pending",
-					"This e-cash note was already received by this TollGate. Do not pay again — if access has not started yet, it will begin automatically (reload in a minute).", macAddress)
+					"This e-cash note was already received by this TollGate. Do not pay again — if access has not started yet, it will begin automatically (reload in a minute).", "")
 				if noticeErr != nil {
 					return nil, fmt.Errorf("resolved-intent resubmission and failed to create notice: %w", noticeErr)
 				}
@@ -1709,7 +1828,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		if reference != "" {
 			message += fmt.Sprintf(" If access does not start, show the operator this reference: %s.", reference)
 		}
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-outcome-unknown", message, macAddress)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-outcome-unknown", message, "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("payment outcome unknown and failed to create notice: %w", noticeErr)
 		}
@@ -1786,7 +1905,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			errorMessage = fmt.Sprintf("Payment processing failed: %v", err)
 		}
 
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode, errorMessage, macAddress)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", errorCode, errorMessage, "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("payment processing failed and failed to create notice: %w", noticeErr)
 		}
@@ -1804,7 +1923,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	allotment, err := m.calculateAllotmentForUnit(amountAfterSwap, paymentCashuToken.Unit(), mintURL)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-error",
-			fmt.Sprintf("Failed to calculate allotment: %v", err), macAddress)
+			fmt.Sprintf("Failed to calculate allotment: %v", err), "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("failed to calculate allotment and failed to create notice: %w", noticeErr)
 		}
@@ -1826,7 +1945,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		if reference == "" {
 			message = "Your payment was received, but this TollGate could not open your access just now (the portal manager did not answer). Your access will start automatically — you do NOT need to pay again. Reload this page in a minute."
 		}
-		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-received-grant-pending", message, macAddress)
+		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-received-grant-pending", message, "")
 		if noticeErr != nil {
 			return nil, fmt.Errorf("failed to manage session and failed to create notice: %w", noticeErr)
 		}
@@ -1891,6 +2010,10 @@ func isBelowSwapFeeError(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "nothing to swap") ||
 		strings.Contains(msg, "no outputs provided") ||
+		// gonuts-tollgate v0.13.1's belt check (#752): a swap that reached
+		// zero outputs through any path is refused before the mint is
+		// asked — same fee-vs-value family, same clean notice.
+		strings.Contains(msg, "produced no outputs") ||
 		strings.Contains(msg, "swap fees")
 }
 
@@ -2318,7 +2441,12 @@ func (m *Merchant) extractAllotment(sessionEvent *nostr.Event) (uint64, error) {
 	return 0, fmt.Errorf("no allotment tag found in session event")
 }
 
-// CreateNoticeEvent creates a notice event for error communication
+// CreateNoticeEvent creates a notice event for error communication.
+//
+// customerPubkey, when non-empty, MUST be a Nostr pubkey (64 hex chars,
+// tollgate#26): never a MAC or any other device identifier (#950). Values
+// that are not pubkeys are dropped, never emitted — the error message must
+// still reach the customer, but not on a spec-invalid envelope.
 func createNoticeEvent(configManager *config_manager.ConfigManager, level, code, message, customerPubkey string) (*nostr.Event, error) {
 	identities := configManager.GetIdentities()
 	if identities == nil {
@@ -2343,13 +2471,29 @@ func createNoticeEvent(configManager *config_manager.ConfigManager, level, code,
 		Content: message,
 	}
 	if customerPubkey != "" {
-		noticeEvent.Tags = append(noticeEvent.Tags, nostr.Tag{"p", customerPubkey})
+		if !isValidNostrPubkey(customerPubkey) {
+			log.Printf("notice p tag dropped: customerPubkey is not a Nostr pubkey (len=%d, code=%s) — device identifiers must never occupy p (#950)", len(customerPubkey), code)
+		} else {
+			noticeEvent.Tags = append(noticeEvent.Tags, nostr.Tag{"p", customerPubkey})
+		}
 	}
 	err = noticeEvent.Sign(merchantIdentity.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign notice event: %w", err)
 	}
 	return noticeEvent, nil
+}
+
+func isValidNostrPubkey(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Merchant) CreateNoticeEvent(level, code, message, customerPubkey string) (*nostr.Event, error) {
@@ -2644,30 +2788,33 @@ func (m *Merchant) setClientProbe(probe func(string) (valve.ClientState, error),
 	m.clientProbe, m.clientProbeDelay = probe, delay
 }
 
-// clientRegisteredForGate is the pre-Receive pre-flight of issue #403: a
-// payment whose MAC NDS does not know cannot have its gate opened, so
-// accepting it would consume the customer's token with no session and no
-// refund path. Probe errors fail open — a broken probe must not become a
-// payment denial of service.
-func (m *Merchant) clientRegisteredForGate(macAddress string) bool {
+// awaitClientRegistration is the bounded identity wait the payment path makes
+// before a first purchase: NoDogSplash registers clients asynchronously (the
+// reseller flow), so a not-yet-listed MAC is re-probed, not refused on first
+// sight. Since #582 the verdict no longer gates the payment — the MAC reached
+// the merchant through the socket-identity contract, so the client is
+// demonstrably present and the valve's bounded auth retry performs the
+// just-in-time registration at grant time. Probe errors return immediately
+// (fail open, as before): a broken probe must not become a payment denial of
+// service, and there is no longer a refusal it could inform either.
+func (m *Merchant) awaitClientRegistration(macAddress string) {
 	probe, retryDelay := m.clientProbeSeam()
 	for attempt := 1; attempt <= preflightProbeAttempts; attempt++ {
 		state, err := probe(macAddress)
 		if err != nil {
-			log.Printf("PurchaseSession pre-flight: NDS probe error, failing open (attempt %d): %v", attempt, err)
-			return true
+			log.Printf("PurchaseSession pre-flight: NDS probe error, continuing on the payment's presence proof (attempt %d): %v", attempt, err)
+			return
 		}
 		if state.Registered {
-			return true
+			return
 		}
 		if attempt < preflightProbeAttempts {
 			time.Sleep(retryDelay)
 		}
 	}
 
-	log.Printf("PurchaseSession pre-flight: MAC %s not registered in NDS after %d probes; refusing payment before Receive",
+	log.Printf("PurchaseSession pre-flight: MAC %s not registered in NDS after %d probes; proceeding on the payment's presence proof (#582) — the valve auth retry registers at grant time",
 		macAddress, preflightProbeAttempts)
-	return false
 }
 
 // AddAllotment adds allotment to a customer session, creating it if it doesn't

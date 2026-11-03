@@ -86,13 +86,17 @@ func LoadIdentities(filePath string) (*IdentitiesConfig, error) {
 	return &identitiesConfig, nil
 }
 
-// SaveIdentities saves identities.json.
+// SaveIdentities saves identities.json durably (writeFileDurably: temp +
+// fsync + rename): identities.json carries the Nostr signing key and the
+// operator's payout Lightning addresses, and a torn write here routes the
+// loader into backup-and-factory-defaults — a silent identity swap plus a
+// misaddressed payout target (#505 audit).
 func SaveIdentities(filePath string, identitiesConfig *IdentitiesConfig) error {
 	data, err := json.MarshalIndent(identitiesConfig, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filePath, data, 0600)
+	return writeFileDurably(filePath, data)
 }
 
 // EnsureDefaultIdentities ensures a default identities.json exists, loading from file if present.

@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -25,21 +27,27 @@ type ResellerModeChecker interface {
 }
 
 type UpstreamManager struct {
-	connector            ConnectorInterface
-	scanner              ScannerInterface
-	reseller             ResellerModeChecker
-	config               UpstreamManagerConfig
-	stopChan             chan struct{}
-	pauseMu              sync.Mutex
-	pauseUntil           time.Time
-	blacklist            map[string]time.Time
-	blacklistMu          sync.Mutex
-	failMu               sync.Mutex
-	consecutiveFails     int
-	cooldownUntil        time.Time
-	connectivityCheckFn  func() bool
-	connectivityProbeFn  func() ConnectivityResult
-	isTollGateConnection bool
+	connector           ConnectorInterface
+	scanner             ScannerInterface
+	reseller            ResellerModeChecker
+	config              UpstreamManagerConfig
+	stopChan            chan struct{}
+	pauseMu             sync.Mutex
+	pauseUntil          time.Time
+	blacklist           map[string]time.Time
+	blacklistMu         sync.Mutex
+	failMu              sync.Mutex
+	consecutiveFails    int
+	cooldownUntil       time.Time
+	connectivityCheckFn func() bool
+	connectivityProbeFn func() ConnectivityResult
+	// fallbackVerifyFn overrides the post-switch route+connectivity check for
+	// the manual "stop peering" fallback. Tests use it; production leaves it nil.
+	fallbackVerifyFn func() bool
+	// #880: written by concurrent verifyPostSwitchConnectivity
+	// goroutines (overlapping scan cycles spawn one per switch), read by
+	// the Start loop — no shared lock, hence atomic.
+	isTollGateConnection atomic.Bool
 	DiscoveryLog         *DiscoveryLogger
 }
 
@@ -198,6 +206,14 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 			"signal": candidate.Signal,
 		}).Info("Startup check: candidate found, switching")
 
+		// Same pause discipline as the main loop's switch: a manual
+		// upstream operation may have started while this startup scan
+		// was in flight — decline rather than race it (#880).
+		if um.isPaused() {
+			logger.Info("Startup check: declining switch, connectivity checks paused (manual upstream operation in flight)")
+			break
+		}
+
 		if err := um.connector.SwitchUpstream(activeSTA.Name, candidate.IfaceName, candidate.SSID, candidate.BSSID); err != nil {
 			logger.WithError(err).Warn("Startup check: switch failed")
 			um.recordSwitchFailure()
@@ -329,7 +345,7 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 					}
 					lostCount++
 					lostThreshold := um.config.LostThreshold
-					if um.isTollGateConnection {
+					if um.isTollGateConnection.Load() {
 						lostThreshold = um.config.TollGateLostThreshold
 					}
 					logger.WithField("lost_count", lostCount).Info("Connectivity lost")
@@ -345,6 +361,21 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 		}
 
 		if shouldScan {
+			// #880: a manual `tollgate upstream connect` parks inside
+			// SwitchUpstream for its DHCP wait with this manager paused.
+			// The pause used to gate only the lost-connectivity
+			// escalation, so a tick that read the mid-join radio as
+			// not-associated (or with no active section) still scanned
+			// and counter-switched to the disabled section the manual
+			// flow's competitor sweep (#848) had just created — the join
+			// never completed. While paused, the manager may observe but
+			// must not scan, clean up, or switch: the connect flow and
+			// the manager must not both drive the radio.
+			if um.isPaused() {
+				logger.WithField("reason", reason).Debug("Skipping scan cycle: connectivity checks paused (manual upstream operation in flight)")
+				continue
+			}
+
 			activeIface := ""
 			activeSSID := ""
 			activeBSSID := ""
@@ -529,6 +560,17 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID str
 	}
 
 	if shouldSwitch {
+		// Re-check after the scan: a manual upstream operation may have
+		// taken the pause while this cycle was scanning (scans take
+		// seconds). A cycle that started before the pause must still
+		// decline to switch once one is in force — #880.
+		if um.isPaused() {
+			logger.WithFields(logrus.Fields{
+				"ssid":   candidate.SSID,
+				"reason": reason,
+			}).Info("Declining switch: connectivity checks paused mid-cycle (manual upstream operation in flight)")
+			return
+		}
 		if err := um.connector.SwitchUpstream(activeIface, candidate.IfaceName, candidate.SSID, candidate.BSSID); err != nil {
 			logger.WithError(err).Warn("Failed to switch upstream")
 			um.recordSwitchFailure()
@@ -564,13 +606,13 @@ func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string, bssid strin
 	logger.WithField("ssid", ssid).Info("Post-switch: verifying connectivity")
 	if um.waitForDefaultRoute(30 * time.Second) {
 		if um.probeTollGateGateway(bssid) {
-			um.isTollGateConnection = true
+			um.isTollGateConnection.Store(true)
 			logger.WithField("ssid", ssid).Info("Post-switch: TollGate detected, skipping internet blacklist check")
 			return
 		}
 	}
 
-	um.isTollGateConnection = false
+	um.isTollGateConnection.Store(false)
 	result := um.probeConnectivity("")
 	if !result.OK {
 		um.blacklistUpstream(ssid, bssid)
@@ -611,6 +653,80 @@ func (um *UpstreamManager) probeTollGateGateway(bssid string) bool {
 	}
 
 	return result.Reachable && result.ResponseBytes > 0
+}
+
+// FallbackToKnownGoodNonTollGate stops peering by switching to the best
+// known, non-blacklisted, non-TollGate upstream. It verifies connectivity after
+// each switch and tries the next candidate on failure. If none passes, the
+// original peer is restored and an error is returned — the router never goes
+// silently offline because "stop peering" was pressed.
+func (um *UpstreamManager) FallbackToKnownGoodNonTollGate() (string, error) {
+	sections, err := um.connector.GetSTASections()
+	if err != nil {
+		return "", fmt.Errorf("list known upstreams: %w", err)
+	}
+	networks, _ := um.scanner.ScanAllRadios()
+	bySSID := make(map[string]NetworkInfo)
+	for _, n := range networks {
+		prev, ok := bySSID[n.SSID]
+		if !ok || n.Signal > prev.Signal {
+			bySSID[n.SSID] = n
+		}
+	}
+
+	type fallbackCandidate struct {
+		section STASection
+		net     NetworkInfo
+		signal  int
+	}
+	candidates := make([]fallbackCandidate, 0)
+	for _, section := range sections {
+		if !section.Disabled || section.SSID == "" {
+			continue
+		}
+		if hasTollGateSSID(section.SSID) || strings.HasPrefix(strings.TrimSpace(section.SSID), "Private-") {
+			continue
+		}
+		net, ok := bySSID[section.SSID]
+		if !ok {
+			net = NetworkInfo{SSID: section.SSID, Radio: section.Device, Signal: -999}
+		}
+		if um.isBlacklisted(section.SSID, net.BSSID) {
+			continue
+		}
+		candidates = append(candidates, fallbackCandidate{section: section, net: net, signal: net.Signal})
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no known good non-TollGate upstream; staying on the current peer")
+	}
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].signal > candidates[j].signal })
+
+	original, _ := um.connector.GetActiveSTA()
+	for _, candidate := range candidates {
+		activeIface := ""
+		if active, err := um.connector.GetActiveSTA(); err == nil && active != nil {
+			activeIface = active.Name
+		}
+		if err := um.connector.SwitchUpstream(activeIface, candidate.section.Name, candidate.section.SSID, candidate.net.BSSID); err != nil {
+			um.blacklistUpstream(candidate.section.SSID, candidate.net.BSSID)
+			continue
+		}
+		verified := false
+		if um.fallbackVerifyFn != nil {
+			verified = um.fallbackVerifyFn()
+		} else {
+			verified = um.waitForDefaultRoute(30*time.Second) && um.CheckConnectivity()
+		}
+		if verified {
+			return candidate.section.SSID, nil
+		}
+		um.blacklistUpstream(candidate.section.SSID, candidate.net.BSSID)
+	}
+
+	if original != nil {
+		_ = um.connector.SwitchUpstream("", original.Name, original.SSID, "")
+	}
+	return "", fmt.Errorf("no known good non-TollGate upstream passed the connectivity check; restored the current peer")
 }
 
 func (um *UpstreamManager) findCandidates(networks []NetworkInfo, isReseller bool, isEmergency bool) (*Candidate, error) {

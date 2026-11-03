@@ -17,7 +17,7 @@
 #                +umask,+timezone,+locales,+fileordering; +all for everything
 #                including build path, kernel, user/group)
 #   REPROTEST    reprotest binary (default: reprotest on PATH)
-#   PKG_VERSION  default = VERSION at the repository root
+#   PKG_VERSION  default = tg_version (TG_VERSION > VERSION file)
 #   SOURCE_DATE_EPOCH / TG_GIT_COMMIT  env-first, like scripts/repro-test.sh
 set -euo pipefail
 
@@ -40,8 +40,6 @@ command -v "$REPROTEST_BIN" >/dev/null 2>&1 || {
     exit 1
 }
 
-PKG_VERSION="${PKG_VERSION:-$(cat "$REPO_ROOT/VERSION")}"
-
 if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
     SOURCE_DATE_EPOCH="$(git -C "$REPO_ROOT" log -1 --format=%ct HEAD 2>/dev/null || true)"
     [ -n "$SOURCE_DATE_EPOCH" ] || { echo "ERROR: SOURCE_DATE_EPOCH unset and no usable git history at $REPO_ROOT" >&2; exit 1; }
@@ -49,6 +47,16 @@ if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
 fi
 TG_GIT_COMMIT="${TG_GIT_COMMIT:-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown\n')}"
 export TG_GIT_COMMIT
+
+TG_ROOT="$REPO_ROOT"
+export TG_ROOT
+# shellcheck source=../packaging/build-env.sh
+. "$REPO_ROOT/packaging/build-env.sh"
+
+# One version knob (#941): resolve like every other lane (TG_VERSION >
+# VERSION file) so the ARTIFACT name below matches what
+# local-build-ipk.sh — which resolves the same way — produces.
+PKG_VERSION="${PKG_VERSION:-$(tg_version)}"
 
 case "$TARGET" in
     ipk)
@@ -64,7 +72,10 @@ esac
 # GOCACHE/GOMODCACHE are pinned to the invoking user's real caches so the
 # variance builds stay warm and reprotest's copied trees stay small; reprotest
 # varies the environment it runs the command in, not these explicit values.
+# TG_VERSION is pinned for the same reason (#941): reprotest's hostile env
+# variations must not be able to desync the build's stamp from the artifact
+# name this script expects — both get the string resolved above.
 echo "=== reprotest variance run: target=$TARGET arch=$ARCH variations=$VARIATIONS epoch=$SOURCE_DATE_EPOCH commit=$TG_GIT_COMMIT"
 exec "$REPROTEST_BIN" --variations="$VARIATIONS" \
-    "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH TG_GIT_COMMIT=$TG_GIT_COMMIT GOCACHE=$HOME/.cache/go-build GOMODCACHE=$HOME/go/pkg/mod $BUILD_CMD" \
+    "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH TG_GIT_COMMIT=$TG_GIT_COMMIT TG_VERSION=$PKG_VERSION GOCACHE=$HOME/.cache/go-build GOMODCACHE=$HOME/go/pkg/mod $BUILD_CMD" \
     "$ARTIFACT"

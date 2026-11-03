@@ -37,7 +37,15 @@ jobs:
           go-version-file: src/go.mod
       - name: Stress (-race -count=5)
         working-directory: ${{ matrix.module }}
-        run: go test -race -count=5 -tags testenv .
+        # -timeout=45m is load-bearing: the merchant suite is ~280 s per
+        # iteration under -race, so count=5 projects ~23 min — past go
+        # test's 10m default, which panics the binary mid-soak (verified
+        # 2026-10-11: bare `go test -race -count=5 -tags testenv .` in
+        # src/merchant dies with `panic: test timed out after 10m0s`).
+        # Without this flag the nightly merchant row times out instead
+        # of soaking — its red was noise, which is how the #821/#732/
+        # #841 family stayed invisible to this lane (#852).
+        run: go test -race -count=5 -timeout=45m -tags testenv .
 
   pin-drift:
     runs-on: ubuntu-latest

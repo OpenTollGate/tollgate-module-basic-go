@@ -402,7 +402,7 @@ func (s *UpstreamSession) sendPayment(steps uint64) (uint64, error) {
 // recover, because the proof it forwarded belongs to the customer and its fate
 // is subject to reconciliation.
 func postTokenToUpstream(gatewayIP, token string) (uint64, error) {
-	url := fmt.Sprintf("http://%s:2121/", gatewayIP)
+	url := gatewayURL(gatewayIP, "2121", "")
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	req, err := http.NewRequest("POST", url, bytes.NewBufferString(token))
@@ -487,7 +487,7 @@ func triggerNdsSession(gatewayIP string) {
 		return
 	}
 
-	url := fmt.Sprintf("http://%s:80/", gatewayIP)
+	url := gatewayURL(gatewayIP, "80", "")
 	client := &http.Client{
 		Timeout:       10 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error { return nil },

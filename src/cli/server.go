@@ -2,18 +2,23 @@ package cli
 
 import (
 	"bufio"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"syscall"
+	"time"
+
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
 	"github.com/sirupsen/logrus"
-	"net"
-	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
-	"time"
 )
 
 const (
@@ -37,9 +42,35 @@ type CLIServer struct {
 	connector        wireless_gateway_manager.ConnectorInterface
 	scanner          wireless_gateway_manager.ScannerInterface
 	upstreamManager  *wireless_gateway_manager.UpstreamManager
+	peeringProvider  PeeringStatusProvider
 	startTime        time.Time
 	listener         net.Listener
-	running          bool
+	// running is read by the accept loop (another goroutine) and written
+	// by Stop — an atomic, because a plain bool here was a data race the
+	// socket-ownership tests tripped under -race (#504 audit fallout).
+	running atomic.Bool
+}
+
+// isStaleSocket reports whether a dial failure proves no daemon is serving
+// on the socket: for a unix socket that is "connection refused" (a file
+// exists but nothing accepts on it) or the file being absent. Any other
+// failure — permission denied, a timeout — leaves ownership undetermined,
+// and the caller must refuse rather than remove.
+func isStaleSocket(err error) bool {
+	if err == nil {
+		return false
+	}
+	// errors.Is unwraps the net.OpError → os.SyscallError → ENOENT chain;
+	// os.IsNotExist alone does not, and an absent socket must read as
+	// stale (nothing is listening on a file that is not there).
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	var sysErr *os.SyscallError
+	if errors.As(err, &sysErr) && sysErr.Syscall == "connect" {
+		return errors.Is(sysErr.Err, syscall.ECONNREFUSED)
+	}
+	return false
 }
 
 func NewCLIServer(configManager *config_manager.ConfigManager, merchantProvider merchant.MerchantProvider, connector wireless_gateway_manager.ConnectorInterface, scanner wireless_gateway_manager.ScannerInterface, upstreamManager *wireless_gateway_manager.UpstreamManager) *CLIServer {
@@ -53,6 +84,12 @@ func NewCLIServer(configManager *config_manager.ConfigManager, merchantProvider 
 	}
 }
 
+// SetPeeringStatusProvider wires the live upstream-session view used by the
+// admin board. It is optional: a CLI-only build still answers with no peers.
+func (s *CLIServer) SetPeeringStatusProvider(p PeeringStatusProvider) {
+	s.peeringProvider = p
+}
+
 func (s *CLIServer) manualPauseDuration() time.Duration {
 	if s.configManager == nil {
 		return 120 * time.Second
@@ -64,17 +101,59 @@ func (s *CLIServer) manualPauseDuration() time.Duration {
 	return 120 * time.Second
 }
 
+// claimSocketLock holds an exclusive flock on the sidecar lock file next
+// to the CLI socket, serializing Start's probe → remove → bind across
+// processes. Closing the returned file (or process death) drops the lock.
+func claimSocketLock(socketPath string) (*os.File, error) {
+	f, err := os.OpenFile(socketPath+".lock", os.O_CREATE|os.O_RDWR, SocketPermissions)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open the CLI socket claim lock %s: %v", socketPath+".lock", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("cannot lock the CLI socket claim lock %s: %v", socketPath+".lock", err)
+	}
+	return f, nil
+}
+
 // Start begins listening on the Unix socket
 func (s *CLIServer) Start() error {
+	socketPath := getSocketPath()
+
+	// A socket file can be leftover debris (crashed daemon) or the live
+	// surface of a RUNNING daemon. Removing it unconditionally — the old
+	// behavior — let a second daemon steal the CLI surface from a healthy
+	// first one: the file is gone, the new daemon binds its own socket, and
+	// every `tollgate` command executes against the second (wallet-less,
+	// degraded) process while the first keeps the wallet (#504). Distinguish
+	// the two cases by dialing: a daemon that answers owns the socket, and
+	// this start must refuse; a connect refusal means nothing is listening
+	// and the file is safe to reclaim. The claim lock serializes
+	// concurrent starters: the winner binds and releases; every loser then
+	// dials a live socket and refuses instead of removing it.
+	claim, err := claimSocketLock(socketPath)
+	if err != nil {
+		return err
+	}
+	defer claim.Close()
+
+	if conn, derr := net.DialTimeout("unix", socketPath, 2*time.Second); derr == nil {
+		conn.Close()
+		return fmt.Errorf("another tollgate daemon is already serving on %s — "+
+			"refusing to replace its CLI socket (stop it first)", socketPath)
+	} else if !isStaleSocket(derr) {
+		return fmt.Errorf("cannot determine ownership of existing socket %s: %v", socketPath, derr)
+	}
+
 	// Remove existing socket file if it exists
-	if err := os.Remove(getSocketPath()); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove existing socket: %v", err)
+	if rerr := os.Remove(socketPath); rerr != nil && !os.IsNotExist(rerr) {
+		return fmt.Errorf("failed to remove existing socket: %v", rerr)
 	}
 
 	// Create Unix socket listener
-	listener, err := net.Listen("unix", getSocketPath())
-	if err != nil {
-		return fmt.Errorf("failed to create Unix socket: %v", err)
+	listener, lerr := net.Listen("unix", socketPath)
+	if lerr != nil {
+		return fmt.Errorf("failed to create Unix socket: %v", lerr)
 	}
 
 	// Set socket permissions so CLI can access it
@@ -84,7 +163,7 @@ func (s *CLIServer) Start() error {
 	}
 
 	s.listener = listener
-	s.running = true
+	s.running.Store(true)
 
 	cliLogger.WithField("socket_path", getSocketPath()).Info("CLI server started")
 
@@ -96,11 +175,11 @@ func (s *CLIServer) Start() error {
 
 // Stop shuts down the CLI server
 func (s *CLIServer) Stop() error {
-	if !s.running {
+	if !s.running.Load() {
 		return nil
 	}
 
-	s.running = false
+	s.running.Store(false)
 
 	if s.listener != nil {
 		s.listener.Close()
@@ -115,10 +194,10 @@ func (s *CLIServer) Stop() error {
 
 // acceptConnections handles incoming connections
 func (s *CLIServer) acceptConnections() {
-	for s.running {
+	for s.running.Load() {
 		conn, err := s.listener.Accept()
 		if err != nil {
-			if s.running {
+			if s.running.Load() {
 				cliLogger.WithError(err).Error("Failed to accept connection")
 			}
 			continue
@@ -644,6 +723,19 @@ func (s *CLIServer) handleStatusCommand(args []string, flags map[string]string) 
 		WalletOK:  s.merchantProvider != nil && s.merchantProvider.GetMerchant() != nil,
 		NetworkOK: s.upstreamManager != nil && s.upstreamManager.CheckConnectivity(),
 	}
+	// Optional-interface assertion (#824): MerchantDegraded (and only it)
+	// carries the degraded story; a full merchant answers nothing and the
+	// defaults (false, "") hold. Assertion rather than an interface method
+	// so every MerchantInterface implementer needs no change.
+	if s.merchantProvider != nil {
+		if m := s.merchantProvider.GetMerchant(); m != nil {
+			if info, ok := m.(interface {
+				WalletDegradedInfo() (bool, string)
+			}); ok {
+				status.WalletDegraded, status.WalletReason = info.WalletDegradedInfo()
+			}
+		}
+	}
 
 	return CLIResponse{
 		Success:   true,
@@ -775,6 +867,11 @@ func (s *CLIServer) handleUpstreamScan() CLIResponse {
 			IsTollGate:             net.IsTollGate,
 			AdvertisedPricePerStep: net.AdvertisedPricePerStep,
 			AdvertisedStepSize:     net.AdvertisedStepSize,
+			IsReseller:             net.IsReseller,
+			HasInternet:            net.HasInternet,
+			OpenNetwork:            net.OpenNetwork,
+			MintURL:                net.MintURL,
+			Pubkey:                 hex.EncodeToString(net.Pubkey),
 		})
 	}
 
@@ -910,16 +1007,23 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		activeIface = activeSTA.Name
 	}
 
+	// #880: pause the auto-manager BEFORE the switch. SwitchUpstream parks
+	// for the whole DHCP wait (up to dhcp_timeout_seconds), and an unpaused
+	// fast-check tick that reads the mid-join radio as not-associated
+	// counter-switches to a disabled section — undoing both the join and
+	// the competitor sweep inside the switch (#848). The pause also covers
+	// the failure/revert path deliberately: the radio has just churned, and
+	// an immediate manager scan would race the revert the same way.
+	if s.upstreamManager != nil {
+		s.upstreamManager.PauseConnectivityChecks(s.manualPauseDuration())
+	}
+
 	if err := s.connector.SwitchUpstream(activeIface, ifaceName, ssid, bestBSSIDForSSID(networks, ssid, bestRadio)); err != nil {
 		return CLIResponse{
 			Success:   false,
 			Error:     fmt.Sprintf("Failed to connect: %v", err),
 			Timestamp: time.Now(),
 		}
-	}
-
-	if s.upstreamManager != nil {
-		s.upstreamManager.PauseConnectivityChecks(s.manualPauseDuration())
 	}
 
 	return CLIResponse{
@@ -1025,15 +1129,18 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 		activeIface = activeSTA.Name
 	}
 
+	// #880: pause the auto-manager BEFORE the switch — see the matching
+	// comment in handleUpstreamConnect. The streaming handler's DHCP wait
+	// is the window the bench timeline caught the manager switching in.
+	if s.upstreamManager != nil {
+		s.upstreamManager.PauseConnectivityChecks(s.manualPauseDuration())
+	}
+
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), "Switching upstream... waiting for DHCP")
 	if err := s.connector.SwitchUpstream(activeIface, staIface, ssid, bestBSSIDForSSID(networks, ssid, bestRadio)); err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to connect: %v", err), Timestamp: time.Now()})
 		return
-	}
-
-	if s.upstreamManager != nil {
-		s.upstreamManager.PauseConnectivityChecks(s.manualPauseDuration())
 	}
 
 	step++

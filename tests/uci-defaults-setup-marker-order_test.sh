@@ -391,6 +391,9 @@ export LOGFILE
 # "the machine-shaped SSID was ADOPTED, not re-minted" assertions below
 # meaningful: the parsers have to strip the '!' to read the code out of it, and
 # returning nothing there is exactly how a SECOND code used to be minted.
+# A router already in the field may still carry the bare TollGate-… form; the
+# reader (code_from_name) strips at most one leading '!' either way, and the
+# full path converges on the decorated DEVICE_SSID.
 GUEST_SSID="!TollGate-SEED"
 GUEST_SSID_5G="!TollGate-SEED"
 OPERATOR_KEY="Operator-Chosen-Key-01"
@@ -437,7 +440,7 @@ seed_state() {
 build_script() {
     local shipped="$1" variant="${2:-shipped}"
     sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-        -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
+        -e "s|^LOGFILE=\"\${LOGFILE:-/tmp/tollgate-setup\.log}\"\$|LOGFILE=$LOGFILE|" \
         -e "s|> */proc/sys/kernel/hostname|> $HOSTNAME_FILE|" \
         -e "s|/etc/profile|$PROFILE_FILE|g" \
         -e "s|/etc/config/nodogsplash|$NDS_CONFIG|g" \

@@ -176,3 +176,33 @@ func TestPrerequisitePackagesNamesIPFull(t *testing.T) {
 		t.Fatalf("ip-full is required for the mptcp subcommand, got: %v", pkgs)
 	}
 }
+
+// #974 defense-in-depth: LoadConfig rejects CIDR-form addresses, but
+// programmatic callers bypass it — render-time must never emit an
+// `endpoint add <addr>/<len>` the kernel would reject.
+func TestEndpointPlanNormalizesCIDRToBare(t *testing.T) {
+	c := validConfig()
+	c.Uplinks = []Uplink{
+		{Interface: "veth0a", Address: "10.0.1.1/30"},
+	}
+	plan := c.EndpointPlan()
+	if len(plan) != 1 {
+		t.Fatalf("expected 1 endpoint command, got %d: %v", len(plan), plan)
+	}
+	if !strings.Contains(plan[0], "endpoint add 10.0.1.1 dev veth0a") ||
+		strings.Contains(plan[0], "/30") {
+		t.Errorf("CIDR must render as a bare address, got: %s", plan[0])
+	}
+}
+
+func TestEndpointPlanSkipsUnparseableAddress(t *testing.T) {
+	c := validConfig()
+	c.Uplinks = []Uplink{
+		{Interface: "veth0a", Address: "bogus"},
+		{Interface: "veth1a", Address: "10.0.2.1"},
+	}
+	plan := c.EndpointPlan()
+	if len(plan) != 1 || !strings.Contains(plan[0], "10.0.2.1") {
+		t.Errorf("unparseable address must be skipped, not rendered: %v", plan)
+	}
+}

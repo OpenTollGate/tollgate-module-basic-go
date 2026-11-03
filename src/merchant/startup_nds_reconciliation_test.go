@@ -350,7 +350,13 @@ func TestStartupReconciliationIsQuietWhenNoDogSplashHoldsNobody(t *testing.T) {
 func TestStartupReconciliationReportsACloseItCouldNotConfirm(t *testing.T) {
 	ndsctl := installInheritedNdsctl(t)
 	ndsctl.setList(t, map[string]string{inheritedOrphanMAC: "Authenticated"})
+	// The close this test refuses accumulates one unconfirmed attempt per run
+	// on the valve's package-global streak state; reset to a clean gate before
+	// arming the refusal, and lift the marker before the gate cleanup's
+	// reconcile can run (LIFO), so the streak cannot outlive the test (#841).
+	resetGateState(t, ndsctl, inheritedOrphanMAC)
 	ndsctl.failDeauth(t, true)
+	t.Cleanup(func() { ndsctl.failDeauth(t, false) })
 
 	m := inheritedMerchant(t)
 	logs := captureSyncLogs(t)

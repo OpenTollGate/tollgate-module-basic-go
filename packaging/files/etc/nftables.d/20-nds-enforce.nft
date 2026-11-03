@@ -1,4 +1,8 @@
-# NDS fw4/nftables enforcement bridge
+# NDS fw4/nftables enforcement bridge — RENDERED FILE, do not edit.
+# Rendered by /usr/local/bin/tollgate-nds-preauth-render from nodogsplash's
+# uci preauthenticated_users allowlist (#754); the shipped pristine copy and
+# the renderer's empty-allowlist output are byte-identical by contract
+# (tests/contract/check-nds-preauth-nft.sh).
 #
 # NDS 5.0.2 inserts enforcement chains in ip filter FORWARD (iptables-nft).
 # On OpenWrt 24.10, fw4's inet fw4 forward chain (priority 0) accepts
@@ -14,21 +18,34 @@
 #
 # Loaded by fw4 on boot and on `fw4 reload` / `/etc/init.d/firewall reload`.
 # Survives NDS restarts (independent of NDS process lifecycle).
+#
+# THE PRE-AUTH ALLOWLIST LIVES AT THE TOP OF THIS CHAIN (#754): nodogsplash
+# compiles preauthenticated_users at priority 0, which this chain's rules
+# preempt — so the renderer injects the allowlist's accepts as the FIRST
+# rules of this chain, ahead of the pre-auth mark-drop and the terminal
+# reject. They cannot be a separate base chain at any priority: a base
+# chain's accept ends evaluation in that chain only, and this chain would
+# still drop/reject the flow afterwards (refuted live on nft 1.1.7 — see the
+# #782 review).
+#
+# The interface below resolves through 00-tollgate-defs.nft's $tg_portal_if
+# (rendered from nodogsplash's gatewayinterface by
+# tollgate-nft-interfaces-render, #757) — not a bridge-name literal.
 
 chain nds_enforce_forward {
     type filter hook forward priority -1; policy accept
 
     # Pre-authenticated clients — blocked
-    meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00010000 counter drop
+    meta nfproto ipv4 iifname $tg_portal_if meta mark & 0x00030000 == 0x00010000 counter drop
 
     # Trusted clients — allowed
-    meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00020000 counter accept
+    meta nfproto ipv4 iifname $tg_portal_if meta mark & 0x00030000 == 0x00020000 counter accept
 
     # Authenticated clients — allowed
-    meta nfproto ipv4 iifname "br-lan" meta mark & 0x00030000 == 0x00030000 counter accept
+    meta nfproto ipv4 iifname $tg_portal_if meta mark & 0x00030000 == 0x00030000 counter accept
 
     # Pre-authenticated (unmarked) traffic from LAN to non-LAN — reject
     # Portable WAN detection: works on all architectures.
     # Old hardcoded oifname { "eth0", "phy0-sta0" } only matched GL-MT3000.
-    meta nfproto ipv4 iifname "br-lan" oifname != "br-lan" counter reject with icmp type port-unreachable
+    meta nfproto ipv4 iifname $tg_portal_if oifname != $tg_portal_if counter reject with icmp type port-unreachable
 }

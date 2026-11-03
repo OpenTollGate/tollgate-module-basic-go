@@ -1,0 +1,16 @@
+# Single source of truth for this repo's gitleaks rules + allowlists.
+# Consumed by BOTH scan lanes — the GitHub workflow (.github/workflows/
+# gitleaks.yml, delegating to OpenTollGate/.github) and the ngit
+# build-of-record lane (.ngit/act/workflows/gitleaks.yml). The extend
+# header is REQUIRED: without it this file silently REPLACES the
+# default ruleset instead of adding to it (found live in two repos).
+[extend]
+useDefault = true
+
+# Allowlists go here as real findings land (test fixtures, remediated
+# historical paths). Entries suppressing generic-api-key need
+# regexTarget = "match" — the "secret" target does not apply to that
+# rule's group resolution.
+[allowlist]
+description = "tollgate-module-basic-go allowlist (empty until first triaged finding)"
+paths = []

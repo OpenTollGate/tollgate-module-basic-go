@@ -57,10 +57,13 @@ include $(INCLUDE_DIR)/package.mk
 #   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
 #     into the control file, where `Replaces` does supersede the named package.
 #
-# So: declare the daemon, never also claim to replace it. Same contract as the
-# shipping-path feed definition, net/tollgate-wrt/Makefile
-# (`DEPENDS:=+nodogsplash +jq $(GO_ARCH_DEPENDS)` today; `+ca-bundle` arrives
-# with FreedomTechFeed/packages#57, the feed-side mirror of this change).
+# So: declare the daemon, never also claim to replace it. The dependency
+# list for this recipe is declared once, in the DEPENDS below; the
+# shipping-path feed definition (net/tollgate-wrt/Makefile in
+# FreedomTechFeed/packages) owns its own list, and
+# tests/packaging/package-nodogsplash-dependency_test.sh fences this
+# module's recipes — and the artifacts they build — against drifting from
+# the contract.
 #
 # ca-bundle is the SAME class of defect, found the same way: on a GL-MT3000
 # (OpenWrt 25.12.5) installing the shipped package by hand, `wget` AND
@@ -76,7 +79,7 @@ define Package/$(PKG_NAME)
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=TollGate Basic Module
-	DEPENDS:=+nodogsplash +jq +ca-bundle
+	DEPENDS:=+nodogsplash +jq +ca-bundle +kmod-loop +kmod-fs-ext4 +e2fsprogs +losetup
 	PROVIDES:=nodogsplash-files
 	CONFLICTS:=
 	REPLACES:=base-files
@@ -184,6 +187,18 @@ wifi reload 2>/dev/null || true
 /etc/init.d/firewall reload 2>/dev/null || true
 /etc/init.d/dnsmasq restart 2>/dev/null || true
 /etc/init.d/uhttpd restart 2>/dev/null || true
+# Fail loud when the captive portal cannot serve: an aborted opkg
+# transaction can orphan-remove runtime deps and leave zero-byte husks
+# (nodogsplash binary/init — issue #109, the #93 class). Installing
+# "successfully" with a dead portal hides the damage until every
+# downstream test fails opaquely.
+if [ ! -s /usr/bin/nodogsplash ] || [ ! -s /etc/init.d/nodogsplash ]; then
+    echo "ERROR: nodogsplash binary or init script is empty (zero bytes) —" >&2
+    echo "the install transaction likely aborted and orphan-removed runtime" >&2
+    echo "deps. Run 'opkg update' and reinstall nodogsplash, then reinstall" >&2
+    echo "this package. Refusing to claim success with a dead portal." >&2
+    exit 1
+fi
 /etc/init.d/nodogsplash restart 2>/dev/null || true
 
 if [ -x /etc/init.d/tollgate-wrt ]; then
@@ -254,8 +269,10 @@ define Package/$(PKG_NAME)/install
 
 
 	$(INSTALL_DIR) $(1)/usr/local/bin
-	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/first-login-setup $(1)/usr/local/bin/
-
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nds-preauth-render $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/local/bin/tollgate-nft-interfaces-render $(1)/usr/local/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-first-login-setup $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-check-package-path $(1)/usr/bin/
 	$(INSTALL_DIR) $(1)/etc/tollgate
 	$(INSTALL_DIR) $(1)/etc/tollgate/ecash
 
@@ -274,9 +291,12 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_CONF) $(PKG_MAKEFILE_DIR)files/usr/share/rpcd/acl.d/tollgate.json $(1)/usr/share/rpcd/acl.d/
 
-	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/check_package_path $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-check-package-path $(1)/usr/bin/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-apply-ssl $(1)/usr/bin/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-remove-ssl $(1)/usr/bin/
+
+	$(INSTALL_DIR) $(1)/usr/lib/tollgate
+	$(INSTALL_DATA) $(PKG_MAKEFILE_DIR)files/usr/lib/tollgate/wallet-storage.sh $(1)/usr/lib/tollgate/
 
 	$(INSTALL_DIR) $(1)/etc/crontabs
 
@@ -308,8 +328,10 @@ FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate \
 	/usr/bin/tollgate-apply-ssl \
 	/usr/bin/tollgate-remove-ssl \
+	/usr/lib/tollgate/wallet-storage.sh \
 	/etc/init.d/tollgate-wrt \
-	/usr/local/bin/first-login-setup \
+	/usr/bin/tollgate-first-login-setup \
+	/usr/bin/tollgate-check-package-path \
 	/etc/uci-defaults/90-tollgate-captive-portal-symlink \
 	/etc/uci-defaults/99-tollgate-setup \
 	/etc/uci-defaults/999-tollgate-admin-setup \
@@ -320,6 +342,7 @@ FILES_$(PKG_NAME) += \
 	/etc/crontabs/root \
 	/lib/upgrade/keep.d/tollgate \
 	/etc/hotplug.d/iface/95-tollgate-restart \
+	/etc/nftables.d/00-tollgate-defs.nft \
 	/etc/nftables.d/20-nds-enforce.nft \
 	/etc/nftables.d/30-backend-firewall.nft \
 	/etc/nftables.d/31-admin-board-not-guest-reachable.nft \

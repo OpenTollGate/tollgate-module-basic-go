@@ -135,7 +135,7 @@ LOGFILE="$TMP/setup.log"
 export LOGFILE
 SCRIPT_UNDER_TEST="$TMP/99-tollgate-setup"
 sed -e "s|^SETUP_FLAG=\"/etc/tollgate-setup-done\"\$|SETUP_FLAG=\"$FLAG\"|" \
-    -e "s|^LOGFILE=/tmp/tollgate-setup\.log\$|LOGFILE=$LOGFILE|" \
+    -e "s|^LOGFILE=\"\${LOGFILE:-/tmp/tollgate-setup\.log}\"\$|LOGFILE=$LOGFILE|" \
     -e "s|> */proc/sys/kernel/hostname|> $TMP/kernel-hostname|" \
     -e "s|/etc/profile|$TMP/profile|g" \
     "$ROOT/$SCRIPT" > "$SCRIPT_UNDER_TEST"

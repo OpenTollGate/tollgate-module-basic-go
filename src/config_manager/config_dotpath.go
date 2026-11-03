@@ -297,7 +297,7 @@ func setFieldValue(v reflect.Value, value string) error {
 		}
 		v.SetFloat(f)
 	default:
-		return fmt.Errorf("unsupported type %s for set", v.Kind())
+		return fmt.Errorf("unsupported type %s for set — `config set` writes scalar keys only; array/object keys (e.g. accepted_mints) must be written whole via `tollgate config save <json>` (#1002 C3)", v.Kind())
 	}
 
 	return nil

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Regenerate tollgate CLI man pages (section 8) from the cobra command tree.
+# contract-exempt: generates man pages from source, never packages binaries
 #
 # The tollgate binary has a hidden `__gen-man <dir>` subcommand that walks the
 # command tree with spf13/cobra's GenManTree and writes one .8 file per command.

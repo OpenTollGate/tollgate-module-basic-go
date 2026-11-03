@@ -433,8 +433,8 @@ IPK_BUILD = """\
           install -D -m 0755 packaging/files/etc/init.d/tollgate-wrt                          "$PAYLOAD/etc/init.d/tollgate-wrt"
           install -D -m 0755 packaging/files/etc/uci-defaults/90-tollgate-captive-portal-symlink "$PAYLOAD/etc/uci-defaults/90-tollgate-captive-portal-symlink"
           install -D -m 0755 packaging/files/etc/uci-defaults/99-tollgate-setup               "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
-          install -D -m 0755 packaging/files/usr/local/bin/first-login-setup                  "$PAYLOAD/usr/local/bin/first-login-setup"
-          install -D -m 0755 packaging/files/usr/bin/check_package_path                       "$PAYLOAD/usr/bin/check_package_path"
+          install -D -m 0755 packaging/files/usr/bin/tollgate-first-login-setup              "$PAYLOAD/usr/bin/tollgate-first-login-setup"
+          install -D -m 0755 packaging/files/usr/bin/tollgate-check-package-path             "$PAYLOAD/usr/bin/tollgate-check-package-path"
           install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                      "$PAYLOAD/lib/upgrade/keep.d/tollgate"
           install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart          "$PAYLOAD/etc/hotplug.d/iface/95-tollgate-restart"
 
@@ -470,9 +470,10 @@ IPK_BUILD = """\
           #   - opkg lane (.ipk): the recipes additionally stamped `Replaces: nodogsplash`
           #     into the control file, where `Replaces` does supersede the named package.
           #
-          # So: declare the daemon, never also claim to replace it. Same contract as the
-          # shipping-path feed definition, net/tollgate-wrt/Makefile
-          # (`DEPENDS:=+nodogsplash +jq`).
+          # So: declare the daemon, never also claim to replace it. The dependency
+          # list for this lane is the DEPENDS below;
+          # tests/packaging/package-nodogsplash-dependency_test.sh fences it
+          # against divergence.
           mkdir -p artifacts
           env \\
             PKG_NAME="$PACKAGE_NAME" \\

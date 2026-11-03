@@ -20,6 +20,7 @@ import (
 	"github.com/OpenTollGate/gonuts-tollgate/crypto"
 	"github.com/OpenTollGate/gonuts-tollgate/wallet"
 	"github.com/OpenTollGate/gonuts-tollgate/wallet/client"
+	"github.com/OpenTollGate/gonuts-tollgate/wallet/storage"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lightning"
 )
 
@@ -43,6 +44,14 @@ var ErrOutcomeUnknown = errors.New("mint did not answer; the outcome is unknown"
 // cashu wallet has not been initialized (for example on a bare Merchant or in
 // degraded mode), so callers get an error instead of a nil-pointer panic.
 var ErrWalletNotInitialized = errors.New("wallet not initialized")
+
+// ErrWalletLocked is returned when the wallet database could not be opened
+// because another process still holds its file lock (the bbolt flock behind
+// the gonuts backend, held for a bounded 5 s open timeout). It is the
+// single-writer invariant's refusal path (#504): exactly one process may
+// have write access to a wallet DB, and a conflicting open must fail fast
+// with an operator-actionable message instead of degrading silently.
+var ErrWalletLocked = errors.New("wallet database is held by another process")
 
 type TollWallet struct {
 	wallet                     *wallet.Wallet
@@ -77,7 +86,31 @@ func New(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints b
 	cashuWallet, err := wallet.LoadWallet(config)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to create wallet: %w", err)
+		// The single-writer refusal must be distinguishable from every other
+		// construction failure (#504): a lock held by another process is an
+		// operator problem (stop the other wallet holder), not a degraded-
+		// mode trigger.
+		if errors.Is(err, storage.ErrDBLocked) {
+			return nil, fmt.Errorf("%w: %v", ErrWalletLocked, err)
+		}
+		// #818 self-heal: init tripped over keyset(s) the mint retired
+		// (NUT-19 "Unknown Keyset"). gonuts-tollgate already tolerates
+		// retired records on load (the fix this branch pins); this hook
+		// covers the residual class — a REACHABLE mint whose current
+		// active-keyset fetch refuses unknown-keyset (e.g. /v1/keysets
+		// lists an id neither /v1/keys nor /v1/keys/{id} will serve) —
+		// where one bounded re-fetch of the keyset set (the same NUT-02
+		// probe registerMint uses) and ONE retry of the load is enough to
+		// proceed instead of degrading. Anything else (storage errors,
+		// unreachable mint, real refusals) degrades exactly as before —
+		// the storage-degraded family (#583/#1035) is a separate slice.
+		if wallet.IsUnknownKeysetError(err) && mintServesKeysets(normalizeMintURL(acceptedMints[0]), registerMintKeysetTimeout) {
+			log.Printf("TollWallet.New: init failed on a keyset the mint no longer knows (%v) — mint reachable, re-fetching keyset set and retrying once", err)
+			cashuWallet, err = wallet.LoadWallet(config)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to create wallet: %w", err)
+		}
 	}
 
 	tw := &TollWallet{

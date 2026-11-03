@@ -89,7 +89,10 @@ is generated from
 ## Modules
 
 Source lives under [src/](src/). Go tooling runs from there
-(`cd src && go build ./...`, `cd src && go test ./...`).
+(`cd src && go build ./...`, `cd src && go test ./...`), or through
+`make test`, which runs every module's tests from any directory of any
+checkout — including git worktrees, where a root-level
+`go test ./src/...` cannot work ([#961](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/961)).
 
 | Module | Role |
 |---|---|
@@ -115,6 +118,27 @@ including the cold-cache check that catches missing `go.sum` entries, is
 ```sh
 make manual-check     # portal + all-module Go battery in a fresh module cache
 ```
+
+## Packaging downstream (OpenWrt feeds)
+
+This repository is the module; OpenWrt distribution happens through a
+feed ecosystem that consumes it. One authority per fact, pointing both
+ways:
+
+| Repo | Owns | File bugs there for |
+| --- | --- | --- |
+| **this repo** | the Go source, the release tarball, the [build contract](packaging/build-contract.json) (generated: binary set, module map, go minimum, pinned toolchain) | anything in `src/`, packaging payloads under `packaging/files/`, contract contents |
+| [`FreedomTechFeed/packages`](https://github.com/FreedomTechFeed/packages) (`net/tollgate-wrt`) | the **canonical** OpenWrt feed recipe: builds the pinned tarball via `golang-package.mk`, vendors the portal under `vendor.lock.json`, publishes per-arch | the recipe, pin bumps, portal vendoring, feed CI |
+| [`FreedomTechFeed/feed`](https://github.com/FreedomTechFeed/feed) | a **wrapper mirror** of the canonical recipe for standalone `src-git` consumers (synced by `scripts/sync-from-canonical.sh`; do not hand-edit) | nothing — re-sync from canonical |
+
+The contract is the interface between the halves: it ships inside every
+release tarball (tags and SHA pins alike), the feed's
+`test-build-contract.sh` enforces recipe↔contract parity and the feed's
+own golang against the contract's language minimum, and this repo's
+`tests/contract/check-build-contract.py` fences every carrier here to the
+same set. A bug found on either side is fixed at its owner and every
+consumer inherits — single source of truth, single source of authority,
+single source of bugs and fixes.
 
 ## Installation
 
@@ -426,17 +450,17 @@ the CLI itself.
 ## Configuration
 
 TollGate writes a default `/etc/tollgate/config.json` on first boot.
-The current schema version is **`v0.0.10`**. An abridged example:
+The current schema version is **`v0.0.11`**. An abridged example:
 
 ```json
 {
-  "config_version": "v0.0.10",
+  "config_version": "v0.0.11",
   "log_level": "info",
   "metric": "bytes",
   "step_size": 22020096,
   "margin": 0.1,
   "show_setup": true,
-  "reseller_mode": false,
+  "reseller_mode": true,
   "private_ssid": "",
   "private_key": "",
   "private_encryption": "psk2+ccmp",
@@ -495,16 +519,16 @@ Key fields:
 - **`metric`** — `"bytes"` sells data, `"milliseconds"` sells time. `step_size` is the unit.
 - **`accepted_mints[*]`** — per-mint URL, pricing, and payout thresholds. Multiple mints are supported; the first mint holding sufficient balance wins on payout.
 - **`profit_share[*]`** — each entry references an `identity` that maps to an entry in `/etc/tollgate/identities.json`; `factor` values should sum to 1.0.
-- **`reseller_mode`** — when true, this router actively purchases from an upstream TollGate and resells to its own customers.
+- **`reseller_mode`** — when true, this router actively purchases from an upstream TollGate and resells to its own customers. **On by default; set it to false to opt out.**
 - **`upstream_detector`** / **`upstream_session_manager`** — control the *client* side (buying from an upstream).
 
 `ignore_interfaces` and `only_interfaces` gate which WAN-side interfaces
 are probed. `ignore_interfaces` typically needs to list any wireless
 interfaces *the router itself serves on* to prevent self-probing.
 
-### Network settings (`v0.0.9`)
+### Network settings (`v0.0.11`)
 
-Four fields configure the router's own networks. They are **declared intent**:
+Six fields configure the router's own networks. They are **declared intent**:
 the service converges them onto the router (UCI `/etc/config/wireless` for the
 credentials, a generated `/etc/nftables.d/34-admin-access-scope.nft` for the
 scope) after every `config set`/`config save`, on `tollgate config apply`, and
@@ -512,7 +536,9 @@ at service start. All four are also on the admin board's Settings page.
 
 | Field | Values | Meaning |
 |---|---|---|
-| `private_ssid` | any SSID, ≤ 32 bytes | Name of the private (management) network, on both private radios. **Empty keeps the SSID the router minted at setup** — `<nym>-<code>`, built from your nym and the router's one stored device code, the same code that names the hostname and the captive SSID. |
+| `ssid_suffix` | 1–12 chars, or empty | Display suffix shared by the guest and private SSIDs. **Empty uses the router's stored four-character device code**, which keeps the suffix stable across reinstalls. A custom value renames both networks and disconnects current clients; the hostname and TLS identity do not change. |
+| `private_ssid_operator` | 1–32 chars, or empty | Operator token in `Private-<operator>-<suffix>`. **Empty keeps the stored token**; the shipped default is `c08r4d0r` (leetspeak for *cobrador*, Spanish for the person who collects the toll/fare). A brand build can set another default, for example `Archipelago`. |
+| `private_ssid` | any SSID, ≤ 32 bytes | Full override for the private (management) network, on both private radios. **Empty derives** `Private-<operator>-<suffix>`. A custom value is preserved. |
 | `private_key` | 8-63 characters | WPA passphrase of the private network. **Empty keeps the passphrase the router has.** Write-only: no read path ever returns it. |
 | `private_encryption` | `psk2+ccmp` (default), `psk2+tkip+ccmp`, `psk-mixed+ccmp` | Encryption mode of the private network. WPA3-SAE is not offered: the shipped `wpad` has no SAE support and selecting it would leave the management network unable to start. |
 | `admin_access` | `both` (default), `br-private`, `br-mgmt`, `loopback-only` | Which network may reach the administration surfaces — the board and LuCI, on whichever port pair `entry_ui` assigns (default `board`: the board on `:8080`/`:443`, LuCI on `:8090`/`:8443`). Since the physical LAN ports moved onto it, `br-private` is the private SSID **and the cable**. The guest network the customers pay on is **never** an administration path, whatever this says. |
@@ -534,11 +560,13 @@ Notes that matter when you change them:
 - Changing the passphrase from the router's shell
   (`tollgate network private set-password`) also updates `config.json`, so the
   two writers cannot disagree. Setting `private_ssid` to a custom name stops
-  the setup script's `<nym>-<code>` re-derivation for that SSID (a
-  machine-shaped one is re-derived from the stored code, a custom one is left
-  alone), so the applier and the setup writer agree on what you chose.
+  the setup script's `Private-<operator>-<suffix>` re-derivation for that SSID
+  (a machine-shaped one is re-derived, a custom one is left alone), so the
+  applier and the setup writer agree on what you chose. The suffix and operator
+  are stored in `/etc/config/tollgate` (`ssid_suffix`, `nym`) and survive an
+  in-place reinstall, an upgrade, and a sysupgrade that keeps settings.
 
-### Which UI answers the entry ports (v0.0.10)
+### Which UI answers the entry ports (v0.0.11)
 
 One field decides which of the two administration UIs owns the router's entry
 port pair — 8080 over plain HTTP and 443 over TLS. The field is **entry_ui**,
@@ -554,15 +582,98 @@ firewall fragment, pre-auth entry or guest-path rule moves, and setting the
 field back to luci reverts the whole change without a downgrade. All four admin
 ports stay dropped for br-lan clients in both mappings.
 
-**The flip is released in two halves and applied only when both are present.**
-The two listeners are written by two packages that install through different
-paths (the module's 99-tollgate-setup and the feed's 92-tollgate-admin-setup). A
-module-only upgrade therefore *records* board and keeps serving the legacy
-mapping, logging one WARNING that names the feed re-vendor; the release that
-vendors both halves applies it. The alternative — binding 443 on both instances
-— is not a wrong answer but a listener that fails to start, so the gate is
-deliberate. See the entry-port decision record in docs/architecture for the
-mapping table, the invariants and the release boundary.
+**Both halves ship in this package; the mapping is applied only when the
+mode-aware admin half is present.** The module's 99-tollgate-setup writes
+LuCI's listener, and the portal's mode-aware admin script ships in the same
+package as `999-tollgate-admin-setup` (staged from the pinned portal at build
+time), which writes the board's listener and runs after `99` on install and at
+boot — the fail-closed credential gate must see the credential `99` can
+establish first. Because a fresh install has no mapping marker yet (its writer
+runs after `99`), `99` detects the staged mode-aware admin script itself,
+applies `board`, and records the mapping in `/etc/tollgate/entry-ui-mapping` —
+without that, `99` would hand the entry pair to LuCI and the admin script would
+then strip it, leaving LuCI with no listener at all (#849). Against a
+pre-switch admin writer (the feed lane, or an old staged script) the module
+instead keeps serving the legacy mapping, logging one WARNING that names the
+feed re-vendor; the release that vendors both halves applies it. The
+alternative — binding 443 on both instances — is not a wrong answer but a
+listener that fails to start, so the gate is deliberate. See the entry-port
+decision record in docs/architecture for the mapping table, the invariants and
+the release boundary.
+
+### Wallet storage requirements (shared mmap)
+
+The wallet database (`/etc/tollgate/wallet.db`) is a bbolt file, and bbolt
+maps it with a **shared `mmap`** — the mapped pages *are* the database. The
+filesystem holding `wallet.db` must therefore support shared mappings:
+
+| Overlay/filesystem | Wallet works | Typical targets |
+| --- | --- | --- |
+| ext4 / f2fs / ubifs | yes | bcm27xx (SD), mediatek-filogic (NAND/UBI), x86 |
+| tmpfs | yes, but **loses funds on reboot** | never for a funded wallet |
+| **jffs2** | **no — `mmap` returns `EINVAL`** | squashfs NOR-flash combo images (ipq40xx, ath79, ramips mt76x8 class) |
+
+On a jffs2-overlay device the service still boots — config, portal, SSIDs and
+mint probes all work — but the wallet can **never** initialize, and older
+releases reported this as `no reachable mints` even while every mint answered
+200 OK ([#583](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/583)).
+Current releases say so explicitly (`wallet storage does not support shared
+mmap`) at startup and on every wallet operation.
+
+**Workaround for jffs2-only devices**: keep `wallet.db` on a small ext4 image
+mounted via loop device, with `/etc/tollgate/wallet.db` symlinked into it
+(bbolt follows symlinks; the mapping lands on the ext4 inode). Sketch:
+
+```sh
+opkg install kmod-loop e2fsprogs
+truncate -s 16M /mnt/data/wallet.img        # any mmap-capable backing location
+mkfs.ext4 -F /mnt/data/wallet.img
+losetup /dev/loop0 /mnt/data/wallet.img
+mkdir -p /mnt/wallet && mount -t ext4 /dev/loop0 /mnt/wallet
+mv /etc/tollgate/wallet.db /mnt/wallet/ 2>/dev/null || true
+ln -s /mnt/wallet/wallet.db /etc/tollgate/wallet.db
+```
+
+Make the `losetup`/`mount` pair part of the boot (e.g. a hotplug or rc.local
+script) **before** the tollgate service starts. Do not point the wallet at
+tmpfs on a funded device — a reboot would destroy the proofs and the funds
+with them. The long-term fix is the CDK/sqlite wallet lane (no shared-mmap
+dependency).
+
+### Optional multi-WAN policy intent
+
+The [multi-WAN datapath core](docs/MULTI-WAN-DATAPATH.md) adds a deterministic
+rolling measurement sampler and pure mwan3 UCI/nftables renderers. It does not
+apply configuration or execute probes; client-set population and the picker UI
+remain later integration steps.
+
+`multi_wan` is an optional configuration object. Leaving it absent preserves
+existing defaults and canonical JSON; it is not inserted by an upgrade.
+It records the policy engine, default objective, next-session change policy, mark base,
+health-check and sampling thresholds, eligibility limits, uplinks and named
+objectives. Uplinks may omit `cost` when their cost is unknown (unknown is not
+zero); objectives may provide `weight_override` keyed by uplink ID.
+
+The field definitions and editable metadata are in
+[`config_manager`](src/config_manager/config_multi_wan.go) and its
+[schema](src/config_manager/config_schema.go). Validation and policy derivation
+belong to `multi_wan`; storing this object alone does not probe links, change
+routes or firewall rules, apply UCI, or enable MPTCP. No MPTCP configuration
+block or new UI is introduced.
+
+Objectives are `cost` (cheapest comparable sats/GiB), `speed` (fastest measured
+line), and `balanced` (weights proportional to Mbit/s divided by sats/GiB).
+Both winner-takes-all modes break ties by uplink ID. Balanced rounds a
+`weight_max` budget to integers, with a best-member fallback if all round to
+zero. Flat monthly and unknown prices cannot be scored by cost or balanced;
+speed can select them, reporting a null aggregate price rather than zero.
+TollGate prices come only from the caller-supplied upstream session; locally
+configured prices are allowed only for plain uplinks. `sats_min` is normalized
+at the measured rate, `sats_mib` is multiplied by 1024, and `flat_month` is
+reported separately. Measurement aggregates must cover `sampler.window_s`.
+Overrides replace derived weights only for eligible, scoreable members.
+Validation is explicit through `multi_wan.Load`/`Validate`/`Derive`; this change
+does not wire a new policy consumer into the running router.
 
 ## SSID conventions
 
@@ -570,12 +681,18 @@ On first boot the router derives its Wi-Fi names from a single generated
 device code (see [#605](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/605)
 and `docs/architecture/one-device-code.md`).
 
-- **Public open AP** — `TollGate-XXXX`, e.g. `TollGate-9C3F`. The `XXXX` is
-  the four-character device code of `[A-Z0-9]`, minted once on first boot.
-  Both the 2.4 GHz and 5 GHz radios advertise the **same** SSID (band
+- **Public open AP** — the brand name behind a **leading exclamation mark**
+  (a sort decoration, so the guest network appears first in an alphabetically
+  ordered WiFi list), a hyphen, then the four-character device code of uppercase
+  letters and digits, minted once on first boot. The decoration is not part of
+  the name: readers treat it as optional, so already-deployed routers
+  broadcasting the bare brand-and-code form (and third-party clients matching
+  the bare brand prefix) keep working. Both the
+  2.4 GHz and 5 GHz radios advertise the **same** SSID (band
   steering), so clients are handed off between radios seamlessly.
-- **Private management AP** — `c08r4d0r-XXXX` (same `XXXX` device code as
-  the public AP), WPA2/PSK. Both radios share it. The passphrase is a
+- **Private management AP** — the same four-character device code behind the
+  default nym prefix, **no** leading exclamation mark — guests never see it, WPA2/PSK. Both
+  radios share it. The passphrase is a
   memorable `Word-Word-Word-NN` string set on first boot and preserved on
   upgrade. The `c08r4d0r` prefix is the project's generic default nym —
   every installation shares it, so it names the product rather than any
@@ -583,8 +700,8 @@ and `docs/architecture/one-device-code.md`).
   choice. [#531](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/531)
   proposed renaming this default and was closed as superseded by that
   decision.
-- **nodogsplash name** — the captive-portal gate shows
-  `TollGate-XXXX Portal` as its `gatewayname`.
+- **nodogsplash name** — the captive-portal gate shows the public SSID followed
+  by a space and `Portal` as its `gatewayname`.
 
 Branding: a whitelabel installer can pin `/etc/tollgate/brand` to `net4sats`,
 which swaps the `TollGate` prefix for that brand's name everywhere. The
@@ -592,7 +709,13 @@ public AP format is pinned by `tests/contract/check-ssid-format.sh`.
 
 ## Testing
 
-Unit tests, from the [src/](src/) directory:
+Unit tests, from any directory of any checkout (worktrees included):
+
+```sh
+make test
+```
+
+or, from the [src/](src/) directory:
 
 ```sh
 cd src && go test -tags testenv ./...
@@ -601,11 +724,15 @@ cd src && go test -tags testenv ./...
 The `testenv` build tag provisions a hermetic temp config dir so the main
 package's `init()` does not depend on `/etc/tollgate/config.json` — letting the
 suite run off-router (CI, dev machines). The tag is a no-op for subpackages.
+(`make test` passes it on every module; a bare `go test ./...` at the repo
+root runs no tests — the root guard package fails with a remedy instead, see
+[#961](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/961).)
 
 A single package:
 
 ```sh
-cd src && go test ./upstream_session_manager/...
+make test M=src/upstream_session_manager
+# or: cd src && go test ./upstream_session_manager/...
 ```
 
 End-to-end tests live in [tests/](tests/) and use pytest against real

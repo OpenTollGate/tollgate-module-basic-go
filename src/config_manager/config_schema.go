@@ -28,7 +28,7 @@ func GetConfigSchema() []FieldSchema {
 	return []FieldSchema{
 		{
 			Name: "ConfigVersion", JSONKey: "config_version", Type: "string",
-			Description: "Configuration file version", Default: "v0.0.10", Required: true, Editable: false,
+			Description: "Configuration file version", Default: "v0.0.11", Required: true, Editable: false,
 		},
 		{
 			Name: "LogLevel", JSONKey: "log_level", Type: "string",
@@ -55,7 +55,7 @@ func GetConfigSchema() []FieldSchema {
 		},
 		{
 			Name: "ResellerMode", JSONKey: "reseller_mode", Type: "bool",
-			Description: "Enable reseller mode for upstream gateway discovery", Default: false, Required: true, Editable: true,
+			Description: "Buy upstream access from a peer and resell it to customers (reseller mode). On by default; turn it off to opt out.", Default: true, Required: true, Editable: true,
 		},
 		{
 			Name: "AuthDelaySeconds", JSONKey: "auth_delay_seconds", Type: "int",
@@ -149,8 +149,20 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "PostSwitchWaitSeconds", JSONKey: "post_switch_wait_seconds", Type: "int", Description: "Seconds to wait after a switch before scoring", Default: 5, Required: true, Editable: true, Min: 1, Max: 60},
 				{Name: "DHCPTimeoutSeconds", JSONKey: "dhcp_timeout_seconds", Type: "int", Description: "Timeout for DHCP after connecting to a network", Default: 180, Required: true, Editable: true, Min: 10, Max: 600},
 				{Name: "ManualPauseSeconds", JSONKey: "manual_pause_seconds", Type: "int", Description: "Seconds to pause scanning after manual intervention", Default: 120, Required: true, Editable: true, Min: 10, Max: 600},
-				{Name: "VendorIEDiscovery", JSONKey: "vendor_ie_discovery", Type: "bool", Description: "Enable 802.11 vendor-specific IE for TollGate router-to-router discovery", Default: false, Required: false, Editable: true},
+				{Name: "VendorIEDiscovery", JSONKey: "vendor_ie_discovery", Type: "bool", Description: "Discover nearby TollGate peers through the 802.11 vendor IE. On by default; turn it off to opt out.", Default: true, Required: false, Editable: true},
 			},
+		},
+		{
+			Name: "SSIDSuffix", JSONKey: "ssid_suffix", Type: "string",
+			Description: "Suffix appended to both the guest (!<brand>-<suffix>) and private (Private-<operator>-<suffix>) SSIDs. Empty uses the router's stored four-character device code, which is the default and keeps the suffix stable across reinstalls. A custom value renames both networks and disconnects current clients; it does not change the hostname or TLS identity.",
+			Default:     "", Required: false, Editable: true,
+			MaxLength: 12,
+		},
+		{
+			Name: "PrivateSSIDOperator", JSONKey: "private_ssid_operator", Type: "string",
+			Description: "Operator token in the private SSID (Private-<operator>-<suffix>). Empty keeps the stored operator token; the default is c08r4d0r (leetspeak for cobrador, Spanish for the person who collects the toll). A brand build can set this default, and an operator can override it here. Changing it renames the private network only.",
+			Default:     "", Required: false, Editable: true,
+			MaxLength: 32,
 		},
 		{
 			Name: "PrivateSSID", JSONKey: "private_ssid", Type: "string",
@@ -177,9 +189,49 @@ func GetConfigSchema() []FieldSchema {
 		},
 		{
 			Name: "EntryUI", JSONKey: "entry_ui", Type: "string",
-			Description: "Which UI answers the router's entry ports (:8080 over HTTP and :443 over HTTPS). board = the TollGate board answers https://<hostname>.lan/ and LuCI moves to :8090/:8443 (the default); luci = LuCI answers the entry pair and the board stays on :8090/:8443, the mapping shipped before 0.6.0. The two packages that write the listeners are released separately, so a router carrying only the first half records this value and keeps serving the legacy mapping until the matching writer is installed.",
+			Description: "Which UI answers the router's entry ports (:8080 over HTTP and :443 over HTTPS). board = the TollGate board answers https://<hostname>.lan/ and LuCI moves to :8090/:8443 (the default); luci = LuCI answers the entry pair and the board stays on :8090/:8443, the mapping shipped before 0.6.0. The two packages that write the listeners are released separately, so a router carrying only the first half keeps serving the legacy mapping: a value you set is recorded as-is, and the populated default is luci until the board-side writer is installed (the marker gate, #928).",
 			Default:     "board", Required: true, Editable: true,
 			Enum: []string{"board", "luci"},
+		},
+		{
+			Name: "MultiWAN", JSONKey: "multi_wan", Type: "object", Description: "Optional multi-uplink policy intent; omission leaves existing behavior unchanged. Validation and derivation do not apply router configuration.", Editable: true,
+			Children: []FieldSchema{
+				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Enable multi-WAN policy intent.", Editable: true},
+				{Name: "Engine", JSONKey: "engine", Type: "string", Description: "Policy engine targeted by derived configuration.", Enum: []string{"mwan3", "mptcp_bond"}, Editable: true},
+				{Name: "DefaultObjective", JSONKey: "default_objective", Type: "string", Description: "ID of the default objective, referencing objectives.", Editable: true},
+				{Name: "AllowChange", JSONKey: "allow_change", Type: "string", Description: "Whether the buyer may change objective for the next session.", Enum: []string{"next_session", "never"}, Editable: true},
+				{Name: "MarkBase", JSONKey: "mark_base", Type: "string", Description: "Hexadecimal base for policy marks; validated for reserved-bit conflicts by the policy consumer.", Editable: true},
+				{Name: "HealthCheck", JSONKey: "health_check", Type: "object", Description: "Uplink reachability thresholds.", Editable: true, Children: []FieldSchema{
+					{Name: "IntervalS", JSONKey: "interval_s", Type: "int", Description: "Seconds between health checks.", Min: 1, Editable: true},
+					{Name: "Down", JSONKey: "down", Type: "int", Description: "Consecutive failed checks before declaring an uplink down.", Min: 1, Editable: true},
+					{Name: "Up", JSONKey: "up", Type: "int", Description: "Consecutive successful checks before declaring an uplink up.", Min: 1, Editable: true},
+					{Name: "TrackIPs", JSONKey: "track_ips", Type: "array", Description: "IP addresses probed to determine uplink reachability.", Editable: true},
+				}},
+				{Name: "Sampler", JSONKey: "sampler", Type: "object", Description: "Measurement sampling window.", Editable: true, Children: []FieldSchema{
+					{Name: "WindowS", JSONKey: "window_s", Type: "int", Description: "Rolling sample window in seconds.", Min: 1, Editable: true},
+					{Name: "MinSamples", JSONKey: "min_samples", Type: "int", Description: "Minimum samples needed for a measurement.", Min: 1, Editable: true},
+				}},
+				{Name: "Eligibility", JSONKey: "eligibility", Type: "object", Description: "Thresholds for uplink eligibility and policy weights.", Editable: true, Children: []FieldSchema{
+					{Name: "MinSamples", JSONKey: "min_samples", Type: "int", Description: "Minimum samples before an uplink is eligible.", Min: 1, Editable: true},
+					{Name: "MaxLossPct", JSONKey: "max_loss_pct", Type: "float64", Description: "Maximum eligible packet loss percentage.", Min: 0.0, Max: 100.0, Editable: true},
+					{Name: "WeightMax", JSONKey: "weight_max", Type: "int", Description: "Maximum normalized uplink weight.", Min: 1, Max: 256, Editable: true},
+				}},
+				{Name: "Uplinks", JSONKey: "uplinks", Type: "array", Description: "Available uplinks, identified by unique IDs.", Editable: true, Children: []FieldSchema{
+					{Name: "ID", JSONKey: "id", Type: "string", Description: "Stable unique uplink identifier.", Editable: true},
+					{Name: "Label", JSONKey: "label", Type: "string", Description: "Operator-facing uplink label.", Editable: true},
+					{Name: "Source", JSONKey: "source", Type: "string", Description: "Origin of uplink availability and cost information.", Enum: []string{"tollgate", "plain"}, Editable: true},
+					{Name: "Cost", JSONKey: "cost", Type: "object", Description: "Optional known cost; omission means unknown, not free.", Editable: true, Children: []FieldSchema{
+						{Name: "Value", JSONKey: "value", Type: "float64", Description: "Non-negative uplink cost in the declared unit.", Min: 0.0, Editable: true},
+						{Name: "Unit", JSONKey: "unit", Type: "string", Description: "Cost unit normalized at measured rate; flat_month is not comparable.", Enum: []string{"sats_gib", "sats_mib", "sats_min", "flat_month"}, Editable: true},
+					}},
+				}},
+				{Name: "Objectives", JSONKey: "objectives", Type: "array", Description: "Named policies; the default objective references one ID.", Editable: true, Children: []FieldSchema{
+					{Name: "ID", JSONKey: "id", Type: "string", Description: "Stable unique objective identifier.", Editable: true},
+					{Name: "Label", JSONKey: "label", Type: "string", Description: "Operator-facing objective label.", Editable: true},
+					{Name: "Mode", JSONKey: "mode", Type: "string", Description: "Objective policy selection mode.", Enum: []string{"balanced", "cost", "speed"}, Editable: true},
+					{Name: "WeightOverride", JSONKey: "weight_override", Type: "object", Description: "Optional map of uplink IDs to non-negative integer weights, bounded by eligibility.weight_max.", Editable: true},
+				}},
+			},
 		},
 		{
 			Name: "MPTCPBonding", JSONKey: "mptcp_bonding", Type: "object",

@@ -20,7 +20,10 @@ type Gateway struct {
 	MacAddress    string
 	GatewayIP     string
 	Session       *UpstreamSession
-	mu            sync.RWMutex
+	// portalTriggered enforces workaround TW-1's once-per-gateway-per-process
+	// invocation contract (#768); guarded by mu like Session.
+	portalTriggered bool
+	mu              sync.RWMutex
 }
 
 type UpstreamSessionManager struct {
@@ -107,6 +110,26 @@ func (c *UpstreamSessionManager) HandleGatewayConnected(interfaceName, macAddres
 			"error":   err,
 		}).Error("Failed to extract advertisement information")
 		return err
+	}
+
+	// Workaround TW-1 (#768): the upstream portal trigger fires only now —
+	// after the advertisement validated — and only once per gateway per
+	// process. Firing it from the probe path poked gateway:80 for any HTTP
+	// 200 on :2121, every 30 s detector tick, including gateways whose
+	// advertisement was then rejected (the rc1 bench-verify repro).
+	gateway.mu.Lock()
+	firstAdoption := !gateway.portalTriggered
+	gateway.portalTriggered = true
+	gateway.mu.Unlock()
+	if firstAdoption {
+		go func() {
+			if err := c.tollGateProber.TriggerCaptivePortalSession(context.Background(), gatewayIP); err != nil {
+				logger.WithFields(logrus.Fields{
+					"gateway": gatewayIP,
+					"error":   err,
+				}).Debug("Captive portal trigger failed (non-critical)")
+			}
+		}()
 	}
 
 	// Create session - it handles everything (pricing selection, payments, tracking)
@@ -264,4 +287,78 @@ func (c *UpstreamSessionManager) Stop() error {
 
 	logger.Info("UpstreamSessionManager stopped")
 	return nil
+}
+
+// PeeringStatus snapshots every tracked upstream peer session for the admin
+// board. The signed advertisement remains the authority for price and mint;
+// this is read-only presentation data.
+func (c *UpstreamSessionManager) PeeringStatus() []PeeringStatus {
+	c.mu.RLock()
+	gateways := make([]*Gateway, 0, len(c.gateways))
+	for _, gateway := range c.gateways {
+		gateways = append(gateways, gateway)
+	}
+	c.mu.RUnlock()
+
+	result := make([]PeeringStatus, 0, len(gateways))
+	for _, gateway := range gateways {
+		gateway.mu.RLock()
+		session := gateway.Session
+		gateway.mu.RUnlock()
+		if session == nil {
+			continue
+		}
+
+		session.paymentMu.Lock()
+		status := PeeringStatus{
+			GatewayIP:      gateway.GatewayIP,
+			InterfaceName:  gateway.InterfaceName,
+			TotalAllotment: session.TotalAllotment,
+			TotalSpent:     session.TotalSpent,
+			Status:         peeringSessionStatus(session.Status),
+		}
+		if session.Advertisement != nil {
+			status.Pubkey = session.Advertisement.PubKey
+		}
+		if session.AdvertisementInfo != nil {
+			status.Metric = session.AdvertisementInfo.Metric
+			status.StepSize = session.AdvertisementInfo.StepSize
+		}
+		if session.SelectedPricing != nil {
+			status.PricePerStep = session.SelectedPricing.PricePerStep
+			status.PriceUnit = session.SelectedPricing.PriceUnit
+			status.MintURL = session.SelectedPricing.MintURL
+		}
+		session.paymentMu.Unlock()
+
+		session.trackerMu.Lock()
+		if session.UsageTracker != nil {
+			status.Usage = session.UsageTracker.GetCurrentUsage()
+		}
+		session.trackerMu.Unlock()
+		if status.TotalAllotment >= status.Usage {
+			status.Remaining = status.TotalAllotment - status.Usage
+		}
+
+		bootstrap := session.BootstrapStatus()
+		status.BootstrapActive = bootstrap.Active
+		status.BootstrapPhase = string(bootstrap.Phase)
+		result = append(result, status)
+	}
+	return result
+}
+
+func peeringSessionStatus(status SessionStatus) string {
+	switch status {
+	case SessionActive:
+		return "active"
+	case SessionPaused:
+		return "paused"
+	case SessionExpired:
+		return "expired"
+	case SessionError:
+		return "error"
+	default:
+		return "unknown"
+	}
 }

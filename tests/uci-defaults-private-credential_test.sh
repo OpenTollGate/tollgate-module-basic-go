@@ -92,6 +92,18 @@ export PATH
 
 TOLLGATE_SETUP_LIB_ONLY=1 . "$ROOT/$SCRIPT" >/dev/null 2>&1 || true
 
+# The shipped script's LOGFILE default must stay overridable: an unconditional
+# assignment there silently repoints this suite's exported per-run LOGFILE at
+# the shared /tmp/tollgate-setup.log, and every suite (concurrently or not,
+# once an async writer is in play) then truncates and greps one file — the
+# flake that turned the packaging-suites lane red on main. This guard fails
+# the moment that assignment ever becomes unconditional again.
+if [ "$LOGFILE" = "$TMP/setup.log" ]; then
+    ok "the script honours the harness LOGFILE redirect"
+else
+    bad "the script clobbered the harness LOGFILE redirect (now: $LOGFILE)"
+fi
+
 state_key()   { grep -F -- 'wireless.private_radio0.key=' "$UCI_STATE" 2>/dev/null | cut -d= -f2- | tail -n1; }
 state_dis()   { grep -F -- 'wireless.private_radio0.disabled=' "$UCI_STATE" 2>/dev/null | cut -d= -f2- | tail -n1; }
 state_key1()  { grep -F -- 'wireless.private_radio1.key=' "$UCI_STATE" 2>/dev/null | cut -d= -f2- | tail -n1; }

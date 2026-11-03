@@ -1,0 +1,28 @@
+$ go test -race -count=1 -v ./...
+=== RUN   TestLockHelperProcess
+    lock_test.go:38: lock helper is driven by TestLockMutualExclusion
+--- SKIP: TestLockHelperProcess (0.00s)
+=== RUN   TestLockMutualExclusion
+--- PASS: TestLockMutualExclusion (1.49s)
+=== RUN   TestCounterKey
+--- PASS: TestCounterKey (0.00s)
+=== RUN   TestAuthTwiceExactlyOneElement
+--- PASS: TestAuthTwiceExactlyOneElement (0.03s)
+=== RUN   TestAuthInstallsOneUpOneDlRule
+--- PASS: TestAuthInstallsOneUpOneDlRule (0.01s)
+=== RUN   TestAuthAddsElementToEveryMirror
+--- PASS: TestAuthAddsElementToEveryMirror (0.00s)
+=== RUN   TestAuthWithoutSetIsAnError
+--- PASS: TestAuthWithoutSetIsAnError (0.00s)
+=== RUN   TestAuthRejectsNonIPv4
+--- PASS: TestAuthRejectsNonIPv4 (0.00s)
+=== RUN   TestCountersTruncateTowardZero
+--- PASS: TestCountersTruncateTowardZero (0.00s)
+=== RUN   TestDeauthRemovesElementRulesAndCounters
+--- PASS: TestDeauthRemovesElementRulesAndCounters (0.01s)
+=== RUN   TestDeauthUnknownClientIsNoop
+--- PASS: TestDeauthUnknownClientIsNoop (0.00s)
+=== RUN   TestParseCountersFixture
+--- PASS: TestParseCountersFixture (0.00s)
+PASS
+ok  	tollgate-ndsctl	2.578s

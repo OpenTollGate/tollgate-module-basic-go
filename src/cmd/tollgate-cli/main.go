@@ -320,6 +320,36 @@ selecting it would leave the management network unable to start.`,
 	},
 }
 
+var privateSetAddressCmd = &cobra.Command{
+	Use:   "set-address <address>[/24]",
+	Short: "Pin the private network address",
+	Long: `Set the private (management) network's IPv4 address and pin it.
+
+The address is preserved across reinstalls and upgrades instead of being
+re-derived, which is the fix for a management subnet that collides with a
+network your own laptop/phone is on (the router cannot see those). Only a
+/24 is supported; give the router's own address in it, e.g. 10.9.8.1/24.
+
+Devices connected on the old subnet — including the session this command
+runs from — must reconnect on the new one.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if jsonOutput {
+			return sendCommandRaw("network", []string{"private", "set-address", args[0]}, nil)
+		}
+
+		fmt.Println("\n⚠️  WARNING: Changing the private network address disconnects every device on the old subnet!")
+		fmt.Printf("This session may drop; the router answers on %s afterwards.\n", args[0])
+
+		if !askConfirmation("\nAre you sure you want to change the private network address") {
+			fmt.Println("Operation cancelled.")
+			return nil
+		}
+
+		return sendCommandAndDisplay("network", []string{"private", "set-address", args[0]}, nil)
+	},
+}
+
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version information",
@@ -401,6 +431,24 @@ var upstreamRemoveCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return sendCommandAndDisplay("upstream", []string{"remove-upstream", args[0]}, nil)
+	},
+}
+
+var upstreamStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show active upstream peer sessions",
+	Long:  "Show the live upstream peer session(s): gateway, mint, pricing, allotment, usage and spend.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("upstream", []string{"status"}, nil)
+	},
+}
+
+var upstreamDisconnectCmd = &cobra.Command{
+	Use:   "disconnect",
+	Short: "Stop peering and fall back to a known good non-TollGate upstream",
+	Long:  "Stop the active TollGate peer and switch to the best known good non-TollGate upstream. Refuses if no fallback passes its connectivity check, keeping the peer active.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return sendCommandAndDisplay("upstream", []string{"disconnect"}, nil)
 	},
 }
 
@@ -574,9 +622,9 @@ func init() {
 
 	drainCmd.AddCommand(drainCashuCmd)
 	walletCmd.AddCommand(drainCmd, balanceCmd, infoCmd, fundCmd, issueCmd)
-	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd, privateSetEncryptionCmd)
+	privateCmd.AddCommand(privateStatusCmd, privateEnableCmd, privateDisableCmd, privateRenameCmd, privateSetPasswordCmd, privateSetEncryptionCmd, privateSetAddressCmd)
 	networkCmd.AddCommand(privateCmd)
-	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd, upstreamKnownCmd)
+	upstreamCmd.AddCommand(upstreamScanCmd, upstreamConnectCmd, upstreamListCmd, upstreamRemoveCmd, upstreamKnownCmd, upstreamStatusCmd, upstreamDisconnectCmd)
 	configCmd.AddCommand(configGetCmd, configSetCmd, configApplyCmd, configSchemaCmd, configSaveCmd, configSaveIdentitiesCmd)
 	rootCmd.AddCommand(walletCmd, networkCmd, upstreamCmd, statusCmd, versionCmd, startCmd, stopCmd, restartCmd, logsCmd, configCmd, healthCmd)
 	rootCmd.AddCommand(genManCmd)
@@ -1082,12 +1130,25 @@ func displayMap(m map[string]interface{}, prefix string) {
 		case map[string]interface{}:
 			fmt.Printf("%s%s:\n", prefix, key)
 			displayMap(v, prefix+"  ")
+		case []interface{}:
+			fmt.Printf("%s%s:\n", prefix, key)
+			displayList(v, prefix+"  ")
 		default:
-			if strings.Contains(fmt.Sprintf("%T", v), "slice") {
-				fmt.Printf("%s%s: %v\n", prefix, key, v)
-			} else {
-				fmt.Printf("%s%s: %v\n", prefix, key, v)
-			}
+			fmt.Printf("%s%s: %v\n", prefix, key, v)
+		}
+	}
+}
+
+// displayList renders a slice value element by element instead of dumping it
+// with %v (which leaks Go map syntax for record lists such as config apply's
+// per-setting report). Map elements go through the same recursive renderer as
+// every other record; scalars print as plain list items.
+func displayList(items []interface{}, prefix string) {
+	for _, item := range items {
+		if m, ok := item.(map[string]interface{}); ok {
+			displayMap(m, prefix)
+		} else {
+			fmt.Printf("%s- %v\n", prefix, item)
 		}
 	}
 }

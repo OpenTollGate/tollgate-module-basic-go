@@ -82,20 +82,7 @@ HOST_ARTIFACT_PATH="$ARTIFACT_DIR/$ARTIFACT_SUBDIR"
 HOST_LOG_PATH="$HOST_ARTIFACT_PATH/build.log"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# VERSION at the repository root is the single source of truth for the release
-# version (see AGENTS.md, "Version single source of truth"). CI passes the tag
-# down as PACKAGE_VERSION; a local run with no override gets exactly the string
-# the release tag must equal. The 0.0.0-r0 stub is only for a tree with no
-# VERSION file (this script copied out of the repository).
-if [ -z "$PACKAGE_VERSION" ]; then
-    if [ -f "$REPO_ROOT/VERSION" ]; then
-        PACKAGE_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")"
-    else
-        PACKAGE_VERSION="0.0.0-r0"
-    fi
-fi
-STAGE_DIR="$(mktemp -d)"
-trap 'rm -rf "$STAGE_DIR"' EXIT
+STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tollgate-build.XXXXXX")"trap 'rm -rf "$STAGE_DIR"' EXIT
 
 # Reproducible-build environment: pinned SDK digest, SOURCE_DATE_EPOCH,
 # deterministic BUILD_TIME_UTC and ldflags helpers.
@@ -104,6 +91,47 @@ TG_ROOT="$REPO_ROOT"
 export TG_ROOT
 . "$REPO_ROOT/packaging/build-env.sh"
 
+# One version knob (#941): TG_VERSION overrides the ldflags stamp, the
+# package version and the __TOLLGATE_VERSION__ marker together; the
+# repository-root VERSION file is the fallback (build-env.sh tg_version).
+# PACKAGE_VERSION stays as the package-only legacy override — CI passes
+# the tag down through it — and feeds the ldflags too, so stamp and
+# package cannot diverge here; the post-build fence below asserts it.
+PACKAGE_VERSION="${PACKAGE_VERSION:-$(tg_version)}"
+# Fail-closed portal preflight: the recipe stages FIVE gitignored build
+# products (packaging/portal-build.sh header, products 1-5) that only
+# `make portal-build` produces. Building without them fails ~10 minutes
+# deep inside the SDK container with an install error naming a
+# container-internal path — so every input is verified here, first, and a
+# missing or stale bundle either gets rebuilt from the pin or aborts the
+# build naming the exact remediation (never EACCES-in-npm, never a
+# truncated-staging phantom).
+verify_portal_products() {
+    local guest="$REPO_ROOT/packaging/files/tollgate-captive-portal-site"
+    local admin="$REPO_ROOT/packaging/files/tollgate-admin"
+    local plugin="$REPO_ROOT/packaging/files/usr/libexec/rpcd/tollgate"
+    local acl="$REPO_ROOT/packaging/files/usr/share/rpcd/acl.d/tollgate.json"
+    local admin_setup="$REPO_ROOT/packaging/files/etc/uci-defaults/999-tollgate-admin-setup"
+    local stamp="$REPO_ROOT/packaging/portal-resolved.sha"
+    [ -f "$guest/splash.html" ] && [ -d "$guest/assets" ] \
+        && [ -f "$admin/index.html" ] \
+        && [ -x "$plugin" ] && [ -s "$acl" ] && [ -x "$admin_setup" ] \
+        && [ -s "$stamp" ] && [ "$(cat "$stamp")" = "$PORTAL_COMMIT" ]
+}
+
+if ! verify_portal_products; then
+    if [ "${SKIP_PORTAL_BUILD:-0}" = "1" ]; then
+        printf '%s\n' "ERROR: portal bundle missing or stale (resolved sha != pinned $PORTAL_COMMIT), and SKIP_PORTAL_BUILD=1 forbids rebuilding." >&2
+        printf '%s\n' "Run: make portal-build   (then retry; see packaging/portal-build.sh)" >&2
+        exit 1
+    fi
+    printf '%s\n' "portal bundle missing or stale — building it from the pinned tree first"
+    (cd "$REPO_ROOT" && bash packaging/portal-build.sh)
+    if ! verify_portal_products; then
+        printf '%s\n' "ERROR: portal build ran but the products still fail verification (node/npm pins? see output above)." >&2
+        exit 1
+    fi
+fi
 GO_BIN="${GO_BIN:-go}"
 ACTIVE_GO="$("$GO_BIN" version | awk '{print $3}')"
 if [ "$ACTIVE_GO" != "go$GO_VERSION" ] && [ "${TG_ALLOW_GO_MISMATCH:-0}" != "1" ]; then
@@ -152,6 +180,17 @@ printf '%s\n' 'Building target binaries locally before invoking the OpenWrt SDK.
     env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
         "$GO_BIN" build -o "$STAGE_DIR/tollgate" -trimpath -buildvcs=false -ldflags="$CLI_LDFLAGS"
 )
+(
+    cd "$REPO_ROOT/src/cmd/tollgate-cvm"
+    # No version ldflags: the CVM daemon's build identity travels in the
+    # CEP-6 announcement's pubkey, not a stamped string — same as the
+    # twin stanza in packaging/local-build-ipk.sh. The SDK Makefile refuses
+    # to build without PREBUILT_CVM staged (packaging/Makefile), and this
+    # script is the stager — missing it broke every apk-lane build since
+    # the CVM daemon landed (local-build-ipk.sh was never affected).
+    env CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOMIPS="$GOMIPS" GOARM="$GOARM" \
+        "$GO_BIN" build -o "$STAGE_DIR/tollgate-cvm" -trimpath -buildvcs=false
+)
 
 # The CVM control-plane daemon is its own module. Build it when the pinned
 # tree carries it (main does; older tags predate it), matching the feed's
@@ -166,8 +205,33 @@ if [ -d "$REPO_ROOT/src/cmd/tollgate-cvm" ]; then
     )
 fi
 
+# #941: the rc5 package shipped a binary stamped from a lagged VERSION
+# file. Assert the stamp landed — the binaries are cross-compiled, so
+# the fence reads the embedded string rather than executing them.
+tg_assert_version_consistency "$STAGE_DIR/tollgate-wrt" "$PACKAGE_VERSION"
+tg_assert_version_consistency "$STAGE_DIR/tollgate" "$PACKAGE_VERSION"
+
 cp -r "$REPO_ROOT/packaging/." "$STAGE_DIR/"
 cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/LICENSE"
+
+# Verify the staging copy landed complete: a truncated `cp -r` (full /tmp,
+# quota) previously surfaced only inside the SDK as "No rule to make
+# target 'package/tollgate-wrt/compile'" — ten minutes from its cause.
+for _required in \
+    "$STAGE_DIR/Makefile" \
+    "$STAGE_DIR/LICENSE" \
+    "$STAGE_DIR/tollgate-wrt" \
+    "$STAGE_DIR/tollgate" \
+    "$STAGE_DIR/files/etc/uci-defaults/99-tollgate-setup" \
+    "$STAGE_DIR/files/etc/uci-defaults/999-tollgate-admin-setup" \
+    "$STAGE_DIR/files/tollgate-captive-portal-site/splash.html"
+do
+    if [ ! -s "$_required" ]; then
+        printf 'ERROR: staging incomplete: %s missing or empty (disk full under %s?)\n' \
+            "${_required#"$STAGE_DIR"/}" "${TMPDIR:-/tmp}" >&2
+        exit 1
+    fi
+done
 
 # Staged source and payload mtimes feed SDK apk packaging: pin them to
 # SOURCE_DATE_EPOCH before the container reads them.

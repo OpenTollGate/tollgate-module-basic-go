@@ -28,6 +28,24 @@ for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
     fi
 done
 
+# IPv6 is disabled at INSTALL time, before the network restart below applies
+# it — the marker-driven setup driver may take a verify/repair path whose
+# policy list predates this rule, but the pre-auth bypass (#783) must close
+# the moment the package lands, not at the next full-setup pass (#148/#783).
+uci set dhcp.lan.ra='disabled'
+uci set dhcp.lan.dhcpv6='disabled'
+uci set network.lan.ip6assign='0'
+uci set network.lan.ipv6='0'
+if uci -q get network.wan >/dev/null 2>&1; then
+    uci set network.wan.ipv6='0'
+fi
+if uci -q get network.wan6 >/dev/null 2>&1; then
+    uci set network.wan6.disabled='1'
+fi
+uci commit dhcp 2>/dev/null || true
+uci commit network 2>/dev/null || true
+echo "IPv6 disabled globally at install time (captive-portal bypass prevention, #148/#783)"
+
 echo "Restarting network..."
 # A full netifd restart re-applies UCI-backed routes only. Default routes that
 # were added by hand (statically-routed bench/CI seats: no DHCP WAN, no uci
@@ -67,6 +85,18 @@ wifi reload 2>/dev/null || true
 /etc/init.d/firewall reload 2>/dev/null || true
 /etc/init.d/dnsmasq restart 2>/dev/null || true
 /etc/init.d/uhttpd restart 2>/dev/null || true
+# Fail loud when the captive portal cannot serve: an aborted opkg
+# transaction can orphan-remove runtime deps and leave zero-byte husks
+# (nodogsplash binary/init — issue #109, the #93 class). Installing
+# "successfully" with a dead portal hides the damage until every
+# downstream test fails opaquely.
+if [ ! -s /usr/bin/nodogsplash ] || [ ! -s /etc/init.d/nodogsplash ]; then
+    echo "ERROR: nodogsplash binary or init script is empty (zero bytes) —" >&2
+    echo "the install transaction likely aborted and orphan-removed runtime" >&2
+    echo "deps. Run 'opkg update' and reinstall nodogsplash, then reinstall" >&2
+    echo "this package. Refusing to claim success with a dead portal." >&2
+    exit 1
+fi
 /etc/init.d/nodogsplash restart 2>/dev/null || true
 
 if [ -x /etc/init.d/tollgate-wrt ]; then

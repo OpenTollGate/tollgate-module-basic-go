@@ -1,0 +1,90 @@
+# Count soak — the state-leak family gate (#852).
+#
+# WHY THIS LANE EXISTS: every other PR-gating Go lane runs -count=1,
+# which is structurally blind to the state-leak family — package-level
+# state in src/merchant / src/valve that outlives the test which mutated
+# it. The signature, pinned: FIRST-ITERATION-GREEN. Iteration 1 of the
+# test binary passes and later iterations fail, because -count=N re-runs
+# a package's tests inside ONE process where package vars, maps and
+# leaked goroutines persist across iterations. #821/#732/#841/#845 were
+# all found by hand soaks; #821 sat red on main for days while every
+# -count=1 lane stayed green.
+#
+# THE SPLIT — every count lane that exists after this change:
+#   - THIS lane (push + PR; ngit-ci executes it on every PR): the merge
+#     gate. Catches the deterministic members (iteration 2 fails
+#     immediately) at merge time — a red CI row instead of a three-issue
+#     investigation.
+#   - nightly-stress.yml (#697): the deep soak — merchant+valve+tollwallet
+#     at -count=5, full scope, where probabilistic members (the #845
+#     1-in-8 signature) surface over repeated runs. ngit-ci ignores
+#     `schedule:` (.ngit/README.md), so that file is manual-replay only
+#     today; THIS lane is the one that actually gates merges.
+#
+# WHY ITS OWN FILE, not a job in test.yml: ngit-ci bounds a whole act
+# invocation at 1800 s (.ngit/README.md, "Sharded stage 2") and caps a
+# job at 2 CPUs. The merchant suite measures ~300 s per iteration under
+# -race (measured 2026-10-12: count=5 = 1503 s on a 16-core host, so
+# ~20 min on the runner class is optimistic), so -count=5 cannot share
+# test.yml's invocation budget. One file = one budget, the same doctrine
+# the release shards follow.
+#
+# COUNTS, per module, from measurement (2026-10-12, clean worktree of
+# f89c879a, go1.26.8, 16-core host, warm build cache; -count!=1 disables
+# Go's test-result caching, so this lane pays full runtime on every run):
+#   src/valve    -count=5 : GREEN in 47.1 s — cheap, so it soaks deeper;
+#   src/merchant -count=2 : GREEN in 597 s (~10 min here, budget ~20 min
+#                          on a 2-CPU-capped runner) — the deterministic
+#                          members fail on iteration 2 (planted-drift
+#                          proof in the #852 PR: reverting #842's cleanup
+#                          fix makes this exact command exit 1 with the
+#                          victim failing in 0.01 s, while a -count=1 run
+#                          of the same tree stays green in 314 s);
+#                          -count=5 (measured 1503 s) is the nightly
+#                          lane's job, not the PR lane's budget.
+#
+# THE SKIP (temporary — remove when #846 lands): #845 (owed-grant
+# monitors and the late-receive recorder exec'ing ndsctl out of their
+# tests' PATH windows, probabilistic ~1-in-8) is unfixed on main while
+# its fix rides OPEN PR #846. Without the skip this lane would flake red
+# ~1-in-8 and train re-run-and-ignore. Deleting the -skip when #846
+# merges is the lane going fully red-catching — tracked in the #852 PR
+# body.
+#
+# VERIFICATION RULE for every fix in this family: the PR must include a
+# -count>=5 soak of the offender pair in its verification (the #837/#846
+# pattern), or the next member is another three-issue investigation.
+name: Count soak
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  count-soak:
+    timeout-minutes: 35
+    runs-on: ubuntu-latest
+    strategy:
+      # Both modules report even when one is red: the pair is the
+      # signal, not the first failure.
+      fail-fast: false
+      matrix:
+        include:
+          - module: src/valve
+            soak-flags: "-count=5 -timeout=10m"
+          - module: src/merchant
+            soak-flags: "-count=2 -timeout=25m -skip '^TestFirstTimePurchaseStillRefusedWhenNdsDoesNotKnowTheClient$'"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: src/go.mod
+      - name: Count soak (-race, per-module count)
+        working-directory: ${{ matrix.module }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/go-test-summary.sh" "count-soak (${{ matrix.module }})" -v -race -tags testenv ${{ matrix.soak-flags }} .

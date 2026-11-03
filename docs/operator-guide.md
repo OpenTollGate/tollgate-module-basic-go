@@ -32,13 +32,16 @@ tollgate network private enable           Turn private Wi-Fi on (2.4 + 5 GHz)
 tollgate network private disable          Turn private Wi-Fi off
 tollgate network private rename <ssid>    Change the private SSID
 tollgate network private set-password [pw] Change the private password
+tollgate network private set-address <ip>[/24] Pin the management subnet
 tollgate network private set-encryption <mode>  Change the private Wi-Fi cipher
 
 tollgate upstream scan                    Scan all radios for networks
 tollgate upstream connect <SSID> [pass]   Connect to an upstream network
 tollgate upstream list                    Show configured upstream STAs
 tollgate upstream remove <SSID>           Remove a disabled upstream STA
-tollgate upstream known                   Show discovered TollGate APs
+tollgate upstream known                   Known TollGate peers from scan history
+tollgate upstream status                  Live peer session / SAT spend
+tollgate upstream disconnect              Stop peering; fall back to a known good non-TollGate upstream
 
 tollgate config get                       Print current config + identities
 tollgate config set <key> <value>         Set one value by dot-path
@@ -160,6 +163,11 @@ logread -f
 The wallet holds Cashu ecash across one or more mints. Customers pay
 into it; the payout routine sweeps profits to configured Lightning
 addresses on a per-mint schedule.
+
+After any suspected corruption (power cut mid-operation, flash errors in
+`dmesg`, a wallet that will not initialize), run
+`tollgate wallet check` and follow
+[docs/wallet-recovery-runbook.md](wallet-recovery-runbook.md).
 
 ### Check balance
 
@@ -338,6 +346,26 @@ tollgate network private rename MyNewNetwork
 Changes the SSID on both radios and reloads wireless immediately. Any
 device currently connected to the old SSID will be disconnected.
 
+The default private SSID is `Private-c08r4d0r-<suffix>`. `c08r4d0r` is a
+leetspeak spelling of *cobrador*, Spanish for the person who collects the
+toll/fare — the TollGate operator. A brand build can set another operator
+token, for example `Private-Archipelago-<suffix>`.
+
+The suffix is shared by the guest and private SSIDs and is stable across
+reinstalls. Change it with the schema-backed setting rather than renaming each
+network by hand:
+
+```sh
+tollgate config set ssid_suffix myplace
+tollgate config set private_ssid_operator Archipelago
+```
+
+`ssid_suffix` renames both networks (`!<brand>-<suffix>` and
+`Private-<operator>-<suffix>`) and disconnects current clients. It does not
+change the router hostname or TLS identity. `private_ssid_operator` changes
+only the private SSID token. Leave either setting empty to keep the stored
+default (device code / `c08r4d0r`).
+
 ### Change the password
 
 ```sh
@@ -373,13 +401,38 @@ Supported modes:
 | `psk-mixed+ccmp` | Also accepts WPA1 clients. |
 
 WPA3-SAE is deliberately not offered: the `wpad` the router ships with has no
-SAE support, so selecting it would leave the private network unable to start —
+SAE support, so selecting it would leave the management network unable to start —
 a lockout, not a feature. An open (unencrypted) mode is refused for the same
 class of reason: the private network is how you reach the admin board, whose
 login is a root-capable login over plain HTTP on `:8080` (the entry pair the
 board owns under the default `entry_ui=board`; on `:8090` under `entry_ui=luci`,
 the pre-flip mapping — see the README's "Which UI answers the entry ports" for
 the switch and the marker that confirms which one is live).
+
+### Pin the management subnet
+
+```sh
+# give the router's own address; the /24 suffix is optional (and must be /24)
+tollgate network private set-address 10.9.8.1/24
+```
+
+The router picks the private subnet itself (normally the /24 next to the
+LAN's, e.g. `192.168.1.0/24` → `192.168.2.0/24`), and its collision checks
+can only see the networks the *router* is attached to. They cannot see the
+networks *your* other devices live on — so when your laptop is also on the
+chosen /24, both networks present the same gateway and your connectivity
+breaks. `set-address` is the fix: it moves the management network to a
+subnet you choose and **pins** it, so reinstalls and upgrades keep it
+instead of re-deriving the adjacent /24 again (a plain `uci set
+network.private.ipaddr=…` is reverted by the next full setup; the pin is
+not).
+
+The address is stored in `/etc/config/tollgate` (which sysupgrade keeps)
+and honoured verbatim by every later setup path, including the post-install
+re-check that otherwise moves the subnet off an upstream collision. Changing
+it disconnects every device on the old subnet — including the SSH session
+you run it from — so the command asks for confirmation; reconnect on the
+new subnet afterwards.
 
 The three private-network commands above (rename, set-password, set-encryption)
 also record the new value in `/etc/tollgate/config.json`, which is the file the
@@ -545,12 +598,14 @@ Two settings are the exception, and they are the reason `config set` also
 reports what it applied:
 
 ```sh
-tollgate config set private_ssid c08r4d0r-7F3A
+tollgate config set ssid_suffix myplace
+tollgate config set private_ssid_operator Archipelago
+tollgate config set private_ssid Private-Archipelago-myplace
 tollgate config set admin_access br-private
 ```
 
 ```
-Set private_ssid = c08r4d0r-7F3A; runtime: 1 applied, 1 not applicable here
+Set ssid_suffix = myplace; runtime: 4 applied, 0 not applicable here
 ```
 
 The private network's SSID, passphrase and encryption live in UCI
@@ -577,7 +632,7 @@ work runs automatically after `config set`/`config save` and at service start,
 so this verb is for a `config.json` you edited by hand:
 
 ```
-Operator settings converged (runtime: unchanged, not applicable here)
+Operator settings converged (runtime: 1 unchanged, 1 not applicable here)
 ```
 
 It is a converging writer: a router whose runtime already matches the file

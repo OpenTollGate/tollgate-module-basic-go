@@ -1,6 +1,7 @@
 package mptcp_bonding
 
 import (
+	"encoding/json"
 	"net"
 	"strings"
 	"testing"
@@ -182,4 +183,61 @@ func TestLocalDontSteerAddrsIncludesServerHost(t *testing.T) {
 	if !strings.Contains(joined, "10.115.249.0/24") {
 		t.Errorf("guest subnet should be listed for the guard rule; got %v", addrs)
 	}
+}
+
+// #974: a CIDR-form uplink address used to pass validation and render an
+// `ip mptcp endpoint add <addr>/<len>` the kernel rejects — and the apply
+// script swallowed the failure, leaving a silently unbonded router.
+func TestLoadConfigRejectsCIDRUplinkAddress(t *testing.T) {
+	c := validConfig()
+	c.Uplinks = []Uplink{
+		{Interface: "veth0a", Address: "10.0.1.1/30"},
+		{Interface: "veth1a", Address: "10.0.2.1"},
+	}
+	_, err := LoadConfig(mustMarshal(t, c))
+	if err == nil {
+		t.Fatal("a CIDR uplink address must be rejected at load time")
+	}
+	if !strings.Contains(err.Error(), "CIDR") {
+		t.Errorf("error should name the CIDR form, got: %v", err)
+	}
+}
+
+func TestLoadConfigRejectsNonIPUplinkAddress(t *testing.T) {
+	c := validConfig()
+	c.Uplinks = []Uplink{
+		{Interface: "veth0a", Address: "not-an-address"},
+		{Interface: "veth1a", Address: "10.0.2.1"},
+	}
+	_, err := LoadConfig(mustMarshal(t, c))
+	if err == nil {
+		t.Fatal("a non-IP uplink address must be rejected at load time")
+	}
+	if !strings.Contains(err.Error(), "bare IP") {
+		t.Errorf("error should ask for a bare IP, got: %v", err)
+	}
+}
+
+func TestLoadConfigAcceptsBareUplinkAddress(t *testing.T) {
+	c := validConfig()
+	c.Uplinks = []Uplink{
+		{Interface: "veth0a", Address: "10.0.1.1"},
+		{Interface: "veth1a", Address: "10.0.2.1"},
+	}
+	cfg, err := LoadConfig(mustMarshal(t, c))
+	if err != nil {
+		t.Fatalf("bare addresses must keep loading: %v", err)
+	}
+	if len(cfg.Uplinks) != 2 {
+		t.Fatalf("expected 2 uplinks, got %d", len(cfg.Uplinks))
+	}
+}
+
+func mustMarshal(t *testing.T, c *Config) []byte {
+	t.Helper()
+	blob, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	return blob
 }

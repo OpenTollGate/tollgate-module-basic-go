@@ -86,6 +86,7 @@ nomatch MyTollGate-AB12
 nomatch x!TollGate-AB12
 nomatch FreeWifi
 nomatch !FreeWifi
+nomatch !
 
 # ---------------------------------------------------------------------------
 # The CROSS-REPO portal-banner pin (defect 2), read from this well-known path

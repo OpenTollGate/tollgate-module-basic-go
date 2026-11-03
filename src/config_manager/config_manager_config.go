@@ -6,7 +6,7 @@ import (
 	"log"
 	"math"
 	"os"
-	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -14,6 +14,8 @@ const profitShareSumTolerance = 1e-6
 
 // Config represents the main configuration for the Tollgate service.
 type Config struct {
+	// MultiWAN is optional declared intent; validation and policy derivation live in multi_wan.
+	MultiWAN               *MultiWANConfig              `json:"multi_wan,omitempty"`
 	ConfigVersion          string                       `json:"config_version"`
 	LogLevel               string                       `json:"log_level"`
 	AcceptedMints          []MintConfig                 `json:"accepted_mints"`
@@ -64,10 +66,12 @@ type Config struct {
 	// PrivateKey is a SECRET: it is redacted on every read path (see
 	// cli.redactSecretFields) and a wholesale save that omits or blanks it
 	// preserves the stored value rather than clearing it.
-	PrivateSSID       string `json:"private_ssid,omitempty"`
-	PrivateKey        string `json:"private_key,omitempty"`
-	PrivateEncryption string `json:"private_encryption"`
-	AdminAccess       string `json:"admin_access"`
+	PrivateSSID         string `json:"private_ssid,omitempty"`
+	SSIDSuffix          string `json:"ssid_suffix,omitempty"`
+	PrivateSSIDOperator string `json:"private_ssid_operator,omitempty"`
+	PrivateKey          string `json:"private_key,omitempty"`
+	PrivateEncryption   string `json:"private_encryption"`
+	AdminAccess         string `json:"admin_access"`
 	// EntryUI decides which UI owns the router's entry port pair (:8080 + :443).
 	// It is declared intent, like the four fields above: nothing reads the value
 	// directly. The uci-defaults writers (the module's 99 and the portal's 92)
@@ -277,81 +281,21 @@ func LoadConfig(filePath string) (*Config, error) {
 }
 
 // SaveConfig saves config.json.
-// SaveConfig persists the config atomically: a plain os.WriteFile killed
-// mid-write (power loss, procd respawn in the write window — the #402
-// incident class) leaves a truncated file, which the loader then routes into
-// the backup-and-defaults path: the operator's accepted mints silently become
-// the factory set. Temp file + rename in the same directory means a reader
-// always sees either the whole previous file or the whole new one.
+// SaveConfig persists the config atomically (writeFileDurably: temp +
+// fsync + rename, with an in-place fallback for pinned inodes): a plain
+// os.WriteFile killed mid-write (power loss, procd respawn in the write
+// window — the #402 incident class) leaves a truncated file, which the
+// loader then routes into the backup-and-defaults path: the operator's
+// accepted mints silently become the factory set.
 func SaveConfig(filePath string, config *Config) error {
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(filePath), ".config-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp config: %w", err)
+	if err := writeFileDurably(filePath, data); err != nil {
+		return fmt.Errorf("persist config: %w", err)
 	}
-	tmpName := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpName)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write temp config: %w", err)
-	}
-	if err := tmp.Chmod(0600); err != nil {
-		tmp.Close()
-		return fmt.Errorf("chmod temp config: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return fmt.Errorf("sync temp config: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp config: %w", err)
-	}
-	if err := renameConfigIntoPlace(tmpName, filePath); err != nil {
-		// A pinned inode (single-file bind mount) cannot be renamed over.
-		// Fall back to the durable in-place write rather than refusing to
-		// save; the temp file is removed by the deferred cleanup.
-		if inErr := writeConfigInPlaceDurably(filePath, data); inErr != nil {
-			return fmt.Errorf("rename temp config into place: %v (in-place fallback also failed: %v)", err, inErr)
-		}
-		return nil
-	}
-	cleanup = false
 	return nil
-}
-
-// renameConfigIntoPlace is os.Rename, overridable by tests to model the
-// environments where a rename onto the config path is impossible.
-var renameConfigIntoPlace = os.Rename
-
-// writeConfigInPlaceDurably is the fallback for environments a rename cannot
-// serve: a single-file bind mount (the cloud-lab lane mounts
-// runtime-config.json at /etc/tollgate/config.json; containerized deploys do
-// the same) has its inode pinned, so rename(2) answers EBUSY no matter how
-// the temp file is prepared. There, truncating and rewriting the mounted file
-// is the best atomicity available — the same guarantee the pre-#402 writer
-// gave — and strictly better than refusing to save the config at all.
-func writeConfigInPlaceDurably(filePath string, data []byte) error {
-	f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
 }
 
 func defaultProductionMints() []MintConfig {
@@ -460,7 +404,7 @@ func NewDefaultConfig() *Config {
 	}
 
 	return &Config{
-		ConfigVersion: "v0.0.10",
+		ConfigVersion: "v0.0.11",
 		LogLevel:      "info",
 		AcceptedMints: mints,
 		ProfitShare: []ProfitShareConfig{
@@ -485,7 +429,7 @@ func NewDefaultConfig() *Config {
 		Margin:       0.1,
 		Metric:       "bytes",
 		ShowSetup:    true,
-		ResellerMode: false,
+		ResellerMode: true,
 		UpstreamDetector: UpstreamDetectorConfig{
 			ProbeTimeout:          10 * time.Second,
 			ProbeRetryCount:       3,
@@ -527,15 +471,18 @@ func NewDefaultConfig() *Config {
 			PostSwitchWaitSeconds:  5,
 			DHCPTimeoutSeconds:     180,
 			ManualPauseSeconds:     120,
+			VendorIEDiscovery:      true,
 		},
 		// Empty means "keep what the router already has" — see the field
 		// comments on Config. These two are the literals the schema declares,
 		// so defaults_parity_test.go pins them together.
-		PrivateSSID:       "",
-		PrivateKey:        "",
-		PrivateEncryption: "psk2+ccmp",
-		AdminAccess:       "both",
-		EntryUI:           "board",
+		PrivateSSID:         "",
+		SSIDSuffix:          "",
+		PrivateSSIDOperator: "",
+		PrivateKey:          "",
+		PrivateEncryption:   "psk2+ccmp",
+		AdminAccess:         "both",
+		EntryUI:             "board",
 		// MPTCP bonding is OPT-IN: Enabled is false, and the remaining fields
 		// carry the schema's declared defaults so defaults_parity_test.go
 		// keeps schema and code in step. An operator who never touches this
@@ -553,6 +500,48 @@ func NewDefaultConfig() *Config {
 	}
 }
 
+// entryUIMarkerPath mirrors 99-tollgate-setup's ENTRY_UI_MARKER (D4 of
+// docs/architecture/default-ui-and-entry-port-decision.md): the file whose
+// presence and content announce that the mode-aware portal writer
+// (92-tollgate-admin-setup, shipped by the captive-portal feed) has applied
+// the board mapping. A package-level var — the same seam as
+// src/cmd/tollgate-cli/ui.go's entryUIMarkerPath — so tests can point it at
+// a fixture instead of a live router. The Go/shell copies are fenced by
+// tests/contract/check-entry-ui-marker-path.sh.
+var entryUIMarkerPath = "/etc/tollgate/entry-ui-mapping"
+
+// entryUIMarkerAnnouncesBoard reports whether this deployment can actually
+// back entry_ui=board: the mode-aware portal writer must have announced the
+// board mapping. An absent, unreadable, or non-board marker means it cannot —
+// the same fail-closed comparison 99-tollgate-setup's ensure_entry_ui and
+// tollgate-cli's entryUIMode apply.
+func entryUIMarkerAnnouncesBoard() bool {
+	data, err := os.ReadFile(entryUIMarkerPath)
+	return err == nil && strings.TrimSpace(string(data)) == "board"
+}
+
+// applyBackedEntryUIDefault rewrites the entry_ui DEFAULT in cfg to the value
+// this deployment can actually back (#928): the declared default (board) only
+// when the D4 marker announces the board mapping, and the legacy luci mapping
+// otherwise. An ipk-only install carries no captive-portal feed, so its
+// 99-tollgate-setup has already converged the legacy port table and no board
+// UI exists at all — recording board there would disagree with the converged
+// listeners by construction, exactly the divergence PRTA's
+// test_entry_ui_port_mapping_contract flags. Populating the backed value makes
+// config.json and the port table agree from the first boot.
+//
+// Called ONLY on paths that write an entry_ui the operator never chose — the
+// fresh-install write, the invalid-JSON rewrite, and the migration's
+// empty-field population. An operator-declared value is never rewritten: D4
+// leaves it recorded for the release that carries both halves.
+func applyBackedEntryUIDefault(cfg *Config) {
+	if cfg == nil || cfg.EntryUI != "board" || entryUIMarkerAnnouncesBoard() {
+		return
+	}
+	log.Printf("WARNING: the entry_ui default (board) is not backed on this deployment — the admin-UI mapping marker %s is absent, so the captive-portal feed's mode-aware writer (92-tollgate-admin-setup) has not run (ipk-only install or pre-switch feed) and no board UI exists to answer the entry pair. Populating entry_ui=luci instead so config.json agrees with the legacy port table 99-tollgate-setup converged (#928). Re-vendor the feed (FreedomTechFeed/packages) so both halves ship together.", entryUIMarkerPath)
+	cfg.EntryUI = "luci"
+}
+
 // EnsureDefaultConfig ensures a default config.json exists, loading from file if present.
 func EnsureDefaultConfig(filePath string) (*Config, error) {
 	defaultConfig := NewDefaultConfig()
@@ -564,6 +553,7 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 			// and here silently reverts the router to factory mints. Say it
 			// loudly so an operator reading the log can restore a backup.
 			log.Printf("WARNING: %s does not exist — writing factory defaults; if this router was configured, restore from config_backups and investigate what removed the file", filePath)
+			applyBackedEntryUIDefault(defaultConfig)
 			return defaultConfig, SaveConfig(filePath, defaultConfig)
 		}
 		return nil, err // Other read error
@@ -577,11 +567,21 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		profitShareErr = config.ValidateProfitShare()
 	}
 	if unmarshalErr != nil {
+		// #929: valid JSON with a wrong shape (e.g. accepted_mints as a
+		// plain string array) is an operator edit, not corruption.
+		// Replacing the file with factory mints would silently swap the
+		// money path on a commissioned router. Refuse to start; only
+		// genuinely corrupt files (truncation, #402 class) take the
+		// backup-and-defaults recovery below.
+		if json.Valid(data) {
+			return nil, fmt.Errorf("config %s is valid JSON but does not match the schema (%v); refusing to fall back to factory defaults — fix the field and restart", filePath, unmarshalErr)
+		}
 		log.Printf("WARNING: Invalid config JSON, backing up and recreating: %v", unmarshalErr)
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
 			log.Printf("CRITICAL: Failed to backup invalid config: %v", backupErr)
 			return nil, backupErr
 		}
+		applyBackedEntryUIDefault(defaultConfig)
 		return defaultConfig, SaveConfig(filePath, defaultConfig)
 	}
 	if profitShareErr != nil {
@@ -596,11 +596,24 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	if err := config.ValidateUnitPricingForConfig(); err != nil {
 		log.Printf("WARNING: unit/step_size mismatch — this router is mispricing access: %v", err)
 	}
+	// The Cobrador defaults are opt-out, not opt-in. A field that is absent is
+	// a fresh/upgraded config that never made a choice, so it takes the new
+	// default. A field that is present (even false) is an explicit choice and
+	// is never overwritten.
+	if raw, rawErr := decodeConfigPresence(data); rawErr == nil {
+		if !raw.resellerMode {
+			config.ResellerMode = defaultConfig.ResellerMode
+		}
+		if raw.upstreamWifi && !raw.vendorIEDiscovery {
+			config.UpstreamWifi.VendorIEDiscovery = defaultConfig.UpstreamWifi.VendorIEDiscovery
+		}
+	}
 	if config.ConfigVersion != defaultConfig.ConfigVersion {
 		log.Printf("INFO: Config version %s → %s, migrating (preserving user settings)", config.ConfigVersion, defaultConfig.ConfigVersion)
 		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", config.ConfigVersion); backupErr != nil {
 			log.Printf("WARN: Failed to backup config before migration (continuing): %v", backupErr)
 		}
+		applyBackedEntryUIDefault(defaultConfig)
 		migrateConfig(&config, defaultConfig)
 		return &config, SaveConfig(filePath, &config)
 	}
@@ -609,6 +622,29 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+type configPresence struct {
+	resellerMode      bool
+	upstreamWifi      bool
+	vendorIEDiscovery bool
+}
+
+func decodeConfigPresence(data []byte) (configPresence, error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return configPresence{}, err
+	}
+	p := configPresence{}
+	_, p.resellerMode = top["reseller_mode"]
+	if rawWifi, ok := top["upstream_wifi"]; ok {
+		p.upstreamWifi = true
+		var wifi map[string]json.RawMessage
+		if err := json.Unmarshal(rawWifi, &wifi); err == nil {
+			_, p.vendorIEDiscovery = wifi["vendor_ie_discovery"]
+		}
+	}
+	return p, nil
 }
 
 func migrateConfig(config *Config, defaults *Config) {
@@ -631,9 +667,11 @@ func migrateConfig(config *Config, defaults *Config) {
 	}
 	// v0.0.10 adds the entry-UI switch. The declared default is the operator's
 	// decision (board), but the effective mapping is release-gated: 99 honours
-	// board only once the mode-aware 92 is installed (the D4 marker). A router
-	// upgraded by a module-only release therefore records the value and keeps
-	// today's mapping — see the ADR's D4.
+	// board only once the mode-aware 92 is installed (the D4 marker). The
+	// defaults passed in therefore already carry the backed value (#928's
+	// applyBackedEntryUIDefault): a router the feed never reached records luci,
+	// the mapping its port table actually converged; a fully-vendored one
+	// records board. An operator-declared value is kept as-is (ADR D4).
 	if config.EntryUI == "" {
 		config.EntryUI = defaults.EntryUI
 		log.Printf("INFO: Populated entry_ui default (%s) on upgrade", defaults.EntryUI)

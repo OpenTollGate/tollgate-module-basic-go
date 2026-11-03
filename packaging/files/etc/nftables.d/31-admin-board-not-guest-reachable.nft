@@ -52,6 +52,6 @@
 chain admin_board_input_guard {
 	type filter hook input priority -1; policy accept
 
-	meta nfproto ipv4 iifname "br-lan" tcp dport { 8090, 8443 } counter drop
-	meta nfproto ipv6 iifname "br-lan" tcp dport { 8090, 8443 } counter drop
+	meta nfproto ipv4 iifname $tg_portal_if tcp dport { 8090, 8443 } counter drop
+	meta nfproto ipv6 iifname $tg_portal_if tcp dport { 8090, 8443 } counter drop
 }

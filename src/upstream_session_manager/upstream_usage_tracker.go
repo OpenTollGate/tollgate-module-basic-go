@@ -179,7 +179,7 @@ func (u *UpstreamUsageTracker) poll() {
 
 // fetchUpstreamUsage fetches usage from upstream :2121/usage
 func (u *UpstreamUsageTracker) fetchUpstreamUsage() (usage, allotment uint64, err error) {
-	url := fmt.Sprintf("http://%s:2121/usage", u.gatewayIP)
+	url := gatewayURL(u.gatewayIP, "2121", "usage")
 
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(url)

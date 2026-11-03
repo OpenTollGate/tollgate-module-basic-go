@@ -1,0 +1,14 @@
+# FIPS test node — VPS peer (x86_64).
+# Persistent identity so the router can pin this npub in its peer list.
+node:
+  identity:
+    persistent: true
+  data_dir: /tmp/fipsmpt/data
+  control:
+    socket_path: /tmp/fipsmpt/run/control.sock
+tun:
+  enabled: true        # will fail (EBUSY) if a fleet daemon owns /dev/net/tun; DEGRADED is fine for transport proof
+transports:
+  tcp:
+    bind_addr: "0.0.0.0:17443"
+    mptcp: true

@@ -16,6 +16,12 @@
 # pinned acceptance table (tests/contract/ssid-naming-fixtures.txt) carries
 # both spellings plus the double-'!' negative.
 #
+# It is PRESENTATION, not part of the discovery contract: the bare
+# `TollGate-<code>` form is what already-deployed routers and third-party
+# clients matching the brand prefix carry, and both spellings identify the same
+# gateway. The PRIVATE SSID (`<nym>-<code>`) never carries the '!': guests
+# never see it, so it has no scan order to influence.
+#
 # Why the exact shape is pinned: the SSID is the gateway's public name. The Go
 # side keys on the brand prefixes (src/wireless_gateway_manager/brands.go
 # `hasTollGateSSID`, vendor_element_manager.go `calculateScore`
@@ -417,4 +423,4 @@ if [ "$fails" -ne 0 ]; then
     printf '%d SSID-format check(s) FAILED.\n' "$fails" >&2
     exit 1
 fi
-printf 'Shipped AP SSIDs match the contract (brand + 4-character [A-Z0-9] device code, one name for both radios).\n'
+printf 'Shipped AP SSIDs match the contract (!-prefixed brand + 4-character [A-Z0-9] device code, one name for both radios).\n'

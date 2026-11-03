@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,7 +57,7 @@ func newTogglableMint(t *testing.T) (baseURL string, setHealthy func(bool)) {
 		t.Fatalf("generate private key: %v", err)
 	}
 	pubKeyHex := hex.EncodeToString(priv.PubKey().SerializeCompressed())
-	keysetID := strings.Repeat("ab", 16)
+	keysetID := honestKeysetIDFromPriv(priv)
 	var healthy atomic.Bool
 	healthy.Store(true)
 

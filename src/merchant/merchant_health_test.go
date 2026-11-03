@@ -17,7 +17,7 @@ func reachableServer(t *testing.T) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		if r.URL.Path == "/v1/keysets" {
-			_, _ = w.Write([]byte(`{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true}]}`))
+			_, _ = w.Write([]byte(`{"keysets":[{"id":"000f715baf5d4c2e","unit":"sat","active":true}]}`))
 		}
 	}))
 	t.Cleanup(srv.Close)
@@ -225,7 +225,7 @@ func TestProbeMint_TrailingSlashTrimmed(t *testing.T) {
 		requestedPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
 		writeKeysetsOK(w)
-		_, _ = w.Write([]byte(`{"keysets":[{"id":"00ad268c4d1f5826","unit":"sat","active":true}]}`))
+		_, _ = w.Write([]byte(`{"keysets":[{"id":"000f715baf5d4c2e","unit":"sat","active":true}]}`))
 	}))
 	defer srv.Close()
 

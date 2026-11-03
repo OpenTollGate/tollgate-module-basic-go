@@ -1,0 +1,6 @@
+$ bash run-netns-negative-control.sh   # -tags nft_noflock, real nft in netns
+=== RUN   TestNetnsNftBackend
+    netns_test.go:89: leg1 ok: two auths, one element
+    netns_test.go:116: counter rules for 02:11:22:33:44:55 = 4, want exactly 2 (up + dl): the flock is not serialising (expected failure under -tags nft_noflock)
+--- FAIL: TestNetnsNftBackend (2.65s)
+FAIL
