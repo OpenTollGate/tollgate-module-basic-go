@@ -144,7 +144,19 @@ type MintConfig struct {
 	// sat tokens against it without a config change. A token in any OTHER
 	// unit is refused rather than mispriced — the 2026-10 draft integration
 	// with an operator-run CDK mint depends on this being explicit.
-	Unit             string `json:"unit"`
+	Unit string `json:"unit"`
+	// PaymentMethod names the mint's payment method for a quote in `unit`: the
+	// `{method}` in `POST /v1/mint/quote/{method}`. Empty means the default for
+	// the unit — bolt11 for sat, and for a custom unit whatever the operator
+	// runs, which is why a custom-unit mint should set it explicitly.
+	//
+	// This is a per-mint fact, so it lives here and not in an environment
+	// variable: the same router can be attached to an operator mint settled at
+	// a counter (Pecan registers the method "branch") and to a sat mint on
+	// bolt11 at the same time. Deriving it from the unit alone cannot express
+	// that, and the old TOLLGATE_CDK_PURCHASE_METHOD env var had a default of
+	// "paypal" that no real processor answers.
+	PaymentMethod    string `json:"payment_method,omitempty"`
 	MinPurchaseSteps uint64 `json:"purchase_min_steps"`
 }
 

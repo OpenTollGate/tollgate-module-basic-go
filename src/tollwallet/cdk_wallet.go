@@ -33,9 +33,14 @@ type CdkWallet struct {
 	// "mb" — a Sat wallet cannot even see the mb keyset (probe evidence in
 	// cdk_custom_unit_probe_test.go).
 	mintUnits map[string]string
+	// mintMethods carries the configured payment method per mint URL ("" means
+	// the unit's default: bolt11 for sat, and for a custom unit the operator's
+	// own method — Pecan registers "branch"). A per-mint fact, so it is config,
+	// not an environment variable.
+	mintMethods map[string]string
 }
 
-func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool, mintUnits map[string]string) (WalletPort, error) {
+func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrustedMints bool, mintUnits map[string]string, mintMethods map[string]string) (WalletPort, error) {
 	mnemonic, err := loadOrCreateMnemonic(walletPath)
 	if err != nil {
 		return nil, fmt.Errorf("load or create cdk wallet mnemonic: %w", err)
@@ -48,6 +53,7 @@ func NewWalletPort(walletPath string, acceptedMints []string, allowAndSwapUntrus
 		acceptedMints:  acceptedMints,
 		allowUntrusted: allowAndSwapUntrustedMints,
 		mintUnits:      mintUnits,
+		mintMethods:    mintMethods,
 	}, nil
 }
 
@@ -405,7 +411,14 @@ func (w *CdkWallet) RequestMintQuote(amount uint64, mintUrl string) (*MintQuote,
 	// So: custom unit -> custom payment method; sat -> bolt11 as before.
 	method := cdk_ffi.PaymentMethod(cdk_ffi.PaymentMethodBolt11{})
 	if u := w.mintUnits[mintUrl]; u != "" && u != "sat" {
-		method = cdk_ffi.PaymentMethodCustom{Method: customUnitPaymentMethod(u)}
+		name := w.customUnitPaymentMethod(mintUrl)
+		if name == "" {
+			return nil, fmt.Errorf("mint %s issues unit %q but no payment_method is configured: "+
+				"a custom unit is settled by whatever processor the operator attached (Pecan "+
+				"registers \"branch\"), and guessing would make the mint refuse every quote — "+
+				"set accepted_mints[].payment_method", mintUrl, u)
+		}
+		method = cdk_ffi.PaymentMethodCustom{Method: name}
 	}
 	quote, err := wallet.MintQuote(method, &amt, nil, nil)
 	if err != nil {
@@ -638,9 +651,15 @@ func (w *CdkWallet) CheckTokenSpent(token Token) (bool, error) {
 // the pecan-derived trade study uses for the same idea. Both are accepted by
 // the mint we measured against, and the environment can override it so a
 // different operator mint is not hard-coded to this one.
-func customUnitPaymentMethod(unit string) string {
-	if m := os.Getenv("TOLLGATE_CDK_PURCHASE_METHOD"); m != "" {
+func (w *CdkWallet) customUnitPaymentMethod(mintURL string) string {
+	// The mint's configured method wins: it is a per-mint fact (one router can
+	// front a counter-settled operator mint and a bolt11 sat mint at once).
+	if m := strings.TrimSpace(w.mintMethods[mintURL]); m != "" {
 		return m
 	}
-	return "paypal"
+	// No configured method and no safe default: a custom unit is settled by
+	// whatever processor the operator attached, and guessing wrong means the
+	// mint refuses every quote. The old default here was "paypal", left over
+	// from the bench harness — a name no real processor answers.
+	return ""
 }
