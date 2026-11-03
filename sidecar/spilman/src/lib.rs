@@ -17,11 +17,16 @@
 //! `docs/architecture/spilman-sidecar-decision.md`.
 
 pub mod protocol;
+/// Present only with the `protocol` feature: without it the crate has no
+/// protocol dependency in its graph at all, so this module cannot exist.
+#[cfg(feature = "protocol")]
+pub mod registration;
 pub mod server;
 
 pub use protocol::{
-    handle_frame, validate_id, Response, CAPABILITIES, ERR_FRAME_TOO_LARGE, ERR_INVALID_REQUEST,
-    ERR_UNSUPPORTED_CAPABILITY, ERR_UNSUPPORTED_VERSION, MAX_FRAME_BYTES, PROTOCOL_VERSION,
+    handle_frame, validate_id, Response, CAPABILITIES, CAPABILITY_VALIDATE_REGISTRATION,
+    ERR_FRAME_TOO_LARGE, ERR_INVALID_REQUEST, ERR_UNSUPPORTED_CAPABILITY, ERR_UNSUPPORTED_VERSION,
+    MAX_FRAME_BYTES, METHOD_CAPABILITIES, METHOD_VALIDATE_REGISTRATION, PROTOCOL_VERSION,
 };
 
 /// What one inbound frame produced.
