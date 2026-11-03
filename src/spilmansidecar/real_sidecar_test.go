@@ -15,6 +15,11 @@ import (
 	"time"
 )
 
+// SPILMAN_SIDECAR_BIN_ENV names the built sidecar binary for the
+// cross-language tests. Declared once so the skip message and the lookup cannot
+// drift apart.
+const SPILMAN_SIDECAR_BIN_ENV = "SPILMAN_SIDECAR_BIN"
+
 type sidecarProcess struct {
 	cmd    *exec.Cmd
 	socket string
