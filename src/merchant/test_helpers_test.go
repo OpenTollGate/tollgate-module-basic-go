@@ -1,9 +1,11 @@
 package merchant
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -60,12 +62,31 @@ type degradedSetup struct {
 
 func newDegradedSetup(t *testing.T, mints []config_manager.MintConfig) *degradedSetup {
 	t.Helper()
-	cm, testDir := setupTestConfigManager(t)
-	cfg := cm.GetConfig()
+	testDir := t.TempDir()
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", testDir)
+	configPath := filepath.Join(testDir, "config.json")
+	installPath := filepath.Join(testDir, "install.json")
+	identitiesPath := filepath.Join(testDir, "identities.json")
+	// Accepted mints are persisted in the config FILE, not the defensive
+	// copy GetConfig returns: mutating the copy silently left the manager
+	// on factory defaults (zero mints), so every degraded-mode wallet test
+	// failed early at "no reachable mints" and never exercised the
+	// storage/mmap error paths it exists to pin (#1158).
 	if mints != nil {
-		cfg.AcceptedMints = mints
+		cfg := config_manager.Config{AcceptedMints: mints}
+		raw, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatalf("marshal mints config: %v", err)
+		}
+		if err := os.WriteFile(configPath, raw, 0o644); err != nil {
+			t.Fatalf("write mints config: %v", err)
+		}
 	}
-	tracker := newTestTracker(cfg, nil)
+	cm, err := config_manager.NewConfigManager(configPath, installPath, identitiesPath)
+	if err != nil {
+		t.Fatalf("NewConfigManager: %v", err)
+	}
+	tracker := newTestTracker(cm.GetConfig(), nil)
 	tracker.RunInitialProbe()
 	return &degradedSetup{CM: cm, Tracker: tracker, TestDir: testDir}
 }
