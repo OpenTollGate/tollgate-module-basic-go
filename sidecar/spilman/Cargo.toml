@@ -1,0 +1,57 @@
+[package]
+name = "tollgate-spilman-sidecar"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "TollGate Spilman protocol sidecar. First milestone: capabilities-only local IPC transport."
+
+[[bin]]
+name = "tollgate-spilman-sidecar"
+path = "src/main.rs"
+
+[lib]
+name = "tollgate_spilman_sidecar"
+path = "src/lib.rs"
+
+[features]
+default = ["protocol"]
+# `protocol` compiles the pinned Spilman crate into the sidecar and turns on the
+# `validate_registration.v1` capability. It is the default because the sidecar
+# image ships with it, but it is a FEATURE and not a hard dependency so the
+# transport-only contract stays buildable and provable on its own:
+#
+#   cargo build --no-default-features
+#
+# builds a binary with no protocol crate in its dependency graph at all, which
+# is what `tests/contract/check-spilman-sidecar-surface.sh` asserts (the pin
+# fence reads both sides rather than trusting this comment).
+protocol = ["dep:cdk-spilman", "dep:cashu"]
+
+# The protocol dependency is pinned to ONE revision, and that revision is
+# declared in `packaging/build-inputs.json` (`.spilman_protocol.commit`) — the
+# manifest is the build authority (AGENTS.md: "Manifest truth for externals").
+# `tests/contract/check-spilman-sidecar-surface.sh` executes both sides and
+# refuses a disagreement, and plants drift to prove it can fail. Never retype
+# this value: bump the manifest first, then run
+# `python3 scripts/bump-spilman-protocol.py` (which rewrites this line and
+# Cargo.lock together).
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Pinned by `rev` (never a branch or tag): a tag can be moved, and this crate
+# derives channel identity — a silently different revision would derive a
+# different channel id for the same registration.
+cdk-spilman = { git = "https://github.com/SatsAndSports/cashu_spilman_channels.git", rev = "c2083defc2015ad0bae2a8a086a2876bc775ff79", default-features = false, optional = true }
+# Named directly because the sidecar derives a receiver PUBLIC KEY from the
+# receiver secret it is handed (the receiver_pubkey check the contract requires),
+# and cdk-spilman exposes no hex-taking helper for that. Same source and tag as
+# cdk-spilman's own requirement so cargo unifies them into one crate instance;
+# `.spilman_protocol.cashu_commit` pins the resolved commit in the manifest.
+cashu = { git = "https://github.com/cashubtc/cdk.git", tag = "v0.18.1", package = "cashu", default-features = false, optional = true }
+
+[profile.release]
+strip = true
+lto = true
