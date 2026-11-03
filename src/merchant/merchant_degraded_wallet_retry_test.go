@@ -1,11 +1,11 @@
 package merchant
 
 import (
-	"sync"
 	"fmt"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
