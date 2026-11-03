@@ -165,3 +165,44 @@ canonical feed/build-contract integration and target runtime acceptance evidence
 owned by `physical-router-test-automation`, bound to source/artifact hashes.
 Neither Rust source inspection nor a capabilities handshake proves Go settlement,
 router access or a genuine browser purchase flow.
+
+## Milestone 2: `validate_registration.v1` (registration-time validation only)
+
+The capability answers one narrow question: **do these parameters describe the
+channel the payee thinks they describe?** It is offline and value-incapable by
+construction — no signing, no swap, no restore, no mint call, no network — and
+the shipped Go binary gains no protocol linkage at all (the crate lives behind
+the sidecar's `protocol` Cargo feature; `--no-default-features` still builds a
+transport-only sidecar that does not advertise the capability).
+
+What it refuses, each verified against the real binary:
+
+- `receiver_pubkey_mismatch` — the claimed receiver pubkey is not the one
+  derived from the payee's own receiver secret. The secret is the only value a
+  caller cannot lie about, so it is what the check is anchored to.
+- `mint_not_trusted` — the registration, or the nested params, name a mint other
+  than the supplied trusted URL. Comparison is against the **trusted** URL, not
+  outer-vs-nested, because two attacker-chosen claims agreeing proves nothing.
+- `keyset_mismatch` — the trusted keyset's declared id is not the id its own
+  keys produce, its unit or `input_fee_ppk` disagrees with the registration, or
+  the nested params name a different keyset than the trusted one.
+- `nested_params_mismatch` — capacity, funding amount, expiry, setup timestamp,
+  maximum output amount, input fee, sender pubkey or keyset id disagree between
+  the nested `ParamsJSON` and the outer record.
+- `unsupported_unit`, `zero_capacity`, `registration_expired`,
+  `invalid_lifetime`, `sender_equals_receiver`, `channel_id_not_derivable`.
+
+The reply carries only values the sidecar derived — `channel_id` and
+`canonical_params_json` come from the pinned crate's own serializer, never an
+echo — plus `mint_funds_asserted: false`, which is required rather than
+optional: absence would read as "no claim made" and is indistinguishable from a
+claim in a log.
+
+**This does not make settlement work.** It closes the reviewer's nested-params
+and untrusted-mint gaps *at registration time*: a payer can no longer present
+params that name a different mint, keyset, capacity or expiry than the channel
+the payee will record, and a payee cannot be talked into deriving a channel id
+for a key they do not control. Everything downstream — preparation, freeze,
+swap, exact-restore, receipt replay — remains absent and unproven, exactly as
+listed above. A successful validation is a statement about parameter agreement
+and nothing about whether the mint holds funds or whether a swap will settle.

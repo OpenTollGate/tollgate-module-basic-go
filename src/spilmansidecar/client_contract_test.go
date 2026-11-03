@@ -391,6 +391,16 @@ func TestRefusesRegularFile(t *testing.T) {
 	}
 }
 
+// containsCapability reports whether want is advertised.
+func containsCapability(have []string, want string) bool {
+	for _, h := range have {
+		if h == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRequireCapabilityIsExplicit(t *testing.T) {
 	if err := RequireCapability([]string{CapabilityTransportV1}, CapabilityTransportV1); err != nil {
 		t.Fatalf("present capability rejected: %v", err)
@@ -449,11 +459,18 @@ func TestRealSidecarCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Capabilities against the real sidecar: %v", err)
 	}
-	if len(caps) != 1 || caps[0] != CapabilityTransportV1 {
-		t.Fatalf("capabilities = %v", caps)
+	// The shipped build advertises transport AND registration validation. The
+	// assertion that matters is the NEGATIVE one below: this milestone adds
+	// parameter checking, not settlement, and a capability list that quietly
+	// grew a money-moving entry is exactly what must fail loudly.
+	if !containsCapability(caps, CapabilityTransportV1) {
+		t.Fatalf("capabilities = %v, missing %q", caps, CapabilityTransportV1)
+	}
+	if !containsCapability(caps, CapabilityValidateRegistration) {
+		t.Fatalf("capabilities = %v, missing %q", caps, CapabilityValidateRegistration)
 	}
 	if HasSettlementCapability(caps) {
-		t.Fatalf("the real sidecar must not advertise settlement in this milestone")
+		t.Fatalf("the real sidecar must not advertise settlement in this milestone: %v", caps)
 	}
 }
 

@@ -200,6 +200,10 @@ type wireResponse struct {
 	OperationID  string   `json:"operation_id"`
 	Capabilities []string `json:"capabilities"`
 	Error        string   `json:"error"`
+	// Validated is present ONLY on a successful validate_registration. It stays
+	// raw here so each method decodes its own payload with strict field
+	// checking instead of one shared struct silently accepting a superset.
+	Validated json.RawMessage `json:"validated,omitempty"`
 }
 
 // exchange writes one request frame and reads exactly one response frame,
