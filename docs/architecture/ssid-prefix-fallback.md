@@ -45,7 +45,15 @@ Archipelago
 - Case-insensitive.
 - Valid: 3–32 characters of `[A-Za-z0-9_]`. Hyphens are excluded because
   `<prefix>-<code>` uses the hyphen as the separator.
+- Boundary whitespace is trimmed before and after removing the leading `!`,
+  then the trailing `-` is removed. Internal spaces/tabs remain invalid:
+  `Foo Bar` must not silently become `FooBar` during setup.
+- The last line is processed even without a final newline.
 - Invalid lines are ignored; a bad file never breaks discovery.
+
+The shared `tests/contract/ssid-prefix-parser-fixtures.json` acceptance table
+is executed against both the Go reader and the shipped shell function by
+`TestSSIDPrefixParserParity` (host-shell evidence, not router verification).
 
 `TollGate` and the local brand are implicit; the file is only for additional
 peers.

@@ -1,0 +1,12 @@
+[
+  {"name":"internal-space","line":"Foo Bar\n","prefix":"FooBar","accept":false},
+  {"name":"internal-tab","line":"Foo\tBar\n","prefix":"FooBar","accept":false},
+  {"name":"internal-cr","line":"Foo\rBar\n","prefix":"FooBar","accept":false},
+  {"name":"valid-control","line":"Valid1\n","prefix":"Valid1","accept":true},
+  {"name":"boundary-space-tab-cr","line":" \tValid1\t \r\n","prefix":"Valid1","accept":true},
+  {"name":"decorated-boundaries","line":" \t! \tValid1- \r\n","prefix":"Valid1","accept":true},
+  {"name":"space-before-hyphen","line":"Valid1 -\n","prefix":"Valid1","accept":false},
+  {"name":"double-decoration","line":"!!Valid1-\n","prefix":"Valid1","accept":false},
+  {"name":"comment","line":" \t# Valid1\n","prefix":"Valid1","accept":false},
+  {"name":"unterminated-control","line":"Valid1","prefix":"Valid1","accept":true}
+]
