@@ -407,10 +407,21 @@ func (s *SidecarWallet) AcceptMint(mintURL string) error {
 	return s.call("accept_mint", map[string]string{"mint_url": mintURL}, nil)
 }
 
-// CheckTokenSpent is not implemented over the sidecar protocol yet: the
-// capability manifest does not advertise it, and the ambiguity vocabulary
-// (#502) would need it as a first-class sidecar operation. Callers get a
-// typed error and must treat the outcome as unresolved — never guess.
-func (w *SidecarWallet) CheckTokenSpent(token Token) (bool, error) {
-	return false, ErrCheckStateUnsupported
+// CheckTokenSpent asks the daemon (NUT-07) whether ANY proof in the
+// token is already spent. Verdict semantics are enforced daemon-side:
+// true only when a proof is provably SPENT (the receive-swap consumed
+// it — the payment went through); false only when every proof is
+// provably UNSPENT; pending/reserved states and transport failures
+// surface as errors, so the outcome stays ambiguous and the caller
+// must not decide on it.
+func (s *SidecarWallet) CheckTokenSpent(token Token) (bool, error) {
+	ser, err := token.Serialize()
+	if err != nil {
+		return false, err
+	}
+	var spent bool
+	if err := s.call("check_state", map[string]string{"token": ser}, &spent); err != nil {
+		return false, err
+	}
+	return spent, nil
 }
