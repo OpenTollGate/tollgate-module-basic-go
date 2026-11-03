@@ -36,6 +36,24 @@
     "repo": "https://github.com/OpenTollGate/tollgate-captive-portal-site.git",
     "commit": "5fd4cb3242ef46960b5777777dd92662e8ca8841"
   },
+  "spilman_protocol": {
+    "repo": "https://github.com/SatsAndSports/cashu_spilman_channels.git",
+    "crate": "cdk-spilman",
+    "version": "0.2.0",
+    "commit": "c2083defc2015ad0bae2a8a086a2876bc775ff79",
+    "cashu_commit": "a056e0f0f69e94f431b1aeb90d883f18c61ea4c6",
+    "comment": "The Rust protocol crate the Spilman sidecar (sidecar/spilman) validates registrations with. THIS manifest is the build authority (AGENTS.md 'Manifest truth for externals'); the Cargo requirement's rev and Cargo.lock are consumers. tests/contract/check-spilman-sidecar-surface.py executes all three sides and refuses any disagreement, and tests/contract/spilman-pin_test.sh plants each drift shape and requires the refusal. The pin is a commit, never a branch or tag: a moved tag would silently change channel-id derivation. cashu_commit is cdk-spilman's own transitive cdk pin, recorded because the sidecar also names cashu directly to derive the receiver public key (same tag => one unified crate instance). Bump with scripts/bump-spilman-protocol.py, which rewrites the Cargo rev, Cargo.lock and this entry together — never by hand in one place.",
+    "consumers": [
+      {
+        "path": "sidecar/spilman/Cargo.toml",
+        "kind": "cargo-git-rev"
+      },
+      {
+        "path": "sidecar/spilman/Cargo.lock",
+        "kind": "cargo-lock-source"
+      }
+    ]
+  },
   "openwrt_sdk": {
     "image": "openwrt/sdk",
     "go_per_release": {
