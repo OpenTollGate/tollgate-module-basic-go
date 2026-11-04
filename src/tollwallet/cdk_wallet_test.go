@@ -130,7 +130,7 @@ func TestCdkTokenCloseIdempotent(t *testing.T) {
 
 // TestCdkWalletConstruction verifies wallet creation without network access.
 func TestCdkWalletConstruction(t *testing.T) {
-	wallet, err := NewWalletPort(t.TempDir(), []string{"https://testnut.cashu.exchange"}, false)
+	wallet, err := NewWalletPort(t.TempDir(), []string{"https://testnut.cashu.exchange"}, false, nil)
 	if err != nil {
 		t.Fatalf("NewWalletPort: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestCdkWalletConstruction(t *testing.T) {
 func TestCdkMnemonicPersistedAcrossRestart(t *testing.T) {
 	dir := t.TempDir()
 
-	w1, err := NewWalletPort(dir, nil, false)
+	w1, err := NewWalletPort(dir, nil, false, nil)
 	if err != nil {
 		t.Fatalf("first NewWalletPort: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestCdkMnemonicPersistedAcrossRestart(t *testing.T) {
 		t.Fatalf("mnemonic file mode = %o, want 600", perm)
 	}
 
-	w2, err := NewWalletPort(dir, nil, false)
+	w2, err := NewWalletPort(dir, nil, false, nil)
 	if err != nil {
 		t.Fatalf("second NewWalletPort: %v", err)
 	}
