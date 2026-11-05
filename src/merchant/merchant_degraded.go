@@ -263,39 +263,13 @@ func (m *MerchantDegraded) WalletLoaded() bool {
 	return m.walletLoaded
 }
 
-// DefaultWalletFactory honors the wallet.backend selection (#1157): the
-// degraded path used to hardcode the in-process gonuts constructor, so a
-// wallet.backend=cdk router silently split its balance across two wallet
-// implementations whenever it degraded. The factory now routes through
-// OpenWallet (the selection seam), which honors the config's backend.
 func DefaultWalletFactory(walletPath string, mintURLs []string) (Wallet, error) {
 	if err := os.MkdirAll(walletPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletPath, err)
 	}
-	// The degraded factory has no config_manager handle; read the backend
-	// selection from the environment the same way the boot path does
-	// (the uci option is exported here by the setup script).
-	backend := os.Getenv("TOLLGATE_WALLET_BACKEND")
-	port, _, err := tollwallet.OpenWallet(tollwallet.WalletConfig{
-		Backend:                    backend,
-		Path:                       walletPath,
-		Socket:                     os.Getenv("TOLLGATE_WALLET_SOCKET"),
-		AcceptedMints:              mintURLs,
-		AllowAndSwapUntrustedMints: false,
-	})
+	tw, err := tollwallet.New(walletPath, mintURLs, false)
 	if err != nil {
-		// Sidecar unreachable or unknown backend: fall back to the
-		// in-process default so the degraded path never hard-fails on
-		// a wallet-selection issue (#1157's fix is routing, not gating).
-		tw, twErr := tollwallet.New(walletPath, mintURLs, false)
-		if twErr != nil {
-			return nil, twErr
-		}
-		return tw, nil
+		return nil, err
 	}
-	pw, ok := port.(Wallet)
-	if !ok {
-		return nil, fmt.Errorf("OpenWallet returned %T, which does not satisfy the merchant Wallet interface", port)
-	}
-	return pw, nil
+	return tw, nil
 }
