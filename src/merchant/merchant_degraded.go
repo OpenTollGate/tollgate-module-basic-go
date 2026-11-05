@@ -293,5 +293,9 @@ func DefaultWalletFactory(walletPath string, mintURLs []string) (Wallet, error) 
 		}
 		return tw, nil
 	}
-	return port.(Wallet), nil
+	pw, ok := port.(Wallet)
+	if !ok {
+		return nil, fmt.Errorf("OpenWallet returned %T, which does not satisfy the merchant Wallet interface", port)
+	}
+	return pw, nil
 }

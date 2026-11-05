@@ -26,12 +26,12 @@ for promoting each backend to primary.
 | | gonuts (pure Go) | cdk-go in-process (FFI) | cdk-walletd sidecar |
 |---|---|---|---|
 | WalletPort contract | 5/5 x86, 5/5 mips, 5/5 mipsel | 5/5 x86, 5/5 mips, 5/5 mipsel | minting verified (mipsel); full contract via #1137 lane |
-| Corpus decode (7 fixtures) | 7/7 | 6/7 (hex_c C-field upstream defect) | not measured |
+| Corpus decode (7 fixtures) | 7/7 (hex_c lenient-accept is a latent defect) | 7/7 (correctly strict) | not measured |
 | Crash isolation | wallet panic = gateway down | wallet panic = gateway down | **wallet crash ≠ gateway crash** |
 | Binary constraint | CGO_ENABLED=0 everywhere | CGO_ENABLED=1 + native libs per arch | CGO_ENABLED=0 gateway + separate Rust daemon |
 | Memory (router-class 64–128MB) | ~1 process | 1 process (Go GC + Rust allocators) | 2 processes (~+20–40MB Rust RSS) |
 | MIPS viability | ships today | proven (nostr-free + portable-atomic nostr, both endiannesses) | proven (mipsel daemon) |
-| Upstream alignment | our fork (we own everything) | upstream cdk-go + 3 fixes we filed (2 confirmed, 1 fixed-not-released) | upstream cdk + vendored nostr patch |
+| Upstream alignment | our fork (we own everything) | upstream cdk-go + 3 adapter-side defenses (RuntimeGuard is fixed on their main, pending release; Receive-on-spent and enum panics are open issues) | upstream cdk + vendored nostr patch |
 | Upgradability | fork tag bump | native lib swap or version bump | daemon swap, gateway untouched |
 
 ## Decision
