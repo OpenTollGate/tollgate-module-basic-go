@@ -237,8 +237,8 @@ func (w *CdkWallet) Send(amount uint64, mintUrl string, includeFees bool) (Token
 		// 0.18 bindings: the enum fields are interfaces — zero values
 		// panic in uniffi's Lower ("invalid enum value `<nil>`"); every
 		// field needs an explicit variant (measured 2026-10-29).
-		AmountSplitTarget:      cdk_ffi.SplitTargetNone{},
-		SendKind:               cdk_ffi.SendKindOnlineExact{},
+		AmountSplitTarget:       cdk_ffi.SplitTargetNone{},
+		SendKind:                cdk_ffi.SendKindOnlineExact{},
 		P2pkLockedProofSendMode: cdk_ffi.P2pkLockedProofSendModeSwap,
 	}
 	prepared, err := wallet.PrepareSend(cdk_ffi.Amount{Value: amount}, opts)
