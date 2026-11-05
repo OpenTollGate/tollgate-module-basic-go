@@ -114,3 +114,4 @@ src/go.work
 src/go.work.sum
 # Per-checkout portal working tree (default PORTAL_DIR, see packaging/portal-build.sh)
 .portal-tree/
+src/cmd/tollgate-ndsctl/tollgate-ndsctl
