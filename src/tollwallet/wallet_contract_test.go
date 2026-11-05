@@ -74,7 +74,7 @@ func fundContractWallet(t *testing.T, w WalletPort, mintURL string, amount uint6
 // case builds on, including quote-state observability.
 func TestWalletPortContract_MintLifecycle(t *testing.T) {
 	mintURL := contractMintURL(t)
-	w, err := NewWalletPort(t.TempDir(), []string{mintURL}, false)
+	w, err := NewWalletPort(t.TempDir(), []string{mintURL}, false, nil)
 	if err != nil {
 		t.Fatalf("NewWalletPort: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestWalletPortContract_RecipientHelper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("helper: read token file: %v", err)
 	}
-	recipient, err := NewWalletPort(t.TempDir(), []string{mintURL}, false)
+	recipient, err := NewWalletPort(t.TempDir(), []string{mintURL}, false, nil)
 	if err != nil {
 		t.Fatalf("helper: NewWalletPort: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestWalletPortContract_RecipientHelper(t *testing.T) {
 // to end across the serialization boundary.
 func TestWalletPortContract_SendReceiveRoundTrip(t *testing.T) {
 	mintURL := contractMintURL(t)
-	sender, err := NewWalletPort(t.TempDir(), []string{mintURL}, false)
+	sender, err := NewWalletPort(t.TempDir(), []string{mintURL}, false, nil)
 	if err != nil {
 		t.Fatalf("sender NewWalletPort: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestWalletPortContract_SendReceiveRoundTrip(t *testing.T) {
 // melt against ITS payment request) so no external LN is needed.
 func TestWalletPortContract_MeltLifecycle(t *testing.T) {
 	mintURL := contractMintURL(t)
-	w, err := NewWalletPort(t.TempDir(), []string{mintURL}, false)
+	w, err := NewWalletPort(t.TempDir(), []string{mintURL}, false, nil)
 	if err != nil {
 		t.Fatalf("NewWalletPort: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestWalletPortContract_MeltLifecycle(t *testing.T) {
 // token and the returned amount must equal the balance it emptied.
 func TestWalletPortContract_Drain(t *testing.T) {
 	mintURL := contractMintURL(t)
-	w, err := NewWalletPort(t.TempDir(), []string{mintURL}, false)
+	w, err := NewWalletPort(t.TempDir(), []string{mintURL}, false, nil)
 	if err != nil {
 		t.Fatalf("NewWalletPort: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestWalletPortContract_Drain(t *testing.T) {
 // deep vectors; this is the smoke that a bogus string is an error.
 func TestWalletPortContract_DecodeRejectsGarbage(t *testing.T) {
 	_ = contractMintURL(t) // decode is offline, but keep the lane gate uniform
-	w, err := NewWalletPort(t.TempDir(), []string{"http://decode.invalid"}, false)
+	w, err := NewWalletPort(t.TempDir(), []string{"http://decode.invalid"}, false, nil)
 	if err != nil {
 		t.Skipf("backend requires a live mint for construction: %v", err)
 	}

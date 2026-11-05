@@ -54,7 +54,7 @@ func TestWalletPortCorpusDecode(t *testing.T) {
 	// Construction must work offline for BOTH backends (an unreachable
 	// mint exercises the degraded-construction path; decode itself never
 	// touches the network).
-	w, err := NewWalletPort(t.TempDir(), []string{"http://corpus.invalid"}, false)
+	w, err := NewWalletPort(t.TempDir(), []string{"http://corpus.invalid"}, false, nil)
 	if err != nil {
 		t.Fatalf("offline NewWalletPort: %v", err)
 	}
