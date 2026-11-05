@@ -84,6 +84,14 @@ The scan also carries the peer metadata from the TollGate vendor IE: reseller ca
 
 `upstream disconnect` is the explicit "stop peering" verb. It selects the best known, non-blacklisted, non-TollGate upstream, switches to it, verifies connectivity, and only reports success when that check passes. If every fallback fails, it restores the peer and returns an error instead of leaving the router offline.
 
+## Recovery after internet loss
+
+Emergency scans can try a known saved upstream even when its signal is weaker than the active connection. Signal hysteresis still applies to routine optimization. Candidate filtering, BSSID blacklists, reseller policy and the circuit breaker remain in force; an unknown private network is never enrolled automatically.
+
+After a handover, the existing layered connectivity probe retries failures over a 30-second convergence window, using `post_switch_wait_seconds` between attempts. An in-flight probe keeps its own timeout and can finish after that window. A later handover or manual join supersedes the old verification, so it cannot blacklist the new connection or publish stale connectivity metadata.
+
+Manual CLI joins hold automatic scans from STA creation through completion of the DHCP wait, even when that operation exceeds `manual_pause_seconds`. The existing timed pause is retained after the operation. A successful manual join clears the failure entry for the selected SSID/BSSID only.
+
 ## Circuit Breaker
 
 After `max_consecutive_failures` consecutive switch failures, the circuit breaker enters a cooldown period (`switch_cooldown_minutes`). During cooldown, scan cycles are skipped to avoid rapid reconnection attempts.

@@ -1,0 +1,1 @@
+- **Backend firewall validation uses the same definitions as fw4.** Include the shipped interface definitions before parsing the API guard, distinguish missing capabilities from parser failures, and cover the invocation with regression cases. No shipped rule changes. ([#1201](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1201)).

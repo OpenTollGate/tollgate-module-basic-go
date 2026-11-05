@@ -992,6 +992,11 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
+	if s.upstreamManager != nil {
+		s.upstreamManager.BeginManualOperation()
+		defer s.upstreamManager.EndManualOperation()
+	}
+
 	ifaceName, err := s.connector.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
 	if err != nil {
 		return CLIResponse{
@@ -1024,6 +1029,10 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 			Error:     fmt.Sprintf("Failed to connect: %v", err),
 			Timestamp: time.Now(),
 		}
+	}
+
+	if s.upstreamManager != nil {
+		s.upstreamManager.ClearSavedNetworkFailure(ssid, bestBSSIDForSSID(networks, ssid, bestRadio))
 	}
 
 	return CLIResponse{
@@ -1117,6 +1126,11 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), fmt.Sprintf("Creating STA %s on %s...", ifaceName, bestRadio))
+	if s.upstreamManager != nil {
+		s.upstreamManager.BeginManualOperation()
+		defer s.upstreamManager.EndManualOperation()
+	}
+
 	staIface, err := s.connector.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
 	if err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to create STA interface: %v", err), Timestamp: time.Now()})
@@ -1141,6 +1155,10 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 	if err := s.connector.SwitchUpstream(activeIface, staIface, ssid, bestBSSIDForSSID(networks, ssid, bestRadio)); err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to connect: %v", err), Timestamp: time.Now()})
 		return
+	}
+
+	if s.upstreamManager != nil {
+		s.upstreamManager.ClearSavedNetworkFailure(ssid, bestBSSIDForSSID(networks, ssid, bestRadio))
 	}
 
 	step++

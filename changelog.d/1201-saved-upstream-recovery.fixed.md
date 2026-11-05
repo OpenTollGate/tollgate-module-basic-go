@@ -1,0 +1,1 @@
+- **Saved upstream recovery can use a weaker working network after internet loss.** Allow route/probe convergence before blacklisting a new connection, keep automatic scans paused throughout manual joins, and discard superseded verification results. ([#1201](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1201)).
