@@ -1308,6 +1308,12 @@ func drainUsageSweep(t *testing.T, mi MerchantInterface) {
 		return
 	}
 	if deg, ok := mi.(*MerchantDegraded); ok && deg != nil {
+		// The degraded's OWN background work must die with the test
+		// too: the wallet-retry loop armed by WireRecoveryTrigger
+		// survives the test otherwise and keeps firing AttemptUpgrade
+		// against its mint after teardown (the full-suite census's
+		// interaction-dependent leak vessel).
+		t.Cleanup(func() { _ = deg.Shutdown() })
 		prev := deg.onUpgrade
 		deg.onUpgrade = func(upgraded MerchantInterface) {
 			drainUsageSweep(t, upgraded)

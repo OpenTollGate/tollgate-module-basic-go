@@ -1,6 +1,7 @@
 package merchant
 
 import (
+	"sync"
 	"fmt"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"net/http"
@@ -95,7 +96,27 @@ func TestDegradedWalletRetryHealsBrokenWallet(t *testing.T) {
 	t.Cleanup(func() { _ = deg.Shutdown() })
 
 	upgraded := make(chan MerchantInterface, 1)
-	deg.OnUpgrade(func(mi MerchantInterface) { upgraded <- mi })
+	var upgradedMu sync.Mutex
+	var received []MerchantInterface
+	deg.OnUpgrade(func(mi MerchantInterface) {
+		upgradedMu.Lock()
+		received = append(received, mi)
+		upgradedMu.Unlock()
+		upgraded <- mi
+	})
+	// Every merchant the retry loop hands out owns a usage sweep its
+	// construction started; a test that asserts the fire and returns
+	// must still own what it received (census: LIVE-AT-EXIT — the
+	// #887 family's residual under full-suite timing).
+	t.Cleanup(func() {
+		upgradedMu.Lock()
+		defer upgradedMu.Unlock()
+		for _, mi := range received {
+			if s, ok := mi.(interface{ Shutdown() error }); ok {
+				_ = s.Shutdown()
+			}
+		}
+	})
 
 	select {
 	case mi := <-upgraded:
