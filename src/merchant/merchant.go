@@ -539,7 +539,7 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	if len(reachableMints) == 0 {
 		log.Printf("WARNING: No reachable mints detected. Starting in degraded mode.")
 		walletDirPath := walletDirFor(configManager)
-		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, walletFactoryForBackend(configManager), walletDirPath)
 		deg.SetDegradeReason("no reachable mints")
 		mintHealthTracker.StartProactiveChecks()
 		deg.WireRecoveryTrigger()
@@ -594,7 +594,11 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
 	}
-	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false, mintUnits)
+	// Backend selection (#1139): route through the selection seam so
+	// wallet.backend=cdk runs the service on the cdk-walletd sidecar. An
+	// absent wallet section (Backend "") selects the in-process wallet —
+	// the pre-selection behavior, byte-identical.
+	tw, walletErr := openServiceWallet(configManager, walletDirPath, mintURLs, mintUnits)
 
 	if walletErr != nil {
 		if bootErr := walletLockBootError(walletErr); bootErr != nil {
@@ -605,7 +609,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		} else {
 			log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
 		}
-		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, walletFactoryForBackend(configManager), walletDirPath)
 		// Honest reason: the mints may all be reachable — this is the
 		// #583/#1035 class where "no reachable mints" pointed triage at
 		// the network for days while the wallet was the broken half.
@@ -2893,4 +2897,35 @@ func (m *Merchant) Fund(cashuToken string) (uint64, error) {
 
 	log.Printf("Successfully funded wallet with %d sats", amountReceived)
 	return amountReceived, nil
+}
+
+// openServiceWallet routes the merchant service's wallet construction
+// through the selection seam (#1139): wallet.backend=cdk opens the
+// cdk-walletd sidecar client at wallet.socket (the `info` handshake runs
+// at construction, so a dead daemon fails here); an absent section or
+// "default" opens the in-process wallet — the pre-selection behavior,
+// identical arguments to the tollwallet.NewWalletPort call this replaced.
+func openServiceWallet(configManager *config_manager.ConfigManager, walletPath string, mintURLs []string, mintUnits map[string]string) (tollwallet.WalletPort, error) {
+	walletCfg := configManager.GetConfig().Wallet
+	tw, _, err := tollwallet.OpenWallet(tollwallet.WalletConfig{
+		Backend:                    walletCfg.Backend,
+		Socket:                     walletCfg.Socket,
+		Path:                       walletPath,
+		AcceptedMints:              mintURLs,
+		AllowAndSwapUntrustedMints: false,
+		MintUnits:                  mintUnits,
+	})
+	if err == nil {
+		log.Printf("Wallet backend selected: %s", walletBackendName(walletCfg.Backend))
+	}
+	return tw, err
+}
+
+// walletBackendName renders the selected backend for logs; empty means the
+// default in-process wallet.
+func walletBackendName(backend string) string {
+	if backend == "" {
+		return "default (in-process)"
+	}
+	return backend
 }
