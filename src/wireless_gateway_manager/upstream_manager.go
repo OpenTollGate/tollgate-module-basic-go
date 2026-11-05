@@ -27,20 +27,22 @@ type ResellerModeChecker interface {
 }
 
 type UpstreamManager struct {
-	connector           ConnectorInterface
-	scanner             ScannerInterface
-	reseller            ResellerModeChecker
-	config              UpstreamManagerConfig
-	stopChan            chan struct{}
-	pauseMu             sync.Mutex
-	pauseUntil          time.Time
-	blacklist           map[string]time.Time
-	blacklistMu         sync.Mutex
-	failMu              sync.Mutex
-	consecutiveFails    int
-	cooldownUntil       time.Time
-	connectivityCheckFn func() bool
-	connectivityProbeFn func() ConnectivityResult
+	connector            ConnectorInterface
+	scanner              ScannerInterface
+	reseller             ResellerModeChecker
+	config               UpstreamManagerConfig
+	stopChan             chan struct{}
+	pauseMu              sync.Mutex
+	pauseUntil           time.Time
+	manualOperations     int
+	connectionGeneration atomic.Uint64
+	blacklist            map[string]time.Time
+	blacklistMu          sync.Mutex
+	failMu               sync.Mutex
+	consecutiveFails     int
+	cooldownUntil        time.Time
+	connectivityCheckFn  func() bool
+	connectivityProbeFn  func() ConnectivityResult
 	// fallbackVerifyFn overrides the post-switch route+connectivity check for
 	// the manual "stop peering" fallback. Tests use it; production leaves it nil.
 	fallbackVerifyFn func() bool
@@ -214,6 +216,7 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 			break
 		}
 
+		generation := um.nextConnectionGeneration()
 		if err := um.connector.SwitchUpstream(activeSTA.Name, candidate.IfaceName, candidate.SSID, candidate.BSSID); err != nil {
 			logger.WithError(err).Warn("Startup check: switch failed")
 			um.recordSwitchFailure()
@@ -225,7 +228,7 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 
 		um.resetSwitchFailures()
 		um.blacklistUpstream(activeSTA.SSID, um.getAssociatedBSSID(staNetdev))
-		go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID)
+		go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID, generation)
 		switched = true
 		break
 	}
@@ -415,9 +418,52 @@ func (um *UpstreamManager) PauseConnectivityChecks(d time.Duration) {
 	logger.WithField("duration", d).Info("Pausing connectivity checks")
 }
 
+// BeginManualOperation prevents automatic switching until the matching end,
+// including DHCP waits longer than the configured post-connect pause.
+func (um *UpstreamManager) BeginManualOperation() {
+	um.pauseMu.Lock()
+	um.manualOperations++
+	um.connectionGeneration.Add(1)
+	um.pauseMu.Unlock()
+}
+
+// EndManualOperation releases one manual operation without shortening a pause.
+func (um *UpstreamManager) EndManualOperation() {
+	um.pauseMu.Lock()
+	if um.manualOperations > 0 {
+		um.manualOperations--
+	}
+	um.pauseMu.Unlock()
+}
+
+// ClearSavedNetworkFailure accepts fresh evidence from a successful manual join.
+// Preserve failures for other BSSIDs advertising the same SSID.
+func (um *UpstreamManager) ClearSavedNetworkFailure(ssid, bssid string) {
+	um.blacklistMu.Lock()
+	delete(um.blacklist, blacklistKey(ssid, bssid))
+	um.blacklistMu.Unlock()
+}
+
+func (um *UpstreamManager) nextConnectionGeneration() uint64 {
+	um.pauseMu.Lock()
+	defer um.pauseMu.Unlock()
+	return um.connectionGeneration.Add(1)
+}
+
+// Serialize verification publication against manual operations and handovers.
+func (um *UpstreamManager) applyVerification(generation uint64, apply func()) bool {
+	um.pauseMu.Lock()
+	defer um.pauseMu.Unlock()
+	if um.connectionGeneration.Load() != generation {
+		return false
+	}
+	apply()
+	return true
+}
+
 func (um *UpstreamManager) isPaused() bool {
 	um.pauseMu.Lock()
-	paused := time.Now().Before(um.pauseUntil)
+	paused := um.manualOperations > 0 || time.Now().Before(um.pauseUntil)
 	um.pauseMu.Unlock()
 	return paused
 }
@@ -504,6 +550,9 @@ func (um *UpstreamManager) isResellerModeActive() bool {
 }
 
 func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID string, currentSignal int, reason string, isReseller bool) {
+	if um.isPaused() {
+		return
+	}
 	if um.isInCooldown() {
 		logger.WithField("reason", reason).Info("In cooldown period, skipping scan cycle")
 		return
@@ -540,6 +589,9 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID str
 	if activeIface == "" {
 		shouldSwitch = true
 		logger.WithField("reason", reason).Info("No active upstream, connecting")
+	} else if isEmergency {
+		shouldSwitch = true
+		logger.Info("Internet unavailable; trying another known upstream")
 	} else if currentSignal == 0 {
 		shouldSwitch = true
 		logger.WithField("reason", reason).Info("Active upstream not associated")
@@ -571,6 +623,7 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID str
 			}).Info("Declining switch: connectivity checks paused mid-cycle (manual upstream operation in flight)")
 			return
 		}
+		generation := um.nextConnectionGeneration()
 		if err := um.connector.SwitchUpstream(activeIface, candidate.IfaceName, candidate.SSID, candidate.BSSID); err != nil {
 			logger.WithError(err).Warn("Failed to switch upstream")
 			um.recordSwitchFailure()
@@ -579,7 +632,7 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID str
 			if isEmergency && activeSSID != "" {
 				um.blacklistUpstream(activeSSID, activeBSSID)
 			}
-			go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID)
+			go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID, generation)
 		}
 	}
 }
@@ -602,28 +655,69 @@ func (um *UpstreamManager) waitForDefaultRoute(timeout time.Duration) bool {
 	return false
 }
 
-func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string, bssid string) {
+// waitForPostSwitchConnectivity allows route/DNS convergence after DHCP.
+// Each existing probe remains responsible for bounding its own network calls.
+func waitForPostSwitchConnectivity(probe func() ConnectivityResult, current func() bool, budget, interval time.Duration) ConnectivityResult {
+	if interval <= 0 {
+		interval = time.Second
+	}
+	deadline := time.Now().Add(budget)
+	for {
+		if !current() {
+			return ConnectivityResult{Reason: "superseded"}
+		}
+		result := probe()
+		if !current() {
+			return ConnectivityResult{Reason: "superseded"}
+		}
+		if result.OK {
+			return result
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return result
+		}
+		delay := interval
+		if remaining < delay {
+			delay = remaining
+		}
+		time.Sleep(delay)
+	}
+}
+
+func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string, bssid string, generation uint64) {
+	current := func() bool { return um.connectionGeneration.Load() == generation }
+	if !current() {
+		return
+	}
 	logger.WithField("ssid", ssid).Info("Post-switch: verifying connectivity")
 	if um.waitForDefaultRoute(30 * time.Second) {
 		if um.probeTollGateGateway(bssid) {
-			um.isTollGateConnection.Store(true)
-			logger.WithField("ssid", ssid).Info("Post-switch: TollGate detected, skipping internet blacklist check")
+			if !current() {
+				return
+			}
+			um.applyVerification(generation, func() {
+				um.isTollGateConnection.Store(true)
+				logger.WithField("ssid", ssid).Info("Post-switch: TollGate detected, skipping internet blacklist check")
+			})
 			return
 		}
 	}
 
-	um.isTollGateConnection.Store(false)
-	result := um.probeConnectivity("")
-	if !result.OK {
-		um.blacklistUpstream(ssid, bssid)
-		logger.WithFields(logrus.Fields{
-			"ssid":   ssid,
-			"bssid":  bssid,
-			"reason": result.Reason,
-		}).Warn("Blacklisted new upstream: no internet after switch")
-	} else {
-		logger.WithField("ssid", ssid).Info("Post-switch connectivity verified")
-	}
+	result := waitForPostSwitchConnectivity(func() ConnectivityResult { return um.probeConnectivity("") }, current, 30*time.Second, um.config.PostSwitchWait)
+	um.applyVerification(generation, func() {
+		um.isTollGateConnection.Store(false)
+		if !result.OK {
+			um.blacklistUpstream(ssid, bssid)
+			logger.WithFields(logrus.Fields{
+				"ssid":   ssid,
+				"bssid":  bssid,
+				"reason": result.Reason,
+			}).Warn("Blacklisted new upstream: no internet after switch")
+		} else {
+			logger.WithField("ssid", ssid).Info("Post-switch connectivity verified")
+		}
+	})
 }
 
 func (um *UpstreamManager) probeTollGateGateway(bssid string) bool {
