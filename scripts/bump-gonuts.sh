@@ -33,13 +33,18 @@ command -v go >/dev/null 2>&1 || {
 }
 
 OLD_VERSION="$(python3 -c "import json; print(json.load(open('$MANIFEST'))['gonuts']['version'])")"
-if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
-    echo "manifest already pins $NEW_VERSION — nothing to do"
-    exit 0
+if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
+    echo "gonuts-tollgate: $OLD_VERSION -> $NEW_VERSION"
+else
+    # The manifest is already at the target; carriers may not be (the
+    # reconciliation case: the fence landed naming the target version
+    # while the tree still split). Only a full agreement is "nothing to
+    # do" — a disagreement is a half-update this script exists to heal.
+    echo "manifest already pins $NEW_VERSION — checking carriers for drift"
 fi
-echo "gonuts-tollgate: $OLD_VERSION -> $NEW_VERSION"
 
-# 1. The truth moves first; the fence below judges everything against it.
+# 1. The truth moves first (a no-op rewrite when already there); the fence
+#    below judges everything against it.
 python3 - "$MANIFEST" "$NEW_VERSION" <<'PY'
 import collections, json, sys
 path, version = sys.argv[1], sys.argv[2]
