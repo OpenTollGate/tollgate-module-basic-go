@@ -232,7 +232,6 @@ func (w *CdkWallet) Receive(t Token) (received uint64, err error) {
 	amount, err := wallet.Receive(ct.inner, cdk_ffi.ReceiveOptions{
 		AmountSplitTarget: cdk_ffi.SplitTargetNone{},
 	})
->>>>>>> dd1776eb (feat(tollwallet): full WalletPort parity — subprocess round-trip, cdk adapter hardening, fork-carried FFI fix)
 	if err != nil {
 		return 0, mapCdkError(err)
 	}
