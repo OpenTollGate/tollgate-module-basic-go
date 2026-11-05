@@ -231,6 +231,17 @@ jobs:
           # fork-tag query; --latest is scripts/release-check.sh's verdict).
           bash tests/contract/gonuts-pin_test.sh
           python3 tests/contract/check-gonuts-pin.py
+      - name: CDK-go pin fence (planted-drift verdicts + identity)
+        run: |
+          # Fixture verdicts, then the real-tree identity leg — enabled
+          # since the v0.18.3 reconciliation converged every carrier
+          # (before that, main split v0.17.3/v0.18.1 and the leg would
+          # have reddened every open PR). Offline only: it reads go.mod
+          # files and the manifest; --latest (tag freshness) stays in
+          # scripts/release-check.sh (the ngit lane has no token for the
+          # tag query either).
+          bash tests/contract/cdkgo-pin_test.sh
+          python3 tests/contract/check-cdkgo-pin.py
       - name: Mirror and relay sync check
         run: python3 tests/contract/check-mirror-sync.py
       - name: Stale import path check
