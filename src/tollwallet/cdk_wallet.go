@@ -246,11 +246,17 @@ func (w *CdkWallet) SwapFeeSats(t Token) (uint64, error) {
 }
 
 // mintAccepted mirrors the gonuts trust model: listed mints pass;
-// otherwise the allowUntrusted flag decides. Swap-to-trusted is not
-// implemented in this adapter — untrusted tokens are accepted as-is.
+// otherwise the allowUntrusted flag decides. Comparison is canonical
+// (normalizeMintURL both sides) — a token carrying the mint's own
+// spelling ("http://m:port", no trailing slash) must match an operator
+// config spelling that carries one ("http://m:port/"): raw comparison
+// is exactly how two spellings of one mint became two wallets (#375).
+// Swap-to-trusted is not implemented in this adapter — untrusted tokens
+// are accepted as-is.
 func (w *CdkWallet) mintAccepted(mintUrl string) bool {
+	canonical := normalizeMintURL(mintUrl)
 	for _, m := range w.acceptedMints {
-		if m == mintUrl {
+		if normalizeMintURL(m) == canonical {
 			return true
 		}
 	}
@@ -286,8 +292,13 @@ func (w *CdkWallet) GetBalanceByMint(mintUrl string) uint64 {
 	// operator-issued mb/min balance read as empty while the wallet held
 	// funds. Sum across every unit open for this mint.
 	var total uint64
+	canonical := normalizeMintURL(mintUrl)
 	for key, wlt := range w.wallets {
-		if key != mintUrl && !strings.HasPrefix(key, mintUrl+"|") {
+		keyMint := key
+		if i := strings.Index(key, "|"); i >= 0 {
+			keyMint = key[:i]
+		}
+		if normalizeMintURL(keyMint) != canonical {
 			continue
 		}
 		if amt, err := wlt.TotalBalance(); err == nil {
