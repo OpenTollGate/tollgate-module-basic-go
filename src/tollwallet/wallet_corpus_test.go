@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -79,7 +80,7 @@ func TestWalletPortCorpusDecode(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read fixture %s: %v", lc.Fixture, err)
 			}
-			tok, err := w.DecodeToken(string(tokenStr))
+			tok, err := w.DecodeToken(strings.TrimSpace(string(tokenStr)))
 			if err != nil {
 				t.Fatalf("DecodeToken (corpus verdict for this shape is decode-accept): %v", err)
 			}
