@@ -751,6 +751,14 @@ func sendCommand(msg CLIMessage) (*CLIResponse, error) {
 }
 
 func sendCommandStreaming(command string, args []string, flags map[string]string) error {
+	fail := func(err error) error {
+		if jsonOutput {
+			if printErr := printJSON(&CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()}); printErr != nil {
+				return printErr
+			}
+		}
+		return err
+	}
 	msg := CLIMessage{
 		Command:   command,
 		Args:      args,
@@ -760,22 +768,22 @@ func sendCommandStreaming(command string, args []string, flags map[string]string
 
 	conn, err := net.Dial("unix", socketPath())
 	if err != nil {
-		return fmt.Errorf("failed to communicate with TollGate service: %v\nMake sure the TollGate service is running", err)
+		return fail(fmt.Errorf("failed to communicate with TollGate service: %v\nMake sure the TollGate service is running", err))
 	}
 	defer conn.Close()
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("failed to encode message: %v", err)
+		return fail(fmt.Errorf("failed to encode message: %v", err))
 	}
 
 	_, err = conn.Write(data)
 	if err != nil {
-		return fmt.Errorf("failed to send message: %v", err)
+		return fail(fmt.Errorf("failed to send message: %v", err))
 	}
 	_, err = conn.Write([]byte("\n"))
 	if err != nil {
-		return fmt.Errorf("failed to send newline: %v", err)
+		return fail(fmt.Errorf("failed to send newline: %v", err))
 	}
 
 	scanner := bufio.NewScanner(conn)
@@ -786,18 +794,26 @@ func sendCommandStreaming(command string, args []string, flags map[string]string
 		}
 
 		if response.Progress != "" {
-			fmt.Printf("  %s\n", response.Progress)
+			if !jsonOutput {
+				fmt.Printf("  %s\n", response.Progress)
+			}
 			continue
 		}
 
-		displayResponse(&response)
+		if jsonOutput {
+			if err := printJSON(&response); err != nil {
+				return err
+			}
+		} else {
+			displayResponse(&response)
+		}
 		if !response.Success {
 			return fmt.Errorf("command failed")
 		}
 		return nil
 	}
 
-	return fmt.Errorf("no response from service")
+	return fail(fmt.Errorf("no response from service"))
 }
 
 func executeServiceCommand(action string) error {
