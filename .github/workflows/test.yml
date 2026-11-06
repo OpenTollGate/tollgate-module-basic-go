@@ -383,7 +383,7 @@ jobs:
         with:
           go-version-file: src/go.mod
       - name: Dependency sync check
-        run: python3 tests/contract/check-deps-sync.py
+        run: python3 tests/contract/check-deps-sync.py --selftest-and-check
       - name: Gonuts pin identity (one version, every carrier)
         run: |
           # Offline leg only: every go.mod that references the wallet fork

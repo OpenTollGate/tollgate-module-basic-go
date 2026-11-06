@@ -172,7 +172,7 @@ run_lane() { # run_lane <pr> <head-ref> <head-oid> <portal-mode>
                  "build purity:bash tests/contract/build-purity.sh" \
                  "SSID format:bash tests/contract/check-ssid-format.sh" \
                  "SSID naming:bash tests/contract/check-ssid-naming.sh" \
-                 "deps sync:python3 tests/contract/check-deps-sync.py" \
+                 "deps sync:python3 tests/contract/check-deps-sync.py --selftest-and-check" \
                  "gonuts pin:bash tests/contract/gonuts-pin_test.sh" \
                  "gonuts carriers:python3 tests/contract/check-gonuts-pin.py" \
                  "mirror sync:python3 tests/contract/check-mirror-sync.py" \
