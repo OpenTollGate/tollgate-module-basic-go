@@ -248,7 +248,6 @@ func (s *CLIServer) handleConnection(conn net.Conn) {
 func (s *CLIServer) processCommand(msg CLIMessage) CLIResponse {
 	cliLogger.WithFields(logrus.Fields{
 		"command": msg.Command,
-		"args":    msg.Args,
 	}).Debug("Processing CLI command")
 
 	switch msg.Command {
@@ -923,6 +922,83 @@ func bestBSSIDForSSID(networks []wireless_gateway_manager.NetworkInfo, ssid, rad
 	return best
 }
 
+// savedUpstreamPassphrase resolves exactly one personal/open STA on wwan.
+// Keep UCI output and errors private: callers receive fixed diagnostic text.
+func (s *CLIServer) savedUpstreamPassphrase(ssid string, sections []wireless_gateway_manager.STASection) (string, error) {
+	var saved *wireless_gateway_manager.STASection
+	for i := range sections {
+		if sections[i].SSID != ssid {
+			continue
+		}
+		if saved != nil {
+			return "", errors.New("saved upstream is ambiguous; enter a passphrase explicitly")
+		}
+		saved = &sections[i]
+	}
+	if saved == nil {
+		return "", errors.New("no saved upstream credential; enter a passphrase")
+	}
+	switch strings.SplitN(saved.Encryption, "+", 2)[0] {
+	case "none", "psk", "psk2", "psk-mixed", "sae", "sae-mixed":
+	default:
+		return "", errors.New("saved upstream encryption does not support passphrase reuse")
+	}
+	network, err := s.connector.ExecuteUCI("get", "wireless."+saved.Name+".network")
+	if err != nil || strings.TrimSpace(network) != "wwan" {
+		return "", errors.New("saved upstream is not exclusively on wwan")
+	}
+	if saved.Encryption == "none" {
+		return "", nil
+	}
+	key, err := s.connector.ExecuteUCI("get", "wireless."+saved.Name+".key")
+	if err != nil {
+		return "", errors.New("saved upstream credential is unavailable")
+	}
+	// UCI appends a newline. Preserve spaces in a valid passphrase.
+	key = strings.TrimSuffix(key, "\n")
+	if key == "" || strings.ContainsAny(key, "\r\n\x00") {
+		return "", errors.New("saved upstream credential is unavailable")
+	}
+	return key, nil
+}
+
+func upstreamConnectError(message string, err error, usingSavedCredential bool, passphrase string) string {
+	if usingSavedCredential {
+		return message + " using the saved profile"
+	}
+	detail := err.Error()
+	if passphrase != "" {
+		detail = strings.ReplaceAll(detail, passphrase, "[redacted]")
+	}
+	return fmt.Sprintf("%s: %s", message, detail)
+}
+
+func (s *CLIServer) resolveUpstreamPassphrase(ssid, passphrase, encryption string) (string, bool, error) {
+	if encryption == "none" {
+		return "", false, nil
+	}
+	if passphrase != "" {
+		return passphrase, false, nil
+	}
+	switch strings.SplitN(encryption, "+", 2)[0] {
+	case "psk", "psk2", "psk-mixed", "sae", "sae-mixed":
+	default:
+		return "", false, errors.New("scanned encryption does not support saved passphrase reuse")
+	}
+	sections, err := s.connector.GetSTASections()
+	if err != nil {
+		return "", false, errors.New("saved upstream profiles are unavailable; enter a passphrase")
+	}
+	key, err := s.savedUpstreamPassphrase(ssid, sections)
+	if err != nil {
+		return "", false, err
+	}
+	if key == "" {
+		return "", false, errors.New("passphrase required for encrypted network")
+	}
+	return key, true, nil
+}
+
 func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 	if len(connectArgs) < 1 {
 		return CLIResponse{
@@ -974,12 +1050,11 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 
 	uciEnc := s.scanner.DetectEncryption(encryptionStr)
 
-	if uciEnc == "none" {
-		passphrase = ""
-	} else if passphrase == "" {
+	passphrase, usingSavedCredential, err := s.resolveUpstreamPassphrase(ssid, passphrase, uciEnc)
+	if err != nil {
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Passphrase required for encrypted network '%s'", ssid),
+			Error:     err.Error(),
 			Timestamp: time.Now(),
 		}
 	}
@@ -996,7 +1071,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 	if err != nil {
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Failed to create STA interface: %v", err),
+			Error:     upstreamConnectError("Failed to create STA interface", err, usingSavedCredential, passphrase),
 			Timestamp: time.Now(),
 		}
 	}
@@ -1021,7 +1096,7 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 	if err := s.connector.SwitchUpstream(activeIface, ifaceName, ssid, bestBSSIDForSSID(networks, ssid, bestRadio)); err != nil {
 		return CLIResponse{
 			Success:   false,
-			Error:     fmt.Sprintf("Failed to connect: %v", err),
+			Error:     upstreamConnectError("Failed to connect", err, usingSavedCredential, passphrase),
 			Timestamp: time.Now(),
 		}
 	}
@@ -1088,10 +1163,9 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 	}
 	uciEnc := s.scanner.DetectEncryption(encryptionStr)
 
-	if uciEnc == "none" {
-		passphrase = ""
-	} else if passphrase == "" {
-		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Passphrase required for encrypted network '%s'", ssid), Timestamp: time.Now()})
+	passphrase, usingSavedCredential, err := s.resolveUpstreamPassphrase(ssid, passphrase, uciEnc)
+	if err != nil {
+		s.sendResponse(conn, CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()})
 		return
 	}
 
@@ -1119,7 +1193,7 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), fmt.Sprintf("Creating STA %s on %s...", ifaceName, bestRadio))
 	staIface, err := s.connector.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
 	if err != nil {
-		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to create STA interface: %v", err), Timestamp: time.Now()})
+		s.sendResponse(conn, CLIResponse{Success: false, Error: upstreamConnectError("Failed to create STA interface", err, usingSavedCredential, passphrase), Timestamp: time.Now()})
 		return
 	}
 
@@ -1139,7 +1213,7 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), "Switching upstream... waiting for DHCP")
 	if err := s.connector.SwitchUpstream(activeIface, staIface, ssid, bestBSSIDForSSID(networks, ssid, bestRadio)); err != nil {
-		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to connect: %v", err), Timestamp: time.Now()})
+		s.sendResponse(conn, CLIResponse{Success: false, Error: upstreamConnectError("Failed to connect", err, usingSavedCredential, passphrase), Timestamp: time.Now()})
 		return
 	}
 
@@ -1167,11 +1241,13 @@ func (s *CLIServer) handleUpstreamList() CLIResponse {
 		if !section.Disabled {
 			status = "ACTIVE"
 		}
+		_, credentialErr := s.savedUpstreamPassphrase(section.SSID, sections)
 		result = append(result, UpstreamSTA{
-			SSID:       section.SSID,
-			Status:     status,
-			Radio:      section.Device,
-			Encryption: section.Encryption,
+			CanReconnect: credentialErr == nil,
+			SSID:         section.SSID,
+			Status:       status,
+			Radio:        section.Device,
+			Encryption:   section.Encryption,
 		})
 	}
 

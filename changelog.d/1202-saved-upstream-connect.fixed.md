@@ -1,0 +1,1 @@
+- **Saved upstream Wi-Fi can reconnect without re-entering its key.** Reuse an unambiguous personal wwan profile, expose only a reconnect capability boolean, and make streaming CLI JSON return one final result with failure exit status. ([#1202](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1202)).
