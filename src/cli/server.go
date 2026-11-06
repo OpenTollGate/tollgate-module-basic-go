@@ -248,7 +248,6 @@ func (s *CLIServer) handleConnection(conn net.Conn) {
 func (s *CLIServer) processCommand(msg CLIMessage) CLIResponse {
 	cliLogger.WithFields(logrus.Fields{
 		"command": msg.Command,
-		"args":    msg.Args,
 	}).Debug("Processing CLI command")
 
 	switch msg.Command {
