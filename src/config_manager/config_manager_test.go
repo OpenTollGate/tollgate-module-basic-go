@@ -303,12 +303,7 @@ func TestEnsureDefaultConfigRefusesSchemaShapeMismatch(t *testing.T) {
 }
 
 func TestEnsureDefaultConfigRecoversTruncatedConfig(t *testing.T) {
-	probe := "/etc/tollgate/config_backups/.probe"
-	if err := os.WriteFile(probe, nil, 0o600); err != nil {
-		t.Skipf("backup dir not writable here (recovery path needs it): %v", err)
-	}
-	_ = os.Remove(probe)
-
+	backupDir := isolateConfigBackups(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 	if err := os.WriteFile(path, []byte(`{"accepted_mints": [`), 0o600); err != nil {
@@ -321,4 +316,5 @@ func TestEnsureDefaultConfigRecoversTruncatedConfig(t *testing.T) {
 	if len(cfg.AcceptedMints) == 0 {
 		t.Fatal("expected factory default mints after truncation recovery")
 	}
+	assertCorruptBackup(t, backupDir, "config", []byte(`{"accepted_mints": [`))
 }
