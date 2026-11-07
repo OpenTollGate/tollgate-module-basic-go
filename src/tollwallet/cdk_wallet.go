@@ -120,7 +120,17 @@ func (w *CdkWallet) DecodeToken(tokenStr string) (Token, error) {
 	return DecodeToken(tokenStr)
 }
 
-func (w *CdkWallet) Receive(t Token) (uint64, error) {
+func (w *CdkWallet) Receive(t Token) (received uint64, err error) {
+	// FFI boundary defense: cdk-ffi's Receive on ALREADY-SPENT proofs
+	// returns a broken response buffer — uniffi's Go reader then panics
+	// with EOF instead of surfacing the mint's spend error (cashubtc/cdk-go#18).
+	// The process survives but a panic here crashes the daemon. Convert it
+	// to the error the port contract promises.
+	defer func() {
+		if r := recover(); r != nil {
+			received, err = 0, fmt.Errorf("cdk wallet receive failed at the FFI boundary (likely spent proofs; upstream cdk-ffi error-path bug): %v", r)
+		}
+	}()
 	ct, ok := t.(*cdkToken)
 	if !ok {
 		return 0, fmt.Errorf("CdkWallet.Receive: expected *cdkToken, got %T", t)
@@ -158,8 +168,13 @@ func (w *CdkWallet) SwapFeeSats(t Token) (uint64, error) {
 // otherwise the allowUntrusted flag decides. Swap-to-trusted is not
 // implemented in this adapter — untrusted tokens are accepted as-is.
 func (w *CdkWallet) mintAccepted(mintUrl string) bool {
+	// Canonical comparison (#375 doctrine): a token carrying the mint's own
+	// spelling ("http://m:port") must match an operator config spelling that
+	// carries one ("http://m:port/") — raw comparison is exactly how two
+	// spellings of one mint became two wallets.
+	canonical := normalizeMintURL(mintUrl)
 	for _, m := range w.acceptedMints {
-		if m == mintUrl {
+		if normalizeMintURL(m) == canonical {
 			return true
 		}
 	}
@@ -189,15 +204,26 @@ func (w *CdkWallet) GetBalanceByMint(mintUrl string) uint64 {
 	// destroy the wallet mid-read (use-after-free).
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	wlt, ok := w.wallets[mintUrl]
-	if !ok {
-		return 0
+	// Canonical + mint|unit suffix strip (#375 class on the unit-aware seam):
+	// wallets are keyed mint|unit; the lookup must compare the mint part
+	// canonically and sum across units — a raw key lookup always missed and
+	// reported 0 for cross-spelling or multi-unit mints.
+	canonical := normalizeMintURL(mintUrl)
+	var total uint64
+	for key, wlt := range w.wallets {
+		keyMint := key
+		if i := strings.Index(key, "|"); i >= 0 {
+			keyMint = key[:i]
+		}
+		if normalizeMintURL(keyMint) != canonical {
+			continue
+		}
+		amt, err := wlt.TotalBalance()
+		if err == nil {
+			total += amt.Value
+		}
 	}
-	amt, err := wlt.TotalBalance()
-	if err != nil {
-		return 0
-	}
-	return amt.Value
+	return total
 }
 
 func (w *CdkWallet) GetAllMintBalances() map[string]uint64 {
