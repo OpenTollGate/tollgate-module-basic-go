@@ -72,6 +72,14 @@ type Config struct {
 	PrivateKey          string `json:"private_key,omitempty"`
 	PrivateEncryption   string `json:"private_encryption"`
 	AdminAccess         string `json:"admin_access"`
+	// PaidBridge names the bridge device that carries paid/captive clients
+	// (`br-lan` on the stock layout, `br-tollgate` on an isolated one).
+	//
+	// This is published intent, not a router mutation: management clients
+	// (Archy, dashboards) and the feed's NDS fragment read it instead of
+	// hardcoding a bridge name. Empty means "derive it from the paid AP's
+	// network at install time". It is a device name, not a UCI network name.
+	PaidBridge string `json:"paid_bridge,omitempty"`
 	// EntryUI decides which UI owns the router's entry port pair (:8080 + :443).
 	// It is declared intent, like the four fields above: nothing reads the value
 	// directly. The uci-defaults writers (the module's 99 and the portal's 92)

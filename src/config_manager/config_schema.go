@@ -188,6 +188,11 @@ func GetConfigSchema() []FieldSchema {
 			Enum: []string{"br-private", "br-mgmt", "both", "loopback-only"},
 		},
 		{
+			Name: "PaidBridge", JSONKey: "paid_bridge", Type: "string",
+			Description: "Bridge device that carries paid/captive clients (for example br-lan on the stock layout or br-tollgate on an isolated one). Published so management clients and the NDS fragment never hardcode a bridge name. Empty means derive it from the paid AP's network at install time; this is a device name, not a UCI network name.",
+			Default:     "", Required: false, Editable: true,
+		},
+		{
 			Name: "EntryUI", JSONKey: "entry_ui", Type: "string",
 			Description: "Which UI answers the router's entry ports (:8080 over HTTP and :443 over HTTPS). board = the TollGate board answers https://<hostname>.lan/ and LuCI moves to :8090/:8443 (the default); luci = LuCI answers the entry pair and the board stays on :8090/:8443, the mapping shipped before 0.6.0. The two packages that write the listeners are released separately, so a router carrying only the first half keeps serving the legacy mapping: a value you set is recorded as-is, and the populated default is luci until the board-side writer is installed (the marker gate, #928).",
 			Default:     "board", Required: true, Editable: true,
