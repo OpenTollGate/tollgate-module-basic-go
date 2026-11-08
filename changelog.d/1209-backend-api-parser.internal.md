@@ -1,0 +1,1 @@
+- Validate the backend API guard with its shipped fw4 definitions, distinguish capability skips from parser failures, and retain invalid-input refusal. ([#1209](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1209)).
