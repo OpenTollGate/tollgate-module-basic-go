@@ -1,1 +1,0 @@
-- Refuse dependency verification when the Go parser is missing, exits unsuccessfully or returns invalid metadata; exercise parser refusal controls in both local verifier and CI lanes.

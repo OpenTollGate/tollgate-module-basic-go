@@ -52,6 +52,20 @@ sys.exit(7 if mode == 'nonzero' else 0)
                                     capture_output=True, text=True, timeout=10)
             return result
 
+    def test_real_invocations_require_selftests(self):
+        # Exercise the consumer wiring contract without invoking release actions.
+        root = Path(__file__).resolve().parents[2]
+        found = []
+        for home in (root / "scripts", root / ".github" / "workflows"):
+            for path in home.rglob("*"):
+                if not path.is_file() or path.suffix not in {".sh", ".yml", ".yaml"}:
+                    continue
+                for number, line in enumerate(path.read_text().splitlines(), 1):
+                    if "python3 tests/contract/check-deps-sync.py" in line and not line.lstrip().startswith("#"):
+                        found.append((path, number))
+                        self.assertIn("--selftest-and-check", line, f"{path.relative_to(root)}:{number}")
+        self.assertTrue(found, "no dependency-fence invocations discovered")
+
     def test_valid_parser(self):
         result = self.run_case("valid")
         self.assertEqual(result.returncode, 0, result.stdout)
