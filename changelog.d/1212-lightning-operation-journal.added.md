@@ -1,0 +1,1 @@
+- Add a bounded durable payment-operation journal with exclusive ownership, CAS transitions, retained uncertain reservations and invoice uniqueness; no runtime writer is enabled. ([#1212](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1212))
