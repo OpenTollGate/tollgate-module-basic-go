@@ -321,3 +321,6 @@ func (c *Client) PayInvoice(ctx context.Context, bolt, externalID string) (Payme
 	}
 	return p, nil
 }
+
+func (*Client) String() string   { return "LNbits client (credentials redacted)" }
+func (*Client) GoString() string { return "LNbits client (credentials redacted)" }

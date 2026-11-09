@@ -281,3 +281,12 @@ func TestCancelledContextCannotSend(t *testing.T) {
 		t.Fatal("cancelled operation reached provider")
 	}
 }
+func TestClientFormattingCannotExposeCredentials(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {})
+	for _, format := range []string{"%v", "%+v", "%#v"} {
+		s := fmt.Sprintf(format, c)
+		if strings.Contains(s, "test-invoice-key") || strings.Contains(s, "test-admin-key") {
+			t.Fatal("client formatting exposes credentials")
+		}
+	}
+}
