@@ -444,3 +444,6 @@ func (c *Client) Execute(ctx context.Context, p Prepared) (json.RawMessage, erro
 	}
 	return c.exchange(ctx, p, enc)
 }
+
+func (*Client) String() string   { return "NWC client (connection redacted)" }
+func (*Client) GoString() string { return "NWC client (connection redacted)" }

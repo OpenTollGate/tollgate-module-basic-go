@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip04"
 	"github.com/nbd-wtf/go-nostr/nip44"
 )
 
@@ -22,7 +24,7 @@ type walletTransport struct {
 	last               nostr.Event
 }
 
-func fixture(t *testing.T) (*Client, *walletTransport) {
+func fixture(t *testing.T, legacy ...bool) (*Client, *walletTransport) {
 	t.Helper()
 	sk := nostr.GeneratePrivateKey()
 	wsk := nostr.GeneratePrivateKey()
@@ -30,7 +32,7 @@ func fixture(t *testing.T) (*Client, *walletTransport) {
 	cpk, _ := nostr.GetPublicKey(sk)
 	tr := &walletTransport{walletSK: wsk, clientPK: cpk}
 	q := url.Values{"secret": {sk}, "relay": {"wss://relay.invalid"}}
-	c, err := New(Config{ConnectionURI: "nostr+walletconnect://" + wpk + "?" + q.Encode(), Transport: tr, Timeout: time.Second})
+	c, err := New(Config{ConnectionURI: "nostr+walletconnect://" + wpk + "?" + q.Encode(), Transport: tr, Timeout: time.Second, AllowLegacyNIP04: len(legacy) > 0 && legacy[0]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +40,9 @@ func fixture(t *testing.T) (*Client, *walletTransport) {
 }
 func (w *walletTransport) Info(ctx context.Context, relays []string, pub string) (nostr.Event, error) {
 	e := nostr.Event{Kind: 13194, CreatedAt: nostr.Now(), Content: "get_info get_balance make_invoice lookup_invoice pay_invoice", Tags: nostr.Tags{{"encryption", "nip44_v2"}}}
+	if w.mode == "legacy" {
+		e.Tags = nil
+	}
 	e.Sign(w.walletSK)
 	return e, nil
 }
@@ -49,6 +54,10 @@ func (w *walletTransport) Exchange(ctx context.Context, relays []string, req nos
 	}
 	key, _ := nip44.GenerateConversationKey(req.PubKey, w.walletSK)
 	plain, err := nip44.Decrypt(req.Content, key)
+	if enc, _ := singleTag(req, "encryption"); enc == "nip04" {
+		legacyKey, _ := nip04.ComputeSharedSecret(req.PubKey, w.walletSK)
+		plain, err = nip04.Decrypt(req.Content, legacyKey)
+	}
 	if err != nil {
 		return nostr.Event{}, err
 	}
@@ -68,7 +77,14 @@ func (w *walletTransport) Exchange(ctx context.Context, relays []string, req nos
 		payload["error"] = map[string]any{"code": "UNAUTHORIZED", "message": "private remote detail"}
 	}
 	encrypted, _ := nip44.Encrypt(string(mustJSON(payload)), key)
+	if enc, _ := singleTag(req, "encryption"); enc == "nip04" {
+		legacyKey, _ := nip04.ComputeSharedSecret(req.PubKey, w.walletSK)
+		encrypted, _ = nip04.Encrypt(string(mustJSON(payload)), legacyKey)
+	}
 	e := nostr.Event{Kind: 23195, CreatedAt: nostr.Now(), Content: encrypted, Tags: nostr.Tags{{"p", req.PubKey}, {"e", req.ID}, {"encryption", "nip44_v2"}}}
+	if w.mode == "legacy" {
+		e.Tags = e.Tags[:2]
+	}
 	switch w.mode {
 	case "wrong-request":
 		e.Tags[1][1] = strings.Repeat("a", 64)
@@ -249,5 +265,37 @@ func TestQueuedRequestCannotPublishAfterExpiration(t *testing.T) {
 	}
 	if tr.calls.Load() != before {
 		t.Fatal("expired request reached relay")
+	}
+}
+func TestClientFormattingCannotExposeConnectionSecret(t *testing.T) {
+	c, _ := fixture(t)
+	for _, format := range []string{"%v", "%+v", "%#v"} {
+		s := fmt.Sprintf(format, c)
+		if strings.Contains(s, c.secret) {
+			t.Fatal("client formatting exposes connection secret")
+		}
+	}
+}
+
+func TestLegacyEncryptionRequiresExplicitChoice(t *testing.T) {
+	c, tr := fixture(t)
+	tr.mode = "legacy"
+	if _, err := c.Connect(context.Background()); err == nil {
+		t.Fatal("legacy encryption enabled by default")
+	}
+	c, tr = fixture(t, true)
+	tr.mode = "legacy"
+	if _, err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	p, err := c.Prepare("get_balance", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enc, _ := singleTag(p.Request, "encryption"); enc != "nip04" {
+		t.Fatal("explicit legacy mode did not negotiate nip04")
+	}
+	if _, err = c.Execute(context.Background(), p); err != nil {
+		t.Fatal(err)
 	}
 }
