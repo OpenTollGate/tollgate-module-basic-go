@@ -178,17 +178,46 @@ func (c *Client) request(ctx context.Context, method, path, key string, input, o
 	}
 	return nil
 }
-func (c *Client) wallet(ctx context.Context, key string) (Wallet, error) {
+func (c *Client) fetchWallet(ctx context.Context, key string) (Wallet, error) {
 	var w Wallet
 	if e := c.request(ctx, "GET", "/api/v1/wallet", key, nil, &w); e != nil {
 		return w, e
 	}
-	if w.ID != c.walletID || w.BalanceMSat < 0 {
+	return w, nil
+}
+
+// Wallet returns the wallet details the server supplies for the receiving
+// (invoice) credential. LNbits v1.6.2 includes the wallet ID only in
+// admin-key responses, so ID may be empty as supplied: an empty ID is not a
+// verified wallet identity, and incoming payment binding (the payment's
+// wallet_id) remains the authoritative check. A nonempty ID that does not
+// match the configured wallet, or a negative balance, is refused.
+func (c *Client) Wallet(ctx context.Context) (Wallet, error) {
+	w, e := c.fetchWallet(ctx, c.invoiceKey)
+	if e != nil {
+		return w, e
+	}
+	if w.BalanceMSat < 0 || (w.ID != "" && w.ID != c.walletID) {
 		return Wallet{}, refusal("wallet-mismatch")
 	}
 	return w, nil
 }
-func (c *Client) Wallet(ctx context.Context) (Wallet, error) { return c.wallet(ctx, c.invoiceKey) }
+
+// requireSpendingWallet verifies that the admin credential resolves to
+// exactly the configured wallet before any monetary POST. Unlike the
+// receiving path, the response must carry the explicit wallet ID: LNbits
+// v1.6.2 returns it for admin credentials, and spending never proceeds on
+// an unverified wallet identity.
+func (c *Client) requireSpendingWallet(ctx context.Context) error {
+	w, e := c.fetchWallet(ctx, c.adminKey)
+	if e != nil {
+		return e
+	}
+	if w.ID != c.walletID || w.BalanceMSat < 0 {
+		return refusal("wallet-mismatch")
+	}
+	return nil
+}
 func (c *Client) decodeInvoice(bolt string, checkExpiry bool) (decodepay.Bolt11, error) {
 	if len(bolt) > 16384 {
 		return decodepay.Bolt11{}, refusal("invalid-invoice")
@@ -304,7 +333,7 @@ func (c *Client) PayInvoice(ctx context.Context, bolt, externalID string) (Payme
 	if !validID(externalID) {
 		return Payment{}, refusal("invalid-intent-id")
 	}
-	if _, e = c.wallet(ctx, c.adminKey); e != nil {
+	if e = c.requireSpendingWallet(ctx); e != nil {
 		return Payment{}, e
 	}
 	input := struct {

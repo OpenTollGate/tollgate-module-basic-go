@@ -48,8 +48,17 @@ func testClient(t *testing.T, h http.HandlerFunc) (*Client, *httptest.Server) {
 	}
 	return c, s
 }
+
+// walletJSON is faithful to LNbits v1.6.2 admin-key wallet responses,
+// which include the wallet ID (lnbits/core/views/wallet_api.py).
 func walletJSON(w http.ResponseWriter) {
 	fmt.Fprint(w, `{"id":"wallet-a","name":"test wallet","balance":4321}`)
+}
+
+// invoiceWalletJSON is faithful to LNbits v1.6.2 invoice-key wallet
+// responses, which omit the wallet ID.
+func invoiceWalletJSON(w http.ResponseWriter) {
+	fmt.Fprint(w, `{"name":"test wallet","balance":4321}`)
 }
 func paymentJSON(bolt, hash, pre, status string, amount int64) map[string]any {
 	return map[string]any{"wallet_id": "wallet-a", "payment_hash": hash, "checking_id": "internal_" + hash, "bolt11": bolt, "payment_request": bolt, "amount": amount, "status": status, "preimage": pre, "fee": -5}
@@ -63,7 +72,8 @@ func TestReceiveAndLookupBoundToWallet(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/proxy/api/v1/wallet":
-			walletJSON(w)
+			// Invoice-key response: no wallet ID in LNbits v1.6.2.
+			invoiceWalletJSON(w)
 		case "/proxy/api/v1/payments":
 			posts.Add(1)
 			var q map[string]any
@@ -96,6 +106,92 @@ func TestReceiveAndLookupBoundToWallet(t *testing.T) {
 	}
 	if posts.Load() != 1 {
 		t.Fatal("POST duplicated")
+	}
+}
+
+// LNbits v1.6.2 returns the wallet ID only for admin credentials; an
+// invoice-key GET /api/v1/wallet response omits it. A receive-only client
+// (no admin credential) must still obtain wallet details and create invoices.
+func TestInvoiceKeyWalletOmittingIDSucceeds(t *testing.T) {
+	bolt, hash, _ := testInvoice(t, 21000)
+	var posts atomic.Int32
+	_, s := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Api-Key"); got != "test-invoice-key" {
+			t.Errorf("wrong credential: %q", got)
+		}
+		switch r.URL.Path {
+		case "/proxy/api/v1/wallet":
+			invoiceWalletJSON(w)
+		case "/proxy/api/v1/payments":
+			posts.Add(1)
+			w.WriteHeader(201)
+			json.NewEncoder(w).Encode(paymentJSON(bolt, hash, "", "pending", 21000))
+		default:
+			t.Errorf("wrong path: %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	})
+	receiveOnly, err := New(Config{BaseURL: s.URL + "/proxy", WalletID: "wallet-a", InvoiceKey: "test-invoice-key", Network: "bc", HTTPClient: s.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := receiveOnly.Wallet(context.Background())
+	if err != nil {
+		t.Fatalf("receive-only wallet details refused: %v", err)
+	}
+	if w.ID != "" || w.Name != "test wallet" || w.BalanceMSat != 4321 {
+		t.Fatalf("wallet not returned as supplied: %#v", w)
+	}
+	inv, err := receiveOnly.CreateInvoice(context.Background(), InvoiceRequest{AmountSat: 21, Memo: "test", Expiry: 300, ExternalID: "purchase-1"})
+	if err != nil {
+		t.Fatalf("receive-only invoice refused: %v", err)
+	}
+	if inv.PaymentHash != hash || inv.AmountMSat != 21000 {
+		t.Fatal("wrong invoice")
+	}
+	if posts.Load() != 1 {
+		t.Fatal("invoice POST duplicated")
+	}
+}
+
+// An absent wallet ID is the only permitted relaxation, and only in the
+// receiving path: a nonempty wrong ID or a negative balance is always
+// refused.
+func TestWalletRejectsWrongIDAndNegativeBalance(t *testing.T) {
+	for _, body := range []string{
+		`{"id":"other","name":"test wallet","balance":4321}`,
+		`{"name":"test wallet","balance":-1}`,
+		`{"id":"wallet-a","name":"test wallet","balance":-5}`,
+	} {
+		c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, body) })
+		if _, err := c.Wallet(context.Background()); err == nil {
+			t.Fatalf("unsafe wallet details accepted: %s", body)
+		}
+	}
+}
+
+func TestNoIDPreflightDoesNotAcceptForeignCreatedInvoice(t *testing.T) {
+	bolt, hash, _ := testInvoice(t, 21000)
+	var posts atomic.Int32
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Api-Key") != "test-invoice-key" {
+			t.Error("receiving used a spending credential")
+		}
+		if r.Method == "GET" {
+			invoiceWalletJSON(w)
+			return
+		}
+		posts.Add(1)
+		p := paymentJSON(bolt, hash, "", "pending", 21000)
+		p["wallet_id"] = "other"
+		json.NewEncoder(w).Encode(p)
+	})
+	_, err := c.CreateInvoice(context.Background(), InvoiceRequest{AmountSat: 21, Expiry: 300, ExternalID: "purchase-1"})
+	if !IsUnknown(err) {
+		t.Fatalf("foreign created invoice must remain uncertain: %v", err)
+	}
+	if posts.Load() != 1 {
+		t.Fatal("invoice request was skipped or retried")
 	}
 }
 func TestLookupRejectsUnboundOrInconsistentPayment(t *testing.T) {
@@ -187,6 +283,39 @@ func TestWrongAdminWalletNeverSends(t *testing.T) {
 	}
 	if posts.Load() != 0 {
 		t.Fatal("payment attempted")
+	}
+}
+
+// PayInvoice must obtain the exact wallet ID from the admin credential's
+// wallet response before any monetary POST. Purpose must not be inferred
+// from key values: even when the admin and invoice credentials coincide, a
+// response without a wallet ID refuses the send.
+func TestSendRequiresAdminWalletIDBeforePOST(t *testing.T) {
+	bolt, _, _ := testInvoice(t, 1000)
+	for _, tc := range []struct{ name, adminKey string }{
+		{"distinct credentials", "test-admin-key"},
+		{"same credentials", "test-invoice-key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var posts atomic.Int32
+			s := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "POST" {
+					posts.Add(1)
+				}
+				invoiceWalletJSON(w)
+			}))
+			t.Cleanup(s.Close)
+			c, err := New(Config{BaseURL: s.URL + "/proxy", WalletID: "wallet-a", InvoiceKey: "test-invoice-key", AdminKey: tc.adminKey, Network: "bc", HTTPClient: s.Client()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := c.PayInvoice(context.Background(), bolt, "payout"); err == nil {
+				t.Fatal("send without verified wallet identity accepted")
+			}
+			if posts.Load() != 0 {
+				t.Fatal("monetary POST attempted without wallet identity")
+			}
+		})
 	}
 }
 func TestAmbiguousSendRedactsAndNeverRetries(t *testing.T) {
