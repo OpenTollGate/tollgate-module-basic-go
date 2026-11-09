@@ -1,0 +1,1 @@
+- Add a bounded, wallet-bound LNbits API client with invoice/proof validation, scoped spending and explicit uncertain outcomes; existing payment defaults stay unchanged. ([#1210](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1210))
