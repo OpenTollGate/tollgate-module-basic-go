@@ -202,7 +202,7 @@ func Open(dir string) (*Store, error) {
 	}
 	changed := false
 	for id, o := range s.data.Operations {
-		if id != o.ID || !valid(o) || !validRecovered(o) || o.CreatedAt.IsZero() || o.UpdatedAt.Before(o.CreatedAt) {
+		if id != o.ID || (o.PaymentHash != "" && s.invoiceUsed(o.ID, o.WalletID, o.Direction, o.PaymentHash)) || !valid(o) || !validRecovered(o) || o.CreatedAt.IsZero() || o.UpdatedAt.Before(o.CreatedAt) {
 			return fail()
 		}
 		if o.State == Submitted {
@@ -366,6 +366,9 @@ func (s *Store) Prepare(o Operation, budget Budget) (Operation, error) {
 		}
 		return clone(old), nil
 	}
+	if o.PaymentHash != "" && s.invoiceUsed(o.ID, o.WalletID, o.Direction, o.PaymentHash) {
+		return Operation{}, ErrRefused
+	}
 	if len(s.data.Operations) >= maxRecords {
 		return Operation{}, ErrRefused
 	}
@@ -463,6 +466,9 @@ func (s *Store) BindInvoice(id string, version uint64, hash string, invoice []by
 	if !ok || o.Direction != Incoming || o.Version != version || version == math.MaxUint64 || (o.State != Submitted && o.State != Unknown) || o.PaymentHash != "" {
 		return Operation{}, ErrRefused
 	}
+	if s.invoiceUsed(o.ID, o.WalletID, o.Direction, hash) {
+		return Operation{}, ErrRefused
+	}
 	o.PaymentHash = hash
 	o.Invoice = append([]byte(nil), invoice...)
 	o.State = Awaiting
@@ -555,4 +561,13 @@ func validRecovered(o Operation) bool {
 		return false
 	}
 	return true
+}
+
+func (s *Store) invoiceUsed(id, wallet string, direction Direction, hash string) bool {
+	for _, o := range s.data.Operations {
+		if o.ID != id && o.WalletID == wallet && o.Direction == direction && o.PaymentHash == hash {
+			return true
+		}
+	}
+	return false
 }

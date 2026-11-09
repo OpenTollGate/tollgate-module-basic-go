@@ -1,6 +1,8 @@
 package paymentjournal
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +24,8 @@ func openTest(t *testing.T) (*Store, string) {
 	return s, dir
 }
 func intent(id string) Operation {
-	return Operation{ID: id, WalletID: "wallet-a", Direction: Outgoing, AmountMSat: 1000, FeeReserveMSat: 100, PaymentHash: strings.Repeat("a", 64), Recipient: "recipient-a", Request: []byte(`{"prepared":"encrypted-request"}`)}
+	h := sha256.Sum256([]byte("public invoice fixture " + id))
+	return Operation{ID: id, WalletID: "wallet-a", Direction: Outgoing, AmountMSat: 1000, FeeReserveMSat: 100, PaymentHash: hex.EncodeToString(h[:]), Recipient: "recipient-a", Request: []byte(`{"prepared":"encrypted-request"}`)}
 }
 func TestPrepareDurableIdempotentAndSingleWriter(t *testing.T) {
 	s, dir := openTest(t)
@@ -351,5 +354,34 @@ func TestOriginalIncomingIntentRemainsIdempotentAfterBinding(t *testing.T) {
 	again, err := s.Prepare(original, Budget{})
 	if err != nil || again.Version != op.Version {
 		t.Fatal("same checkout intent lost idempotency after binding")
+	}
+}
+func TestOneInvoiceCannotBelongToTwoOperations(t *testing.T) {
+	s, _ := openTest(t)
+	first := intent("original-id")
+	if _, err := s.Prepare(first, Budget{LimitMSat: 10000}); err != nil {
+		t.Fatal(err)
+	}
+	duplicate := first
+	duplicate.ID = "replacement-id"
+	if _, err := s.Prepare(duplicate, Budget{LimitMSat: 10000}); err == nil {
+		t.Fatal("invoice duplicated under another operation ID")
+	}
+}
+func TestIncomingInvoiceCannotGrantTwoPurchases(t *testing.T) {
+	s, _ := openTest(t)
+	for i, id := range []string{"buyer-a", "buyer-b"} {
+		op, err := s.Prepare(Operation{ID: id, WalletID: "wallet-a", Direction: Incoming, AmountMSat: 1000, Recipient: id}, Budget{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		op, _ = s.Advance(op.ID, op.Version, Submitted, 0)
+		_, err = s.BindInvoice(op.ID, op.Version, strings.Repeat("b", 64), []byte("verified invoice"))
+		if i == 0 && err != nil {
+			t.Fatal(err)
+		}
+		if i == 1 && err == nil {
+			t.Fatal("same paid invoice bound to two purchases")
+		}
 	}
 }
