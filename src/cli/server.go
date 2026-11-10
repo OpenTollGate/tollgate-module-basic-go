@@ -14,11 +14,12 @@ import (
 	"syscall"
 	"time"
 
+	"strconv"
+
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
 	"github.com/sirupsen/logrus"
-	"strconv"
 )
 
 const (
