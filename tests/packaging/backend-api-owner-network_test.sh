@@ -196,7 +196,16 @@ if [ ! -f "$API_NFT" ]; then
     : # already reported above
 elif command -v nft >/dev/null 2>&1; then
     work=$(mktemp)
-    { printf 'table inet fw4 {\n'; grep -v '^#' "$API_NFT"; printf '}\n'; } > "$work"
+    # The API fragment resolves $tg_portal_if/$tg_private_if, whose defines
+    # ship in 00-tollgate-defs.nft — on the router fw4 includes that file
+    # first (it sorts first in /etc/nftables.d). Reproduce the include
+    # contract here: defs before the fragment, both inside 'table inet fw4',
+    # or the parser rejects identifiers the real ruleset provides (#757's
+    # fragment rework made this test's bare wrapper stale).
+    defs="$NFT_DIR/00-tollgate-defs.nft"
+    { printf 'table inet fw4 {\n';
+      if [ -f "$defs" ]; then grep -v '^#' "$defs"; fi;
+      grep -v '^#' "$API_NFT"; printf '}\n'; } > "$work"
     if nft -c -f "$work" >/dev/null 2>&1; then
         ok "nft -c accepts the fragment inside 'table inet fw4'"
     elif [ "$(id -u)" != 0 ]; then
