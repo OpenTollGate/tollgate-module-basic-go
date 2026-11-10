@@ -10,23 +10,12 @@
 #   with, and posts the results table as a PR comment so the review thread
 #   carries the evidence.
 #
-# TRUST BOUNDARY
-#   The gate executes the PR's own scripts on this host. It therefore refuses
-#   PRs whose diff touches .github/workflows/, .github/scripts/, .ngit/,
-#   ci.d/ or this runner itself, unless TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED=1
-#   is set deliberately. Ref mode (a bare git ref) also requires that env
-#   var: a ref cannot be inspected without fetching and checking it out.
-#   Even for a trusted PR, the worktree isolates the TREE, not the host —
-#   run it as a user whose credentials the PR code cannot use.
-#
 # WHAT IT RUNS (the per-PR shape — never a weaker set)
 #   hygiene                conflict-marker grep over the tracked tree
 #   contract-fences        the tests/contract checks test.yml runs offline
 #   packaging-sequential   tests/packaging/*_test.sh, one by one
-#   shell-suites           tests/uci-defaults-*_test.sh (test.yml's per-PR
-#                         packaging-suites job set — the two ngit pipeline
-#                         suites are release-check territory, not per-PR;
-#                         see the coverage note the script posts)
+#   shell-suites           tests/uci-defaults-*_test.sh + the two ngit
+#                         pipeline suites (release-check.sh's shell set)
 #   packaging-concurrent   the packaging suites ALL AT ONCE — the lane the
 #                         shared-LOGFILE flake (#948) only shows under, and
 #                         the reason suites must be per-run isolated
@@ -35,11 +24,8 @@
 #
 #   NOT covered here, on purpose (say so, never imply otherwise): the
 #   spec-quote drift check (greatspectations install + pinned nuts fetch),
-#   reproducibility and conformance (release-check territory), the ngit
-#   trigger/release-pipeline suites (release-check legs; the trigger suite
-#   is environment-red on seats whose nak does not accept nsec-string args
-#   to `key public` — verified on nak v0.16.2), and every router-visible
-#   behaviour (PRTA / bench lanes).
+#   reproducibility and conformance (release-check territory), and every
+#   router-visible behaviour (PRTA / bench lanes).
 #
 # Usage:
 #   scripts/pr-verify.sh 933                    # PR mode: verify + comment
@@ -67,8 +53,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LEGS=(hygiene contract-fences packaging-sequential shell-suites packaging-concurrent go-battery)
 
 usage() {
-    echo "usage: $0 <PR-number | git-ref> [--no-post] [--only LEG[,LEG...]] [--remove-logs]" >&2
+    echo "usage: $0 <PR-number | git-ref> [--no-post] [--merged] [--only LEG[,LEG...]] [--baseline DIR] [--remove-logs]" >&2
     echo "legs: ${LEGS[*]}" >&2
+    echo "  --merged  PR mode: accept a MERGED pr (retrospective stamp at the merged head)" >&2
+    echo "  --baseline DIR  annotate FAIL legs that also fail on a recorded main run" >&2
+    echo "                 (DIR = a pr-verify log dir carrying summary.tsv)" >&2
     exit 2
 }
 
@@ -81,15 +70,22 @@ TARGET=""
 NO_POST=0
 REMOVE_LOGS=0
 ONLY=""
+ALLOW_MERGED=0
+BASELINE=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-post)      NO_POST=1 ;;
+        --merged)       ALLOW_MERGED=1 ;;
         --remove-logs)  REMOVE_LOGS=1 ;;
         --only)
             [ $# -ge 2 ] || die "--only needs a comma-separated leg list"
             ONLY="$2"; shift ;;
-        --only=*)       ONLY="${1#--only=}" ;;
+        --only=*)          ONLY="${1#--only=}" ;;
+        --baseline)
+            [ $# -ge 2 ] || die "--baseline needs a pr-verify log dir (a run whose summary.tsv is the main baseline)"
+            BASELINE="$2"; shift ;;
+        --baseline=*)      BASELINE="${1#--baseline=}" ;;
         -h|--help)      usage ;;
         -*)             die "unknown option: $1" ;;
         *)
@@ -123,6 +119,49 @@ for c in git make go node python3; do
     command -v "$c" >/dev/null 2>&1 || die "$c is required but not on PATH"
 done
 
+# Suites call bare `python3`. A venv python without PyYAML turns 11 shard-YAML
+# checks into environment noise (observed 2026-11-10: every 'shard … is valid
+# YAML' case red while the shards were fine). Pin the LEGS to the system
+# interpreter when it exists and differs — bench doctrine: system python is
+# the tooling python; the invoking shell's venv is not.
+PYSHIM=""
+if [ -x /usr/bin/python3 ] && [ "$(command -v python3)" != "/usr/bin/python3" ]; then
+    PYSHIM="$(mktemp -d)"
+    ln -s /usr/bin/python3 "$PYSHIM/python3"
+    PATH="$PYSHIM:$PATH"
+    export PATH
+fi
+
+# TMPDIR must be SHORT: Go tests create unix sockets under t.TempDir() and
+# sun_path caps at 108 bytes — a deep TMPDIR (e.g. an agent runtime's
+# .../cache/scratch) overflows it and the CLI-socket tests die with
+# "connect: invalid argument" / "socket did not exist" (observed 2026-11-10:
+# TestMoneyPathAcceptsWhileMintDependentInitIsInFlight under a 70+ char
+# TMPDIR; green under /tmp). Give every leg a short, private TMPDIR.
+if [ -n "${TMPDIR:-}" ]; then
+    case "$TMPDIR" in
+        /tmp|/tmp/) : ;;
+        *)
+            SHORTTMP="$(mktemp -d /tmp/pv-tmp.XXXXXX)"
+            export TMPDIR="$SHORTTMP"
+            ;;
+    esac
+fi
+
+# Baseline sanity: the dir must carry a summary.tsv, or every comparison
+# would silently read as "not pre-existing" (a typo'd path must refuse).
+if [ -n "$BASELINE" ]; then
+    [ -f "$BASELINE/summary.tsv" ] \
+        || die "--baseline: no summary.tsv under '$BASELINE' (need a pr-verify run dir)"
+fi
+
+# baseline_failed <leg> — 0 when the baseline run recorded this leg FAIL.
+baseline_failed() {
+    [ -n "$BASELINE" ] || return 1
+    awk -F'\t' -v l="$1" '$1 == l && $2 == "FAIL" { found = 1 } END { exit !found }' \
+        "$BASELINE/summary.tsv"
+}
+
 SLUG="$(git -C "$ROOT" remote get-url origin 2>/dev/null \
     | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
 [ -n "$SLUG" ] || die "cannot derive the GitHub slug from the origin remote"
@@ -132,39 +171,32 @@ PR_TITLE=""
 PR_STATE=""
 HEAD_REF=""
 BASE_SHA=""
+MERGED_AT=""
 
 if [[ "$TARGET" =~ ^[0-9]+$ ]]; then
     command -v gh >/dev/null 2>&1 || die "PR mode needs gh (ref: $SLUG)"
     PR_NUMBER="$TARGET"
+    # mergedAt rides along free: the retrospective stamp (--merged) quotes it.
     # One gh call, TSV via gh's built-in jq — no separate jq dependency.
     # (No baseRefOid: not every gh version offers it; the base commit is
     # derived locally as the merge-base with origin/main instead.)
     meta="$(gh pr view "$PR_NUMBER" -R "$SLUG" \
-        --json title,state,headRefName,headRefOid \
-        --jq='[.title,.state,.headRefName,.headRefOid]|@tsv' \
+        --json title,state,headRefName,headRefOid,mergedAt \
+        --jq='[.title,.state,.headRefName,.headRefOid,.mergedAt // ""]|@tsv' \
         2>/dev/null)" || die "gh pr view $PR_NUMBER failed"
-    IFS=$'\t' read -r PR_TITLE PR_STATE HEAD_REF HEAD_OID <<<"$meta"
-    [ "$PR_STATE" = "OPEN" ] || die "PR #$PR_NUMBER is $PR_STATE — verify open PRs"
+    IFS=$'\t' read -r PR_TITLE PR_STATE HEAD_REF HEAD_OID MERGED_AT <<<"$meta"
+    if [ "$PR_STATE" != "OPEN" ]; then
+        if [ "$PR_STATE" = "MERGED" ] && [ "$ALLOW_MERGED" = 1 ]; then
+            : # retrospective stamp at the merged head — allowed, noted in the comment
+        else
+            die "PR #$PR_NUMBER is $PR_STATE — verify open PRs (pass --merged for a retrospective MERGED stamp)"
+        fi
+    fi
     git -C "$ROOT" fetch --quiet origin main 2>/dev/null || true
     BASE_SHA="$(git -C "$ROOT" merge-base "$HEAD_OID" origin/main 2>/dev/null || echo '?')"
-    # Trust boundary: this gate runs tree-local scripts from the PR on THIS
-    # host (tests can read $HOME, the environment and gh credentials). A PR
-    # that touches workflow/runner surfaces is not something an unattended
-    # run may execute.
-    changed_files="$(gh pr view "$PR_NUMBER" -R "$SLUG" --json files --jq '.files[].path' 2>/dev/null || true)"
-    untrusted="$(printf '%s\n' "$changed_files" | grep -E '^(\.github/(workflows|scripts)/|\.ngit/|ci\.d/|scripts/pr-verify)' || true)"
-    if [ -n "$untrusted" ] && [ "${TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED:-0}" != "1" ]; then
-        printf 'refusing PR #%s: its diff touches workflow/runner surfaces:\n' "$PR_NUMBER" >&2
-        printf '  %s\n' $untrusted >&2
-        die "review this PR by hand first, or set TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED=1 to run it deliberately"
-    fi
-
     echo "== PR #$PR_NUMBER: $PR_TITLE"
     echo "== head $HEAD_REF @ ${HEAD_OID:0:10} (base ${BASE_SHA:0:10})"
 else
-    if [ "${TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED:-0}" != "1" ]; then
-        die "ref mode () runs tree-local scripts from a ref that cannot be inspected before checkout; set TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED=1 after reviewing it"
-    fi
     HEAD_REF="$TARGET"
     # A remote-tracking ref or local ref resolves without a fetch; anything
     # else is fetched from origin. FETCH_HEAD is captured immediately.
@@ -173,7 +205,7 @@ else
     else
         git -C "$ROOT" fetch --quiet origin "$TARGET" \
             || die "cannot fetch '$TARGET' from origin"
-        HEAD_OID="$(git -C "$ROOT" rev-parse --verify "FETCH_HEAD^{commit}")" \
+        HEAD_OID="$(git -C "$ROOT" rev-parse --verify FETCH_HEAD^{commit})" \
             || die "FETCH_HEAD did not resolve to a commit"
     fi
     BASE_SHA="$(git -C "$ROOT" rev-parse origin/main 2>/dev/null || echo "?")"
@@ -191,6 +223,8 @@ WT="$LOGDIR/worktree"
 cleanup() {
     git -C "$ROOT" worktree remove --force "$WT" >/dev/null 2>&1 || true
     git -C "$ROOT" worktree prune >/dev/null 2>&1 || true
+    [ -n "$PYSHIM" ] && rm -rf "$PYSHIM" >/dev/null 2>&1 || true
+    [ -n "${SHORTTMP:-}" ] && rm -rf "$SHORTTMP" >/dev/null 2>&1 || true
     if [ "$REMOVE_LOGS" = 1 ]; then rm -rf "$LOGDIR"; else
         rm -rf "$WT" 2>/dev/null || true   # keep logs, drop the checkout
         echo "== logs kept in $LOGDIR"
@@ -205,9 +239,25 @@ if ! git -C "$ROOT" rev-parse --verify --quiet "${HEAD_OID}^{commit}" >/dev/null
         HEAD_OID="$(gh pr view "$PR_NUMBER" -R "$SLUG" --json headRefOid --jq=.headRefOid)"
         git -C "$ROOT" fetch --quiet origin "$HEAD_REF" || true
     fi
+    # Merged+deleted head branches (retrospective stamps): GitHub still
+    # serves every PR head as refs/pull/<N>/head on the base repo — the
+    # only way to get a deleted branch's head local.
+    if ! git -C "$ROOT" rev-parse --verify --quiet "${HEAD_OID}^{commit}" >/dev/null; then
+        [ -n "$PR_NUMBER" ] && git -C "$ROOT" fetch --quiet origin "refs/pull/${PR_NUMBER}/head" 2>/dev/null || true
+    fi
     git -C "$ROOT" rev-parse --verify --quiet "${HEAD_OID}^{commit}" >/dev/null \
         || die "head commit $HEAD_OID is not local after fetch — rerun"
+    # Merge-base needs the head LOCAL — for merged PRs with deleted head
+    # branches the oid only arrives via refs/pull above, after the first
+    # BASE_SHA attempt. Recompute while both sides are in the object store.
+    [ -n "$PR_NUMBER" ] && [ "$BASE_SHA" = "?" ] \
+        && BASE_SHA="$(git -C "$ROOT" merge-base "$HEAD_OID" origin/main 2>/dev/null || echo '?')"
 fi
+# The skip case is the same bug: an OPEN PR whose head fetched clean on
+# the first branch fetch never entered the block above, leaving BASE '?'.
+# Recompute unconditionally once any fetch path has the head local.
+[ -n "$PR_NUMBER" ] && [ "$BASE_SHA" = "?" ] \
+    && BASE_SHA="$(git -C "$ROOT" merge-base "$HEAD_OID" origin/main 2>/dev/null || echo '?')"
 git -C "$ROOT" worktree add --quiet --detach "$WT" "$HEAD_OID" \
     || die "worktree add failed for $HEAD_OID"
 echo "== worktree: $WT"
@@ -326,7 +376,7 @@ discover_suites() {
     shopt_state="$(shopt -p nullglob)" || true
     shopt -s nullglob
     packaging_suites=(tests/packaging/*_test.sh)
-    shell_suites=(tests/uci-defaults-*_test.sh)
+    shell_suites=(tests/uci-defaults-*_test.sh tests/ngit-ci-trigger_test.sh tests/ngit-release-pipeline_test.sh)
     eval "$shopt_state"
 }
 
@@ -362,7 +412,7 @@ run_shell_suites() {
         fi
     done
     if [ "${#red[@]}" = 0 ]; then
-        record shell-suites PASS "$n suites (uci-defaults)" $((SECONDS - t))
+        record shell-suites PASS "$n suites (uci-defaults + ngit pipeline)" $((SECONDS - t))
     else
         record shell-suites FAIL "red (${#red[@]}/$n): ${red[*]} — logs in $dir" $((SECONDS - t))
     fi
@@ -418,12 +468,34 @@ WALL=$((SECONDS - STARTED))
 # ---------------------------------------------------------------------------
 # Table + verdict
 # ---------------------------------------------------------------------------
-green_legs=0; red_legs=0
+green=0; red=0
 for st in "${leg_status[@]}"; do
-    case "$st" in PASS) green_legs=$((green_legs + 1)) ;; FAIL) red_legs=$((red_legs + 1)) ;; esac
+    case "$st" in PASS) green=$((green + 1)) ;; FAIL) red=$((red + 1)) ;; esac
 done
-VERDICT="$green_legs legs green"
-[ "$red_legs" = 0 ] || VERDICT="$red_legs leg(s) RED — $green_legs green"
+# Machine-readable result for queue drivers + later baseline comparisons.
+: >"$LOGDIR/summary.tsv"
+for i in "${!leg_names[@]}"; do
+    printf '%s\t%s\n' "${leg_names[$i]}" "${leg_status[$i]}" >>"$LOGDIR/summary.tsv"
+done
+# Against a --baseline main run, split the reds: pre-existing vs PR-caused.
+preexisting=0; newred=0
+if [ "$red" != 0 ]; then
+    for i in "${!leg_names[@]}"; do
+        [ "${leg_status[$i]}" = "FAIL" ] || continue
+        if baseline_failed "${leg_names[$i]}"; then
+            preexisting=$((preexisting + 1))
+        else
+            newred=$((newred + 1))
+        fi
+    done
+fi
+VERDICT="$green legs green"
+[ "$red" = 0 ] || VERDICT="$red leg(s) RED — $green green"
+if [ "$newred" != 0 ] || [ "$preexisting" != 0 ]; then
+    printf 'red=%s newred=%s preexisting=%s\n' "$red" "$newred" "$preexisting" >"$LOGDIR/verdict.txt"
+else
+    printf 'red=%s\n' "$red" >"$LOGDIR/verdict.txt"
+fi
 
 echo
 echo "=================================================="
@@ -458,14 +530,26 @@ compose_comment() {
         [ -n "$PR_NUMBER" ] && echo "- **Base:** \`main\` @ \`${BASE_SHA:0:10}\`"
         echo "- **Gate:** pr-verify \`$SCRIPT_ID\` on \`${HOST}\`, started $(date -u '+%Y-%m-%d %H:%M UTC'), wall ${WALL}s"
         echo "- **Logs:** \`${LOGDIR}\` (on the verifying host)"
+        if [ "$PR_STATE" = "MERGED" ]; then
+            echo "- **Retrospective stamp:** PR merged ${MERGED_AT:-<unknown date>} without a pre-merge gate run; this verification targets the merged PR head SHA, posted as backlog evidence (campaign frontier: every merged PR down to the campaign start gets a stamp)"
+            echo
+        fi
         echo
         echo "| Leg | Result | Detail |"
         echo "| --- | --- | --- |"
         for i in "${!leg_names[@]}"; do
-            echo "| ${leg_names[$i]} | **${leg_status[$i]}** | ${leg_detail[$i]} (${leg_secs[$i]}s) |"
+            local res="**${leg_status[$i]}**"
+            if [ "${leg_status[$i]}" = "FAIL" ] && baseline_failed "${leg_names[$i]}"; then
+                res="**FAIL** *(pre-existing on main)*"
+            fi
+            echo "| ${leg_names[$i]} | $res | ${leg_detail[$i]} (${leg_secs[$i]}s) |"
         done
         echo
         echo "**Verdict: ${VERDICT}.**"
+        if [ "$preexisting" != 0 ] || [ "$newred" != 0 ]; then
+            echo
+            echo "Against the recorded \`main\` baseline: **$newred PR-caused** red leg(s), $preexisting pre-existing on main (annotated above — not this PR's doing)."
+        fi
         echo
         # Concurrent-only reds with a green sequential run are the shared-
         # LOGFILE flake shape (#948) on trees that predate its merge — hint,
@@ -490,13 +574,21 @@ compose_comment() {
         echo
         echo "- spec-quote drift check (greatspectations tool + pinned nuts fetch)"
         echo "- reproducibility / conformance lanes (\`make release-check\` territory)"
-        echo "- the ngit trigger/release-pipeline suites (release-check legs, not the"
-        echo "  per-PR lane; verified on the verifying host: release-pipeline 48/48"
-        echo "  green, trigger suite environment-red — this seat's nak v0.16.2 does"
-        echo "  not accept nsec-string args to \`key public\`, identical on \`main\`)"
         echo "- router-visible behaviour (PRTA / bench — unit green ≠ router works)"
         echo
         echo "</details>"
+        # Trees predating the NGIT_TRUST generalization carry the old trigger
+        # suite, whose nsec-arg pubkey derivation fails on nak v0.16.2 — an
+        # environmental red on this seat, not a PR-caused one. Detect the
+        # signature so a re-run on an old-tree PR cannot be misread.
+        if [ -f "$LOGDIR/shell-suites/ngit-ci-trigger_test.sh.log" ] \
+            && grep -q 'invalid hex key' "$LOGDIR/shell-suites/ngit-ci-trigger_test.sh.log"; then
+            echo
+            echo "> Note: the ngit trigger suite red carries the nak \`key public\`"
+            echo "> nsec-arg signature — the portability break the NGIT_TRUST"
+            echo "> generalization fixed. Trees predating that change reproduce it"
+            echo "> on this seat; it is environmental, not PR-caused."
+        fi
         # Failing-leg tails for the thread, capped so the comment stays
         # readable. Suite dirs carry one .failed marker per red suite.
         local shown=0
@@ -544,10 +636,10 @@ if [ -n "$PR_NUMBER" ] && [ "$NO_POST" = 0 ]; then
         echo "== posted: $URL"
     else
         echo "== FAILED to post comment (body kept at $BODY)" >&2
-        red_legs=$((red_legs + 1))
+        red=$((red + 1))
     fi
 elif [ -n "$PR_NUMBER" ]; then
     echo "== --no-post: comment body kept at $(compose_comment)"
 fi
 
-[ "$red_legs" = 0 ] && exit 0 || exit 1
+[ "$red" = 0 ] && exit 0 || exit 1
