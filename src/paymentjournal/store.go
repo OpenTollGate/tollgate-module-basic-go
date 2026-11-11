@@ -377,26 +377,13 @@ func (s *Store) Prepare(o Operation, budget Budget) (Operation, error) {
 		if e != nil {
 			return Operation{}, e
 		}
-		for _, old := range s.data.Operations {
-			if old.WalletID != o.WalletID || old.Direction != Outgoing || old.State == Failed {
-				continue
-			}
-			resolved := old.State == Paid || old.State == Completed
-			if resolved && !budget.Since.IsZero() && old.CreatedAt.Before(budget.Since) {
-				continue
-			}
-			fee := old.FeeReserveMSat
-			if resolved {
-				fee = old.ActualFeeMSat
-			}
-			cost, e := add(old.AmountMSat, fee)
-			if e != nil {
-				return Operation{}, e
-			}
-			total, e = add(total, cost)
-			if e != nil {
-				return Operation{}, e
-			}
+		reserved, e := s.outgoingCostLocked(o.WalletID, budget.Since)
+		if e != nil {
+			return Operation{}, e
+		}
+		total, e = add(total, reserved)
+		if e != nil {
+			return Operation{}, e
 		}
 		if total > budget.LimitMSat {
 			return Operation{}, ErrRefused
@@ -449,6 +436,60 @@ func journalEventTime(o Operation, proposed time.Time) time.Time {
 func (s *Store) Advance(id string, version uint64, next State, fee uint64) (Operation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.advanceLocked(id, version, next, fee)
+}
+
+// SubmitOutgoing rechecks the current period limit atomically with submission.
+// The prepared operation is already included exactly once in reserved cost;
+// unresolved reservations remain included across period boundaries. Callers
+// separately enforce current permissions and the per-payment limit before this
+// monetary point of no return. Prepared intent alone is not send authorization.
+func (s *Store) SubmitOutgoing(id string, version uint64, budget Budget) (Operation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ready() != nil {
+		return Operation{}, ErrRefused
+	}
+	op, ok := s.data.Operations[id]
+	if !ok || op.Direction != Outgoing || op.State != Prepared || op.Version != version {
+		return Operation{}, ErrRefused
+	}
+	total, err := s.outgoingCostLocked(op.WalletID, budget.Since)
+	if err != nil || total > budget.LimitMSat {
+		return Operation{}, ErrRefused
+	}
+	return s.advanceLocked(id, version, Submitted, 0)
+}
+
+// Caller holds the store lock. This includes every prepared/submitted/unknown
+// obligation regardless of age, and actual fees for resolved in-period sends.
+func (s *Store) outgoingCostLocked(walletID string, since time.Time) (uint64, error) {
+	var total uint64
+	for _, old := range s.data.Operations {
+		if old.WalletID != walletID || old.Direction != Outgoing || old.State == Failed {
+			continue
+		}
+		resolved := old.State == Paid || old.State == Completed
+		if resolved && !since.IsZero() && old.CreatedAt.Before(since) {
+			continue
+		}
+		fee := old.FeeReserveMSat
+		if resolved {
+			fee = old.ActualFeeMSat
+		}
+		cost, err := add(old.AmountMSat, fee)
+		if err != nil {
+			return 0, err
+		}
+		total, err = add(total, cost)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
+}
+
+func (s *Store) advanceLocked(id string, version uint64, next State, fee uint64) (Operation, error) {
 	if s.ready() != nil {
 		return Operation{}, ErrRefused
 	}
