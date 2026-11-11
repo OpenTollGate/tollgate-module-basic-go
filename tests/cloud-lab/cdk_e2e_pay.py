@@ -42,7 +42,22 @@ def main() -> None:
     # fixture) — cdk-cli send on a fresh wallet is "Insufficient funds".
     from conftest import MINT_URL, run_cmd
 
-    run_cmd(["cdk-cli", "-w", wallet, "mint", MINT_URL, "10000"])
+    # Bounded fund retry: after a mint container restart the healthcheck
+    # (/v1/keys) can pass while /v1/info + quote flows still reset mid-
+    # response (cold cdk-mintd warmup — deterministic on the 2026-11-02
+    # v0.15.0 e2e pre-validation: "unexpected end of file" ~17 s after a
+    # healthy restart). Retrying the FUND step is safe: each attempt
+    # creates a fresh mint quote; failed attempts leave unspent quotes
+    # that expire. The receive path never runs under this retry.
+    import time
+    for attempt in range(4):
+        try:
+            run_cmd(["cdk-cli", "-w", wallet, "mint", MINT_URL, "10000"])
+            break
+        except RuntimeError:
+            if attempt == 3:
+                raise
+            time.sleep(5)
     token = create_cashu_token(wallet, 100)
     event = build_payment_event(sec, pub, tollgate_pub, args.mac, token)
     if args.event_out:
