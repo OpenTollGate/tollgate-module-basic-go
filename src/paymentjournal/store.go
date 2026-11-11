@@ -208,7 +208,7 @@ func Open(dir string) (*Store, error) {
 		if o.State == Submitted {
 			o.State = Unknown
 			o.Version++
-			o.UpdatedAt = time.Now().UTC()
+			o.UpdatedAt = journalEventTime(o, time.Now())
 			s.data.Operations[id] = o
 			changed = true
 		}
@@ -433,6 +433,19 @@ func allowed(o Operation, next State) bool {
 	}
 	return false
 }
+
+// A pre-NTP reboot or backward clock step cannot invalidate an otherwise
+// durable operation. Version/CAS controls ordering; time is audit metadata.
+func journalEventTime(o Operation, proposed time.Time) time.Time {
+	if proposed.Before(o.CreatedAt) {
+		proposed = o.CreatedAt
+	}
+	if proposed.Before(o.UpdatedAt) {
+		proposed = o.UpdatedAt
+	}
+	return proposed.UTC()
+}
+
 func (s *Store) Advance(id string, version uint64, next State, fee uint64) (Operation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -445,7 +458,7 @@ func (s *Store) Advance(id string, version uint64, next State, fee uint64) (Oper
 	}
 	o.State = next
 	o.Version++
-	o.UpdatedAt = time.Now().UTC()
+	o.UpdatedAt = journalEventTime(o, time.Now())
 	if next == Paid {
 		o.ActualFeeMSat = fee
 	}
@@ -473,7 +486,7 @@ func (s *Store) BindInvoice(id string, version uint64, hash string, invoice []by
 	o.Invoice = append([]byte(nil), invoice...)
 	o.State = Awaiting
 	o.Version++
-	o.UpdatedAt = time.Now().UTC()
+	o.UpdatedAt = journalEventTime(o, time.Now())
 	d := s.copyData()
 	d.Operations[id] = o
 	if e := s.persist(d, false); e != nil {
