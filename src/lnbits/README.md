@@ -6,6 +6,8 @@ A wallet-bound LNbits REST client, tested against the v1.6.2 wire contract. This
 
 A public `paid: true` without matching authenticated wallet details is refused. Pending and failed results remain distinct; a valid JSON response is not necessarily a settled payment. No claim is made about the provider's honesty or real routing/liquidity.
 
+Client formatting with `fmt` redacts both values and pointers, including Go-syntax formatting. This is a diagnostic safeguard; credentials still belong only in protected storage and authenticated request headers.
+
 ## Upstream security status (2026-11-11)
 
 The latest stable release checked is v1.7.1, published on 2026-11-11 as a security patch after the urgent v1.7.0 update. Follow the official upgrade and recovery guidance before operating a server; the v1.6.2 fixtures describe API compatibility, not permission to operate an older release. Updating a client cannot repair or attest a server's security.

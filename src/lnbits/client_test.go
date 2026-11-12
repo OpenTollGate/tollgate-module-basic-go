@@ -236,20 +236,38 @@ func TestLookupRejectsUnboundOrInconsistentPayment(t *testing.T) {
 		})
 	}
 }
-func TestSendChecksAdminWalletAndDoesNotRetry(t *testing.T) {
+
+// The successful send must verify the admin wallet before its monetary POST.
+// Foreign or missing identity refusal is covered separately below, and
+// ambiguous POST retry refusal by TestAmbiguousSendRedactsAndNeverRetries.
+func TestSendSettlesAndChecksWalletBeforePosting(t *testing.T) {
 	bolt, hash, pre := testInvoice(t, 21000)
-	var posts atomic.Int32
+	var posts, gets atomic.Int32
 	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Api-Key") != "test-admin-key" {
 			t.Error("wrong admin credential")
 		}
-		if r.Method == "GET" {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/proxy/api/v1/wallet":
+			if gets.Add(1) != 1 || posts.Load() != 0 {
+				t.Error("wallet verification must happen once before payment")
+			}
 			walletJSON(w)
 			return
+		case r.Method == http.MethodPost && r.URL.Path == "/proxy/api/v1/payments":
+			if gets.Load() != 1 {
+				t.Error("monetary POST attempted before admin wallet verification")
+			}
+			posts.Add(1)
+		default:
+			t.Error("unexpected send request")
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
-		posts.Add(1)
 		var q map[string]any
-		json.NewDecoder(r.Body).Decode(&q)
+		if err := json.NewDecoder(r.Body).Decode(&q); err != nil {
+			t.Error("invalid send request body")
+		}
 		if q["out"] != true || q["bolt11"] != bolt || q["external_id"] != "payout-1" {
 			t.Error("wrong send")
 		}
@@ -265,8 +283,8 @@ func TestSendChecksAdminWalletAndDoesNotRetry(t *testing.T) {
 	if _, err := c.PayInvoice(context.Background(), "invalid", "bad"); err == nil {
 		t.Fatal("invalid invoice accepted")
 	}
-	if posts.Load() != 1 {
-		t.Fatal("send duplicated or invalid invoice sent")
+	if gets.Load() != 1 || posts.Load() != 1 {
+		t.Fatal("send retried or invalid invoice reached the provider")
 	}
 }
 func TestWrongAdminWalletNeverSends(t *testing.T) {
@@ -411,11 +429,24 @@ func TestCancelledContextCannotSend(t *testing.T) {
 	}
 }
 func TestClientFormattingCannotExposeCredentials(t *testing.T) {
-	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {})
-	for _, format := range []string{"%v", "%+v", "%#v"} {
-		s := fmt.Sprintf(format, c)
-		if strings.Contains(s, "test-invoice-key") || strings.Contains(s, "test-admin-key") {
-			t.Fatal("client formatting exposes credentials")
+	c := &Client{walletID: "wallet-a", invoiceKey: "test-invoice-key", adminKey: "test-admin-key"}
+	for _, tc := range []struct {
+		name  string
+		value any
+	}{
+		{"pointer", c},
+		{"value", *c},
+	} {
+		for _, format := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
+			t.Run(tc.name+"/"+format, func(t *testing.T) {
+				got := fmt.Sprintf(format, tc.value)
+				if strings.Contains(got, "test-invoice-key") || strings.Contains(got, "test-admin-key") {
+					t.Fatal("client formatting exposes a synthetic credential")
+				}
+				if !strings.Contains(got, "LNbits client (credentials redacted)") {
+					t.Fatal("client redaction marker missing")
+				}
+			})
 		}
 	}
 }
