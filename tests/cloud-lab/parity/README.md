@@ -62,16 +62,20 @@ was built for:
 |---|---|---|---|
 | 00 handshake | PASS | PASS (after arches + backend-name fix) | protocol parity reachable |
 | 10 round-trip | PASS | PASS | full money cycle works on both |
-| 20 melt-kill | PASS (700+300 conserved) | FAIL — balance 0, pending 0: the melt spent the WHOLE wallet as inputs and the swallowed response carried the change — no saga, no recovery, change LOST | the saga machinery is what prevents melt-change loss |
-| 30 receive-kill | PASS (credited once) | FAIL — 600+0: the incoming 400 was swapped at the mint but never credited (response lost, no saga to re-drive) | receive crash = value loss without a saga |
+| 20 melt-kill | PASS (700+300 conserved) | PASS (2026-11-12, crash journal + NUT-09 fix #165: the journal shape conserves 1000/0 — the mint's rollback returns inputs unspent and restore re-fetches; was balance=0 LOST before the journal) | two recovery models, both conserve: saga reservation vs journal+restore |
+| 30 receive-kill | PASS (credited once) | PASS (2026-11-12, same journal: the reserved range is restored on boot via the fail-closed gate; was 600+0 LOST) | the journal closes the receive crash window |
 | 40 duplicate-outputs | brick pinned (flip detector) | mint SUCCEEDS on the "burned range" — random (non-seed-derived) secrets mean no burned ranges exist | immunity by design, different mechanism |
 | 50 fail-closed gate | PASS | PASS | the gate contract is daemon-side and portable |
 | 60 locked token | PASS | PASS (after send_p2pk landed, 2026-10-31 — the lane caught a FAKE-LOCK bug on its first run: a malformed NUT-10 secret template made the "locked" token anyone-can-spend and the victim credited it, the #324 attack live; fixed + unit-pinned, Amperstrand/micronuts 2ef6a5c) | |
 
-Verdict (measured, not hypothesized): the no-saga design loses real
-value at exactly the boundaries cdk's sagas survive — empirical
-justification for the saga architecture and for cdk-walletd as the
-shipping default. micronuts's wins: no duplicate-outputs class (random
-secrets) and a 3-8 MB footprint; its loses: melt-change loss and
-receive loss under crash, until it grows equivalent recovery
-machinery (journal replay for melts + receives).
+Verdict (updated 2026-11-12, after the crash journal + the #165 NUT-09
+fix): the no-saga design NO LONGER loses value at the crash boundaries
+— cases 20 and 30 both pass via journal + NUT-09 restore, the same
+conservation the sagas achieve by a different mechanism. cdk-walletd
+stays the shipping default (its sagas also cover quote/melt-state
+transitions the journal does not yet model); micronuts's wins stand:
+no duplicate-outputs class in normal operation, 3-8 MB footprint, and
+now crash-boundary conservation. Case 40 flipped PASS→FAIL after the
+journal (mint succeeds on the burned range for a same-seed fresh-store
+wallet) — adjudication pending: whether the journaled counter should
+be derivable from the seed-path alone.
