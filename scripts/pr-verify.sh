@@ -10,6 +10,15 @@
 #   with, and posts the results table as a PR comment so the review thread
 #   carries the evidence.
 #
+# TRUST BOUNDARY
+#   The gate executes the PR's own scripts on this host. It therefore refuses
+#   PRs whose diff touches .github/workflows/, .github/scripts/, .ngit/,
+#   ci.d/ or this runner itself, unless TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED=1
+#   is set deliberately. Ref mode (a bare git ref) also requires that env
+#   var: a ref cannot be inspected without fetching and checking it out.
+#   Even for a trusted PR, the worktree isolates the TREE, not the host —
+#   run it as a user whose credentials the PR code cannot use.
+#
 # WHAT IT RUNS (the per-PR shape — never a weaker set)
 #   hygiene                conflict-marker grep over the tracked tree
 #   contract-fences        the tests/contract checks test.yml runs offline
@@ -194,9 +203,23 @@ if [[ "$TARGET" =~ ^[0-9]+$ ]]; then
     fi
     git -C "$ROOT" fetch --quiet origin main 2>/dev/null || true
     BASE_SHA="$(git -C "$ROOT" merge-base "$HEAD_OID" origin/main 2>/dev/null || echo '?')"
+    # Trust boundary: this gate runs tree-local scripts from the PR on THIS
+    # host (tests can read $HOME, the environment and gh credentials). A PR
+    # that touches workflow/runner surfaces is not something an unattended
+    # run may execute.
+    changed_files="$(gh pr view "$PR_NUMBER" -R "$SLUG" --json files --jq '.files[].path' 2>/dev/null || true)"
+    untrusted="$(printf '%s\n' "$changed_files" | grep -E '^(\.github/(workflows|scripts)/|\.ngit/|ci\.d/|scripts/pr-verify)' || true)"
+    if [ -n "$untrusted" ] && [ "${TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED:-0}" != "1" ]; then
+        printf 'refusing PR #%s: its diff touches workflow/runner surfaces:\n' "$PR_NUMBER" >&2
+        printf '  %s\n' $untrusted >&2
+        die "review this PR by hand first, or set TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED=1 to run it deliberately"
+    fi
     echo "== PR #$PR_NUMBER: $PR_TITLE"
     echo "== head $HEAD_REF @ ${HEAD_OID:0:10} (base ${BASE_SHA:0:10})"
 else
+    if [ "${TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED:-0}" != "1" ]; then
+        die "ref mode runs tree-local scripts from a ref that cannot be inspected before checkout; set TOLLGATE_PR_VERIFY_ALLOW_UNTRUSTED=1 after reviewing it"
+    fi
     HEAD_REF="$TARGET"
     # A remote-tracking ref or local ref resolves without a fetch; anything
     # else is fetched from origin. FETCH_HEAD is captured immediately.
