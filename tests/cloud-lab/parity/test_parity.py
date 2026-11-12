@@ -278,9 +278,19 @@ def test_20_kill_melt_between_acceptance_and_proof_save():
     # 2026-10-29): the melt saga holds the 300 RESERVED — 700 spendable
     # + 300 in the saga = 1000. Nothing lost across the kill.
     print(f"    [shape] pre-recovery: bal={bal} pending={pending}")
-    assert (bal, pending) == (700, 300), (
-        f"unexpected melt-kill state (census: always 700/300): "
-        f"balance={bal} pending={pending} sagas={json.dumps(sagas)}"
+    # Two conserving shapes, by daemon recovery model:
+    #  - SAGA (cdk-walletd): the melt saga RESERVES the 300 — 700/300.
+    #  - JOURNAL+RESTORE (micronuts + crash journal, 2026-11-12): no
+    #    sagas; the mint's own rollback (proofs_recovered — the
+    #    fakewallet cannot pay its own invoice) returns the inputs
+    #    UNSPENT, and NUT-09 restore re-fetches every signature, so the
+    #    balance returns to the full 1000 with nothing pending. The old
+    #    no-journal shape was balance=0 (value LOST — the finding that
+    #    motivated the journal).
+    journal_shape = (bal, pending) == (1000, 0) and not sagas
+    assert (bal, pending) == (700, 300) or journal_shape, (
+        f"unexpected melt-kill state (census: 700/300 saga or 1000/0 "
+        f"journal): balance={bal} pending={pending} sagas={json.dumps(sagas)}"
     )
     # A money op forces the fail-closed recovery gate. OUTCOME (measured
     # against cdk-mintd fakewallet, 2026-10-28): the melt COMPENSATES —
@@ -298,10 +308,20 @@ def test_20_kill_melt_between_acceptance_and_proof_save():
     # 999 spendable + the 1-sat send token (Send sagas park in
     # TokenCreated until the recipient claims — a monitoring record,
     # value preserved) = 1000. The melt saga itself must be RESOLVED.
-    assert bal2 + pending2 == 1000, (
-        f"post-recovery accounting wrong: balance={bal2} pending={pending2} "
-        f"sagas={json.dumps(sagas2)}"
-    )
+    if journal_shape:
+        # No saga ledger: the send deducts immediately. Conservation is
+        # the send token itself: 999 held + 1 sent = 1000.
+        assert (bal2, pending2) == (999, 0), (
+            f"journal-shape post-recovery accounting wrong: "
+            f"balance={bal2} pending={pending2}"
+        )
+        tok = s2.get("token", "")
+        assert tok, f"journal shape: send returned no token: {s2}"
+    else:
+        assert bal2 + pending2 == 1000, (
+            f"post-recovery accounting wrong: balance={bal2} pending={pending2} "
+            f"sagas={json.dumps(sagas2)}"
+        )
     melt_pending = [s for s in sagas2 if s["kind"] == "Melt"]
     # Post-recovery (deterministic, 5/5 census under the real daemon):
     # the melt saga is RESOLVED — the mint's settlement failure (a
