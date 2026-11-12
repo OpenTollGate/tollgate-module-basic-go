@@ -251,7 +251,7 @@ func TestQueuedRequestCannotPublishAfterExpiration(t *testing.T) {
 			p.Request.Tags[i][1] = strconv.FormatInt(time.Now().Unix()+1, 10)
 		}
 	}
-	p.Request.Sign(c.secret)
+	p.Request.Sign(*c.secret)
 	for range cap(c.active) {
 		c.active <- struct{}{}
 	}
@@ -269,10 +269,22 @@ func TestQueuedRequestCannotPublishAfterExpiration(t *testing.T) {
 }
 func TestClientFormattingCannotExposeConnectionSecret(t *testing.T) {
 	c, _ := fixture(t)
+	// The spending secret is held as *string precisely so that a caller who
+	// formats the struct VALUE (fmt.Sprintf("%+v", *c), or a wrapper embedding
+	// Client by value) prints a pointer and not the secret. A pointer-receiver
+	// String/GoString alone does NOT cover that case.
+	//
+	// The value form cannot be asserted in this test: copying a Client trips
+	// vet's copylocks check (it contains sync.Mutex), and that rejection is
+	// correct. It was verified manually against the struct value before this
+	// guard was added, and the *string field is what makes it hold.
 	for _, format := range []string{"%v", "%+v", "%#v"} {
 		s := fmt.Sprintf(format, c)
-		if strings.Contains(s, c.secret) {
-			t.Fatal("client formatting exposes connection secret")
+		if strings.Contains(s, *c.secret) {
+			t.Fatalf("client formatting %s exposes connection secret", format)
+		}
+		if strings.Contains(s, "secret=") {
+			t.Fatalf("client formatting %s exposes a connection URI", format)
 		}
 	}
 }
