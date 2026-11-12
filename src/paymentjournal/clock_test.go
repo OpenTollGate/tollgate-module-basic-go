@@ -25,7 +25,7 @@ func TestBackwardClockAdvanceKeepsJournalReopenable(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := futureOperation(t, s, "out")
-	after, err := s.Advance(before.ID, before.Version, Submitted, 0)
+	after, err := s.SubmitOutgoing(before.ID, before.Version, Budget{LimitMSat: 1100})
 	if err != nil || after.UpdatedAt.Before(before.UpdatedAt) {
 		t.Fatal("clock rollback corrupted outgoing timestamp")
 	}
@@ -43,7 +43,7 @@ func TestPreNTPSubmittedRecoveryPreservesJournalAndUnknownBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Advance(o.ID, o.Version, Submitted, 0); err != nil {
+	if _, err := s.SubmitOutgoing(o.ID, o.Version, Budget{LimitMSat: 1100}); err != nil {
 		t.Fatal(err)
 	}
 	before := futureOperation(t, s, "out")

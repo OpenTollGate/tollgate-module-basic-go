@@ -175,6 +175,13 @@ func Open(dir string) (*Store, error) {
 		return nil, ErrRefused
 	}
 	s := &Store{dir: abs, lock: f, data: snapshot{Format: 1, Operations: map[string]Operation{}}, rename: os.Rename}
+	// After acquiring the flock, confirm the locked descriptor still names
+	// writer.lock: a path swap between open and lock must not let this writer
+	// mutate while another process can lock the replacement.
+	if !s.lockIntact() {
+		f.Close()
+		return nil, ErrRefused
+	}
 	fail := func() (*Store, error) { f.Close(); return nil, ErrRefused }
 	path := filepath.Join(abs, "operations.json")
 	_, e = os.Lstat(path)
@@ -237,6 +244,10 @@ func (s *Store) ready() error {
 	if s.closed || s.poisoned {
 		return ErrRefused
 	}
+	if !s.lockIntact() {
+		s.poisoned = true
+		return ErrRefused
+	}
 	path := filepath.Join(s.dir, "operations.json")
 	if protected(path, false) != nil {
 		return ErrRefused
@@ -248,6 +259,37 @@ func (s *Store) ready() error {
 	}
 	return nil
 }
+
+// lockIntact reports whether the exclusively locked descriptor still names
+// the journal's writer.lock: a fresh Lstat of the path must pass the
+// protected-file identity contract and match the descriptor's device and
+// inode. A replaced or removed lock file means this writer no longer holds
+// the single-writer guarantee, so mutation must refuse. Same-euid arbitrary
+// code can bypass any userspace check; this catches accidental or
+// lower-privilege replacement without unlink-based recovery.
+func (s *Store) lockIntact() bool {
+	if s.lock == nil {
+		return false
+	}
+	var held syscall.Stat_t
+	if e := syscall.Fstat(int(s.lock.Fd()), &held); e != nil {
+		return false
+	}
+	path := filepath.Join(s.dir, "writer.lock")
+	if protected(path, false) != nil {
+		return false
+	}
+	st, e := os.Lstat(path)
+	if e != nil {
+		return false
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	return sys.Dev == held.Dev && sys.Ino == held.Ino
+}
+
 func (s *Store) persist(data snapshot, initial bool) error {
 	if !initial && s.ready() != nil {
 		return ErrRefused
@@ -433,9 +475,16 @@ func journalEventTime(o Operation, proposed time.Time) time.Time {
 	return proposed.UTC()
 }
 
+// Advance performs a CAS state transition. It refuses to submit an outgoing
+// operation: outgoing monetary submission has one public route, SubmitOutgoing,
+// which rechecks the current period budget at the point of no return. Incoming
+// submission and reconciliation or terminal transitions remain available.
 func (s *Store) Advance(id string, version uint64, next State, fee uint64) (Operation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if op, ok := s.data.Operations[id]; ok && op.Direction == Outgoing && op.State == Prepared && next == Submitted {
+		return Operation{}, ErrRefused
+	}
 	return s.advanceLocked(id, version, next, fee)
 }
 

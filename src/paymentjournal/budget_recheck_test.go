@@ -93,7 +93,7 @@ func TestSubmitOutgoingKeepsUnknownReservationsAcrossPeriods(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err = s.Advance(a.ID, a.Version, Submitted, 0)
+	a, err = s.SubmitOutgoing(a.ID, a.Version, Budget{LimitMSat: 2200})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,6 +114,93 @@ func TestSubmitOutgoingKeepsUnknownReservationsAcrossPeriods(t *testing.T) {
 	}
 	if _, err = s.SubmitOutgoing(b.ID, b.Version, budget); err != nil {
 		t.Fatal("resolved old history should be outside explicit period", err)
+	}
+}
+
+// Outgoing monetary submission has exactly one public route: SubmitOutgoing
+// with the current period budget. Advance must refuse it.
+func TestAdvanceRefusesOutgoingButSubmitsIncoming(t *testing.T) {
+	s, _ := openTest(t)
+	op, err := s.Prepare(intent("advance-refused"), Budget{LimitMSat: 1100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Advance(op.ID, op.Version, Submitted, 0); err == nil {
+		t.Fatal("Advance submitted an outgoing payment")
+	}
+	got, err := s.Get(op.ID)
+	if err != nil || got.State != Prepared || got.Version != op.Version {
+		t.Fatal("refused Advance still mutated the prepared operation", got, err)
+	}
+	incoming := Operation{ID: "incoming-submit", WalletID: "wallet-a", Direction: Incoming, AmountMSat: 1000, Recipient: "client-a"}
+	in, err := s.Prepare(incoming, Budget{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Advance(in.ID, in.Version, Submitted, 0); err != nil {
+		t.Fatal("Advance refused an incoming submission")
+	}
+}
+
+// A budget tightened below the reservation after Prepare must be enforced at
+// submission; Prepare alone never authorizes a send under an old budget.
+func TestSubmitOutgoingRefusesBudgetTightenedAfterPrepare(t *testing.T) {
+	s, _ := openTest(t)
+	op, err := s.Prepare(intent("tightened"), Budget{LimitMSat: 1100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.SubmitOutgoing(op.ID, op.Version, Budget{LimitMSat: 1099}); err == nil {
+		t.Fatal("submission admitted under a budget tightened below the reservation")
+	}
+	got, err := s.Get(op.ID)
+	if err != nil || got.State != Prepared || got.Version != op.Version {
+		t.Fatal("refused submission still mutated the operation", got, err)
+	}
+	if _, err = s.SubmitOutgoing(op.ID, op.Version, Budget{LimitMSat: 1100}); err != nil {
+		t.Fatal("submission refused under the meaningful current budget", err)
+	}
+}
+
+// A verified settlement fee above the pre-send reservation is recorded
+// truthfully, survives reopen, and exhausts the budget for later payments:
+// the reservation is a pre-send headroom check, never a retroactive
+// permission to suppress a verified expense or create false headroom.
+func TestVerifiedActualFeeOverReserveIsDurableAndExhaustsBudget(t *testing.T) {
+	s, dir := openTest(t)
+	budget := Budget{LimitMSat: 1101}
+	op, err := s.Prepare(intent("fee-over-reserve"), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, err = s.SubmitOutgoing(op.ID, op.Version, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, err = s.Advance(op.ID, op.Version, Paid, 101)
+	if err != nil {
+		t.Fatal("verified actual fee above reservation was refused", err)
+	}
+	if op.ActualFeeMSat != 101 {
+		t.Fatal("verified actual fee was not recorded truthfully")
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	got, err := again.Get(op.ID)
+	if err != nil || got.State != Paid || got.ActualFeeMSat != 101 {
+		t.Fatal("verified actual fee did not survive reopen", got, err)
+	}
+	next := intent("next-principal")
+	next.AmountMSat = 1
+	next.FeeReserveMSat = 0
+	if _, err = again.Prepare(next, budget); err == nil {
+		t.Fatal("reserve-capped accounting created false headroom for the next payment")
 	}
 }
 

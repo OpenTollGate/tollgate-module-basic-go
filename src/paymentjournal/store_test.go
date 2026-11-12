@@ -1,14 +1,22 @@
 package paymentjournal
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -62,7 +70,7 @@ func TestUnknownHoldsBudgetAndCannotResubmit(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	op, e = s.Advance(op.ID, op.Version, Submitted, 0)
+	op, e = s.SubmitOutgoing(op.ID, op.Version, Budget{LimitMSat: 1100})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -114,7 +122,7 @@ func TestConcurrentBudgetReservationAndCAS(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, e := s.Advance(op.ID, op.Version, Submitted, 0); e == nil {
+			if _, e := s.SubmitOutgoing(op.ID, op.Version, Budget{LimitMSat: 1100}); e == nil {
 				applied.Add(1)
 			}
 		}()
@@ -134,12 +142,12 @@ func TestPartialPayoutSuccessAndFailedReservation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	a, _ = s.Advance(a.ID, a.Version, Submitted, 0)
+	a, _ = s.SubmitOutgoing(a.ID, a.Version, Budget{LimitMSat: 2200})
 	a, e = s.Advance(a.ID, a.Version, Paid, 50)
 	if e != nil {
 		t.Fatal(e)
 	}
-	b, _ = s.Advance(b.ID, b.Version, Submitted, 0)
+	b, _ = s.SubmitOutgoing(b.ID, b.Version, Budget{LimitMSat: 2200})
 	if _, e = s.Advance(b.ID, b.Version, Failed, 0); e != nil {
 		t.Fatal(e)
 	}
@@ -204,12 +212,24 @@ func TestForeignAndCorruptFilesFailClosed(t *testing.T) {
 		t.Fatal("symlink journal accepted")
 	}
 }
+func helperExitCode(t *testing.T, err error) int {
+	t.Helper()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("helper did not produce an exit status: %v", err)
+	}
+	return exitErr.ExitCode()
+}
 func TestActualProcessExitAfterSubmitted(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "child")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestJournalCrashHelper$")
 	cmd.Env = append(os.Environ(), "TG_JOURNAL_CRASH_DIR="+dir)
-	if e := cmd.Run(); e == nil {
+	err := cmd.Run()
+	if err == nil {
 		t.Fatal("helper did not crash")
+	}
+	if code := helperExitCode(t, err); code != 37 {
+		t.Fatalf("helper exit code %d, want 37", code)
 	}
 	s, e := Open(dir)
 	if e != nil {
@@ -234,7 +254,7 @@ func TestJournalCrashHelper(t *testing.T) {
 	if e != nil {
 		os.Exit(21)
 	}
-	if _, e = s.Advance(op.ID, op.Version, Submitted, 0); e != nil {
+	if _, e = s.SubmitOutgoing(op.ID, op.Version, Budget{LimitMSat: 1100}); e != nil {
 		os.Exit(22)
 	}
 	os.Exit(37)
@@ -242,7 +262,7 @@ func TestJournalCrashHelper(t *testing.T) {
 func TestPeriodBoundaryKeepsUncertainReservations(t *testing.T) {
 	s, _ := openTest(t)
 	a, _ := s.Prepare(intent("a"), Budget{LimitMSat: 1100})
-	a, _ = s.Advance(a.ID, a.Version, Submitted, 0)
+	a, _ = s.SubmitOutgoing(a.ID, a.Version, Budget{LimitMSat: 1100})
 	a, _ = s.Advance(a.ID, a.Version, Unknown, 0)
 	if _, e := s.Prepare(intent("b"), Budget{LimitMSat: 1100, Since: time.Now().Add(time.Second)}); e == nil {
 		t.Fatal("new period dropped uncertain payment reservation")
@@ -300,8 +320,16 @@ func TestActualProcessExitAroundAtomicRename(t *testing.T) {
 			s.Close()
 			cmd := exec.Command(os.Args[0], "-test.run=^TestRenameCrashHelper$")
 			cmd.Env = append(os.Environ(), "TG_JOURNAL_RENAME_DIR="+dir, "TG_JOURNAL_RENAME_PHASE="+phase)
-			if err = cmd.Run(); err == nil {
+			err = cmd.Run()
+			if err == nil {
 				t.Fatal("helper did not exit")
+			}
+			wantCode := 37
+			if phase == "after" {
+				wantCode = 38
+			}
+			if code := helperExitCode(t, err); code != wantCode {
+				t.Fatalf("helper exit code %d for phase %s, want %d", code, phase, wantCode)
 			}
 			s, err = Open(dir)
 			if err != nil {
@@ -342,7 +370,7 @@ func TestRenameCrashHelper(t *testing.T) {
 		os.Exit(38)
 		return nil
 	}
-	s.Advance(op.ID, op.Version, Submitted, 0)
+	s.SubmitOutgoing(op.ID, op.Version, Budget{LimitMSat: 1100})
 	os.Exit(22)
 }
 func TestOriginalIncomingIntentRemainsIdempotentAfterBinding(t *testing.T) {
@@ -384,4 +412,185 @@ func TestIncomingInvoiceCannotGrantTwoPurchases(t *testing.T) {
 			t.Fatal("same paid invoice bound to two purchases")
 		}
 	}
+}
+
+// Replacing writer.lock under a live writer must poison that writer instead
+// of letting it mutate without the single-writer guarantee. The replacement
+// file is an ordinary unheld lock file, so the next writer opens and locks it
+// without any unlink recovery.
+func TestReplacedWriterLockPoisonsWriter(t *testing.T) {
+	s, dir := openTest(t)
+	if _, err := s.Prepare(intent("before-replace"), Budget{LimitMSat: 1100}); err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(dir, "replacement")
+	if err := os.WriteFile(replacement, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, filepath.Join(dir, "writer.lock")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Prepare(intent("after-replace"), Budget{LimitMSat: 2200}); err == nil {
+		t.Fatal("mutation accepted after writer.lock was replaced")
+	}
+	if _, err := s.Get("before-replace"); err == nil {
+		t.Fatal("poisoned writer still served reads")
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	next, err := Open(dir)
+	if err != nil {
+		t.Fatal("journal not reopenable against the replaced lock file", err)
+	}
+	defer next.Close()
+	if _, err = next.Prepare(intent("after-reopen"), Budget{LimitMSat: 2200}); err != nil {
+		t.Fatal("reopened journal refused a new intent", err)
+	}
+}
+
+func TestUnknownSnapshotFieldRefusedAtReopen(t *testing.T) {
+	s, dir := openTest(t)
+	if _, err := s.Prepare(intent("one"), Budget{LimitMSat: 1100}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "operations.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"format":1`) {
+		t.Fatal("fixture missing expected format field")
+	}
+	b = []byte(strings.Replace(string(b), `"format":1`, `"format":1,"unexpected_field":1`, 1))
+	if err = os.WriteFile(path, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if reopened, err := Open(dir); err == nil {
+		reopened.Close()
+		t.Fatal("unknown snapshot field accepted at reopen")
+	}
+}
+
+func TestOversizeSnapshotRefusedAtReopen(t *testing.T) {
+	s, dir := openTest(t)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "operations.json")
+	valid, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Padding an otherwise valid snapshot isolates the size guard: invalid
+	// JSON would still refuse even if the byte-limit check were removed.
+	oversized := append(valid, bytes.Repeat([]byte(" "), maxBytes+1-len(valid))...)
+	if !json.Valid(oversized) || len(oversized) != maxBytes+1 {
+		t.Fatal("oversize fixture must be valid JSON just above the byte limit")
+	}
+	if err := os.WriteFile(path, oversized, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if reopened, err := Open(dir); err == nil {
+		reopened.Close()
+		t.Fatal("oversize snapshot accepted at reopen")
+	}
+}
+
+// A writer killed by SIGKILL must not brick the journal: the kernel releases
+// the flock and the next Open acquires it. Readiness is synchronized through
+// the holder's stdout, not a sleep; the wait is bounded and the kill is
+// asserted as a real SIGKILL via WaitStatus.
+func TestKilledWriterReleasesLock(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "killed")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestLockHolderHelper$")
+	cmd.Env = append(os.Environ(), "TG_JOURNAL_HOLD_DIR="+dir)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waited := false
+	t.Cleanup(func() {
+		stdin.Close()
+		if !waited {
+			cmd.Process.Kill()
+			cmd.Wait()
+		}
+	})
+	ready := make(chan error, 1)
+	go func() {
+		sc := bufio.NewScanner(stdout)
+		for sc.Scan() {
+			if sc.Text() == "JOURNAL-HOLDER-READY" {
+				ready <- nil
+				return
+			}
+		}
+		if err := sc.Err(); err != nil {
+			ready <- err
+		} else {
+			ready <- io.ErrUnexpectedEOF
+		}
+	}()
+	select {
+	case err := <-ready:
+		if err != nil {
+			t.Fatal("holder did not signal readiness", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("holder never signaled readiness")
+	}
+	if err = cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	waitErr := cmd.Wait()
+	waited = true
+	ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() || ws.Signal() != syscall.SIGKILL {
+		t.Fatalf("holder was not killed by SIGKILL: %v", waitErr)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal("journal not reopenable after SIGKILL of the lock holder", err)
+	}
+	defer s.Close()
+	persisted, err := s.Get("before-kill")
+	if err != nil || persisted.State != Prepared || persisted.Version != 1 || persisted.AmountMSat != 1000 || persisted.FeeReserveMSat != 100 || persisted.WalletID != "wallet-a" {
+		t.Fatal("prepared intent did not survive SIGKILL unchanged")
+	}
+	if _, err = s.Prepare(intent("after-kill"), Budget{LimitMSat: 2200}); err != nil {
+		t.Fatal("reopened journal refused a new intent", err)
+	}
+}
+
+func TestLockHolderHelper(t *testing.T) {
+	dir := os.Getenv("TG_JOURNAL_HOLD_DIR")
+	if dir == "" {
+		return
+	}
+	s, err := Open(dir)
+	if err != nil {
+		os.Exit(30)
+	}
+	if _, err = s.Prepare(intent("before-kill"), Budget{LimitMSat: 1100}); err != nil {
+		os.Exit(33)
+	}
+	fmt.Println("JOURNAL-HOLDER-READY")
+	// Deterministic hold: block on stdin until the parent kills this process.
+	// KeepAlive stops the lock file's finalizer from closing the flock meanwhile.
+	if _, err = os.Stdin.Read(make([]byte, 1)); err == nil {
+		os.Exit(31)
+	}
+	runtime.KeepAlive(s)
+	os.Exit(32)
 }
