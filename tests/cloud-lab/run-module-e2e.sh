@@ -331,5 +331,39 @@ else
   echo "  passthrough recovered ✓"
 fi
 
+# LEG F (#1153 follow-up 3): issuer fault — the Coinos shape. The mint
+# stays UP and answers NUT-07 UNSPENT, but swaps are refused with 400
+# "keyset unknown" (killproxy fault.json; the mint is never contacted).
+# A definitive refusal is NOT the ambiguity class: no do-not-resubmit,
+# no value movement, and the SAME token must spend once the fault
+# clears. Pinned: no-grant under fault, no double-grant ever, full
+# recovery on fault clear.
+echo ""
+if [ "$BACKEND" != gonuts ]; then
+  echo "== LEG F (cdk): skipped — the cdk lane's mint routing is direct; its fault classes live in the conformance matrix lane =="
+else
+echo "== LEG F: issuer fault — advertised-but-refused keyset (#1153) =="
+KP_FAULT="$KP_DIR/kp.marker.fault.json"
+cat > "$KP_FAULT" <<'FAULT'
+{"path": "/v1/swap", "method": "POST", "code": 400,
+ "body": {"code": 0, "detail": "keyset 007311aa2fa58cc8 unknown"}}
+FAULT
+EVENT_F=.module-e2f-event.json; rm -f "$EVENT_F"
+F=$(pay --verbose --event-out "/tests/$EVENT_F" || true)
+echo "  faulted payment → $F"
+echo "$F" | grep -q '"kind": 1022' && { echo "FAIL: session granted under issuer fault"; rm -f "$KP_FAULT"; exit 1; }
+echo "$F" | grep -q '"payment-outcome-unknown"' && { echo "FINDING(leg F): definitive 400 surfaced as outcome-unknown (do-not-resubmit) — a definitive refusal is retryable; file it"; }
+FR=$(replay --verbose "/tests/$EVENT_F" || true)
+echo "  replay while faulted → $FR"
+echo "$FR" | grep -q '"kind": 1022' && { echo "FAIL: grant under fault via replay"; rm -f "$KP_FAULT"; exit 1; }
+docker inspect -f '{{.State.Status}}' "$CONT" | grep -q running || { echo "FAIL: module died under issuer fault"; rm -f "$KP_FAULT"; exit 1; }
+rm -f "$KP_FAULT"; sleep 1
+F2=$(replay --verbose "/tests/$EVENT_F" || true)
+echo "  same token after fault clear → $F2"
+echo "$F2" | grep -q '"kind": 1022' || { echo "FAIL: definitively-refused token did not spend after fault clear"; exit 1; }
+echo "  issuer-fault leg: refused without ambiguity class, token spent exactly once after clear ✓"
+rm -f "$EVENT_F"
+fi
+
 echo ""
 echo "ALL MODULE E2E LEGS PASSED (backend=$BACKEND)"

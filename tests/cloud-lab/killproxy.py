@@ -16,9 +16,22 @@ parity addition: funding traffic passes through unwatched... no —
 funding swaps also pass, but only AFTER arming does swallowing start,
 so tests arm immediately before the operation they want to kill.
 
+Issuer-fault mode (#1153 follow-up 3): a fault.json next to the marker
+("state dir is truth" — read fresh per request, so creating/removing the
+file toggles the fault with no latch to go stale, the #1163 lesson):
+
+    {"path": "/v1/swap", "method": "POST", "code": 400,
+     "body": {"code": 0, "detail": "keyset 007311aa2fa58cc8 unknown"}}
+
+While present, matching requests are answered LOCALLY with that status
+and body — the mint is never contacted, so its NUT-07 keeps answering
+UNSPENT: exactly the Coinos split-brain (advertised keyset, refused
+spend, unspent proofs). Remove the file to clear the fault.
+
 Usage: killproxy.py <listen-port> <target-base> <watch-paths-csv> <marker-file> <arm-file>
 """
 import http.server
+import json
 import os
 import socket
 import sys
@@ -37,6 +50,24 @@ arm_file = sys.argv[5]
 def watched(path):
     p = path.split("?")[0].rstrip("/")
     return any(p == w for w in watch_paths)
+
+
+def watched_path_match(path, want):
+    p = path.split("?")[0].rstrip("/")
+    return p == want.rstrip("/")
+
+
+def fault_now():
+    """Issuer-fault config from fault.json beside the marker, read FRESH
+    every call (state dir is truth; no in-memory latch to go stale)."""
+    try:
+        with open(marker + ".fault.json") as f:
+            cfg = json.load(f)
+        if isinstance(cfg, dict) and cfg.get("path") and cfg.get("code"):
+            return cfg
+    except (OSError, ValueError):
+        pass
+    return None
 
 armed_flag = {"v": False}    # set lazily at request time (no polling race)
 released = threading.Event()   # marker.release seen
@@ -120,6 +151,17 @@ class H(http.server.BaseHTTPRequestHandler):
         n = int(self.headers.get("content-length", 0) or 0)
         body = self.rfile.read(n) if n else None
         print(f"killproxy: {self.command} {self.path} peer={self.client_address}", flush=True)
+        fault = fault_now()
+        if fault and self.command == fault.get("method", "POST") and watched_path_match(self.path, fault["path"]):
+            fb = json.dumps(fault.get("body", {})).encode()
+            print(f"killproxy: FAULT-INJECT path={self.path} code={fault['code']} "
+                  f"(mint untouched — NUT-07 will keep answering UNSPENT)", flush=True)
+            self.send_response(int(fault["code"]))
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(fb)))
+            self.end_headers()
+            self.wfile.write(fb)
+            return
         code, rb = forward(self.command, self.path, self.headers, body)
 
         _watched = self.command == "POST" and watched(self.path)
