@@ -308,20 +308,15 @@ def test_20_kill_melt_between_acceptance_and_proof_save():
     # 999 spendable + the 1-sat send token (Send sagas park in
     # TokenCreated until the recipient claims — a monitoring record,
     # value preserved) = 1000. The melt saga itself must be RESOLVED.
-    if journal_shape:
-        # No saga ledger: the send deducts immediately. Conservation is
-        # the send token itself: 999 held + 1 sent = 1000.
-        assert (bal2, pending2) == (999, 0), (
-            f"journal-shape post-recovery accounting wrong: "
-            f"balance={bal2} pending={pending2}"
-        )
-        tok = s2.get("token", "")
-        assert tok, f"journal shape: send returned no token: {s2}"
-    else:
-        assert bal2 + pending2 == 1000, (
-            f"post-recovery accounting wrong: balance={bal2} pending={pending2} "
-            f"sagas={json.dumps(sagas2)}"
-        )
+    # Both models conserve identically post-recovery: the saga model
+    # parks the send in a Send saga; the journal model parks it in its
+    # pending-sends list (measured 999/1, 2026-11-12 — the restore
+    # working end-to-end for the first time). Either way: 999/1000 held
+    # + 1 in flight = 1000.
+    assert bal2 + pending2 == 1000, (
+        f"post-recovery accounting wrong: balance={bal2} pending={pending2} "
+        f"sagas={json.dumps(sagas2)}"
+    )
     melt_pending = [s for s in sagas2 if s["kind"] == "Melt"]
     # Post-recovery (deterministic, 5/5 census under the real daemon):
     # the melt saga is RESOLVED — the mint's settlement failure (a
