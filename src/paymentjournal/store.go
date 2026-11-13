@@ -177,19 +177,17 @@ func open(dir string, syncDir func(string) error) (*Store, error) {
 	if e != nil {
 		return nil, ErrRefused
 	}
-	created := false
-	if e = os.Mkdir(abs, 0700); e == nil {
-		created = true
-	} else if !os.IsExist(e) {
-		return nil, ErrRefused
-	}
-	// The new directory entry itself must survive a power loss before any
-	// operation can be durably submitted as belonging to this journal.
-	if created && syncDir(filepath.Dir(abs)) != nil {
-		_ = os.Remove(abs)
+	if e = os.Mkdir(abs, 0700); e != nil && !os.IsExist(e) {
 		return nil, ErrRefused
 	}
 	if noSymlinks(abs) != nil || protected(abs, true) != nil {
+		return nil, ErrRefused
+	}
+	// Every opener must make the parent entry durable before journal use.
+	// IsExist does not prove that a concurrent or earlier creator completed
+	// its sync. On failure retain the path: another opener may be using it,
+	// and a later attempt must perform this same check again.
+	if syncDir(filepath.Dir(abs)) != nil {
 		return nil, ErrRefused
 	}
 	fd, e := syscall.Open(filepath.Join(abs, "writer.lock"), syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0600)

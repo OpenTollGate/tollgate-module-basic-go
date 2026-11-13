@@ -54,8 +54,13 @@ func TestOpenRefusesIfNewDirectoryParentCannotBeSynced(t *testing.T) {
 	if s, err := open(dir, func(string) error { return errors.New("synthetic parent sync failure") }); err == nil || s != nil {
 		t.Fatal("journal opened although its new directory entry was not durable")
 	}
-	if _, err := os.Lstat(dir); !os.IsNotExist(err) {
-		t.Fatalf("failed open left the journal directory behind: %v", err)
+	if _, err := os.Lstat(dir); err != nil {
+		t.Fatalf("failed open removed the directory: %v", err)
+	}
+	for _, name := range []string{"writer.lock", "operations.json"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("parent sync failure reached journal use (%s): %v", name, err)
+		}
 	}
 }
 
