@@ -2,9 +2,9 @@ package merchant
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 )
 
 // Foreign-mint settlement.
@@ -24,13 +24,30 @@ import (
 // already supports a source mint distinct from the destination). Never settle back
 // into the customer's own mint — that is the one place we have decided not to trust.
 
-// normaliseMintURL makes two spellings of the same mint comparable. Mints are
-// advertised with and without a trailing slash and with inconsistent host casing
-// (an operator types the URL by hand into config; a wallet emits its own spelling),
-// so a byte comparison would report a trusted mint as foreign and melt a note that
-// needed no melting, paying a swap and a melt fee for nothing.
+// normaliseMintURL makes two spellings of the same mint comparable.
+//
+// It delegates to tollwallet rather than comparing bytes locally. A hand-typed
+// config URL and a wallet's own spelling differ in ways a naive comparison gets
+// wrong — and getting it wrong is expensive in both directions: report a trusted
+// mint as foreign and you melt a note that needed no melting, paying a swap and a
+// melt fee for nothing; report a foreign mint as trusted and you accept value you
+// have not vouched for.
+//
+// The rules live in tollwallet.NormalizeMintURL (see its doc comment for why path
+// case is preserved: "/Bitcoin" and "/Liquid" are different units on one mint,
+// issue #375). This package used to carry a byte-level copy — TrimSpace, ToLower
+// on the WHOLE URL including the path, TrimRight("/") — which disagreed with
+// tollwallet in two ways that both show up on real configs:
+//
+//	accepted "https://mint.example:443/Bitcoin", note "https://mint.example/Bitcoin"
+//	    -> false   (explicit default port treated as a different mint)
+//	accepted "https://mint.example/Bitcoin", note "https://mint.example/bitcoin"
+//	    -> true    (path case folded, so a different unit would have been trusted)
+//
+// merchant already normalises through tollwallet on the lightning path
+// (lightning.go), so the local copy was also an inconsistency inside one package.
 func normaliseMintURL(u string) string {
-	return strings.TrimRight(strings.ToLower(strings.TrimSpace(u)), "/")
+	return tollwallet.NormalizeMintURL(u)
 }
 
 // IsTrustedMint reports whether mintURL is one of the operator's accepted mints.
@@ -65,9 +82,16 @@ func SettlementTargetFor(cfg *config_manager.Config, tokenMintURL string) (strin
 		return "", fmt.Errorf("no accepted mints configured: nowhere to settle a note from %q", tokenMintURL)
 	}
 	if IsTrustedMint(cfg, tokenMintURL) {
-		// Settles in place at its own mint. Falling back to AcceptedMints[0] here
-		// would redirect a note that is already trusted, forcing a melt and paying
-		// its fee — the round trip this branch exists to avoid.
+		// Settles in place at its own mint, but return the CONFIG spelling rather
+		// than the caller's raw string: the returned URL is used as a mint identity
+		// downstream, and handing back a trailing-slash or case variant creates a
+		// second spelling of one mint — the drift AGENTS.md forbids. The caller's
+		// note can arrive spelled any way; the operator's config is the declaration.
+		for _, m := range cfg.AcceptedMints {
+			if normaliseMintURL(m.URL) == normaliseMintURL(tokenMintURL) {
+				return m.URL, nil
+			}
+		}
 		return tokenMintURL, nil
 	}
 	return cfg.AcceptedMints[0].URL, nil
