@@ -262,6 +262,7 @@ run_contract_fences() {
         "dependency sync"
         "gonuts pin fence (offline identity)"
         "gonuts pin carriers"
+        "cdk-go pin fence (offline identity)"
         "mirror/relay sync"
         "stale import paths"
     )
@@ -277,6 +278,7 @@ run_contract_fences() {
         "tests/contract/check-deps-sync.py"
         "tests/contract/gonuts-pin_test.sh"
         "tests/contract/check-gonuts-pin.py"
+        "tests/contract/cdkgo-pin_test.sh"
         "tests/contract/check-mirror-sync.py"
         "tests/contract/check-import-paths.py"
     )
@@ -292,6 +294,7 @@ run_contract_fences() {
         "python3 tests/contract/check-deps-sync.py"
         "bash tests/contract/gonuts-pin_test.sh"
         "python3 tests/contract/check-gonuts-pin.py"
+        "bash tests/contract/cdkgo-pin_test.sh"
         "python3 tests/contract/check-mirror-sync.py"
         "python3 tests/contract/check-import-paths.py"
     )
