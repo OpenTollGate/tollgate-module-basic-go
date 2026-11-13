@@ -175,6 +175,7 @@ run_lane() { # run_lane <pr> <head-ref> <head-oid> <portal-mode>
                  "deps sync:python3 tests/contract/check-deps-sync.py" \
                  "gonuts pin:bash tests/contract/gonuts-pin_test.sh" \
                  "gonuts carriers:python3 tests/contract/check-gonuts-pin.py" \
+                 "cdk-go pin:bash tests/contract/cdkgo-pin_test.sh" \
                  "mirror sync:python3 tests/contract/check-mirror-sync.py" \
                  "import paths:python3 tests/contract/check-import-paths.py" \
                  "gosum fence:bash tests/contract/check-gosum-completeness.sh"; do
