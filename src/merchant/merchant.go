@@ -2070,8 +2070,18 @@ func isMintUnreachableError(err error) bool {
 // classifier stays as the compatible fallback for older pins.
 func isMintRefusalError(err error) bool {
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "could not swap proofs: ") ||
-		strings.Contains(msg, "could not melt proofs: ")
+	// The in-process (gonuts) relay: "could not swap proofs: <mint prose>".
+	if strings.Contains(msg, "could not swap proofs: ") ||
+		strings.Contains(msg, "could not melt proofs: ") {
+		return true
+	}
+	// The sidecar (cdk) relay: "Unknown error response: `code: N,
+	// detail: <mint prose>`" — the daemon surfaces the mint's NUT-19
+	// body verbatim under this wrapper (measured on the cdk-kp lane,
+	// LEG F: the Coinos keyset-unknown refusal). An unreachable mint
+	// produces connection errors, never a parsed mint error body — this
+	// wrapper is proof the mint ANSWERED (#1222, both-backend leg).
+	return strings.Contains(msg, "unknown error response:")
 }
 
 // isAmbiguousMintOutcomeError reports whether a `Receive` error leaves the fate

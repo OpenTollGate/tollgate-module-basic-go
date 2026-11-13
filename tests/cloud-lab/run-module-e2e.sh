@@ -43,13 +43,28 @@ case "$BACKEND" in
     ;;
   gonuts)
     OVERRIDE=docker-compose.gonuts-backend.yml
+    KP_ROUTED=1
     SVC=upstream;          CONT=tg-upstream
     URL=http://upstream:2121
     DEP=mint;              DEPC=tg-mint
     UPSET="mint upstream"
     BUILDSET="client mint upstream"
     ;;
-  *) echo "BACKEND must be cdk or gonuts (got: $BACKEND)"; exit 1 ;;
+  cdk-kp)
+    # The cdk lane with issuer-fault routing (LEG F on backend=cdk):
+    # identical semantics to cdk, plus the killproxy in front of the
+    # sidecar's mint traffic — the both-backend conformance claim for
+    # the #1222 refusal class (LEG D's duality, one layer deeper).
+    BACKEND=cdk
+    OVERRIDE=docker-compose.cdk-backend.yml
+    KP_ROUTED=1
+    SVC=upstream-cdk;      CONT=tg-upstream-cdk
+    URL=http://upstream-cdk:2121
+    DEP=cdk-walletd;       DEPC=tg-cdk-walletd
+    UPSET="mint killproxy cdk-walletd upstream-cdk"
+    BUILDSET="client mint cdk-walletd upstream-cdk"
+    ;;
+  *) echo "BACKEND must be cdk, cdk-kp or gonuts (got: $BACKEND)"; exit 1 ;;
 esac
 
 CDK_WALLETD_BIN="${CDK_WALLETD_BIN:-/root/.cargo-target/x86_64-unknown-linux-musl/release/cdk-walletd}"
@@ -59,7 +74,10 @@ if [ "$BACKEND" = cdk ]; then
 fi
 
 COMPOSE="docker compose -f docker-compose.yml -f $OVERRIDE"
-LANE_ENV=""; [ "$BACKEND" = gonuts ] && LANE_ENV="-e MINT_URL=http://kp:33390"
+# The cdk-kp composition stacks the kp routing on the cdk base.
+[ "${KP_ROUTED:-0}" = 1 ] && [ "$BACKEND" = cdk ] && COMPOSE="$COMPOSE -f docker-compose.cdk-kp-backend.yml"
+LANE_ENV=""
+[ "${KP_ROUTED:-0}" = 1 ] && LANE_ENV="-e MINT_URL=http://kp:33390"
 
 # Pre-build the client explicitly: `compose run client` builds its
 # dependencies implicitly WITHOUT honoring build.network on this compose
@@ -339,8 +357,8 @@ fi
 # clears. Pinned: no-grant under fault, no double-grant ever, full
 # recovery on fault clear.
 echo ""
-if [ "$BACKEND" != gonuts ]; then
-  echo "== LEG F (cdk): skipped — the cdk lane's mint routing is direct; its fault classes live in the conformance matrix lane =="
+if [ "${KP_ROUTED:-0}" != 1 ]; then
+  echo "== LEG F: skipped — this lane's mint routing is not proxy-gated =="
 else
 echo "== LEG F: issuer fault — advertised-but-refused keyset (#1153) =="
 KP_FAULT="$KP_DIR/kp.marker.fault.json"

@@ -92,3 +92,16 @@ func TestPurchaseSessionDefinitiveMintRefusalIsNotUnreachable(t *testing.T) {
 		t.Fatalf("the retry must reach Receive again (intent abandoned, mint not marked unreachable); Receive calls = %d", w.receiveCalls)
 	}
 }
+
+// The sidecar (cdk backend) relay of the same Coinos refusal — the
+// both-backend conformance claim (#1222): the wrapper differs
+// ("Unknown error response: `code: 0, detail: ...`" vs the in-process
+// "could not swap proofs: ..."), the doctrine must not.
+func TestSidecarMintRefusalWrapperIsAlsoRefusedClass(t *testing.T) {
+	if !isMintRefusalError(fmt.Errorf("tollwallet: sidecar receive: receive: Unknown error response: `code: 0, detail: keyset 007311aa2fa58cc8 unknown`")) {
+		t.Fatal("the sidecar's mint-answer wrapper must classify as a definitive refusal")
+	}
+	if isMintRefusalError(fmt.Errorf("tollwallet: sidecar connect /var/run/cdk-walletd/w.sock: connection refused")) {
+		t.Fatal("a sidecar CONNECTION failure is not a mint refusal (the mint was never asked)")
+	}
+}
