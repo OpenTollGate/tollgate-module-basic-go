@@ -1,0 +1,1 @@
+- Add signed, encrypted, journalable NIP-47 requests with capability checks and one-shot monetary execution; existing payment defaults stay unchanged. ([#1211](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1211))
