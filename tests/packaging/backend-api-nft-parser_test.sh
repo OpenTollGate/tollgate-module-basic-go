@@ -12,9 +12,18 @@ import sys
 import tempfile
 
 root = Path(sys.argv[1])
+
+def require(condition, message):
+    # Deliberately not assert: Python removes assertions under -O, which
+    # would silently discard every verdict in this harness.
+    if not condition:
+        raise SystemExit(message)
+
 fake_nft = r'''#!/usr/bin/env python3
 import os, re, sys
-assert sys.argv[1:3] == ['-c', '-f'], 'only check mode is allowed'
+if sys.argv[1:3] != ['-c', '-f']:
+    print('only check mode is allowed', file=sys.stderr)
+    sys.exit(2)
 text = open(sys.argv[3]).read()
 mode = os.environ['NFT_PARSER_CASE']
 if mode == 'no-capability':
@@ -62,12 +71,12 @@ for mode, missing_defs, success, skip in cases:
                    NFT_PARSER_CASE=mode)
         result = subprocess.run(['bash', 'tests/packaging/backend-api-owner-network_test.sh'],
                                 cwd=fixture, env=env, text=True, capture_output=True)
-        assert (result.returncode == 0) == success, (mode, missing_defs, result.stdout, result.stderr)
-        assert ('SKIP nft' in result.stdout) == skip, (mode, result.stdout)
+        require((result.returncode == 0) == success, (mode, missing_defs, result.stdout, result.stderr))
+        require(('SKIP nft' in result.stdout) == skip, (mode, result.stdout))
         if success and not skip:
-            assert 'nft -c accepts' in result.stdout, result.stdout
+            require('nft -c accepts' in result.stdout, result.stdout)
         if not success:
-            assert 'FAIL' in result.stdout, result.stdout
+            require('FAIL' in result.stdout, result.stdout)
         print('ok: mode=%s missing_definitions=%s' % (mode, missing_defs))
 print('5 parser invocation cases passed')
 PY
