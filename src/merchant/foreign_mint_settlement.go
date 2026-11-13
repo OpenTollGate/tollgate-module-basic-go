@@ -65,7 +65,10 @@ func SettlementTargetFor(cfg *config_manager.Config, tokenMintURL string) (strin
 		return "", fmt.Errorf("no accepted mints configured: nowhere to settle a note from %q", tokenMintURL)
 	}
 	if IsTrustedMint(cfg, tokenMintURL) {
-		return cfg.AcceptedMints[0].URL, nil // trusted: settles in place at its own mint
+		// Settles in place at its own mint. Falling back to AcceptedMints[0] here
+		// would redirect a note that is already trusted, forcing a melt and paying
+		// its fee — the round trip this branch exists to avoid.
+		return tokenMintURL, nil
 	}
 	return cfg.AcceptedMints[0].URL, nil
 }
