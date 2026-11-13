@@ -938,6 +938,11 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		passphrase = connectArgs[1]
 	}
 
+	if s.upstreamManager != nil {
+		writer := s.upstreamManager.BeginManualWriter()
+		defer writer.End()
+	}
+
 	if err := s.connector.EnsureRadiosEnabled(); err != nil {
 		return CLIResponse{
 			Success:   false,
@@ -990,11 +995,6 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 			Error:     fmt.Sprintf("Failed to setup wwan: %v", err),
 			Timestamp: time.Now(),
 		}
-	}
-
-	if s.upstreamManager != nil {
-		s.upstreamManager.BeginManualOperation()
-		defer s.upstreamManager.EndManualOperation()
 	}
 
 	ifaceName, err := s.connector.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
@@ -1054,6 +1054,11 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 	var passphrase string
 	if len(connectArgs) > 1 {
 		passphrase = connectArgs[1]
+	}
+
+	if s.upstreamManager != nil {
+		writer := s.upstreamManager.BeginManualWriter()
+		defer writer.End()
 	}
 
 	totalSteps := 7
@@ -1126,10 +1131,6 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), fmt.Sprintf("Creating STA %s on %s...", ifaceName, bestRadio))
-	if s.upstreamManager != nil {
-		s.upstreamManager.BeginManualOperation()
-		defer s.upstreamManager.EndManualOperation()
-	}
 
 	staIface, err := s.connector.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
 	if err != nil {
@@ -1202,6 +1203,11 @@ func (s *CLIServer) handleUpstreamList() CLIResponse {
 }
 
 func (s *CLIServer) handleUpstreamRemove(ssid string) CLIResponse {
+	if s.upstreamManager != nil {
+		writer := s.upstreamManager.BeginManualWriter()
+		defer writer.End()
+	}
+
 	if err := s.connector.RemoveDisabledSTA(ssid); err != nil {
 		return CLIResponse{
 			Success:   false,

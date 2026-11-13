@@ -90,7 +90,9 @@ Emergency scans can try a known saved upstream even when its signal is weaker th
 
 After a handover, the existing layered connectivity probe retries failures over a 30-second convergence window, using `post_switch_wait_seconds` between attempts. An in-flight probe keeps its own timeout and can finish after that window. A later handover or manual join supersedes the old verification, so it cannot blacklist the new connection or publish stale connectivity metadata.
 
-Manual CLI joins hold automatic scans from STA creation through completion of the DHCP wait, even when that operation exceeds `manual_pause_seconds`. The existing timed pause is retained after the operation. A successful manual join clears the failure entry for the selected SSID/BSSID only.
+Manual plain/streaming joins acquire an explicit writer lease before enabling radios and hold it through scanning, STA creation and the full DHCP wait, even when that operation exceeds `manual_pause_seconds`. Remove and stop-peering fallback use the same lease. Concurrent manual writers serialize. Automatic switch decisions recheck pause and generation while holding that lease through the connector call; startup nudges, candidate creation, radio enabling and cleanup also decline without queueing when it is busy. A completed manual operation invalidates scans and connectivity observations from before it. Declined work does not count as a failed connection or trigger cooldown. The existing timed pause is retained after a join. A successful manual join clears the failure entry for the selected SSID/BSSID only.
+
+`BeginManualOperation`/`EndManualOperation` remain nested pause-only scopes; they do not grant writer ownership. Radio-mutating callers use `BeginManualWriter` and defer its `End`. The lease coordinates this manager and its CLI handlers, not external root/UCI writers. `LoopTicks` reports loop progress without using a radio mutation as a heartbeat. These source-level concurrency tests do not qualify RF, DHCP handover or deployed-router recovery; those remain PRTA/physical acceptance gates.
 
 ## Circuit Breaker
 
