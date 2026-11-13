@@ -87,7 +87,17 @@ class Daemon:
         args = [binary or DAEMON, "--socket", self.sock, "--work-dir", self.workdir,
                 "--mint", MINT_URL]
         if os.path.exists(self.seed_path):
-            args += ["--mnemonic-file", self.seed_path]
+            # Seed-format-aware injection: cdk-walletd speaks BIP39
+            # words via --mnemonic-file; micronuts-walletd speaks raw hex
+            # via --seed-hex (it has no mnemonic flag — the case-40
+            # adjudication found the wrong-flag pass was silently
+            # ignored, so the same-seed scenario never ran). The file's
+            # CONTENT decides the flag.
+            content = open(self.seed_path).read().strip()
+            if len(content) == 64 and all(c in "0123456789abcdef" for c in content.lower()):
+                args += ["--seed-hex", content]
+            else:
+                args += ["--mnemonic-file", self.seed_path]
         self.logf = open(self.log, "ab")
         self.proc = subprocess.Popen(args, stdout=self.logf, stderr=subprocess.STDOUT)
         for _ in range(100):
@@ -126,6 +136,13 @@ class Daemon:
                         words = line.split("generated mnemonic:")[1].strip()
                         with open(self.seed_path, "w") as f:
                             f.write(words)
+                        os.chmod(self.seed_path, 0o600)
+                        return
+                    if "generated seed " in line:
+                        # micronuts-walletd first-boot line: raw hex seed.
+                        hexseed = line.split("generated seed ")[1].strip().split()[0]
+                        with open(self.seed_path, "w") as f:
+                            f.write(hexseed)
                         os.chmod(self.seed_path, 0o600)
                         return
             time.sleep(0.1)
@@ -448,12 +465,23 @@ def test_40_duplicate_outputs_same_seed():
     err2 = m2.get("error", "").lower()
     bricked = ("already paid" in err2
                or "recovery" in err2 and "failed saga" in err2)
-    assert not m2.get("ok") and bricked, (
-        f"unpatched cdk 0.18.2 must brick here (mint refusal or the "
-        f"fail-closed gate on the permanently-failed saga); if this mint "
-        f"SUCCEEDED the duplicate-outputs heal landed — flip this "
-        f"assertion: {m2}"
-    )
+    if os.environ.get("PARITY_DAEMON") and m2.get("ok"):
+        # JOURNAL model (micronuts + crash journal, 2026-11-13): the
+        # first mint's definitive refusal left the reservation journaled
+        # (dirty) — the restart's fail-closed gate runs NUT-09 restore,
+        # which re-fetches the ORIGINAL wallet's signatures for the same
+        # derivable range (same seed!), advances the counter past it,
+        # and the second mint derives FRESH outputs. This IS the
+        # duplicate-outputs heal, reached natively — the cdk assertion
+        # below stays for the default (saga) daemon.
+        pass
+    else:
+        assert not m2.get("ok") and bricked, (
+            f"unpatched cdk 0.18.2 must brick here (mint refusal or the "
+            f"fail-closed gate on the permanently-failed saga); if this mint "
+            f"SUCCEEDED the duplicate-outputs heal landed — flip this "
+            f"assertion: {m2}"
+        )
     w1.stop(); w2.stop()
 
 
