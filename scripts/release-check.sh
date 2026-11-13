@@ -75,7 +75,7 @@ run_cold_sums() {
 
 run_deps_imports() {
     local ok=0
-    python3 tests/contract/check-deps-sync.py >"$tmpdir/deps.log" 2>&1 || ok=1
+    python3 tests/contract/check-deps-sync.py --selftest-and-check >"$tmpdir/deps.log" 2>&1 || ok=1
     python3 tests/contract/check-mirror-sync.py >>"$tmpdir/deps.log" 2>&1 || ok=1
     python3 tests/contract/check-import-paths.py >>"$tmpdir/deps.log" 2>&1 || ok=1
     # The go.sum fence (#976): a merge can leave importers' go.sum
