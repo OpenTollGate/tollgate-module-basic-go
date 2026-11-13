@@ -14,11 +14,11 @@
 //	                      (its refusal, or NUT-07 all-unspent after the
 //	                      call had ended) — the customer keeps the note.
 //	                      UNSPENT is issuer state, not a redemption
-//	                      promise: a mint whose keyset store lost the
-//	                      keyset answers UNSPENT forever while refusing
-//	                      every spend of it (#1153's Coinos split-brain).
-//	                      Never build a "value is recoverable" diagnostic
-//	                      on an unspent answer alone.
+//	                      promise: a mint can advertise a keyset and
+//	                      report UNSPENT while refusing spending
+//	                      requests for it (#1153). Never build a
+//	                      "value is recoverable" diagnostic on an
+//	                      unspent answer alone.
 //	pending:  everything else. Pending is the honest state for a crash,
 //	          a dropped response, an unanswered checkstate.
 //
