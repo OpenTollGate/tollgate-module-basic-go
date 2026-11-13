@@ -422,6 +422,15 @@ def test_40_duplicate_outputs_same_seed():
 
     w2 = Daemon("w40-b", seed_path=w1.seed_path)  # SAME seed, fresh workdir
     w2.start()
+    # SETUP ASSERT (the harness-vacuity rule): prove the seed was actually
+    # SHARED before trusting anything this case measures — for two weeks
+    # the flag was silently ignored and every outcome here was vacuous
+    # (the 2026-11-13 adjudication).
+    w2_log = w2.log_text()
+    assert "loaded provided seed" in w2_log, (
+        f"w2 did NOT load w1's seed — the same-seed scenario is not "
+        f"running (vacuous case); daemon log:\n{w2_log[:400]}"
+    )
     q = cli(w2.sock, "mintquote", "500")
     assert q.get("ok"), q
     qid = q["quote_id"]
