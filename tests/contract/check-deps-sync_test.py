@@ -52,19 +52,30 @@ sys.exit(7 if mode == 'nonzero' else 0)
                                     capture_output=True, text=True, timeout=10)
             return result
 
-    def test_real_invocations_require_selftests(self):
+    def discovered_invocations(self, root):
         # Exercise the consumer wiring contract without invoking release actions.
-        root = Path(__file__).resolve().parents[2]
         found = []
-        for home in (root / "scripts", root / ".github" / "workflows"):
+        for home in (root / "scripts", root / ".github" / "workflows", root / ".ngit" / "act" / "workflows"):
             for path in home.rglob("*"):
                 if not path.is_file() or path.suffix not in {".sh", ".yml", ".yaml"}:
                     continue
                 for number, line in enumerate(path.read_text().splitlines(), 1):
                     if "python3 tests/contract/check-deps-sync.py" in line and not line.lstrip().startswith("#"):
-                        found.append((path, number))
-                        self.assertIn("--selftest-and-check", line, f"{path.relative_to(root)}:{number}")
+                        found.append((path, number, line))
+        return found
+
+    def test_real_invocations_require_selftests(self):
+        root = Path(__file__).resolve().parents[2]
+        found = self.discovered_invocations(root)
+        for path, number, line in found:
+            self.assertIn("--selftest-and-check", line, f"{path.relative_to(root)}:{number}")
         self.assertTrue(found, "no dependency-fence invocations discovered")
+
+    def test_ngit_invocation_is_discovered(self):
+        root = Path(__file__).resolve().parents[2]
+        found = self.discovered_invocations(root)
+        ngit = [entry for entry in found if root / ".ngit" / "act" / "workflows" in entry[0].parents]
+        self.assertTrue(ngit, "the ngit workflow invocation was not discovered")
 
     def test_valid_parser(self):
         result = self.run_case("valid")
