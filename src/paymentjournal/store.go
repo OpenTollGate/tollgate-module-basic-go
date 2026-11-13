@@ -73,6 +73,7 @@ type Store struct {
 	digest           [32]byte
 	poisoned, closed bool
 	rename           func(string, string) error
+	syncDir          func(string) error
 }
 
 var ErrRefused = errors.New("payment journal refused operation")
@@ -154,12 +155,38 @@ func noSymlinks(path string) error {
 	}
 	return nil
 }
+func syncDirectory(path string) error {
+	d, e := os.Open(path)
+	if e != nil {
+		return e
+	}
+	syncErr := d.Sync()
+	closeErr := d.Close()
+	if syncErr != nil {
+		return syncErr
+	}
+	return closeErr
+}
+
 func Open(dir string) (*Store, error) {
+	return open(dir, syncDirectory)
+}
+
+func open(dir string, syncDir func(string) error) (*Store, error) {
 	abs, e := filepath.Abs(dir)
 	if e != nil {
 		return nil, ErrRefused
 	}
-	if e = os.Mkdir(abs, 0700); e != nil && !os.IsExist(e) {
+	created := false
+	if e = os.Mkdir(abs, 0700); e == nil {
+		created = true
+	} else if !os.IsExist(e) {
+		return nil, ErrRefused
+	}
+	// The new directory entry itself must survive a power loss before any
+	// operation can be durably submitted as belonging to this journal.
+	if created && syncDir(filepath.Dir(abs)) != nil {
+		_ = os.Remove(abs)
 		return nil, ErrRefused
 	}
 	if noSymlinks(abs) != nil || protected(abs, true) != nil {
@@ -174,7 +201,7 @@ func Open(dir string) (*Store, error) {
 		f.Close()
 		return nil, ErrRefused
 	}
-	s := &Store{dir: abs, lock: f, data: snapshot{Format: 1, Operations: map[string]Operation{}}, rename: os.Rename}
+	s := &Store{dir: abs, lock: f, data: snapshot{Format: 1, Operations: map[string]Operation{}}, rename: os.Rename, syncDir: syncDir}
 	// After acquiring the flock, confirm the locked descriptor still names
 	// writer.lock: a path swap between open and lock must not let this writer
 	// mutate while another process can lock the replacement.
@@ -319,12 +346,7 @@ func (s *Store) persist(data snapshot, initial bool) error {
 		e = s.rename(tmp, filepath.Join(s.dir, "operations.json"))
 	}
 	if e == nil {
-		var d *os.File
-		d, e = os.Open(s.dir)
-		if e == nil {
-			e = d.Sync()
-			d.Close()
-		}
+		e = s.syncDir(s.dir)
 	}
 	if e != nil {
 		s.poisoned = true

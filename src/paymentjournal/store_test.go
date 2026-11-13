@@ -31,6 +31,34 @@ func openTest(t *testing.T) (*Store, string) {
 	t.Cleanup(func() { s.Close() })
 	return s, dir
 }
+func TestOpenSyncsNewDirectoryParentBeforeJournalUse(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "journal")
+	var synced []string
+	s, err := open(dir, func(path string) error {
+		synced = append(synced, path)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if len(synced) != 2 || synced[0] != root || synced[1] != dir {
+		t.Fatalf("directory sync order = %v, want [%s %s]", synced, root, dir)
+	}
+}
+
+func TestOpenRefusesIfNewDirectoryParentCannotBeSynced(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "journal")
+	if s, err := open(dir, func(string) error { return errors.New("synthetic parent sync failure") }); err == nil || s != nil {
+		t.Fatal("journal opened although its new directory entry was not durable")
+	}
+	if _, err := os.Lstat(dir); !os.IsNotExist(err) {
+		t.Fatalf("failed open left the journal directory behind: %v", err)
+	}
+}
+
 func intent(id string) Operation {
 	h := sha256.Sum256([]byte("public invoice fixture " + id))
 	return Operation{ID: id, WalletID: "wallet-a", Direction: Outgoing, AmountMSat: 1000, FeeReserveMSat: 100, PaymentHash: hex.EncodeToString(h[:]), Recipient: "recipient-a", Request: []byte(`{"prepared":"encrypted-request"}`)}
