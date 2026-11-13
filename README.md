@@ -193,6 +193,8 @@ from an older install is still honoured — it tells the board the root password
 was generated rather than chosen. A deliberately **locked** root account is
 never re-enabled by any of this.
 
+For saved upstream recovery and manual-join behavior, see [wireless gateway management](docs/wireless_gateway_manager.md#recovery-after-internet-loss).
+
 ### Verifying a manual install (the signed manifest)
 
 Installing the package by hand skips the installer, and with it the installer's

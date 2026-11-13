@@ -938,6 +938,11 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		passphrase = connectArgs[1]
 	}
 
+	if s.upstreamManager != nil {
+		writer := s.upstreamManager.BeginManualWriter()
+		defer writer.End()
+	}
+
 	if err := s.connector.EnsureRadiosEnabled(); err != nil {
 		return CLIResponse{
 			Success:   false,
@@ -1026,6 +1031,10 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
+	if s.upstreamManager != nil {
+		s.upstreamManager.ClearSavedNetworkFailure(ssid, bestBSSIDForSSID(networks, ssid, bestRadio))
+	}
+
 	return CLIResponse{
 		Success:   true,
 		Message:   fmt.Sprintf("Connected to '%s'", ssid),
@@ -1045,6 +1054,11 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 	var passphrase string
 	if len(connectArgs) > 1 {
 		passphrase = connectArgs[1]
+	}
+
+	if s.upstreamManager != nil {
+		writer := s.upstreamManager.BeginManualWriter()
+		defer writer.End()
 	}
 
 	totalSteps := 7
@@ -1117,6 +1131,7 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 
 	step++
 	s.sendProgress(conn, fmt.Sprintf("[%d/%d]", step, totalSteps), fmt.Sprintf("Creating STA %s on %s...", ifaceName, bestRadio))
+
 	staIface, err := s.connector.FindOrCreateSTAForSSID(ssid, passphrase, uciEnc, bestRadio)
 	if err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to create STA interface: %v", err), Timestamp: time.Now()})
@@ -1141,6 +1156,10 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 	if err := s.connector.SwitchUpstream(activeIface, staIface, ssid, bestBSSIDForSSID(networks, ssid, bestRadio)); err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: fmt.Sprintf("Failed to connect: %v", err), Timestamp: time.Now()})
 		return
+	}
+
+	if s.upstreamManager != nil {
+		s.upstreamManager.ClearSavedNetworkFailure(ssid, bestBSSIDForSSID(networks, ssid, bestRadio))
 	}
 
 	step++
@@ -1184,6 +1203,11 @@ func (s *CLIServer) handleUpstreamList() CLIResponse {
 }
 
 func (s *CLIServer) handleUpstreamRemove(ssid string) CLIResponse {
+	if s.upstreamManager != nil {
+		writer := s.upstreamManager.BeginManualWriter()
+		defer writer.End()
+	}
+
 	if err := s.connector.RemoveDisabledSTA(ssid); err != nil {
 		return CLIResponse{
 			Success:   false,
