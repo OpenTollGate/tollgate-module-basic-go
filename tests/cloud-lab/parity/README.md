@@ -64,7 +64,7 @@ was built for:
 | 10 round-trip | PASS | PASS | full money cycle works on both |
 | 20 melt-kill | PASS (700+300 conserved) | PASS (2026-11-12, crash journal + NUT-09 fix #165: the journal shape conserves 1000/0 — the mint's rollback returns inputs unspent and restore re-fetches; was balance=0 LOST before the journal) | two recovery models, both conserve: saga reservation vs journal+restore |
 | 30 receive-kill | PASS (credited once) | PASS (2026-11-12, same journal: the reserved range is restored on boot via the fail-closed gate; was 600+0 LOST) | the journal closes the receive crash window |
-| 40 duplicate-outputs | brick pinned (flip detector) | mint SUCCEEDS on the "burned range" — random (non-seed-derived) secrets mean no burned ranges exist | immunity by design, different mechanism |
+| 40 duplicate-outputs | brick pinned (flip detector) | REFUSES the burned range, then HEALS natively on restart (2026-11-13: the scenario never actually ran before — micronuts has no --mnemonic-file so w2 always fresh-seeded; with seed injection fixed, the mint refuses and the journal's fail-closed gate + NUT-09 restore re-fetch the original signatures and advance the counter past the range) | both models now measured for real |
 | 50 fail-closed gate | PASS | PASS | the gate contract is daemon-side and portable |
 | 60 locked token | PASS | PASS (after send_p2pk landed, 2026-10-31 — the lane caught a FAKE-LOCK bug on its first run: a malformed NUT-10 secret template made the "locked" token anyone-can-spend and the victim credited it, the #324 attack live; fixed + unit-pinned, Amperstrand/micronuts 2ef6a5c) | |
 
