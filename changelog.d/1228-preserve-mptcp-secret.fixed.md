@@ -1,0 +1,1 @@
+- **Preserve the nested MPTCP bond password during a wholesale config save:** a redacted `config get` payload merged with an unrelated edit can no longer silently clear the schema-declared `mptcp_bonding.password` ([#1228](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1228))
