@@ -75,7 +75,9 @@ conservation the sagas achieve by a different mechanism. cdk-walletd
 stays the shipping default (its sagas also cover quote/melt-state
 transitions the journal does not yet model); micronuts's wins stand:
 no duplicate-outputs class in normal operation, 3-8 MB footprint, and
-now crash-boundary conservation. Case 40 flipped PASS→FAIL after the
-journal (mint succeeds on the burned range for a same-seed fresh-store
-wallet) — adjudication pending: whether the journaled counter should
-be derivable from the seed-path alone.
+now crash-boundary conservation. Case 40's "flip" was
+adjudicated (2026-11-13) to a harness defect, not a behavior change:
+the same-seed scenario never ran for micronuts (its daemon has no
+--mnemonic-file; the flag was silently ignored), and with seed
+injection fixed the case passes for real — FINAL BOARD: micronuts +
+crash journal + NUT-09 restore passes 7/7.
