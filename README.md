@@ -402,7 +402,7 @@ tollgate network private set-encryption [mode]        Encryption mode (psk2+ccmp
 
 # Upstream Wi-Fi (the client side)
 tollgate upstream scan                                Scan all radios for available networks
-tollgate upstream connect <SSID> [passphrase]         Join an upstream network
+tollgate upstream connect <SSID> [passphrase]         Join upstream; omitted passphrase reuses an eligible saved key
 tollgate upstream list                                Configured upstream STA interfaces, active and disabled
 tollgate upstream remove <SSID>                       Remove a disabled upstream STA from the config
 tollgate upstream known                               TollGate APs discovered in scan history
