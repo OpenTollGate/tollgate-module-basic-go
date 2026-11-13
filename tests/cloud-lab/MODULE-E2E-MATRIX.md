@@ -20,6 +20,7 @@ land time).
 | LEG A — payment during dependency outage | refused, code `payment-processing-unavailable` ("note was not spent, try again"); module survived; recovered on return | module survived; recovered on return. The refusal itself is measured in LEG B (the pay helper funds its wallet FROM the mint, so a mint outage kills the helper before any POST — the leg is survival-only on this backend; noted in the driver) |
 | LEG B — dependency killed mid-payment, then replay (killed at STAGING: the event file appearing means the POST is in flight) | single-grant value verdict ✓ (first attempt settled nowhere; replay the single grant, allotment bound respected) | single-grant value verdict ✓ — first attempt refused 21023 through the module (the non-vacuous mint-outage refusal), replay refused, no double grant |
 | LEG D — deterministic ambiguity (the money dependency's answer to the receive/swap is processed then dropped) | sock proxy drops cdk-walletd's answer: `payment-outcome-unknown` (do-not-resubmit); deterministically-spent replay refused; recovery on the direct socket | killproxy (the parity lane's TCP injector, promoted here) drops the MINT's swap response: `payment-outcome-unknown` (do-not-resubmit); deterministically-spent replay refused; passthrough recovery |
+| LEG F — issuer fault (the mint ANSWERS a definitive 400 NUT-19 refusal — the Coinos "keyset unknown" shape, #1153/#1222; killproxy fault.json, the mint never contacted so NUT-07 keeps answering UNSPENT) | `cdk-kp` lane (the sidecar's mint routed through the proxy): `payment-error-mint-refused`, replay-while-faulted refused, module alive, and the SAME token grants a session (200/1022) after the fault clears. The lane's FIRST run caught the sidecar wrapper defect (`Unknown error response: …` was unclassified → token stranded) — fixed + unit-pinned, c1902f70 | gonuts lane: same verdict, different relay shape (`could not swap proofs: <mint prose>`); the misclassification (mint-unreachable + strand) was the original #1222 finding |
 
 ## Known flake (gonuts LEG D) — RESOLVED (#1163)
 
@@ -49,6 +50,17 @@ ambiguity handling was correct every time the swallow engaged.
    ambiguity handling is pinned at the wallet layer
    (the parity lane, tests/cloud-lab/parity on PR #1137) and in unit
    tests — the coverage statement is written here so nobody re-derives it.
+4. LEG F completes the duality for the REFUSAL class: a definitive mint
+   4xx must surface as `payment-error-mint-refused` (note not spent,
+   retryable) and never as the unreachable/ambiguity classes — proven on
+   both backends from their different relay shapes, the same
+   both-backend pattern LEG D established for ambiguity. The cdk proof
+   runs on the `cdk-kp` lane (`BACKEND=cdk-kp`): the cdk composition
+   with the sidecar's mint traffic behind the fault proxy.
+5. The parity lane's own doctrine applies here too: the issuer-fault
+   leg caught a real defect on EACH backend's first run (the gonuts
+   misclassification #1222; the sidecar wrapper gap c1902f70) — a lane
+   that goes green only after catching its bug is working, not flaky.
 
 Wallet-layer conformance (same WalletPort money-cycle assertions on
 gonuts in-process / cdk-walletd sidecar / cdk-go in-process): the parity
