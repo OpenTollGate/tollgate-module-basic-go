@@ -173,18 +173,48 @@ func (cm *ConfigManager) GetOwnedIdentity(name string) (*OwnedIdentity, error) {
 
 // backupAndLog backs up a specified file and logs the action.
 func backupAndLog(filePath, backupDir, fileType, codeVersion string) error {
+	return backupAndLogAt(filePath, backupDir, fileType, codeVersion, time.Now().UTC())
+}
+
+func backupAndLogAt(filePath, backupDir, fileType, codeVersion string, timestamp time.Time) error {
 	// 1. Ensure backup directory exists
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return fmt.Errorf("failed to create backup directory '%s': %w", backupDir, err)
 	}
 
-	// 2. Generate backup filename
-	timestamp := time.Now().UTC().Format("2006-01-02T15-04-05Z")
-	backupFilename := fmt.Sprintf("%s_%s_%s.json", fileType, timestamp, codeVersion)
-	backupPath := filepath.Join(backupDir, backupFilename)
+	// 2. Reserve a unique backup path before moving anything. Renaming
+	// directly to a timestamped name silently overwrites a backup made in
+	// the same second; O_EXCL makes the collision visible and adds a suffix.
+	stem := fmt.Sprintf("%s_%s_%s", fileType, timestamp.Format("2006-01-02T15-04-05.000000000Z"), codeVersion)
+	var backupPath string
+	for suffix := 0; suffix < 1000; suffix++ {
+		name := stem + ".json"
+		if suffix > 0 {
+			name = fmt.Sprintf("%s-%d.json", stem, suffix)
+		}
+		candidate := filepath.Join(backupDir, name)
+		f, err := os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			if os.IsExist(err) {
+				continue
+			}
+			return fmt.Errorf("failed to reserve backup path '%s': %w", candidate, err)
+		}
+		if err = f.Close(); err != nil {
+			_ = os.Remove(candidate)
+			return fmt.Errorf("failed to close backup reservation '%s': %w", candidate, err)
+		}
+		backupPath = candidate
+		break
+	}
+	if backupPath == "" {
+		return fmt.Errorf("failed to find a unique backup path for %s in '%s'", fileType, backupDir)
+	}
 
-	// 3. Move the file
+	// 3. Move the file. The reserved placeholder prevents another writer
+	// from choosing the same name; rename atomically replaces that placeholder.
 	if err := os.Rename(filePath, backupPath); err != nil {
+		_ = os.Remove(backupPath)
 		return fmt.Errorf("failed to move config '%s' to backup '%s': %w", filePath, backupPath, err)
 	}
 
