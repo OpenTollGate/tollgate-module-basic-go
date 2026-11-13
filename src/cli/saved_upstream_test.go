@@ -26,7 +26,7 @@ func TestSavedUpstreamCredentialEligibility(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &MockCLIConnector{}
-			sections := []wgm.STASection{{Name: "saved", SSID: "Saved", Encryption: tc.encryption}}
+			sections := []wgm.STASection{{Name: "saved", SSID: "Saved", Encryption: tc.encryption, Disabled: true}}
 			if tc.duplicate {
 				sections = append(sections, sections[0])
 			}
@@ -121,7 +121,7 @@ func TestSavedUpstreamConnectBothHandlers(t *testing.T) {
 
 func TestSavedUpstreamListExposesCapabilityWithoutCredential(t *testing.T) {
 	c := &MockCLIConnector{}
-	c.On("GetSTASections").Return([]wgm.STASection{{Name: "saved", SSID: "Saved", Encryption: "psk2"}}, nil)
+	c.On("GetSTASections").Return([]wgm.STASection{{Name: "saved", SSID: "Saved", Encryption: "psk2", Disabled: true}}, nil)
 	c.On("ExecuteUCI", "get", "wireless.saved.network").Return("wwan\n", nil)
 	c.On("ExecuteUCI", "get", "wireless.saved.key").Return("stored-fixture-password\n", nil)
 	response := newTestCLIServer(c, &MockCLIScanner{}).handleUpstreamList()

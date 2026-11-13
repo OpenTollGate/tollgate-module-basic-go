@@ -938,6 +938,9 @@ func (s *CLIServer) savedUpstreamPassphrase(ssid string, sections []wireless_gat
 	if saved == nil {
 		return "", errors.New("no saved upstream credential; enter a passphrase")
 	}
+	if !saved.Disabled {
+		return "", errors.New("saved upstream is active; switch away before reconnecting it")
+	}
 	switch strings.SplitN(saved.Encryption, "+", 2)[0] {
 	case "none", "psk", "psk2", "psk-mixed", "sae", "sae-mixed":
 	default:
@@ -974,29 +977,59 @@ func upstreamConnectError(message string, err error, usingSavedCredential bool, 
 }
 
 func (s *CLIServer) resolveUpstreamPassphrase(ssid, passphrase, encryption string) (string, bool, error) {
-	if encryption == "none" {
-		return "", false, nil
-	}
+	key, _, saved, err := s.resolveUpstreamCredentials(ssid, passphrase, encryption)
+	return key, saved, err
+}
+
+// Bind omitted credentials to the saved security mode, never to an arbitrary
+// same-SSID advertisement. Preserve configured cipher restrictions on reuse.
+func (s *CLIServer) resolveUpstreamCredentials(ssid, passphrase, encryption string) (string, string, bool, error) {
 	if passphrase != "" {
-		return passphrase, false, nil
-	}
-	switch strings.SplitN(encryption, "+", 2)[0] {
-	case "psk", "psk2", "psk-mixed", "sae", "sae-mixed":
-	default:
-		return "", false, errors.New("scanned encryption does not support saved passphrase reuse")
+		if encryption == "none" {
+			return "", "", false, errors.New("open network does not accept a passphrase")
+		}
+		return passphrase, encryption, false, nil
 	}
 	sections, err := s.connector.GetSTASections()
 	if err != nil {
-		return "", false, errors.New("saved upstream profiles are unavailable; enter a passphrase")
+		return "", "", false, errors.New("saved upstream profiles are unavailable; enter a passphrase")
+	}
+	var saved *wireless_gateway_manager.STASection
+	for i := range sections {
+		if sections[i].SSID != ssid {
+			continue
+		}
+		if saved != nil {
+			return "", "", false, errors.New("saved upstream is ambiguous; remove duplicate profiles first")
+		}
+		saved = &sections[i]
+	}
+	if saved == nil {
+		if encryption == "none" {
+			return "", encryption, false, nil
+		}
+		return "", "", false, errors.New("no saved upstream credential; enter a passphrase")
+	}
+	if strings.SplitN(saved.Encryption, "+", 2)[0] != strings.SplitN(encryption, "+", 2)[0] {
+		return "", "", false, errors.New("saved upstream security differs from scan")
 	}
 	key, err := s.savedUpstreamPassphrase(ssid, sections)
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
-	if key == "" {
-		return "", false, errors.New("passphrase required for encrypted network")
+	return key, saved.Encryption, true, nil
+}
+
+// Encryption must describe the exact AP selected on this radio, just as the
+// BSSID pin does. The first same-SSID entry can belong to another network.
+func encryptionForSelectedUpstream(networks []wireless_gateway_manager.NetworkInfo, ssid, radio string) string {
+	bssid := bestBSSIDForSSID(networks, ssid, radio)
+	for _, n := range networks {
+		if n.SSID == ssid && n.Radio == radio && (bssid == "" || n.BSSID == bssid) {
+			return n.Encryption
+		}
 	}
-	return key, true, nil
+	return ""
 }
 
 func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
@@ -1040,17 +1073,11 @@ func (s *CLIServer) handleUpstreamConnect(connectArgs []string) CLIResponse {
 		}
 	}
 
-	var encryptionStr string
-	for _, net := range networks {
-		if net.SSID == ssid {
-			encryptionStr = net.Encryption
-			break
-		}
-	}
+	encryptionStr := encryptionForSelectedUpstream(networks, ssid, bestRadio)
 
 	uciEnc := s.scanner.DetectEncryption(encryptionStr)
 
-	passphrase, usingSavedCredential, err := s.resolveUpstreamPassphrase(ssid, passphrase, uciEnc)
+	passphrase, uciEnc, usingSavedCredential, err := s.resolveUpstreamCredentials(ssid, passphrase, uciEnc)
 	if err != nil {
 		return CLIResponse{
 			Success:   false,
@@ -1154,16 +1181,10 @@ func (s *CLIServer) handleUpstreamConnectStreaming(conn net.Conn, msg CLIMessage
 		}
 	}
 
-	var encryptionStr string
-	for _, net := range networks {
-		if net.SSID == ssid {
-			encryptionStr = net.Encryption
-			break
-		}
-	}
+	encryptionStr := encryptionForSelectedUpstream(networks, ssid, bestRadio)
 	uciEnc := s.scanner.DetectEncryption(encryptionStr)
 
-	passphrase, usingSavedCredential, err := s.resolveUpstreamPassphrase(ssid, passphrase, uciEnc)
+	passphrase, uciEnc, usingSavedCredential, err := s.resolveUpstreamCredentials(ssid, passphrase, uciEnc)
 	if err != nil {
 		s.sendResponse(conn, CLIResponse{Success: false, Error: err.Error(), Timestamp: time.Now()})
 		return

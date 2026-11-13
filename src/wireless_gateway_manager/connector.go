@@ -877,6 +877,21 @@ func (c *Connector) FindOrCreateSTAForSSID(ssid, passphrase, encryption, radio s
 		return "", err
 	}
 
+	// Recheck before any profile write: handler eligibility can become stale.
+	// An active section must not turn into a second saved profile, and an open
+	// advertisement must not erase a previously encrypted profile's key.
+	for _, section := range sections {
+		if section.SSID != ssid {
+			continue
+		}
+		if !section.Disabled {
+			return "", fmt.Errorf("saved upstream is active; switch away before updating it")
+		}
+		if encryption == "none" && section.Encryption != "none" {
+			return "", fmt.Errorf("saved upstream security differs from open network")
+		}
+	}
+
 	for _, section := range sections {
 		if section.SSID == ssid && section.Disabled {
 			logger.WithFields(logrus.Fields{
