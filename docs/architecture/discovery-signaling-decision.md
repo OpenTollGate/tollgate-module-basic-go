@@ -2,6 +2,12 @@
 
 ## Status: Decided (2026-09-28) — v0.6 ships SSID-prefix recognition; everything else documented and deferred
 
+> **Implementation update (2026-10-30):** the compiled prefix list is gone.
+> Recognition is now `TollGate` (always) + the local
+> `/etc/tollgate/brand` + optional `/etc/tollgate/ssid-prefixes`; see
+> [ssid-prefix-fallback.md](ssid-prefix-fallback.md). The signal remains a
+> selection hint; the signed kind-10021 probe is still the authority.
+
 Two questions were separated during the #618 design review, and this record
 keeps them separate:
 
