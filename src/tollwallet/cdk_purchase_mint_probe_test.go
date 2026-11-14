@@ -39,7 +39,7 @@ func TestProbeCdkMintMbTokenForPurchase(t *testing.T) {
 	fmt.Sscanf(os.Getenv("TOLLGATE_CDK_PURCHASE_AMOUNT"), "%d", &amount)
 
 	dir := t.TempDir()
-	w, err := NewWalletPort(dir, []string{mintURL}, false, map[string]string{mintURL: unit})
+	w, err := NewWalletPort(dir, []string{mintURL}, false, map[string]string{mintURL: unit}, nil)
 	if err != nil {
 		t.Fatalf("NewWalletPort: %v", err)
 	}

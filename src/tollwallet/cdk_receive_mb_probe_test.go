@@ -34,7 +34,7 @@ func TestProbeCdkReceiveMbToken(t *testing.T) {
 	}
 	w, err := NewWalletPort(dir, []string{mint}, false, map[string]string{
 		mint: unit,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("NewWalletPort: %v", err)
 	}

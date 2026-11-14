@@ -34,9 +34,13 @@ func TestProbeCdkCustomUnitWallet(t *testing.T) {
 	}
 	defer w.Destroy()
 	// The mint's mb keyset must be fetchable by this wallet.
-	ks, err := w.ActiveKeyset()
+	// cdk-go here is the module's pinned/patched build: the accessor is
+	// FetchActiveKeyset (returning KeySetInfo), not the upstream ActiveKeyset
+	// (returning KeySet). The probe used the latter, so the whole cdk_wallet
+	// tag failed to compile and the backend was never build-verified.
+	ks, err := w.FetchActiveKeyset()
 	if err != nil {
-		t.Fatalf("ActiveKeyset on mb wallet: %v", err)
+		t.Fatalf("FetchActiveKeyset on mb wallet: %v", err)
 	}
 	t.Logf("mb wallet sees keyset %s unit=%v", ks.Id, ks.Unit)
 	if !strings.Contains(fmt.Sprintf("%v", ks.Unit), "mb") {

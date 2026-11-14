@@ -42,7 +42,7 @@ func TestProbeCdkSelfLoopMintsWithTheWallet(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	w, err := NewWalletPort(dir, []string{mintURL}, false, map[string]string{mintURL: unit})
+	w, err := NewWalletPort(dir, []string{mintURL}, false, map[string]string{mintURL: unit}, nil)
 	if err != nil {
 		t.Fatalf("NewWalletPort: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestProbeCdkSelfLoopMintsWithTheWallet(t *testing.T) {
 	// Receive into a SECOND wallet instance (distinct dir + seed is fine; here we
 	// use a fresh dir so the proofs are unknown to it and a real swap must run).
 	dir2 := t.TempDir()
-	w2, err := NewWalletPort(dir2, []string{mintURL}, false, map[string]string{mintURL: unit})
+	w2, err := NewWalletPort(dir2, []string{mintURL}, false, map[string]string{mintURL: unit}, nil)
 	if err != nil {
 		t.Fatalf("NewWalletPort(2): %v", err)
 	}

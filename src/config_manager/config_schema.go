@@ -77,6 +77,7 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "PricePerStep", JSONKey: "price_per_step", Type: "uint64", Description: "Price per step in sats", Default: uint64(1), Required: true, Editable: true, Min: uint64(1)},
 				{Name: "PriceUnit", JSONKey: "price_unit", Type: "string", Description: "Price unit", Default: "sat", Required: true, Editable: true},
 				{Name: "Unit", JSONKey: "unit", Type: "string", Description: "Currency unit this mint issues as it declares it on the wire (\"sat\", \"msat\", \"usd\", or an operator-issued custom unit such as \"mb\"/\"min\"). Empty means sat. A token in any other unit is refused rather than mispriced, so this must match the mint's actual keyset unit.", Default: "", Required: false, Editable: true},
+				{Name: "PaymentMethod", JSONKey: "payment_method", Type: "string", Description: "The mint's payment method for a quote in this unit — the {method} in POST /v1/mint/quote/{method}. Empty means the unit's default: bolt11 for sat. A custom-unit mint must set it to whatever processor the operator attached (Pecan registers \"branch\"); without it a custom-unit quote is refused rather than sent to a guessed method.", Default: "", Required: false, Editable: true},
 				{Name: "MinPurchaseSteps", JSONKey: "purchase_min_steps", Type: "uint64", Description: "Minimum number of steps per purchase (clients reject min_steps=0; the parser also floors absent/0 to 1 for legacy configs)", Default: uint64(1), Required: true, Editable: true, Min: uint64(1)},
 			},
 		},
