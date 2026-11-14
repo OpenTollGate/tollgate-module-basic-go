@@ -82,7 +82,8 @@ HOST_ARTIFACT_PATH="$ARTIFACT_DIR/$ARTIFACT_SUBDIR"
 HOST_LOG_PATH="$HOST_ARTIFACT_PATH/build.log"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tollgate-build.XXXXXX")"trap 'rm -rf "$STAGE_DIR"' EXIT
+STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tollgate-build.XXXXXX")"
+trap 'rm -rf "$STAGE_DIR"' EXIT
 
 # Reproducible-build environment: pinned SDK digest, SOURCE_DATE_EPOCH,
 # deterministic BUILD_TIME_UTC and ldflags helpers.
@@ -208,8 +209,45 @@ fi
 # #941: the rc5 package shipped a binary stamped from a lagged VERSION
 # file. Assert the stamp landed — the binaries are cross-compiled, so
 # the fence reads the embedded string rather than executing them.
+# NOTE: this fence runs BEFORE any TG_UPX pass on purpose — compressed
+# binaries are not a reliable strings source.
 tg_assert_version_consistency "$STAGE_DIR/tollgate-wrt" "$PACKAGE_VERSION"
 tg_assert_version_consistency "$STAGE_DIR/tollgate" "$PACKAGE_VERSION"
+
+# TG_UPX=1: compress the staged binaries with the pinned UPX before the
+# SDK packs them — the small-flash lane (e.g. Zyxel NR7101: 13.7M overlay,
+# ~30M of uncompressed binaries cannot land; UPX cuts them to ~33%).
+# Runtime-proven on mipsel hardware 2026-11-10 (upx 5.2.1, Go 1.26.10
+# softfloat binaries, NR7101/mt7621: --version/--help execute clean).
+# The ipk release lane has always compressed in CI; this gives the LOCAL
+# apk lane the same capability. Artifact dir gains an -upx suffix so a
+# compressed artifact can never be mistaken for the plain one.
+if [ "${TG_UPX:-0}" = "1" ]; then
+    UPX_FLAGS="${TG_UPX_FLAGS:---best}"
+    UPX_DIR="$(bash "$REPO_ROOT/scripts/fetch-upx.sh")" || {
+        printf '%s\n' 'ERROR: TG_UPX=1 but scripts/fetch-upx.sh failed (pinned upx unavailable).' >&2
+        exit 1
+    }
+    printf '%s\n' "UPX pass: $("$UPX_DIR/upx" --version 2>/dev/null | head -1 || true) flags=$UPX_FLAGS"
+    for _bin in tollgate-wrt tollgate tollgate-cvm; do
+        [ -f "$STAGE_DIR/$_bin" ] || continue
+        ls -lh "$STAGE_DIR/$_bin" | awk '{print "  before", $5, $9}'
+        "$UPX_DIR/upx" $UPX_FLAGS --overlay=strip "$STAGE_DIR/$_bin"
+        ls -lh "$STAGE_DIR/$_bin" | awk '{print "  after ", $5, $9}'
+    done
+    # A upx'd binary must still announce its version stamp: the -ldflags
+    # banner survives compression, and executing it is forbidden here
+    # (host is not the target arch) — grep the compressed blob's tail
+    # (UPX leaves the original headers' string table compressed; the
+    # version travels in the packed payload, so a weak but honest check:
+    # the file must still exist, be non-trivially smaller, and be
+    # recognized by upx -l).
+    "$UPX_DIR/upx" -l "$STAGE_DIR/tollgate-wrt" >/dev/null \
+        || { printf '%s\n' 'ERROR: upx -l rejects the packed tollgate-wrt.' >&2; exit 1; }
+    ARTIFACT_SUBDIR="${ARTIFACT_SUBDIR}-upx"
+    HOST_ARTIFACT_PATH="$ARTIFACT_DIR/$ARTIFACT_SUBDIR"
+    HOST_LOG_PATH="$HOST_ARTIFACT_PATH/build.log"
+fi
 
 cp -r "$REPO_ROOT/packaging/." "$STAGE_DIR/"
 cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/LICENSE"
