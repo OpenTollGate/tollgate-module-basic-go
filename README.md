@@ -484,6 +484,10 @@ The current schema version is **`v0.0.11`**. An abridged example:
     { "factor": 0.07, "identity": "amperstrand" },
     { "factor": 0.07, "identity": "origami74" }
   ],
+  "wallet": {
+    "backend": "default",
+    "socket": "/var/run/cdk-walletd.sock"
+  },
   "upstream_detector": {
     "probe_timeout": "10s",
     "probe_retry_count": 3,
@@ -519,6 +523,7 @@ Key fields:
 - **`metric`** — `"bytes"` sells data, `"milliseconds"` sells time. `step_size` is the unit.
 - **`accepted_mints[*]`** — per-mint URL, pricing, and payout thresholds. Multiple mints are supported; the first mint holding sufficient balance wins on payout.
 - **`profit_share[*]`** — each entry references an `identity` that maps to an entry in `/etc/tollgate/identities.json`; `factor` values should sum to 1.0.
+- **`wallet`** — selects the Cashu backend the service runs on: `backend: "default"` (the in-process gonuts wallet) or `"cdk"` (the `cdk-walletd` sidecar daemon, reached over the AF_UNIX `socket`). Configs written before the section existed keep the in-process wallet; `cdk` with the daemon down degrades wallet-less (fail closed) rather than silently constructing a second wallet.
 - **`reseller_mode`** — when true, this router actively purchases from an upstream TollGate and resells to its own customers. **On by default; set it to false to opt out.**
 - **`upstream_detector`** / **`upstream_session_manager`** — control the *client* side (buying from an upstream).
 
