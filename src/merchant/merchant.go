@@ -99,6 +99,42 @@ const sessionHistoryTTL = 24 * time.Hour
 // without bound between TTL sweeps.
 const sessionHistoryMaxEntries = 4096
 
+// sessionWithinWatermark reports whether a session still has paid entitlement
+// left, given the value its own meter reads. The watermark is the session's
+// Allotment and the meter is whatever measures the customer's consumption from
+// the session's anchor — elapsed time for `milliseconds`, the carried byte total
+// for `bytes`. The rule is one comparison, in one place, for both metrics and for
+// every enforcement site: strictly below the watermark is inside it, and reached
+// AT the watermark is enforced (see
+// docs/architecture/incremental-topup-watermark-decision.md).
+//
+// Two sites enforce and they must not drift: the 2-second byte sweep
+// (enforceBytesSession) and the milliseconds lookup (sessionHasExpired), with the
+// gate timer armed for the same instant (openGateForSession). They used to state
+// the comparison separately; a boundary that disagreed by one unit is a session
+// that keeps an open gate one sweep too long, or one that is closed while it still
+// has paid time.
+func sessionWithinWatermark(meter uint64, session *CustomerSession) bool {
+	if session == nil {
+		return false
+	}
+	return meter < session.Allotment
+}
+
+// sessionPaidThroughUnix is the instant at which a `milliseconds` session's paid
+// entitlement ends: its anchor (StartTime) plus the allotment it has been sold.
+//
+// It exists so the anchor and the allotment are read in ONE place. The instant is
+// what the gate timer arms for and what sessionHasExpired compares now against; a
+// second expression of it in either direction is how a top-up that grows the
+// allotment fails to move the horizon, or moves it off an anchor it never had.
+func sessionPaidThroughUnix(session *CustomerSession) int64 {
+	if session == nil {
+		return 0
+	}
+	return session.StartTime + int64(session.Allotment/1000)
+}
+
 // sessionHasExpired reports whether a session's allotment is used up. Only the
 // milliseconds metric can be judged from the record alone: byte allotments are
 // measured against NDS counters by checkDataUsage, which closes the gate and
@@ -111,7 +147,7 @@ func sessionHasExpired(session *CustomerSession, now time.Time) bool {
 	if elapsed < 0 {
 		return false
 	}
-	return uint64(elapsed.Milliseconds()) >= session.Allotment
+	return !sessionWithinWatermark(uint64(elapsed.Milliseconds()), session)
 }
 
 // expireSessionLocked retires the session record of macAddress and remembers
@@ -1008,8 +1044,11 @@ func (m *Merchant) enforceBytesSession(macAddress string, session *CustomerSessi
 	// when the attachment's counters are already gone by the time it happens.
 	m.noteAttachmentUsage(macAddress, attachmentUsage)
 
-	// Check if allotment is reached
-	if usage < session.Allotment {
+	// Check the paid-through watermark: the session's whole ledger (what it
+	// carried in plus what this attachment has used) against what has been paid
+	// for. One comparison, shared with the milliseconds path
+	// (sessionWithinWatermark).
+	if sessionWithinWatermark(usage, session) {
 		// Log progress periodically (every ~10 checks = 20 seconds)
 		if usage > 0 && usage%(10*1024*1024) < 2*1024*1024 { // Log around every 10MB
 			log.Printf("Data usage for %s: %s / %s (%.1f%%)",
@@ -2823,6 +2862,22 @@ func (m *Merchant) awaitClientRegistration(macAddress string) {
 // would hand back the allotment that was consumed — two 600 s purchases left a
 // 1200 s session — and would keep reporting the spent session to /usage and
 // /session-state instead of the renewal's fresh one.
+//
+// This is the top-up, and its contract is about the ANCHOR, not the amount
+// (docs/architecture/incremental-topup-watermark-decision.md). A session's meter
+// measures consumption from its StartTime, so a top-up of a LIVE session may only
+// GROW the watermark (Allotment) and must leave StartTime where it is: rewriting
+// it re-bases the meter to zero and hands back every second — or, on the bytes
+// meter, every byte — the customer has already spent, so the second purchase buys
+// its allotment on top of the refunded one instead of adding it. That is the
+// difference between a top-up and a renewal, and it is why the reset lives on the
+// "no live session" branch only.
+//
+// A purchase whose session exists but is on a different metric is NOT a top-up
+// either: the two sides of the watermark comparison would be in different units
+// (bytes against a millisecond allotment), which is a watermark that can never be
+// reached. The record is retired and the purchase starts a fresh clock on the
+// metric the router is configured for.
 func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*CustomerSession, error) {
 	macAddress = NormalizeMACAddress(macAddress)
 
@@ -2834,6 +2889,12 @@ func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*Cust
 		m.expireSessionLocked(macAddress)
 		exists = false
 	}
+	if exists && session.Metric != metric {
+		log.Printf("Retiring the %s session of %s to start a %s one: a top-up may only add to a watermark in the same unit as the meter that gauges it",
+			session.Metric, macAddress, metric)
+		m.expireSessionLocked(macAddress)
+		exists = false
+	}
 	if !exists {
 		if m.customerSessions == nil {
 			// Bare-literal merchants (test harnesses) now reach this path
@@ -2842,7 +2903,7 @@ func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*Cust
 			// other journals have.
 			m.customerSessions = make(map[string]*CustomerSession)
 		}
-		// Create new session
+		// Create new session, anchored now: this is a purchase, not a top-up.
 		session = &CustomerSession{
 			MacAddress: macAddress,
 			StartTime:  time.Now().Unix(),
@@ -2851,9 +2912,8 @@ func (m *Merchant) AddAllotment(macAddress, metric string, amount uint64) (*Cust
 		}
 		m.customerSessions[macAddress] = session
 	} else {
-		// Add to existing session and reset start time to now
+		// A top-up of a LIVE session: grow the watermark, never move the anchor.
 		session.Allotment += amount
-		session.StartTime = time.Now().Unix()
 	}
 
 	return session, nil

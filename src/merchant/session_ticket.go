@@ -367,9 +367,9 @@ func (m *Merchant) VerifySessionTicket(ticket string) (*VerifiedSessionTicket, e
 //  1. the byte meter CARRIES: the moved record keeps the total the session has
 //     already consumed, and the new attachment's baseline measures only that
 //     attachment. A rebind never starts a fresh allotment;
-//  2. StartTime is PRESERVED: a rebind is not a renewal. Recomputing StartTime
-//     the way AddAllotment does for a renewal would hand back the time the
-//     customer has already spent;
+//  2. StartTime is PRESERVED: a rebind is not a renewal. Rewriting the anchor
+//     would hand back the time the customer has already spent — the same defect
+//     a top-up had before AddAllotment was fixed (incremental-topup-watermark-decision.md);
 //  3. the rebind is REFUSED while the old attachment is still authenticated
 //     (ErrAttachmentActive) — the rule that separates a rotation from a copied
 //     ticket delivered to a second device.
