@@ -1,0 +1,1 @@
+- Fixed: the degraded-mode startup banner no longer over-promises mint recovery for every non-storage cause — the no-reachable-mints class keeps the historic wording, while a wallet-init failure with reachable mints names its reason and states that wallet initialization is retried automatically ([#1174](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1174))
