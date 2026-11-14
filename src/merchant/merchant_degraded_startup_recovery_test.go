@@ -49,6 +49,15 @@ func TestDegradedStartupWireRecoveryTrigger_Upgrades(t *testing.T) {
 			if _, ok := mi.(*Merchant); !ok {
 				t.Fatalf("onUpgrade fired with %T, want *Merchant", mi)
 			}
+			// The upgraded merchant started its usage sweep in the
+			// constructor; leaving it live past the test leaks the
+			// goroutine into the suite (census: started=1 exited=0;
+			// the stray-sweep interference vessel under load — the
+			// #887 family's residual, found by the post-#1016
+			// census).
+			if s, ok := mi.(interface{ Shutdown() error }); ok {
+				defer func() { _ = s.Shutdown() }()
+			}
 			return
 		case <-time.After(50 * time.Millisecond):
 		}
