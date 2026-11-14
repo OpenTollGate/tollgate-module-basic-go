@@ -149,6 +149,10 @@ for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
         "$$script" || echo "Warning: $$script exited with code $$?"
     fi
 done
+# Commit pending uci sessions the scripts left behind (#1087) - the boot
+# harness does this after each uci-defaults script; the install path must
+# not be the one path without it.
+uci commit 2>/dev/null || true
 
 echo "Restarting network..."
 # A full netifd restart re-applies UCI-backed routes only. Default routes that
