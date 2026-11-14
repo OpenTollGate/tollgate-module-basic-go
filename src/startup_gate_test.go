@@ -64,7 +64,52 @@ func TestMoneyPathAcceptsWhileMintDependentInitIsInFlight(t *testing.T) {
 	// therefore reported to the board rather than exercised from here. The
 	// socket this test starts is left to the test binary's exit, like the one
 	// init() leaves.
-	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", t.TempDir())
+
+	// The boot below reads the config dir BEFORE the merchant constructor
+	// stub can gate anything, and a MISSING config means factory defaults —
+	// whose accepted mints are seven REAL internet mints. That made this
+	// unit test probe the live network (and fail on any DNS-restricted
+	// runner: measured, mint.lnserver.com unresolvable on the bench). Seed
+	// the same SEVEN-mint shape — the incident's condition — pointed at a
+	// closed local port instead: probes refuse instantly, offline, and the
+	// construction-blocking stub keeps the test's semantics untouched.
+	// A SHORT config dir: the CLI socket lives at <dir>/tollgate.sock and
+	// AF_UNIX caps the path at 108 bytes. t.TempDir() under a long TMPDIR
+	// (this test's name is 52 chars) lands the socket path at 107-109
+	// bytes by random-suffix length — over the limit the CLI server
+	// cannot bind, which is exactly the flake this test showed (EINVAL
+	// misread as an ownership problem before the server grew its length
+	// guard). /tmp keeps every path comfortably short.
+	shortDir, err := os.MkdirTemp("/tmp", "sg-gate-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(shortDir) })
+	t.Setenv("TOLLGATE_TEST_CONFIG_DIR", shortDir)
+	cfgDir := shortDir
+	mints := make([]config_manager.MintConfig, 7)
+	for i := range mints {
+		mints[i] = config_manager.MintConfig{
+			URL:                     "http://127.0.0.1:9/m" + string(rune('0'+i)),
+			MinBalance:              64,
+			BalanceTolerancePercent: 10,
+			PayoutIntervalSeconds:   60,
+			MinPayoutAmount:         128,
+			PricePerStep:            1,
+			PriceUnit:               "sat",
+			MinPurchaseSteps:        1,
+		}
+	}
+	seedCfg, err := json.Marshal(map[string]any{
+		"config_version": "v0.0.10", "log_level": "debug", "metric": "milliseconds",
+		"step_size": 60000, "accepted_mints": mints,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), seedCfg, 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	prevProvider, prevListener, prevServer, prevGate, prevCLI, prevUpstream :=
 		merchantProvider, apiListener, apiHTTPServer, apiStartup, cliServer, upstreamManager
@@ -112,8 +157,25 @@ func TestMoneyPathAcceptsWhileMintDependentInitIsInFlight(t *testing.T) {
 	_ = conn.Close()
 
 	if dir := os.Getenv("TOLLGATE_TEST_CONFIG_DIR"); dir != "" {
-		if _, err := os.Stat(filepath.Join(dir, "tollgate.sock")); err != nil {
-			t.Errorf("the CLI socket did not exist while the mint-dependent init was in flight: %v", err)
+		// Poll, do not stat once: the CLI server is started by its own
+		// goroutine inside the boot sequence, and a single stat races its
+		// bind (measured: passes under `go test .`, fails under
+		// `go test ./...` scheduling, deterministically on this bench).
+		// The construction is still BLOCKED here — releaseConstruction has
+		// not fired — so a bounded wait cannot outlive the in-flight
+		// window the assertion describes.
+		sock := filepath.Join(dir, "tollgate.sock")
+		deadline := time.Now().Add(5 * time.Second)
+		var sockErr error
+		for {
+			if _, sockErr = os.Stat(sock); sockErr == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Errorf("the CLI socket did not appear while the mint-dependent init was in flight: %v", sockErr)
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
 
