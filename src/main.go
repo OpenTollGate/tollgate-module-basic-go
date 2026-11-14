@@ -733,6 +733,33 @@ func bindAndServeAPI(addr string) error {
 	return nil
 }
 
+// degradedBanner is the operator-facing startup line for a degraded merchant
+// whose storage is fine. It takes the RECORDED reason, not
+// WalletDegradedInfo()'s: that accessor collapses every non-storage cause back
+// to "no reachable mints", which is the very string this banner exists to
+// distinguish itself from. The detail lives in degradeReason — set to
+// "wallet initialization failed: …" by merchant.go when every mint probes 200
+// OK but the wallet cannot initialize (#583/#1035).
+//
+// Pure so the distinction is testable: the previous inline version compared a
+// value that could only ever be one of two strings, and the branch that named
+// the real cause was unreachable.
+func degradedBanner(reason string) string {
+	if reason == "no reachable mints" {
+		// True for this cause: the first-reachable trigger owns recovery.
+		return "Merchant started in degraded mode — wallet will initialize when a mint becomes reachable"
+	}
+	if strings.TrimSpace(reason) == "" {
+		// DegradeReason() falls back to "no reachable mints" when unset, so
+		// an empty value here means an unexpected state: say the recovery
+		// path without rendering an empty "()".
+		return "Merchant started in degraded mode — wallet initialization is retried automatically until it succeeds"
+	}
+	// #1078's retry loop re-attempts on its own cadence, so the honest
+	// promise is automatic recovery, not a mint transition.
+	return fmt.Sprintf("Merchant started in degraded mode (%s) — wallet initialization is retried automatically until it succeeds", reason)
+}
+
 // installMerchant puts the constructed merchant behind the provider every
 // consumer already holds — the HTTP handlers read it per request, and the CLI
 // server was handed the same pointer — and wires the callbacks the degraded ->
@@ -749,17 +776,7 @@ func installMerchant(merchantInstance merchant.MerchantInterface) {
 			// the mints while every mint probed 200 OK.
 			mainLogger.Error("Merchant started in degraded mode — wallet storage does not support shared mmap (jffs2 overlay?); the wallet cannot initialize on this filesystem until wallet.db moves to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)")
 		} else {
-			// The remaining degraded class is either no-reachable-mints
-			// (recovery = the first-reachable trigger, the historic
-			// wording) or a wallet-init failure with mints reachable —
-			// #1078's retry loop re-attempts on its own cadence, so the
-			// promise is automatic recovery, not a mint transition.
-			_, reason := deg.WalletDegradedInfo()
-			if reason == "no reachable mints" {
-				mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
-			} else {
-				mainLogger.Warnf("Merchant started in degraded mode (%s) — wallet initialization is retried automatically until it succeeds", reason)
-			}
+			mainLogger.Warn(degradedBanner(deg.DegradeReason()))
 		}
 		// WireStartupDegraded registers the upgrade consumer AND the recovery
 		// trigger as one pair (#10). Doing only the first left the tracker's
