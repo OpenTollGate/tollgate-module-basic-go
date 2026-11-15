@@ -1195,9 +1195,11 @@ func handleDetails(w http.ResponseWriter, r *http.Request) {
 	// reseller clients that probe this endpoint negotiate on Content-Type —
 	// without an explicit header Go sniffs the body and answers
 	// `text/plain; charset=utf-8`, which strict r2r clients warn about on
-	// every probe cycle (#628). The exact value matters: our own prober
-	// (tollgate_prober) compares Content-Type against "application/json" as a
-	// whole string, so a charset suffix would keep the warning alive.
+	// every probe cycle (#628).
+	//
+	// The suffix-less spelling is chosen, not required: our own prober
+	// (tollgate_prober) now compares the parsed media type, so adding a
+	// `; charset=utf-8` here would not re-arm the warning.
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, merchantProvider.inner.GetMerchant().GetAdvertisement())
 }
@@ -1338,6 +1340,10 @@ func sendNoticeResponse(w http.ResponseWriter, m merchant.MerchantInterface, sta
 	noticeEvent, err := m.CreateNoticeEvent(level, code, message, customerPubkey)
 	if err != nil {
 		mainLogger.WithError(err).Error("Error creating notice event")
+		// The body below is JSON, so it must be labelled as JSON on this path
+		// too — without the header net/http content-sniffs the object into
+		// text/plain and a client that trusts the label cannot parse it (#628).
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Internal server error"})
 		return
