@@ -188,32 +188,37 @@ fi
 # The static checks above read the file; this one hands it to the real parser,
 # wrapped in fw4's table the way the include contract requires. `nft -c` is
 # check-only — it never touches the running ruleset. Skipped where nft or the
-# privilege to run it is absent (it needs CAP_NET_ADMIN), because a skipped
-# parser check is honest while a failed one would be indistinguishable from a
-# missing binary.
+# privilege to run it is absent (it needs CAP_NET_ADMIN). Probe capability
+# independently: UID 0 in a container does not guarantee CAP_NET_ADMIN, and an
+# unprivileged UID must not turn a real parser failure into a skip.
 echo "== the fragment parses"
 if [ ! -f "$API_NFT" ]; then
     : # already reported above
 elif command -v nft >/dev/null 2>&1; then
-    work=$(mktemp)
-    # The API fragment resolves $tg_portal_if/$tg_private_if, whose defines
-    # ship in 00-tollgate-defs.nft — on the router fw4 includes that file
-    # first (it sorts first in /etc/nftables.d). Reproduce the include
-    # contract here: defs before the fragment, both inside 'table inet fw4',
-    # or the parser rejects identifiers the real ruleset provides (#757's
-    # fragment rework made this test's bare wrapper stale).
+    work=$(mktemp -d)
     defs="$NFT_DIR/00-tollgate-defs.nft"
-    { printf 'table inet fw4 {\n';
-      if [ -f "$defs" ]; then grep -v '^#' "$defs"; fi;
-      grep -v '^#' "$API_NFT"; printf '}\n'; } > "$work"
-    if nft -c -f "$work" >/dev/null 2>&1; then
-        ok "nft -c accepts the fragment inside 'table inet fw4'"
-    elif [ "$(id -u)" != 0 ]; then
-        printf 'SKIP nft -c needs root (CAP_NET_ADMIN) on this host\n'
+    # fw4 loads the interface definitions before the guard. Omitting them
+    # tests an impossible standalone input and rejects valid shipped rules.
+    if [ ! -f "$defs" ]; then
+        bad "missing nftables definitions: $defs"
     else
-        bad "nft -c rejects the fragment — 'nft -f' would fail the whole fw4 reload"
+        { printf 'table inet fw4 {\n'; cat "$defs"; printf '\n'; grep -v '^#' "$API_NFT"; printf '}\n'; } > "$work/fragment.nft"
+        printf 'table inet tollgate_capability_probe {}\n' > "$work/probe.nft"
+        if nft -c -f "$work/probe.nft" >"$work/probe.log" 2>&1; then
+            if nft -c -f "$work/fragment.nft" >"$work/fragment.log" 2>&1; then
+                ok "nft -c accepts the fragment inside 'table inet fw4' with its shipped definitions"
+            else
+                bad "nft -c rejects the fragment with its definitions — inspect parser diagnostics"
+                cat "$work/fragment.log"
+            fi
+        elif grep -qE 'Operation not permitted|Permission denied' "$work/probe.log"; then
+            printf 'SKIP nft -c needs CAP_NET_ADMIN on this host (capability probe refused)\n'
+        else
+            bad "nft check prerequisite failed; parser validation was not run"
+            cat "$work/probe.log"
+        fi
     fi
-    rm -f "$work"
+    rm -rf "$work"
 else
     printf 'SKIP nft not installed on this host\n'
 fi
