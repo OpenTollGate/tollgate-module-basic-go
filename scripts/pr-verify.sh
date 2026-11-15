@@ -291,7 +291,7 @@ run_contract_fences() {
         "bash tests/contract/build-purity.sh"
         "bash tests/contract/check-ssid-format.sh"
         "bash tests/contract/check-ssid-naming.sh"
-        "python3 tests/contract/check-deps-sync.py"
+        "python3 tests/contract/check-deps-sync.py --selftest-and-check"
         "bash tests/contract/gonuts-pin_test.sh"
         "python3 tests/contract/check-gonuts-pin.py"
         "bash tests/contract/cdkgo-pin_test.sh"
