@@ -123,7 +123,11 @@ func TestUnknownHoldsBudgetAndCannotResubmit(t *testing.T) {
 	if _, e = s.Prepare(intent("two"), Budget{LimitMSat: 1100}); e == nil {
 		t.Fatal("unknown reservation released")
 	}
-	op, e = s.Advance(op.ID, op.Version, Paid, 50)
+	op, e = s.RecordOutgoingPaid(op.ID, op.Version)
+	if e != nil {
+		t.Fatal(e)
+	}
+	op, e = s.ResolveOutgoingFee(op.ID, op.Version, 50)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -176,7 +180,11 @@ func TestPartialPayoutSuccessAndFailedReservation(t *testing.T) {
 		t.Fatal(e)
 	}
 	a, _ = s.SubmitOutgoing(a.ID, a.Version, Budget{LimitMSat: 2200})
-	a, e = s.Advance(a.ID, a.Version, Paid, 50)
+	a, e = s.RecordOutgoingPaid(a.ID, a.Version)
+	if e != nil {
+		t.Fatal(e)
+	}
+	a, e = s.ResolveOutgoingFee(a.ID, a.Version, 50)
 	if e != nil {
 		t.Fatal(e)
 	}

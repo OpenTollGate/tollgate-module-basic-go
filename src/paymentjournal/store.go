@@ -31,14 +31,15 @@ const (
 type State string
 
 const (
-	Prepared     State = "prepared"
-	Submitted    State = "submitted"
-	Unknown      State = "unknown"
-	Awaiting     State = "awaiting"
-	Paid         State = "paid"
-	GrantPending State = "grant_pending"
-	Completed    State = "completed"
-	Failed       State = "failed"
+	Prepared       State = "prepared"
+	Submitted      State = "submitted"
+	Unknown        State = "unknown"
+	Awaiting       State = "awaiting"
+	PaidFeePending State = "paid_fee_pending"
+	Paid           State = "paid"
+	GrantPending   State = "grant_pending"
+	Completed      State = "completed"
+	Failed         State = "failed"
 )
 
 type Operation struct {
@@ -76,7 +77,10 @@ type Store struct {
 	syncDir          func(string) error
 }
 
-var ErrRefused = errors.New("payment journal refused operation")
+var (
+	ErrRefused       = errors.New("payment journal refused operation")
+	ErrUnresolvedFee = errors.New("payment journal has an unresolved outgoing fee; outgoing admission held")
+)
 
 const (
 	maxBytes   = 4 << 20
@@ -101,7 +105,7 @@ func validHash(s string) bool {
 }
 func known(s State) bool {
 	switch s {
-	case Prepared, Submitted, Unknown, Awaiting, Paid, GrantPending, Completed, Failed:
+	case Prepared, Submitted, Unknown, Awaiting, PaidFeePending, Paid, GrantPending, Completed, Failed:
 		return true
 	}
 	return false
@@ -467,9 +471,9 @@ func allowed(o Operation, next State) bool {
 	case Prepared:
 		return next == Submitted || next == Failed
 	case Submitted:
-		return next == Unknown || next == Failed || (o.Direction == Outgoing && next == Paid)
+		return next == Unknown || next == Failed
 	case Unknown:
-		return next == Failed || (next == Paid && (o.Direction == Outgoing || (validHash(o.PaymentHash) && len(o.Invoice) > 0)))
+		return next == Failed || (next == Paid && o.Direction == Incoming && validHash(o.PaymentHash) && len(o.Invoice) > 0)
 	case Awaiting:
 		return o.Direction == Incoming && (next == Paid || next == Unknown || next == Failed)
 	case Paid:
@@ -524,10 +528,69 @@ func (s *Store) SubmitOutgoing(id string, version uint64, budget Budget) (Operat
 		return Operation{}, ErrRefused
 	}
 	total, err := s.outgoingCostLocked(op.WalletID, budget.Since)
-	if err != nil || total > budget.LimitMSat {
+	if err != nil {
+		return Operation{}, err
+	}
+	if total > budget.LimitMSat {
 		return Operation{}, ErrRefused
 	}
 	return s.advanceLocked(id, version, Submitted, 0)
+}
+
+// RecordOutgoingPaid records positive settlement knowledge for an outgoing
+// operation before the caller looks up the authenticated fee. The state is
+// PaidFeePending, never an asserted zero fee: outgoing admission in this
+// wallet domain is held until ResolveOutgoingFee settles the actual cost.
+// Only Submitted or Unknown operations may enter this state; generic Advance
+// cannot reach it.
+func (s *Store) RecordOutgoingPaid(id string, version uint64) (Operation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ready() != nil {
+		return Operation{}, ErrRefused
+	}
+	o, ok := s.data.Operations[id]
+	if !ok || o.Direction != Outgoing || o.Version != version || version == math.MaxUint64 ||
+		(o.State != Submitted && o.State != Unknown) || o.ActualFeeMSat != 0 {
+		return Operation{}, ErrRefused
+	}
+	o.State = PaidFeePending
+	o.Version++
+	o.UpdatedAt = journalEventTime(o, time.Now())
+	d := s.copyData()
+	d.Operations[id] = o
+	if e := s.persist(d, false); e != nil {
+		return Operation{}, e
+	}
+	return clone(o), nil
+}
+
+// ResolveOutgoingFee records the authenticated fee for a proved outgoing
+// payment. It performs no budget or reserve comparison: the payment already
+// settled, so the full cost is recorded and later admission is judged against
+// it. Explicit zero is valid. A refused call leaves PaidFeePending and the
+// wallet-domain hold intact.
+func (s *Store) ResolveOutgoingFee(id string, version uint64, actualFeeMSat uint64) (Operation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ready() != nil {
+		return Operation{}, ErrRefused
+	}
+	o, ok := s.data.Operations[id]
+	if !ok || o.Direction != Outgoing || o.State != PaidFeePending || o.Version != version ||
+		version == math.MaxUint64 || actualFeeMSat > math.MaxInt64 {
+		return Operation{}, ErrRefused
+	}
+	o.State = Paid
+	o.ActualFeeMSat = actualFeeMSat
+	o.Version++
+	o.UpdatedAt = journalEventTime(o, time.Now())
+	d := s.copyData()
+	d.Operations[id] = o
+	if e := s.persist(d, false); e != nil {
+		return Operation{}, e
+	}
+	return clone(o), nil
 }
 
 // Caller holds the store lock. This includes every prepared/submitted/unknown
@@ -537,6 +600,9 @@ func (s *Store) outgoingCostLocked(walletID string, since time.Time) (uint64, er
 	for _, old := range s.data.Operations {
 		if old.WalletID != walletID || old.Direction != Outgoing || old.State == Failed {
 			continue
+		}
+		if old.State == PaidFeePending {
+			return 0, ErrUnresolvedFee
 		}
 		resolved := old.State == Paid || old.State == Completed
 		if resolved && !since.IsZero() && old.CreatedAt.Before(since) {
@@ -667,6 +733,9 @@ func validRecovered(o Operation) bool {
 		return false
 	}
 	if o.Direction == Outgoing && (o.State == Awaiting || o.State == GrantPending) {
+		return false
+	}
+	if o.State == PaidFeePending && o.Direction != Outgoing {
 		return false
 	}
 	if o.Direction == Incoming {
