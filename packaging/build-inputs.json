@@ -14,6 +14,11 @@
     "version": "v0.14.1",
     "comment": "The wallet fork every Go module pins IDENTICALLY. tests/contract/check-gonuts-pin.py enumerates carriers by glob (never a hand list) and fails on any disagreement with this value; scripts/bump-gonuts.sh rewrites manifest and every carrier together. Before a release is cut, release-check verifies this is the fork's latest stable tag. Pseudo-version integration pins are for branches only and must not outlive their tag on main."
   },
+  "cdk_go": {
+    "repo": "https://github.com/cashubtc/cdk-go",
+    "version": "v0.18.3",
+    "comment": "The upstream Cashu CDK Go module every carrier pins IDENTICALLY (the post-#1190 state; main's v0.17.3/v0.18.1 split across carriers is exactly the drift this key exists to end). tests/contract/check-cdkgo-pin.py enumerates carriers by glob (never a hand list), REFUSES any replace of the module path (a fork replace voids the pin — #1149), and fails on any disagreement with this value; scripts/bump-cdkgo.sh rewrites manifest and every carrier together. Before a release is cut, release-check verifies this is upstream's latest stable tag."
+  },
   "node": {
     "version": "22.17.0",
     "tarball_linux_x64": {
@@ -34,7 +39,7 @@
   },
   "portal": {
     "repo": "https://github.com/OpenTollGate/tollgate-captive-portal-site.git",
-    "commit": "5fd4cb3242ef46960b5777777dd92662e8ca8841"
+    "commit": "38206d78ca7e053e4f9ea3eabddf8e9f8810fd3a"
   },
   "openwrt_sdk": {
     "image": "openwrt/sdk",

@@ -1,0 +1,1 @@
+- **Fixed the degraded-mode test fixture** so accepted mints actually persist to the config file (they were written to the defensive copy `GetConfig()` returns and never reached the manager), un-redding the StorageMmap suite on main and un-gating the go-battery for merchant PRs ([#1158](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/1158))
