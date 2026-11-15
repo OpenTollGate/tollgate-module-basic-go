@@ -749,7 +749,17 @@ func installMerchant(merchantInstance merchant.MerchantInterface) {
 			// the mints while every mint probed 200 OK.
 			mainLogger.Error("Merchant started in degraded mode — wallet storage does not support shared mmap (jffs2 overlay?); the wallet cannot initialize on this filesystem until wallet.db moves to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)")
 		} else {
-			mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
+			// The remaining degraded class is either no-reachable-mints
+			// (recovery = the first-reachable trigger, the historic
+			// wording) or a wallet-init failure with mints reachable —
+			// #1078's retry loop re-attempts on its own cadence, so the
+			// promise is automatic recovery, not a mint transition.
+			_, reason := deg.WalletDegradedInfo()
+			if reason == "no reachable mints" {
+				mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
+			} else {
+				mainLogger.Warnf("Merchant started in degraded mode (%s) — wallet initialization is retried automatically until it succeeds", reason)
+			}
 		}
 		// WireStartupDegraded registers the upgrade consumer AND the recovery
 		// trigger as one pair (#10). Doing only the first left the tracker's
