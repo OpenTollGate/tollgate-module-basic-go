@@ -101,7 +101,14 @@ func (m *MerchantDegraded) DegradeReason() string {
 // returns: the reason the wallet is down, not a hardcoded connectivity
 // claim.
 func (m *MerchantDegraded) notInitializedError() error {
-	return fmt.Errorf("wallet not initialized: %s", m.DegradeReason())
+	// A storage-mmap failure is permanent and must name the filesystem even
+	// when the constructor did not go through SetDegradeReason (the direct
+	// NewMerchantDegradedWithWallet path used by tests and some callers).
+	reason := m.DegradeReason()
+	if m.StorageIncompatible() {
+		reason = m.walletUnavailableReason()
+	}
+	return fmt.Errorf("wallet not initialized: %s", reason)
 }
 
 // WireWalletRetry arms the repeating wallet-init retry. Idempotent: the
@@ -480,6 +487,21 @@ func (m *MerchantDegraded) RebindSession(ticket, macAddress string) (*CustomerSe
 
 func (m *MerchantDegraded) Fund(cashuToken string) (uint64, error) {
 	return 0, m.notInitializedError()
+}
+
+// IssueOnRequest refuses: a degraded merchant has no reachable mint, and
+// issuance is a money-creating operation. Failing here is the correct outcome
+// -- an operator asking for a token must get an error, never a token that was
+// not actually backed by a mint.
+func (m *MerchantDegraded) IssueOnRequest(mintURL, unit string, amount uint64) (string, error) {
+	return "", fmt.Errorf("cannot issue ecash: no reachable mints (wallet not initialized)")
+}
+
+// DefaultIssuanceMint returns "" in degraded mode: with no reachable mint there
+// is nothing to issue from, so the caller gets the explicit "no mint" error
+// rather than a mint URL that cannot serve it.
+func (m *MerchantDegraded) DefaultIssuanceMint(unit string) string {
+	return ""
 }
 
 func (m *MerchantDegraded) WalletLoaded() bool {

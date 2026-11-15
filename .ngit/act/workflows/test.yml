@@ -224,13 +224,20 @@ jobs:
         with:
           go-version-file: src/go.mod
       - name: Dependency sync check
-        run: python3 tests/contract/check-deps-sync.py
+        run: python3 tests/contract/check-deps-sync.py --selftest-and-check
       - name: Gonuts pin identity (one version, every carrier)
         run: |
           # Offline leg only (the ngit lane has no GitHub token for the
           # fork-tag query; --latest is scripts/release-check.sh's verdict).
           bash tests/contract/gonuts-pin_test.sh
           python3 tests/contract/check-gonuts-pin.py
+      - name: CDK-go pin fence (planted-drift verdicts)
+        run: |
+          # Fixture trees only — the real-tree identity leg joins this step
+          # when cdk-migration (#1190, v0.18.3 in every carrier) lands on
+          # main; until then it is scripts/release-check.sh's verdict (the
+          # ngit lane has no token for the --latest tag query either).
+          bash tests/contract/cdkgo-pin_test.sh
       - name: Mirror and relay sync check
         run: python3 tests/contract/check-mirror-sync.py
       - name: Stale import path check

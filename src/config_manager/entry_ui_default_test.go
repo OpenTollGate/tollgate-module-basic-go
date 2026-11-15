@@ -21,6 +21,7 @@ import (
 // install of #928).
 func redirectEntryUIMarker(t *testing.T, content string) {
 	t.Helper()
+	isolateConfigBackups(t)
 	old := entryUIMarkerPath
 	entryUIMarkerPath = filepath.Join(t.TempDir(), "entry-ui-mapping")
 	if content != "" {
@@ -138,6 +139,7 @@ func TestEntryUIDefaultInvalidConfigRewriteBacked(t *testing.T) {
 	if got := savedEntryUI(t, configPath); got != "luci" {
 		t.Errorf("saved entry_ui = %q, want luci", got)
 	}
+	assertCorruptBackup(t, configBackupDir, "config", []byte("{not json"))
 }
 
 // TestEntryUIDefaultNeverOverwritesOperatorValue pins the other half of the
