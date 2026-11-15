@@ -503,6 +503,10 @@ does not immediately fight your choice.
 If the SSID is not found in the scan, you get
 `SSID '<name>' not found in scan` — scan again or move closer.
 
+For a previously saved personal Wi-Fi profile, omit the passphrase to reuse the router-held key. The SSID must match exactly one saved STA, and that section must belong exclusively to `wwan`. Missing keys, ambiguous profiles, unsupported encryption and read failures return an error; supply a passphrase explicitly to update credentials. Open networks still use no passphrase. Stored keys are not returned to the client.
+
+`tollgate --json upstream connect <SSID>` suppresses progress text and emits one final JSON response. A reported failure, unreachable service or missing final response still returns a nonzero exit status. Without `--json`, live progress remains available.
+
 ### List configured upstreams
 
 ```sh
@@ -518,6 +522,8 @@ OldUpstream         disabled   radio0     psk2
 
 `ACTIVE` is the interface currently providing upstream; `disabled`
 entries are retained as fallback candidates.
+
+The JSON list includes `can_reconnect`, a boolean indicating whether the saved profile currently satisfies those checks. Clients must require explicit `true` before offering credential-free reconnect; older servers omit the field. This is credential availability, not a promise that the network is reachable or its key is still accepted.
 
 ### Remove an upstream
 

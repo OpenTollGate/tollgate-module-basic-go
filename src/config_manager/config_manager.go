@@ -171,6 +171,10 @@ func (cm *ConfigManager) GetOwnedIdentity(name string) (*OwnedIdentity, error) {
 	return nil, fmt.Errorf("owned identity '%s' not found", name)
 }
 
+// configBackupDir is fixed in production. Package tests replace it with an
+// owned temporary directory before any recovery or migration can write.
+var configBackupDir = "/etc/tollgate/config_backups"
+
 // backupAndLog backs up a specified file and logs the action.
 func backupAndLog(filePath, backupDir, fileType, codeVersion string) error {
 	// 1. Ensure backup directory exists

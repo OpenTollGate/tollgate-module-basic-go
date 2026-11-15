@@ -193,6 +193,8 @@ from an older install is still honoured — it tells the board the root password
 was generated rather than chosen. A deliberately **locked** root account is
 never re-enabled by any of this.
 
+For saved upstream recovery and manual-join behavior, see [wireless gateway management](docs/wireless_gateway_manager.md#recovery-after-internet-loss).
+
 ### Verifying a manual install (the signed manifest)
 
 Installing the package by hand skips the installer, and with it the installer's
@@ -402,7 +404,7 @@ tollgate network private set-encryption [mode]        Encryption mode (psk2+ccmp
 
 # Upstream Wi-Fi (the client side)
 tollgate upstream scan                                Scan all radios for available networks
-tollgate upstream connect <SSID> [passphrase]         Join an upstream network
+tollgate upstream connect <SSID> [passphrase]         Join upstream; omitted passphrase reuses an eligible saved key
 tollgate upstream list                                Configured upstream STA interfaces, active and disabled
 tollgate upstream remove <SSID>                       Remove a disabled upstream STA from the config
 tollgate upstream known                               TollGate APs discovered in scan history
