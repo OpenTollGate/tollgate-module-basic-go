@@ -586,7 +586,7 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 			return nil, fmt.Errorf("config %s is valid JSON but does not match the schema (%v); refusing to fall back to factory defaults — fix the field and restart", filePath, unmarshalErr)
 		}
 		log.Printf("WARNING: Invalid config JSON, backing up and recreating: %v", unmarshalErr)
-		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
+		if backupErr := backupAndLog(filePath, configBackupDir, "config", defaultConfig.ConfigVersion); backupErr != nil {
 			log.Printf("CRITICAL: Failed to backup invalid config: %v", backupErr)
 			return nil, backupErr
 		}
@@ -624,7 +624,7 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	}
 	if config.ConfigVersion != defaultConfig.ConfigVersion {
 		log.Printf("INFO: Config version %s → %s, migrating (preserving user settings)", config.ConfigVersion, defaultConfig.ConfigVersion)
-		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", config.ConfigVersion); backupErr != nil {
+		if backupErr := backupAndLog(filePath, configBackupDir, "config", config.ConfigVersion); backupErr != nil {
 			log.Printf("WARN: Failed to backup config before migration (continuing): %v", backupErr)
 		}
 		applyBackedEntryUIDefault(defaultConfig)
