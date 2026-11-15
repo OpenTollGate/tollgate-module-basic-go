@@ -48,7 +48,9 @@ if ! ls packaging/files/tollgate-captive-portal-site/assets/*.js >/dev/null 2>&1
 fi
 for staged in \
     "tollgate-admin/index.html" \
-    "usr/libexec/rpcd/tollgate"
+    "etc/uci-defaults/999-tollgate-admin-setup" \
+    "usr/libexec/rpcd/tollgate" \
+    "usr/share/rpcd/acl.d/tollgate.json"
 do
     if [ ! -e "packaging/files/$staged" ]; then
         echo "ERROR: packaging/files/$staged is missing — run 'make portal-build' first." >&2
@@ -126,8 +128,10 @@ trap 'rm -rf "$PAYLOAD"' EXIT
 
 install -D -m 0755 "bin/$COMPILE_KEY/tollgate-wrt" "$PAYLOAD/usr/bin/tollgate-wrt"
 install -D -m 0755 "bin/$COMPILE_KEY/tollgate"     "$PAYLOAD/usr/bin/tollgate"
+install -D -m 0755 "bin/$COMPILE_KEY/tollgate-cvm" "$PAYLOAD/usr/bin/tollgate-cvm"
 
 install -D -m 0755 packaging/files/etc/init.d/tollgate-wrt                           "$PAYLOAD/etc/init.d/tollgate-wrt"
+install -D -m 0755 packaging/files/etc/init.d/tollgate-cvm                           "$PAYLOAD/etc/init.d/tollgate-cvm"
 install -D -m 0755 packaging/files/etc/uci-defaults/90-tollgate-captive-portal-symlink "$PAYLOAD/etc/uci-defaults/90-tollgate-captive-portal-symlink"
 # The setup script's version marker is the release version; substitute the
 # placeholder exactly as the CI .ipk staging and the SDK Makefile do.
@@ -135,11 +139,14 @@ mkdir -p "$PAYLOAD/etc/uci-defaults"
 sed "s|__TOLLGATE_VERSION__|$PKG_VERSION|g" \
   packaging/files/etc/uci-defaults/99-tollgate-setup > "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
 chmod 0755 "$PAYLOAD/etc/uci-defaults/99-tollgate-setup"
+install -D -m 0755 packaging/files/etc/uci-defaults/999-tollgate-admin-setup "$PAYLOAD/etc/uci-defaults/999-tollgate-admin-setup"
 install -D -m 0755 packaging/files/usr/bin/tollgate-first-login-setup                "$PAYLOAD/usr/bin/tollgate-first-login-setup"
 install -D -m 0755 packaging/files/usr/bin/tollgate-check-package-path               "$PAYLOAD/usr/bin/tollgate-check-package-path"
 install -D -m 0755 packaging/files/usr/local/bin/tollgate-nds-preauth-render         "$PAYLOAD/usr/local/bin/tollgate-nds-preauth-render"
-install -D -m 0755 packaging/files/usr/local/bin/tollgate-nft-interfaces-render      "$PAYLOAD/usr/local/bin/tollgate-nft-interfaces-render"install -D -m 0755 packaging/files/usr/bin/tollgate-apply-ssl                        "$PAYLOAD/usr/bin/tollgate-apply-ssl"
+install -D -m 0755 packaging/files/usr/local/bin/tollgate-nft-interfaces-render      "$PAYLOAD/usr/local/bin/tollgate-nft-interfaces-render"
+install -D -m 0755 packaging/files/usr/bin/tollgate-apply-ssl                        "$PAYLOAD/usr/bin/tollgate-apply-ssl"
 install -D -m 0755 packaging/files/usr/bin/tollgate-remove-ssl                       "$PAYLOAD/usr/bin/tollgate-remove-ssl"
+install -D -m 0644 packaging/files/usr/lib/tollgate/wallet-storage.sh                "$PAYLOAD/usr/lib/tollgate/wallet-storage.sh"
 install -D -m 0644 packaging/files/lib/upgrade/keep.d/tollgate                        "$PAYLOAD/lib/upgrade/keep.d/tollgate"
 install -D -m 0755 packaging/files/etc/hotplug.d/iface/95-tollgate-restart           "$PAYLOAD/etc/hotplug.d/iface/95-tollgate-restart"
 install -D -m 0644 packaging/files/etc/nftables.d/00-tollgate-defs.nft               "$PAYLOAD/etc/nftables.d/00-tollgate-defs.nft"
@@ -159,6 +166,15 @@ mkdir -p "$PAYLOAD/etc/tollgate/tollgate-captive-portal-site" \
          "$PAYLOAD/etc/tollgate/ecash" \
          "$PAYLOAD/etc/crontabs"
 cp -r packaging/files/tollgate-captive-portal-site/. "$PAYLOAD/etc/tollgate/tollgate-captive-portal-site/"
+
+# Admin board (Preact SPA) from the same pinned portal commit, served at the
+# root of the dedicated uhttpd instance on :8090, from /www/tollgate.
+mkdir -p "$PAYLOAD/www/tollgate"
+cp -r packaging/files/tollgate-admin/. "$PAYLOAD/www/tollgate/"
+
+# rpcd plugin + ACL backing the `tollgate` ubus object the board talks to.
+install -D -m 0755 packaging/files/usr/libexec/rpcd/tollgate "$PAYLOAD/usr/libexec/rpcd/tollgate"
+install -D -m 0644 packaging/files/usr/share/rpcd/acl.d/tollgate.json "$PAYLOAD/usr/share/rpcd/acl.d/tollgate.json"
 
 # License
 install -D -m 0644 LICENSE "$PAYLOAD/usr/share/doc/${PKG_NAME}/LICENSE"
