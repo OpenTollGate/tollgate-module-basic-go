@@ -1,0 +1,23 @@
+name: conflict sentinel
+
+# Fleet duplicate-PR prevention: posts ONE deduplicated advisory comment
+# when this PR's closing references (closes/fixes/resolves #N) collide
+# with another OPEN PR's. Never blocks; humans/agents decide who
+# withdraws. The shared implementation lives in Amperstrand/.github —
+# born 2026-10-31 after three agents independently fixed the same
+# tollgate-lab review-debt wave in one evening; enrolled here after the
+# 2026-11 campaign hit the same class four times (#1151/#1175 both
+# bumping the gonuts pin, #1132 vs the #1160/#1162/#1165 train, #1169
+# vs #1172 same-hunk, #1140's superseded halves).
+
+on:
+  pull_request:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  conflict-sentinel:
+    uses: Amperstrand/.github/.github/workflows/pr-conflict-sentinel.yml@main
