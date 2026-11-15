@@ -195,6 +195,15 @@ func NewMerchantDegradedWithWallet(configManager *config_manager.ConfigManager, 
 				"upgrade cannot succeed while it runs: %v", err)
 			return deg
 		}
+		if errors.Is(err, tollwallet.ErrSidecarNotConnected) {
+			// The configured backend is a sidecar daemon and it is down:
+			// the degraded merchant holds NO wallet (fail closed). A
+			// second wallet implementation must never be constructed in
+			// its place — that is the split-brain class (#1157).
+			log.Printf("Degraded mode: the configured wallet backend's sidecar daemon is unreachable — "+
+				"no wallet loaded (fail closed; the daemon's socket is named in the error): %v", err)
+			return deg
+		}
 		if tollwallet.IsStorageMmapUnsupported(err) {
 			log.Printf("Degraded mode: wallet storage filesystem does not support shared mmap (jffs2 overlay?): %v — the wallet can NEVER initialize on this filesystem; move wallet.db to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)", err)
 		} else {
@@ -332,7 +341,34 @@ func (m *MerchantDegraded) AttemptUpgrade() {
 
 func NewMerchantDegradedFromFull(configManager *config_manager.ConfigManager, tracker *MintHealthTracker) *MerchantDegraded {
 	walletDirPath := walletDirFor(configManager)
-	return NewMerchantDegradedWithWallet(configManager, tracker, DefaultWalletFactory, walletDirPath)
+	return NewMerchantDegradedWithWallet(configManager, tracker, walletFactoryForBackend(configManager), walletDirPath)
+}
+
+// walletFactoryForBackend routes the degraded-mode wallet construction
+// through the backend selection (#1157): under wallet.backend=cdk the
+// degraded merchant must hold the SAME wallet the operator chose — a dead
+// sidecar yields a wallet-less degraded merchant (fail closed), never a
+// silent second wallet implementation whose value splits away from the
+// operator's balances. The default backend spellings keep
+// DefaultWalletFactory exactly, so the pre-selection behavior is
+// byte-identical; any other spelling goes through the seam, which refuses
+// unknown backends rather than silently falling back.
+func walletFactoryForBackend(configManager *config_manager.ConfigManager) WalletFactory {
+	switch configManager.GetConfig().Wallet.Backend {
+	case "", "default", "gonuts", "in_process":
+		return DefaultWalletFactory
+	default:
+		return func(walletPath string, mintURLs []string) (Wallet, error) {
+			// MintUnits is an in-process-cdk option (per-mint wallet
+			// units); the sidecar daemon owns its own wallets, so the
+			// factory passes none.
+			wp, err := openServiceWallet(configManager, walletPath, mintURLs, nil)
+			if err != nil {
+				return nil, err
+			}
+			return wp, nil
+		}
+	}
 }
 
 func (m *MerchantDegraded) Shutdown() error {
