@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -18,7 +19,6 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager"
 	"github.com/sirupsen/logrus"
-	"strconv"
 )
 
 const (
