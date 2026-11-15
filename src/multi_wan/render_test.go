@@ -1,9 +1,10 @@
 package multi_wan
 
 import (
-	cm "github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"strings"
 	"testing"
+
+	cm "github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 func TestRenderGolden(t *testing.T) {

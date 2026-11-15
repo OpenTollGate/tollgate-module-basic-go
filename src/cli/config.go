@@ -145,6 +145,17 @@ func (s *CLIServer) handleConfigSet(key, value string) CLIResponse {
 	// to no applier costs one comparison and changes nothing.
 	results := ApplyOperatorSettings(s.configManager.GetConfig())
 
+	// vendor_ie_discovery is read once when the scanner is constructed. Apply
+	// it live here so the Peering page's "Discover TollGate peers" toggle
+	// takes effect without a daemon restart.
+	if key == "upstream_wifi.vendor_ie_discovery" {
+		if setter, ok := s.scanner.(interface{ SetVendorIEDiscovery(bool) }); ok {
+			if cfg := s.configManager.GetConfig(); cfg != nil {
+				setter.SetVendorIEDiscovery(cfg.UpstreamWifi.VendorIEDiscovery)
+			}
+		}
+	}
+
 	data := map[string]interface{}{
 		"key":     key,
 		"applied": results,
