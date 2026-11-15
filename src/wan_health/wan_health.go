@@ -71,9 +71,14 @@ func (s Status) Toast() Toast {
 		SnoozeSeconds: 3600,
 	}
 	switch {
-	case s.DFS || s.CSA1h > 0:
+	case s.DFS:
 		t.Message = fmt.Sprintf(
 			"Upstream Wi-Fi is on a DFS channel and switched channels %d time(s) in the last hour. Ethernet would be more reliable.",
+			s.CSA1h,
+		)
+	case s.CSA1h > 0:
+		t.Message = fmt.Sprintf(
+			"Upstream Wi-Fi switched channels %d time(s) in the last hour. Ethernet would be more reliable.",
 			s.CSA1h,
 		)
 	case s.CarrierLoss1h > 0:
