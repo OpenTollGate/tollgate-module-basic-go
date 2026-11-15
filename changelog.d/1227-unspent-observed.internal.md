@@ -1,0 +1,1 @@
+- **State only observed behavior in the receive-intent `UNSPENT` doctrine:** a mint can advertise a keyset and report unspent proofs while refusing spends, without asserting an unconfirmed internal database cause ([#1227](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1227))
