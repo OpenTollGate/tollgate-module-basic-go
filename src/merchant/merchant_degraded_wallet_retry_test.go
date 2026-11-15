@@ -2,12 +2,13 @@ package merchant
 
 import (
 	"fmt"
-	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 // The stuck-degraded slice of the storage-degraded family: when the wallet

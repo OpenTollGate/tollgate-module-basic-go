@@ -749,7 +749,17 @@ func installMerchant(merchantInstance merchant.MerchantInterface) {
 			// the mints while every mint probed 200 OK.
 			mainLogger.Error("Merchant started in degraded mode — wallet storage does not support shared mmap (jffs2 overlay?); the wallet cannot initialize on this filesystem until wallet.db moves to an mmap-capable filesystem (ext4/f2fs/ubifs), see README storage requirements (#583)")
 		} else {
-			mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
+			// The remaining degraded class is either no-reachable-mints
+			// (recovery = the first-reachable trigger, the historic
+			// wording) or a wallet-init failure with mints reachable —
+			// #1078's retry loop re-attempts on its own cadence, so the
+			// promise is automatic recovery, not a mint transition.
+			_, reason := deg.WalletDegradedInfo()
+			if reason == "no reachable mints" {
+				mainLogger.Warn("Merchant started in degraded mode — wallet will initialize when a mint becomes reachable")
+			} else {
+				mainLogger.Warnf("Merchant started in degraded mode (%s) — wallet initialization is retried automatically until it succeeds", reason)
+			}
 		}
 		// WireStartupDegraded registers the upgrade consumer AND the recovery
 		// trigger as one pair (#10). Doing only the first left the tracker's
@@ -802,6 +812,9 @@ func initUpstreamDetector() {
 		mainLogger.WithError(err).Fatal("Failed to create upstream session manager instance")
 	}
 	upstreamDetectorInstance.SetUpstreamSessionManager(usmInstance)
+	if concrete, ok := usmInstance.(*upstream_session_manager.UpstreamSessionManager); ok && cliServer != nil {
+		cliServer.SetPeeringStatusProvider(peeringStatusAdapter{usm: concrete})
+	}
 
 	// MPTCP bond (optional). When the config enables it, the detector's
 	// interface events drive the bond's endpoint reconciliation. A clean
@@ -863,6 +876,38 @@ func (r *resellerModeAdapter) IsResellerModeActive() bool {
 	}
 	cfg := r.cm.GetConfig()
 	return cfg != nil && cfg.ResellerMode
+}
+
+type peeringStatusAdapter struct {
+	usm *upstream_session_manager.UpstreamSessionManager
+}
+
+func (a peeringStatusAdapter) PeeringStatus() []cli.PeeringSession {
+	if a.usm == nil {
+		return nil
+	}
+	statuses := a.usm.PeeringStatus()
+	result := make([]cli.PeeringSession, 0, len(statuses))
+	for _, s := range statuses {
+		result = append(result, cli.PeeringSession{
+			GatewayIP:       s.GatewayIP,
+			InterfaceName:   s.InterfaceName,
+			Pubkey:          s.Pubkey,
+			MintURL:         s.MintURL,
+			Metric:          s.Metric,
+			PricePerStep:    s.PricePerStep,
+			PriceUnit:       s.PriceUnit,
+			StepSize:        s.StepSize,
+			TotalAllotment:  s.TotalAllotment,
+			TotalSpentSats:  s.TotalSpent,
+			Usage:           s.Usage,
+			Remaining:       s.Remaining,
+			Status:          s.Status,
+			BootstrapPhase:  s.BootstrapPhase,
+			BootstrapActive: s.BootstrapActive,
+		})
+	}
+	return result
 }
 
 func initCLIServer() {
@@ -1160,9 +1205,11 @@ func handleDetails(w http.ResponseWriter, r *http.Request) {
 	// reseller clients that probe this endpoint negotiate on Content-Type —
 	// without an explicit header Go sniffs the body and answers
 	// `text/plain; charset=utf-8`, which strict r2r clients warn about on
-	// every probe cycle (#628). The exact value matters: our own prober
-	// (tollgate_prober) compares Content-Type against "application/json" as a
-	// whole string, so a charset suffix would keep the warning alive.
+	// every probe cycle (#628).
+	//
+	// The suffix-less spelling is chosen, not required: our own prober
+	// (tollgate_prober) now compares the parsed media type, so adding a
+	// `; charset=utf-8` here would not re-arm the warning.
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, merchantProvider.inner.GetMerchant().GetAdvertisement())
 }
@@ -1303,6 +1350,10 @@ func sendNoticeResponse(w http.ResponseWriter, m merchant.MerchantInterface, sta
 	noticeEvent, err := m.CreateNoticeEvent(level, code, message, customerPubkey)
 	if err != nil {
 		mainLogger.WithError(err).Error("Error creating notice event")
+		// The body below is JSON, so it must be labelled as JSON on this path
+		// too — without the header net/http content-sniffs the object into
+		// text/plain and a client that trusts the label cannot parse it (#628).
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Internal server error"})
 		return
