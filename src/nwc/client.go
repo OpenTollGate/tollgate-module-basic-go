@@ -41,7 +41,7 @@ func (Config) GoString() string { return "NWC configuration (connection redacted
 type Client struct {
 	mu             sync.Mutex
 	wallet, public string
-	secret         *string // pointer so a value-receiver String() cannot copy the mutex
+	secret         *string // value formatting prints an address rather than the spending secret
 	relays         []string
 	timeout        time.Duration
 	legacy         bool
