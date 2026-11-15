@@ -615,3 +615,106 @@ func TestReloadFirewallIsBoundedAgainstAWedgedFw4(t *testing.T) {
 		t.Fatal("reloadFirewall is unbounded: a wedged fw4 stalled it past every deadline")
 	}
 }
+
+func TestValidateSSIDToken(t *testing.T) {
+	if err := validateSSIDToken("ssid_suffix", "", 12); err == nil {
+		t.Error("an empty custom suffix must be refused; empty is the device-code fallback, not a token")
+	}
+	if err := validateSSIDToken("ssid_suffix", "my place", 12); err == nil {
+		t.Error("spaces must be refused")
+	}
+	if err := validateSSIDToken("ssid_suffix", "myplace", 12); err != nil {
+		t.Errorf("a plain token must be accepted, got: %v", err)
+	}
+	if err := validateSSIDToken("private_ssid_operator", strings.Repeat("a", 33), 32); err == nil {
+		t.Error("an operator token over the bound must be refused")
+	}
+}
+
+func TestApplySSIDNamesPersistsSuffixAndOperator(t *testing.T) {
+	state, log := fakeUCI(t)
+	brand := filepath.Join(t.TempDir(), "brand")
+	if err := os.WriteFile(brand, []byte("tollgate\n"), 0o600); err != nil {
+		t.Fatalf("write brand: %v", err)
+	}
+	oldBrand := brandFilePath
+	brandFilePath = brand
+	t.Cleanup(func() { brandFilePath = oldBrand })
+
+	seedState(t, state,
+		"tollgate.device.code=OQ3Q",
+		"wireless.tollgate_2g_open=tollgate_2g_open",
+		"wireless.tollgate_2g_open.ssid=!TollGate-OQ3Q",
+		"wireless.tollgate_5g_open=tollgate_5g_open",
+		"wireless.tollgate_5g_open.ssid=!TollGate-OQ3Q",
+		"wireless.private_radio0=private_radio0",
+		"wireless.private_radio0.ssid=c08r4d0r-OQ3Q",
+		"nodogsplash.@nodogsplash[0].gatewayname=!TollGate-OQ3Q Portal",
+	)
+
+	cfg := config_manager.NewDefaultConfig()
+	cfg.SSIDSuffix = "myplace"
+	cfg.PrivateSSIDOperator = "Archipelago"
+	results := applySSIDNames(cfg)
+
+	seen := map[string]string{}
+	for _, r := range results {
+		seen[r.Setting] = r.Status
+	}
+	for _, key := range []string{"ssid_suffix", "private_ssid_operator", "captive_ssid", "private_ssid"} {
+		if seen[key] != statusApplied && seen[key] != statusUnchanged {
+			t.Errorf("%s: got %q (%+v), want applied/unchanged", key, seen[key], results)
+		}
+	}
+
+	got := uciLog(t, log)
+	for _, want := range []string{
+		"set tollgate.device.ssid_suffix=myplace",
+		"set tollgate.device.nym=Archipelago",
+		"set wireless.tollgate_2g_open.ssid=!TollGate-myplace",
+		"set wireless.tollgate_5g_open.ssid=!TollGate-myplace",
+		"set wireless.private_radio0.ssid=Private-Archipelago-myplace",
+		"set nodogsplash.@nodogsplash[0].gatewayname=!TollGate-myplace Portal",
+		"commit wireless",
+		"wifi reload",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("uci log missing %q\nlog:\n%s", want, got)
+		}
+	}
+}
+
+func TestApplySSIDNamesMigratesLegacyPrivateDefault(t *testing.T) {
+	state, log := fakeUCI(t)
+	brand := filepath.Join(t.TempDir(), "brand")
+	if err := os.WriteFile(brand, []byte("tollgate\n"), 0o600); err != nil {
+		t.Fatalf("write brand: %v", err)
+	}
+	oldBrand := brandFilePath
+	brandFilePath = brand
+	t.Cleanup(func() { brandFilePath = oldBrand })
+
+	seedState(t, state,
+		"tollgate.device.code=OQ3Q",
+		"tollgate.device.nym=c08r4d0r",
+		"wireless.tollgate_2g_open=tollgate_2g_open",
+		"wireless.tollgate_2g_open.ssid=!TollGate-OQ3Q",
+		"wireless.private_radio0=private_radio0",
+		"wireless.private_radio0.ssid=c08r4d0r-OQ3Q",
+	)
+
+	results := applySSIDNames(config_manager.NewDefaultConfig())
+	for _, r := range results {
+		if r.Status == statusFailed || r.Status == statusRefused {
+			t.Fatalf("default migration must not fail: %+v", r)
+		}
+	}
+
+	got := uciLog(t, log)
+	if !strings.Contains(got, "set wireless.private_radio0.ssid=Private-c08r4d0r-OQ3Q") {
+		t.Errorf("legacy c08r4d0r-<code> must migrate to Private-c08r4d0r-<code>\nlog:\n%s", got)
+	}
+	if strings.Contains(got, "set wireless.tollgate_2g_open.ssid=") {
+		t.Errorf("the default guest SSID was already correct and must not be rewritten\nlog:\n%s", got)
+	}
+}

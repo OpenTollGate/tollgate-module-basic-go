@@ -1,0 +1,1 @@
+- Refuse dependency verification when the Go parser is missing, exits unsuccessfully or returns invalid metadata; exercise parser refusal controls in both local verifier and CI lanes. ([#1205](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1205)).
