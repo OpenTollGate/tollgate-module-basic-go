@@ -167,7 +167,12 @@ func (s *SidecarWallet) call(method string, params any, out any) error {
 		s.conn = nil
 		s.rd = nil
 		if written && !sidecarReadOnlyMethods[method] {
-			return fmt.Errorf("%w (method %s, request id %d)", ErrSidecarAmbiguous, method, req.ID)
+			// Port contract: ambiguity on a money-moving call surfaces as
+			// ErrOutcomeUnknown — the do-not-resubmit class the merchant
+			// classifies (#640), the same mapping the gonuts path applies
+			// to its AmbiguousOutcomeError. ErrSidecarAmbiguous stays
+			// wrapped inside for diagnostics.
+			return fmt.Errorf("%w: %w (method %s, request id %d)", ErrOutcomeUnknown, ErrSidecarAmbiguous, method, req.ID)
 		}
 	}
 	return fmt.Errorf("%w: %s", ErrSidecarNotConnected, method)
@@ -201,6 +206,12 @@ func (t *sidecarToken) Secrets() []string { return nil }
 
 // Amount returns the token value in its unit.
 func (t *sidecarToken) Amount() uint64 { return t.amount }
+
+// Unit returns "": the sidecar wire carries the serialized token only, so
+// the unit is not visible to this process. The merchant prices such tokens
+// against the mint's configured price_unit default (see
+// calculateAllotmentForUnit) rather than guessing from the amount.
+func (t *sidecarToken) Unit() string { return "" }
 
 // Serialize returns the canonical Cashu token string.
 func (t *sidecarToken) Serialize() (string, error) {

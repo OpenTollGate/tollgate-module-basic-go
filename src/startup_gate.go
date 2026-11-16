@@ -241,4 +241,17 @@ func (startingMerchant) Fund(string) (uint64, error) {
 	return 0, errMerchantStarting
 }
 
+// Issuance is a money-creating operation, so it sits behind the same boot gate
+// as every other wallet verb: before the merchant has started there is no mint
+// to issue from, and answering errMerchantStarting is the only safe reply.
+func (startingMerchant) IssueOnRequest(string, string, uint64) (string, error) {
+	return "", errMerchantStarting
+}
+
+// DefaultIssuanceMint returns "" rather than an error: the CLI uses it to pick
+// a mint when the operator omits one, and an empty answer makes the caller
+// report "no mint configured" instead of blaming a mint that does not exist
+// yet.
+func (startingMerchant) DefaultIssuanceMint(string) string { return "" }
+
 func (startingMerchant) SetOnReachableSetChanged(func()) {}

@@ -3,10 +3,11 @@ package multi_wan
 import (
 	"encoding/json"
 	"errors"
-	cm "github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"math"
 	"strings"
 	"testing"
+
+	cm "github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 )
 
 func fixture() *cm.MultiWANConfig {

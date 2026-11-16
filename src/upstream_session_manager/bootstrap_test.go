@@ -38,6 +38,15 @@ func newBootstrapMerchant() *bootstrapMerchant {
 	return &bootstrapMerchant{balances: map[string]uint64{}}
 }
 
+// IssueOnRequest/DefaultIssuanceMint complete the MerchantInterface. A mock
+// cannot issue real ecash, so it reports an empty token; tests that exercise
+// issuance use the merchant package's own fake wallet instead.
+func (m *bootstrapMerchant) IssueOnRequest(string, string, uint64) (string, error) {
+	return "", nil
+}
+
+func (m *bootstrapMerchant) DefaultIssuanceMint(string) string { return "" }
+
 // fakeForwarder records what the "upstream" was sent and what to answer.
 type fakeForwarder struct {
 	mu        sync.Mutex

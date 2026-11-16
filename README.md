@@ -193,6 +193,8 @@ from an older install is still honoured — it tells the board the root password
 was generated rather than chosen. A deliberately **locked** root account is
 never re-enabled by any of this.
 
+For saved upstream recovery and manual-join behavior, see [wireless gateway management](docs/wireless_gateway_manager.md#recovery-after-internet-loss).
+
 ### Verifying a manual install (the signed manifest)
 
 Installing the package by hand skips the installer, and with it the installer's
@@ -402,7 +404,7 @@ tollgate network private set-encryption [mode]        Encryption mode (psk2+ccmp
 
 # Upstream Wi-Fi (the client side)
 tollgate upstream scan                                Scan all radios for available networks
-tollgate upstream connect <SSID> [passphrase]         Join an upstream network
+tollgate upstream connect <SSID> [passphrase]         Join upstream; omitted passphrase reuses an eligible saved key
 tollgate upstream list                                Configured upstream STA interfaces, active and disabled
 tollgate upstream remove <SSID>                       Remove a disabled upstream STA from the config
 tollgate upstream known                               TollGate APs discovered in scan history
@@ -450,17 +452,17 @@ the CLI itself.
 ## Configuration
 
 TollGate writes a default `/etc/tollgate/config.json` on first boot.
-The current schema version is **`v0.0.10`**. An abridged example:
+The current schema version is **`v0.0.11`**. An abridged example:
 
 ```json
 {
-  "config_version": "v0.0.10",
+  "config_version": "v0.0.11",
   "log_level": "info",
   "metric": "bytes",
   "step_size": 22020096,
   "margin": 0.1,
   "show_setup": true,
-  "reseller_mode": false,
+  "reseller_mode": true,
   "private_ssid": "",
   "private_key": "",
   "private_encryption": "psk2+ccmp",
@@ -484,6 +486,10 @@ The current schema version is **`v0.0.10`**. An abridged example:
     { "factor": 0.07, "identity": "amperstrand" },
     { "factor": 0.07, "identity": "origami74" }
   ],
+  "wallet": {
+    "backend": "default",
+    "socket": "/var/run/cdk-walletd.sock"
+  },
   "upstream_detector": {
     "probe_timeout": "10s",
     "probe_retry_count": 3,
@@ -519,16 +525,17 @@ Key fields:
 - **`metric`** — `"bytes"` sells data, `"milliseconds"` sells time. `step_size` is the unit.
 - **`accepted_mints[*]`** — per-mint URL, pricing, and payout thresholds. Multiple mints are supported; the first mint holding sufficient balance wins on payout.
 - **`profit_share[*]`** — each entry references an `identity` that maps to an entry in `/etc/tollgate/identities.json`; `factor` values should sum to 1.0.
-- **`reseller_mode`** — when true, this router actively purchases from an upstream TollGate and resells to its own customers.
+- **`wallet`** — selects the Cashu backend the service runs on: `backend: "default"` (the in-process gonuts wallet) or `"cdk"` (the `cdk-walletd` sidecar daemon, reached over the AF_UNIX `socket`). Configs written before the section existed keep the in-process wallet; `cdk` with the daemon down degrades wallet-less (fail closed) rather than silently constructing a second wallet.
+- **`reseller_mode`** — when true, this router actively purchases from an upstream TollGate and resells to its own customers. **On by default; set it to false to opt out.**
 - **`upstream_detector`** / **`upstream_session_manager`** — control the *client* side (buying from an upstream).
 
 `ignore_interfaces` and `only_interfaces` gate which WAN-side interfaces
 are probed. `ignore_interfaces` typically needs to list any wireless
 interfaces *the router itself serves on* to prevent self-probing.
 
-### Network settings (`v0.0.9`)
+### Network settings (`v0.0.11`)
 
-Four fields configure the router's own networks. They are **declared intent**:
+Six fields configure the router's own networks. They are **declared intent**:
 the service converges them onto the router (UCI `/etc/config/wireless` for the
 credentials, a generated `/etc/nftables.d/34-admin-access-scope.nft` for the
 scope) after every `config set`/`config save`, on `tollgate config apply`, and
@@ -536,7 +543,9 @@ at service start. All four are also on the admin board's Settings page.
 
 | Field | Values | Meaning |
 |---|---|---|
-| `private_ssid` | any SSID, ≤ 32 bytes | Name of the private (management) network, on both private radios. **Empty keeps the SSID the router minted at setup** — `<nym>-<code>`, built from your nym and the router's one stored device code, the same code that names the hostname and the captive SSID. |
+| `ssid_suffix` | 1–12 chars, or empty | Display suffix shared by the guest and private SSIDs. **Empty uses the router's stored four-character device code**, which keeps the suffix stable across reinstalls. A custom value renames both networks and disconnects current clients; the hostname and TLS identity do not change. |
+| `private_ssid_operator` | 1–32 chars, or empty | Operator token in `Private-<operator>-<suffix>`. **Empty keeps the stored token**; the shipped default is `c08r4d0r` (leetspeak for *cobrador*, Spanish for the person who collects the toll/fare). A brand build can set another default, for example `Archipelago`. |
+| `private_ssid` | any SSID, ≤ 32 bytes | Full override for the private (management) network, on both private radios. **Empty derives** `Private-<operator>-<suffix>`. A custom value is preserved. |
 | `private_key` | 8-63 characters | WPA passphrase of the private network. **Empty keeps the passphrase the router has.** Write-only: no read path ever returns it. |
 | `private_encryption` | `psk2+ccmp` (default), `psk2+tkip+ccmp`, `psk-mixed+ccmp` | Encryption mode of the private network. WPA3-SAE is not offered: the shipped `wpad` has no SAE support and selecting it would leave the management network unable to start. |
 | `admin_access` | `both` (default), `br-private`, `br-mgmt`, `loopback-only` | Which network may reach the administration surfaces — the board and LuCI, on whichever port pair `entry_ui` assigns (default `board`: the board on `:8080`/`:443`, LuCI on `:8090`/`:8443`). Since the physical LAN ports moved onto it, `br-private` is the private SSID **and the cable**. The guest network the customers pay on is **never** an administration path, whatever this says. |
@@ -558,11 +567,13 @@ Notes that matter when you change them:
 - Changing the passphrase from the router's shell
   (`tollgate network private set-password`) also updates `config.json`, so the
   two writers cannot disagree. Setting `private_ssid` to a custom name stops
-  the setup script's `<nym>-<code>` re-derivation for that SSID (a
-  machine-shaped one is re-derived from the stored code, a custom one is left
-  alone), so the applier and the setup writer agree on what you chose.
+  the setup script's `Private-<operator>-<suffix>` re-derivation for that SSID
+  (a machine-shaped one is re-derived, a custom one is left alone), so the
+  applier and the setup writer agree on what you chose. The suffix and operator
+  are stored in `/etc/config/tollgate` (`ssid_suffix`, `nym`) and survive an
+  in-place reinstall, an upgrade, and a sysupgrade that keeps settings.
 
-### Which UI answers the entry ports (v0.0.10)
+### Which UI answers the entry ports (v0.0.11)
 
 One field decides which of the two administration UIs owns the router's entry
 port pair — 8080 over plain HTTP and 443 over TLS. The field is **entry_ui**,
