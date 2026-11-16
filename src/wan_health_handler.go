@@ -59,7 +59,7 @@ func handleWANHealth(w http.ResponseWriter, r *http.Request) {
 	writeWANHealthJSON(w, http.StatusOK, map[string]any{
 		"success":   true,
 		"message":   "wan health",
-		"data":      status,
+		"data":      status.Redacted(),
 		"toast":     toast,
 		"timestamp": time.Now().UTC(),
 	})

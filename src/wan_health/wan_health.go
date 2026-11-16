@@ -26,6 +26,42 @@ type Status struct {
 
 // Toast is the UI-facing hint. Active=false means the portal should not show
 // anything.
+// Redacted is the wire shape of Status for the ungated /wan-health
+// endpoint: identical to Status except the upstream SSID, which stays out
+// of the public response — on a shared-installation router the upstream
+// network name is the operator's own and is not something the guest
+// population needs (the toast, counters and channel carry the message).
+// The on-disk contract is unchanged; a future admin-plane consumer reads
+// Status directly.
+type Redacted struct {
+	TS                string  `json:"ts"`
+	Channel           int     `json:"channel"`
+	DFS               bool    `json:"dfs"`
+	CSA1h             int     `json:"csa_count_1h"`
+	LastCSA           string  `json:"last_csa,omitempty"`
+	CarrierLoss1h     int     `json:"carrier_loss_1h"`
+	Signal            int     `json:"signal,omitempty"`
+	TxBitrate         float64 `json:"tx_bitrate,omitempty"`
+	RecommendEthernet bool    `json:"recommend_ethernet"`
+	Reason            string  `json:"reason,omitempty"`
+}
+
+// Redacted returns the public wire shape (no upstream SSID).
+func (s Status) Redacted() Redacted {
+	return Redacted{
+		TS:                s.TS,
+		Channel:           s.Channel,
+		DFS:               s.DFS,
+		CSA1h:             s.CSA1h,
+		LastCSA:           s.LastCSA,
+		CarrierLoss1h:     s.CarrierLoss1h,
+		Signal:            s.Signal,
+		TxBitrate:         s.TxBitrate,
+		RecommendEthernet: s.RecommendEthernet,
+		Reason:            s.Reason,
+	}
+}
+
 type Toast struct {
 	Active        bool   `json:"active"`
 	Level         string `json:"level,omitempty"`
