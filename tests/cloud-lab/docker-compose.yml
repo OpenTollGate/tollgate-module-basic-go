@@ -29,6 +29,7 @@ services:
       context: .
       dockerfile: Dockerfile.mint
     container_name: tg-mint
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     environment:
       - CDK_MINTD_URL=http://mint:8085
       - CDK_MINTD_LN_BACKEND=fakewallet
@@ -58,6 +59,7 @@ services:
       context: .
       dockerfile: Dockerfile.mint
     container_name: tg-mint-fees
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     environment:
       - CDK_MINTD_URL=http://mint-fees:8085
       - CDK_MINTD_LN_BACKEND=fakewallet
@@ -101,6 +103,7 @@ services:
       context: .
       dockerfile: Dockerfile.mint
     container_name: tg-mint-rotate
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     environment:
       - CDK_MINTD_URL=http://mint-rotate:8085
       - CDK_MINTD_LN_BACKEND=fakewallet
@@ -135,6 +138,7 @@ services:
         PACKAGE_VERSION: ${TG_PACKAGE_VERSION:-0.0.0-r0}
         LDFLAGS: ${TG_LDFLAGS:-}
     container_name: tg-upstream
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     depends_on:
       mint:
         condition: service_healthy
@@ -176,6 +180,7 @@ services:
         PACKAGE_VERSION: ${TG_PACKAGE_VERSION:-0.0.0-r0}
         LDFLAGS: ${TG_LDFLAGS:-}
     container_name: tg-upstream-ext
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     profiles: ["external-mints"]
     depends_on:
       mint:
@@ -209,6 +214,7 @@ services:
         PACKAGE_VERSION: ${TG_PACKAGE_VERSION:-0.0.0-r0}
         LDFLAGS: ${TG_LDFLAGS:-}
     container_name: tg-reseller
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     profiles: ["two-router"]
     depends_on:
       mint:
@@ -233,6 +239,7 @@ services:
       context: .
       dockerfile: Dockerfile.client
     container_name: tg-client
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     profiles: ["test"]
     depends_on:
       mint:
@@ -260,6 +267,7 @@ services:
       context: ../..
       dockerfile: tests/cloud-lab/Dockerfile.tollgate
     container_name: tg-upstream-bytes
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     profiles: ["clientd"]
     depends_on:
       mint:
@@ -291,6 +299,7 @@ services:
       context: .
       dockerfile: Dockerfile.client-ns
     container_name: tg-client-ns
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     profiles: ["clientd"]
     depends_on:
       mint:
