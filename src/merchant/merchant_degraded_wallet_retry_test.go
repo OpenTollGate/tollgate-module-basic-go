@@ -1,10 +1,10 @@
 package merchant
 
 import (
-	"sync"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
