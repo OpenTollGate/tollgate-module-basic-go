@@ -113,7 +113,7 @@ func EnsureDefaultIdentities(filePath string) (*IdentitiesConfig, error) {
 
 	var identitiesConfig IdentitiesConfig
 	if err := json.Unmarshal(data, &identitiesConfig); err != nil || identitiesConfig.ConfigVersion != defaultIdentitiesConfig.ConfigVersion {
-		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "identities", defaultIdentitiesConfig.ConfigVersion); backupErr != nil {
+		if backupErr := backupAndLog(filePath, configBackupDir, "identities", defaultIdentitiesConfig.ConfigVersion); backupErr != nil {
 			log.Printf("CRITICAL: Failed to backup and remove invalid identities config: %v", backupErr)
 			return nil, backupErr
 		}

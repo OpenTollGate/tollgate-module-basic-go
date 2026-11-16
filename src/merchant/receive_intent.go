@@ -12,7 +12,13 @@
 //	                      -grant store takes over; see owed_grant.go)
 //	          abandoned — stable evidence the mint never took the note
 //	                      (its refusal, or NUT-07 all-unspent after the
-//	                      call had ended) — the customer keeps the note
+//	                      call had ended) — the customer keeps the note.
+//	                      UNSPENT is issuer state, not a redemption
+//	                      promise: a mint can advertise a keyset and
+//	                      report UNSPENT while refusing spending
+//	                      requests for it (#1153). Never build a
+//	                      "value is recoverable" diagnostic on an
+//	                      unspent answer alone.
 //	pending:  everything else. Pending is the honest state for a crash,
 //	          a dropped response, an unanswered checkstate.
 //

@@ -1,10 +1,11 @@
 package wireless_gateway_manager
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,20 +27,35 @@ type ResellerModeChecker interface {
 }
 
 type UpstreamManager struct {
-	connector           ConnectorInterface
-	scanner             ScannerInterface
-	reseller            ResellerModeChecker
-	config              UpstreamManagerConfig
-	stopChan            chan struct{}
-	pauseMu             sync.Mutex
-	pauseUntil          time.Time
-	blacklist           map[string]time.Time
-	blacklistMu         sync.Mutex
-	failMu              sync.Mutex
-	consecutiveFails    int
-	cooldownUntil       time.Time
-	connectivityCheckFn func() bool
-	connectivityProbeFn func() ConnectivityResult
+	connector ConnectorInterface
+	scanner   ScannerInterface
+	reseller  ResellerModeChecker
+	config    UpstreamManagerConfig
+	stopChan  chan struct{}
+	// writerMu coordinates in-process radio/UCI writers, including DHCP waits.
+	writerMu             sync.Mutex
+	tickCount            atomic.Int64
+	pauseMu              sync.Mutex
+	pauseUntil           time.Time
+	manualOperations     int
+	connectionGeneration atomic.Uint64
+	blacklist            map[string]time.Time
+	blacklistMu          sync.Mutex
+	failMu               sync.Mutex
+	consecutiveFails     int
+	cooldownUntil        time.Time
+	connectivityCheckFn  func() bool
+	connectivityProbeFn  func() ConnectivityResult
+	// Command/proof seams keep manager control-flow tests off the host network.
+	runCommandFn       func(string, ...string) ([]byte, error)
+	tollGateProbeFn    func(string) bool
+	now                func() time.Time
+	portalMu           sync.Mutex
+	portalLogin        portalLoginEpisode
+	tollGateGeneration atomic.Uint64
+	// fallbackVerifyFn overrides the post-switch route+connectivity check for
+	// the manual "stop peering" fallback. Tests use it; production leaves it nil.
+	fallbackVerifyFn func() bool
 	// #880: written by concurrent verifyPostSwitchConnectivity
 	// goroutines (overlapping scan cycles spawn one per switch), read by
 	// the Start loop — no shared lock, hence atomic.
@@ -53,6 +69,7 @@ type ConfigReadResult struct {
 
 func DefaultUpstreamManagerConfig() UpstreamManagerConfig {
 	return UpstreamManagerConfig{
+		PortalLoginWindow:      defaultPortalLoginWindow,
 		ScanInterval:           300 * time.Second,
 		FastCheck:              30 * time.Second,
 		LostThreshold:          2,
@@ -71,6 +88,9 @@ func DefaultUpstreamManagerConfig() UpstreamManagerConfig {
 }
 
 func NewUpstreamManager(connector ConnectorInterface, scanner ScannerInterface, reseller ResellerModeChecker, config UpstreamManagerConfig) *UpstreamManager {
+	if config.PortalLoginWindow <= 0 {
+		config.PortalLoginWindow = defaultPortalLoginWindow
+	}
 	if config.ScanInterval == 0 {
 		config.ScanInterval = 300 * time.Second
 	}
@@ -117,6 +137,7 @@ func NewUpstreamManager(connector ConnectorInterface, scanner ScannerInterface, 
 		config.StartupScanInterval = 10 * time.Second
 	}
 	return &UpstreamManager{
+		now:          time.Now,
 		connector:    connector,
 		scanner:      scanner,
 		reseller:     reseller,
@@ -128,6 +149,7 @@ func NewUpstreamManager(connector ConnectorInterface, scanner ScannerInterface, 
 }
 
 func (um *UpstreamManager) startupConnectivityCheck() {
+	startupGeneration := um.connectionGeneration.Load()
 	activeSTA, err := um.connector.GetActiveSTA()
 	if err != nil || activeSTA == nil {
 		logger.WithError(err).Info("Startup check: no active STA, nothing to verify")
@@ -145,13 +167,34 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 	const startupRetries = 3
 	connected := false
 	for attempt := 1; attempt <= startupRetries; attempt++ {
-		if um.checkConnectivityForStartup(staNetdev) {
+		result := um.probeConnectivityForStartup(staNetdev)
+		if um.connectionGeneration.Load() != startupGeneration || um.isPaused() {
+			return
+		}
+		id := upstreamIdentity{generation: startupGeneration, iface: activeSTA.Name, ssid: activeSTA.SSID, bssid: um.getAssociatedBSSID(staNetdev)}
+		disposition := um.observePortalLogin(id, um.isSTAAssociated(staNetdev), result)
+		if disposition == portalHold || disposition == portalSuperseded || disposition == portalDeferred {
+			return
+		}
+		if disposition == portalFallback {
+			um.runScanCycleGeneration(startupGeneration, activeSTA.Name, activeSTA.SSID, id.bssid, 0, portalExpiredReason, false)
+			return
+		}
+		if result.OK {
 			connected = true
 			break
 		}
 		if attempt == 1 {
 			logger.Info("Startup check: no internet after settle, nudging netifd with ifup wwan")
-			exec.Command("ifup", "wwan").Run()
+			if !um.writerMu.TryLock() {
+				return
+			}
+			if um.connectionGeneration.Load() != startupGeneration || um.isPaused() || um.portalLoginDisposition(startupGeneration) == portalHold {
+				um.writerMu.Unlock()
+				return
+			}
+			um.runCommand("ifup", "wwan")
+			um.writerMu.Unlock()
 		}
 		if attempt < startupRetries {
 			logger.WithFields(logrus.Fields{
@@ -172,6 +215,10 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 	const startupScanRetries = 3
 	switched := false
 	for scanAttempt := 1; scanAttempt <= startupScanRetries; scanAttempt++ {
+		if um.connectionGeneration.Load() != startupGeneration || um.isPaused() {
+			return
+		}
+		generation := startupGeneration
 		logger.WithFields(logrus.Fields{
 			"attempt":   scanAttempt,
 			"remaining": startupScanRetries - scanAttempt,
@@ -188,7 +235,7 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 		}
 
 		isReseller := um.isResellerModeActive()
-		candidate, err := um.findCandidates(networks, isReseller, true)
+		candidate, err := um.findCandidatesForGeneration(generation, networks, isReseller, true)
 		if err != nil || candidate == nil {
 			logger.Info("Startup check: no candidate found in scan")
 			if scanAttempt < startupScanRetries {
@@ -202,26 +249,32 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 			"signal": candidate.Signal,
 		}).Info("Startup check: candidate found, switching")
 
-		// Same pause discipline as the main loop's switch: a manual
-		// upstream operation may have started while this startup scan
-		// was in flight — decline rather than race it (#880).
-		if um.isPaused() {
-			logger.Info("Startup check: declining switch, connectivity checks paused (manual upstream operation in flight)")
-			break
+		// The last pause/generation checks and the entire connector mutation
+		// share the writer lease with manual operations.
+		verifiedGeneration, switchErr := um.switchAutomatically(generation, activeSTA.Name, candidate)
+		if errors.Is(switchErr, errSupersededOperation) || errors.Is(switchErr, errOperationBusy) {
+			return
 		}
-
-		if err := um.connector.SwitchUpstream(activeSTA.Name, candidate.IfaceName, candidate.SSID, candidate.BSSID); err != nil {
-			logger.WithError(err).Warn("Startup check: switch failed")
-			um.recordSwitchFailure()
+		if switchErr != nil {
+			if !um.applyAutomaticResult(verifiedGeneration, um.recordSwitchFailure) {
+				return
+			}
+			startupGeneration = verifiedGeneration
+			logger.WithError(switchErr).Warn("Startup check: switch failed")
 			if scanAttempt < startupScanRetries {
 				time.Sleep(um.config.StartupScanInterval)
 			}
 			continue
 		}
 
-		um.resetSwitchFailures()
-		um.blacklistUpstream(activeSTA.SSID, um.getAssociatedBSSID(staNetdev))
-		go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID)
+		oldBSSID := um.getAssociatedBSSID(staNetdev)
+		if !um.applyAutomaticResult(verifiedGeneration, func() {
+			um.resetSwitchFailures()
+			um.blacklistUpstream(activeSTA.SSID, oldBSSID)
+		}) {
+			return
+		}
+		go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID, verifiedGeneration)
 		switched = true
 		break
 	}
@@ -231,11 +284,19 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 	}
 }
 
-func (um *UpstreamManager) checkConnectivityForStartup(staDevice string) bool {
+func (um *UpstreamManager) probeConnectivityForStartup(staDevice string) ConnectivityResult {
+	// Preserve the existing startup/periodic Boolean-hook precedence.
 	if um.connectivityCheckFn != nil {
-		return um.connectivityCheckFn()
+		if um.connectivityCheckFn() {
+			return ConnectivityResult{OK: true, Reason: "ok"}
+		}
+		return ConnectivityResult{Reason: "probe"}
 	}
-	return um.checkConnectivity(staDevice)
+	return um.probeConnectivity(staDevice)
+}
+
+func (um *UpstreamManager) checkConnectivityForStartup(staDevice string) bool {
+	return um.probeConnectivityForStartup(staDevice).OK
 }
 
 func (um *UpstreamManager) Start(ctx context.Context) {
@@ -247,27 +308,24 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 		}
 	}
 
-	if err := um.connector.EnsureRadiosEnabled(); err != nil {
-		logger.WithError(err).Warn("Failed to ensure radios enabled on startup")
-	}
-	if err := um.connector.EnsureWWANSetup(); err != nil {
-		logger.WithError(err).Warn("Failed to ensure wwan setup on startup")
-	}
-	if err := um.connector.CleanupStaleSTAs(); err != nil {
-		logger.WithError(err).Warn("Failed to cleanup stale STAs on startup")
-	}
+	um.maintainAutomatically(func() {
+		if err := um.connector.EnsureRadiosEnabled(); err != nil {
+			logger.WithError(err).Warn("Failed to ensure radios enabled on startup")
+		}
+		if err := um.connector.EnsureWWANSetup(); err != nil {
+			logger.WithError(err).Warn("Failed to ensure wwan setup on startup")
+		}
+		if err := um.connector.CleanupStaleSTAs(); err != nil {
+			logger.WithError(err).Warn("Failed to cleanup stale STAs on startup")
+		}
+	})
 
 	um.startupConnectivityCheck()
 
 	startupGraceEnd := time.Now().Add(um.config.StartupGracePeriod)
 	logger.WithField("grace_seconds", um.config.StartupGracePeriod.Seconds()).Info("Startup grace period active")
 
-	scanCounter := 0
-	lostCount := 0
-	scanCycles := int(um.config.ScanInterval / um.config.FastCheck)
-	if scanCycles < 1 {
-		scanCycles = 1
-	}
+	state := upstreamLoopState{}
 
 	ticker := time.NewTicker(um.config.FastCheck)
 	defer ticker.Stop()
@@ -283,120 +341,8 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 		case <-ticker.C:
 		}
 
-		if err := um.connector.EnsureRadiosEnabled(); err != nil {
-			logger.WithError(err).Warn("Failed to ensure radios enabled")
-		}
-
-		inStartupGrace := time.Now().Before(startupGraceEnd)
-		if inStartupGrace {
-			logger.Debug("Skipping connectivity check during startup grace period")
-			continue
-		}
-
-		isReseller := um.isResellerModeActive()
-
-		activeSTA, err := um.connector.GetActiveSTA()
-		if err != nil {
-			logger.WithError(err).Warn("Failed to get active STA")
-		}
-
-		var currentSignal int
-		shouldScan := false
-		reason := "scheduled"
-
-		if activeSTA == nil {
-			shouldScan = true
-			reason = "no-active-upstream"
-		} else {
-			staNetdev := activeSTA.Device
-			if netdev, err := um.connector.GetSTANetdev(activeSTA.Name); err == nil && netdev != "" {
-				staNetdev = netdev
-			} else {
-				logger.WithFields(logrus.Fields{
-					"section": activeSTA.Name,
-					"error":   err,
-				}).Debug("Could not resolve STA netdev, falling back to radio name")
-			}
-
-			associated := um.isSTAAssociated(staNetdev)
-			if !associated {
-				shouldScan = true
-				reason = "not-associated"
-			} else {
-				currentSignal, _ = um.getCurrentSignal(staNetdev)
-				connected := um.checkConnectivityForStartup(staNetdev)
-				if connected {
-					if lostCount > 0 {
-						logger.WithField("lost_count", lostCount).Info("Connectivity restored")
-					}
-					lostCount = 0
-					scanCounter++
-					if scanCounter >= scanCycles {
-						shouldScan = true
-						reason = "scheduled"
-					}
-				} else {
-					if um.isPaused() {
-						continue
-					}
-					lostCount++
-					lostThreshold := um.config.LostThreshold
-					if um.isTollGateConnection.Load() {
-						lostThreshold = um.config.TollGateLostThreshold
-					}
-					logger.WithField("lost_count", lostCount).Info("Connectivity lost")
-					if lostCount >= lostThreshold {
-						if err := um.connector.CleanupStaleSTAs(); err != nil {
-							logger.WithError(err).Warn("Failed to cleanup stale STAs during emergency")
-						}
-						shouldScan = true
-						reason = "emergency"
-					}
-				}
-			}
-		}
-
-		if shouldScan {
-			// #880: a manual `tollgate upstream connect` parks inside
-			// SwitchUpstream for its DHCP wait with this manager paused.
-			// The pause used to gate only the lost-connectivity
-			// escalation, so a tick that read the mid-join radio as
-			// not-associated (or with no active section) still scanned
-			// and counter-switched to the disabled section the manual
-			// flow's competitor sweep (#848) had just created — the join
-			// never completed. While paused, the manager may observe but
-			// must not scan, clean up, or switch: the connect flow and
-			// the manager must not both drive the radio.
-			if um.isPaused() {
-				logger.WithField("reason", reason).Debug("Skipping scan cycle: connectivity checks paused (manual upstream operation in flight)")
-				continue
-			}
-
-			activeIface := ""
-			activeSSID := ""
-			activeBSSID := ""
-			if activeSTA != nil {
-				activeIface = activeSTA.Name
-				activeSSID = activeSTA.SSID
-				if netdev, err := um.connector.GetSTANetdev(activeSTA.Name); err == nil && netdev != "" {
-					activeBSSID = um.getAssociatedBSSID(netdev)
-				}
-			}
-
-			logger.WithFields(logrus.Fields{
-				"active_ssid": activeSSID,
-				"signal":      currentSignal,
-				"reason":      reason,
-			}).Info("Running upstream scan cycle")
-
-			if err := um.connector.CleanupStaleSTAs(); err != nil {
-				logger.WithError(err).Warn("Failed to cleanup stale STAs before switch")
-			}
-
-			um.runScanCycle(activeIface, activeSSID, activeBSSID, currentSignal, reason, isReseller)
-			scanCounter = 0
-			lostCount = 0
-		}
+		um.tickCount.Add(1)
+		um.runConnectivityTick(startupGraceEnd, &state)
 	}
 }
 
@@ -411,9 +357,45 @@ func (um *UpstreamManager) PauseConnectivityChecks(d time.Duration) {
 	logger.WithField("duration", d).Info("Pausing connectivity checks")
 }
 
+// LoopTicks counts fast-check iterations, including declined write opportunities.
+// It observes liveness without invoking a radio-mutating connector method.
+func (um *UpstreamManager) LoopTicks() int64 { return um.tickCount.Load() }
+
+// BeginManualOperation opens a nested pause scope and invalidates observations.
+// It grants no writer ownership. Radio-mutating handlers use BeginManualWriter.
+func (um *UpstreamManager) BeginManualOperation() {
+	um.pauseMu.Lock()
+	um.manualOperations++
+	um.connectionGeneration.Add(1)
+	um.pauseMu.Unlock()
+}
+
+// EndManualOperation releases one manual operation without shortening a pause.
+func (um *UpstreamManager) EndManualOperation() {
+	um.pauseMu.Lock()
+	if um.manualOperations > 0 {
+		um.manualOperations--
+	}
+	um.pauseMu.Unlock()
+}
+
+// ClearSavedNetworkFailure accepts fresh evidence from a successful manual join.
+// Preserve failures for other BSSIDs advertising the same SSID.
+func (um *UpstreamManager) ClearSavedNetworkFailure(ssid, bssid string) {
+	um.blacklistMu.Lock()
+	delete(um.blacklist, blacklistKey(ssid, bssid))
+	um.blacklistMu.Unlock()
+}
+
+func (um *UpstreamManager) nextConnectionGeneration() uint64 {
+	um.pauseMu.Lock()
+	defer um.pauseMu.Unlock()
+	return um.connectionGeneration.Add(1)
+}
+
 func (um *UpstreamManager) isPaused() bool {
 	um.pauseMu.Lock()
-	paused := time.Now().Before(um.pauseUntil)
+	paused := um.manualOperations > 0 || time.Now().Before(um.pauseUntil)
 	um.pauseMu.Unlock()
 	return paused
 }
@@ -500,7 +482,32 @@ func (um *UpstreamManager) isResellerModeActive() bool {
 }
 
 func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID string, currentSignal int, reason string, isReseller bool) {
+	um.runScanCycleGeneration(um.connectionGeneration.Load(), activeIface, activeSSID, activeBSSID, currentSignal, reason, isReseller)
+}
+
+func (um *UpstreamManager) runScanCycleGeneration(generation uint64, activeIface, activeSSID, activeBSSID string, currentSignal int, reason string, isReseller bool) {
+	disposition := um.portalLoginDisposition(generation)
+	if disposition == portalHold || disposition == portalSuperseded {
+		return
+	}
+	if disposition == portalFallback {
+		reason = portalExpiredReason
+	}
+	// The request remains saved-only even if another probe restores Internet
+	// and clears the episode while the scan is in flight.
+	if reason == portalExpiredReason {
+		isReseller = false
+	}
+	if um.isPaused() {
+		if reason == portalExpiredReason {
+			um.portalFallbackDeferred("manual-pause")
+		}
+		return
+	}
 	if um.isInCooldown() {
+		if reason == portalExpiredReason {
+			um.portalFallbackDeferred("cooldown")
+		}
 		logger.WithField("reason", reason).Info("In cooldown period, skipping scan cycle")
 		return
 	}
@@ -517,10 +524,13 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID str
 		um.DiscoveryLog.LogScan(networks)
 	}
 
-	isEmergency := reason == "emergency"
+	isEmergency := reason == "emergency" || reason == portalExpiredReason
 
-	candidate, err := um.findCandidates(networks, isReseller, isEmergency)
+	candidate, err := um.findCandidatesForGeneration(generation, networks, isReseller, isEmergency)
 	if err != nil || candidate == nil {
+		if reason == portalExpiredReason {
+			um.portalFallbackDeferred("no-saved-candidate-or-writer-busy")
+		}
 		logger.WithField("reason", reason).Info("No known upstream candidates available")
 		return
 	}
@@ -531,11 +541,17 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID str
 		"reason": reason,
 	}).Info("Best candidate found")
 
+	if um.portalLoginDisposition(generation) == portalFallback {
+		isEmergency = true
+	}
 	shouldSwitch := false
 
 	if activeIface == "" {
 		shouldSwitch = true
 		logger.WithField("reason", reason).Info("No active upstream, connecting")
+	} else if isEmergency {
+		shouldSwitch = true
+		logger.Info("Internet unavailable; trying another known upstream")
 	} else if currentSignal == 0 {
 		shouldSwitch = true
 		logger.WithField("reason", reason).Info("Active upstream not associated")
@@ -567,15 +583,23 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID str
 			}).Info("Declining switch: connectivity checks paused mid-cycle (manual upstream operation in flight)")
 			return
 		}
-		if err := um.connector.SwitchUpstream(activeIface, candidate.IfaceName, candidate.SSID, candidate.BSSID); err != nil {
-			logger.WithError(err).Warn("Failed to switch upstream")
-			um.recordSwitchFailure()
+		verifiedGeneration, switchErr := um.switchAutomatically(generation, activeIface, candidate)
+		if errors.Is(switchErr, errSupersededOperation) || errors.Is(switchErr, errOperationBusy) {
+			return // Declined work is not a failed connection or cooldown event.
+		}
+		if switchErr != nil {
+			logger.WithError(switchErr).Warn("Failed to switch upstream")
+			um.applyAutomaticResult(verifiedGeneration, um.recordSwitchFailure)
 		} else {
-			um.resetSwitchFailures()
-			if isEmergency && activeSSID != "" {
-				um.blacklistUpstream(activeSSID, activeBSSID)
+			if !um.applyAutomaticResult(verifiedGeneration, func() {
+				um.resetSwitchFailures()
+				if isEmergency && activeSSID != "" {
+					um.blacklistUpstream(activeSSID, activeBSSID)
+				}
+			}) {
+				return
 			}
-			go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID)
+			go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID, verifiedGeneration)
 		}
 	}
 }
@@ -583,11 +607,8 @@ func (um *UpstreamManager) runScanCycle(activeIface, activeSSID, activeBSSID str
 func (um *UpstreamManager) waitForDefaultRoute(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		cmd := exec.Command("ip", "route", "show", "default")
-		var out bytes.Buffer
-		cmd.Stdout = &out
-		err := cmd.Run()
-		routeOutput := out.String()
+		out, err := um.runCommand("ip", "route", "show", "default")
+		routeOutput := string(out)
 		if err == nil && strings.Contains(routeOutput, " via ") {
 			logger.WithField("route", strings.TrimSpace(routeOutput)).Debug("Post-switch: default route found")
 			return true
@@ -598,39 +619,122 @@ func (um *UpstreamManager) waitForDefaultRoute(timeout time.Duration) bool {
 	return false
 }
 
-func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string, bssid string) {
+// waitForPostSwitchConnectivity allows route/DNS convergence after DHCP.
+// Each existing probe remains responsible for bounding its own network calls.
+func waitForPostSwitchConnectivity(probe func() ConnectivityResult, current func() bool, budget, interval time.Duration) ConnectivityResult {
+	return waitForPostSwitchConnectivityUntil(probe, current, nil, budget, interval)
+}
+
+func waitForPostSwitchConnectivityUntil(probe func() ConnectivityResult, current func() bool, stop func(ConnectivityResult) bool, budget, interval time.Duration) ConnectivityResult {
+	if interval <= 0 {
+		interval = time.Second
+	}
+	deadline := time.Now().Add(budget)
+	for {
+		if !current() {
+			return ConnectivityResult{Reason: "superseded"}
+		}
+		result := probe()
+		if !current() {
+			return ConnectivityResult{Reason: "superseded"}
+		}
+		if result.OK || (stop != nil && stop(result)) {
+			return result
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return result
+		}
+		delay := interval
+		if remaining < delay {
+			delay = remaining
+		}
+		time.Sleep(delay)
+	}
+}
+
+func (um *UpstreamManager) verifyPostSwitchConnectivity(ssid string, bssid string, generation uint64) {
+	current := func() bool { return um.connectionGeneration.Load() == generation }
+	if !current() {
+		return
+	}
 	logger.WithField("ssid", ssid).Info("Post-switch: verifying connectivity")
 	if um.waitForDefaultRoute(30 * time.Second) {
 		if um.probeTollGateGateway(bssid) {
-			um.isTollGateConnection.Store(true)
-			logger.WithField("ssid", ssid).Info("Post-switch: TollGate detected, skipping internet blacklist check")
+			if !current() {
+				return
+			}
+			um.applyVerification(generation, func() {
+				um.isTollGateConnection.Store(true)
+				um.tollGateGeneration.Store(generation)
+				um.observePortalLoginUnderWriter(upstreamIdentity{generation: generation}, true, ConnectivityResult{OK: true})
+				logger.WithField("ssid", ssid).Info("Post-switch: TollGate detected, skipping internet blacklist check")
+			})
 			return
 		}
 	}
 
-	um.isTollGateConnection.Store(false)
-	result := um.probeConnectivity("")
-	if !result.OK {
-		um.blacklistUpstream(ssid, bssid)
-		logger.WithFields(logrus.Fields{
-			"ssid":   ssid,
-			"bssid":  bssid,
-			"reason": result.Reason,
-		}).Warn("Blacklisted new upstream: no internet after switch")
-	} else {
-		logger.WithField("ssid", ssid).Info("Post-switch connectivity verified")
+	if !current() {
+		return
 	}
+	active, err := um.connector.GetActiveSTA()
+	if err != nil || active == nil || active.SSID != ssid {
+		return
+	}
+	device := active.Device
+	if netdev, err := um.connector.GetSTANetdev(active.Name); err == nil && netdev != "" {
+		device = netdev
+	}
+	id := upstreamIdentity{generation: generation, iface: active.Name, ssid: ssid, bssid: bssid}
+	disposition := portalOrdinary
+	associated := false
+	result := waitForPostSwitchConnectivityUntil(func() ConnectivityResult {
+		result := um.probeConnectivity(device)
+		associated = um.isSTAAssociated(device)
+		disposition = um.observePortalLogin(id, associated, result)
+		return result
+	}, current, func(ConnectivityResult) bool {
+		return disposition == portalHold || disposition == portalSuperseded || disposition == portalDeferred
+	}, 30*time.Second, um.config.PostSwitchWait)
+	um.publishInternetVerification(id, associated, result, disposition)
+}
+
+func (um *UpstreamManager) publishInternetVerification(id upstreamIdentity, associated bool, result ConnectivityResult, disposition portalDisposition) {
+	um.applyVerification(id.generation, func() {
+		um.isTollGateConnection.Store(false)
+		// Preserve evidence deferred by an in-flight owner, using the same
+		// already-obtained result once this publication owns the writer.
+		if disposition == portalDeferred {
+			disposition = um.observePortalLoginUnderWriter(id, associated, result)
+		}
+		// A later transient failure must not erase portal evidence observed
+		// by an earlier callback or by the main loop.
+		if um.portalLoginDisposition(id.generation) == portalHold || disposition == portalSuperseded {
+			return
+		}
+		if !result.OK {
+			um.blacklistUpstream(id.ssid, id.bssid)
+			logger.WithFields(logrus.Fields{
+				"ssid":   id.ssid,
+				"bssid":  id.bssid,
+				"reason": result.Reason,
+			}).Warn("Blacklisted new upstream: no internet after switch")
+		} else {
+			logger.WithField("ssid", id.ssid).Info("Post-switch connectivity verified")
+		}
+	})
 }
 
 func (um *UpstreamManager) probeTollGateGateway(bssid string) bool {
-	cmd := exec.Command("ip", "route", "show", "default")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if cmd.Run() != nil {
+	if um.tollGateProbeFn != nil {
+		return um.tollGateProbeFn(bssid)
+	}
+	out, err := um.runCommand("ip", "route", "show", "default")
+	if err != nil {
 		return false
 	}
 
-	fields := strings.Fields(out.String())
+	fields := strings.Fields(string(out))
 	gatewayIP := ""
 	for i, f := range fields {
 		if f == "via" && i+1 < len(fields) {
@@ -649,6 +753,83 @@ func (um *UpstreamManager) probeTollGateGateway(bssid string) bool {
 	}
 
 	return result.Reachable && result.ResponseBytes > 0
+}
+
+// FallbackToKnownGoodNonTollGate stops peering by switching to the best
+// known, non-blacklisted, non-TollGate upstream. It verifies connectivity after
+// each switch and tries the next candidate on failure. If none passes, the
+// original peer is restored and an error is returned — the router never goes
+// silently offline because "stop peering" was pressed.
+func (um *UpstreamManager) FallbackToKnownGoodNonTollGate() (string, error) {
+	writer := um.BeginManualWriter()
+	defer writer.End()
+
+	sections, err := um.connector.GetSTASections()
+	if err != nil {
+		return "", fmt.Errorf("list known upstreams: %w", err)
+	}
+	networks, _ := um.scanner.ScanAllRadios()
+	bySSID := make(map[string]NetworkInfo)
+	for _, n := range networks {
+		prev, ok := bySSID[n.SSID]
+		if !ok || n.Signal > prev.Signal {
+			bySSID[n.SSID] = n
+		}
+	}
+
+	type fallbackCandidate struct {
+		section STASection
+		net     NetworkInfo
+		signal  int
+	}
+	candidates := make([]fallbackCandidate, 0)
+	for _, section := range sections {
+		if !section.Disabled || section.SSID == "" {
+			continue
+		}
+		if hasTollGateSSID(section.SSID) || strings.HasPrefix(strings.TrimSpace(section.SSID), "Private-") {
+			continue
+		}
+		net, ok := bySSID[section.SSID]
+		if !ok {
+			net = NetworkInfo{SSID: section.SSID, Radio: section.Device, Signal: -999}
+		}
+		if um.isBlacklisted(section.SSID, net.BSSID) {
+			continue
+		}
+		candidates = append(candidates, fallbackCandidate{section: section, net: net, signal: net.Signal})
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no known good non-TollGate upstream; staying on the current peer")
+	}
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].signal > candidates[j].signal })
+
+	original, _ := um.connector.GetActiveSTA()
+	for _, candidate := range candidates {
+		activeIface := ""
+		if active, err := um.connector.GetActiveSTA(); err == nil && active != nil {
+			activeIface = active.Name
+		}
+		if err := um.connector.SwitchUpstream(activeIface, candidate.section.Name, candidate.section.SSID, candidate.net.BSSID); err != nil {
+			um.blacklistUpstream(candidate.section.SSID, candidate.net.BSSID)
+			continue
+		}
+		verified := false
+		if um.fallbackVerifyFn != nil {
+			verified = um.fallbackVerifyFn()
+		} else {
+			verified = um.waitForDefaultRoute(30*time.Second) && um.CheckConnectivity()
+		}
+		if verified {
+			return candidate.section.SSID, nil
+		}
+		um.blacklistUpstream(candidate.section.SSID, candidate.net.BSSID)
+	}
+
+	if original != nil {
+		_ = um.connector.SwitchUpstream("", original.Name, original.SSID, "")
+	}
+	return "", fmt.Errorf("no known good non-TollGate upstream passed the connectivity check; restored the current peer")
 }
 
 func (um *UpstreamManager) findCandidates(networks []NetworkInfo, isReseller bool, isEmergency bool) (*Candidate, error) {
@@ -823,13 +1004,11 @@ func (um *UpstreamManager) isSTAAssociated(staDevice string) bool {
 	if staDevice == "" {
 		return false
 	}
-	cmd := exec.Command("iwinfo", staDevice, "info")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if cmd.Run() != nil {
+	out, err := um.runCommand("iwinfo", staDevice, "info")
+	if err != nil {
 		return false
 	}
-	output := out.String()
+	output := string(out)
 	return strings.Contains(output, "Access Point:") || strings.Contains(output, "Associated with")
 }
 
@@ -842,7 +1021,7 @@ func (um *UpstreamManager) getAssociatedBSSID(staDevice string) string {
 	if staDevice == "" {
 		return ""
 	}
-	out, err := exec.Command("iwinfo", staDevice, "info").Output()
+	out, err := um.runCommand("iwinfo", staDevice, "info")
 	if err != nil {
 		return ""
 	}
@@ -860,11 +1039,9 @@ func (um *UpstreamManager) getCurrentSignal(staDevice string) (int, error) {
 		return 0, fmt.Errorf("no STA device")
 	}
 
-	cmd := exec.Command("iwinfo", staDevice, "assoclist")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if cmd.Run() == nil {
-		lines := strings.Split(out.String(), "\n")
+	out, err := um.runCommand("iwinfo", staDevice, "assoclist")
+	if err == nil {
+		lines := strings.Split(string(out), "\n")
 		if len(lines) > 0 {
 			fields := strings.Fields(lines[0])
 			for i, f := range fields {
@@ -878,14 +1055,12 @@ func (um *UpstreamManager) getCurrentSignal(staDevice string) (int, error) {
 		}
 	}
 
-	cmd = exec.Command("iwinfo", staDevice, "info")
-	out.Reset()
-	cmd.Stdout = &out
-	if cmd.Run() != nil {
+	out, err = um.runCommand("iwinfo", staDevice, "info")
+	if err != nil {
 		return 0, fmt.Errorf("failed to get signal from iwinfo info")
 	}
 
-	for _, line := range strings.Split(out.String(), "\n") {
+	for _, line := range strings.Split(string(out), "\n") {
 		if strings.Contains(line, "Signal:") {
 			fields := strings.Fields(line)
 			for i, f := range fields {
@@ -901,4 +1076,11 @@ func (um *UpstreamManager) getCurrentSignal(staDevice string) (int, error) {
 	}
 
 	return 0, fmt.Errorf("could not determine signal strength")
+}
+
+func (um *UpstreamManager) runCommand(name string, args ...string) ([]byte, error) {
+	if um.runCommandFn != nil {
+		return um.runCommandFn(name, args...)
+	}
+	return exec.Command(name, args...).Output()
 }

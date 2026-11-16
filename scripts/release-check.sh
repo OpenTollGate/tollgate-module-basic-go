@@ -49,7 +49,7 @@ record() { # record <label> <status: PASS|FAIL|SKIP> <detail>
 
 run_go_battery() {
     if make go-battery >"$tmpdir/go-battery.log" 2>&1; then
-        record "Go battery" PASS "18 modules, gofmt/vet/build/-race"
+        record "Go battery" PASS "19 modules, gofmt/vet/build/-race"
     else
         record "Go battery" FAIL "see $tmpdir/go-battery.log"
     fi
@@ -75,7 +75,7 @@ run_cold_sums() {
 
 run_deps_imports() {
     local ok=0
-    python3 tests/contract/check-deps-sync.py >"$tmpdir/deps.log" 2>&1 || ok=1
+    python3 tests/contract/check-deps-sync.py --selftest-and-check >"$tmpdir/deps.log" 2>&1 || ok=1
     python3 tests/contract/check-mirror-sync.py >>"$tmpdir/deps.log" 2>&1 || ok=1
     python3 tests/contract/check-import-paths.py >>"$tmpdir/deps.log" 2>&1 || ok=1
     # The go.sum fence (#976): a merge can leave importers' go.sum
@@ -94,6 +94,14 @@ run_deps_imports() {
     # a fence that cannot look must not pass.
     python3 tests/contract/check-nodogsplash-pin.py >>"$tmpdir/deps.log" 2>&1 || ok=1
     python3 tests/contract/check-nodogsplash-pin.py --feed >>"$tmpdir/deps.log" 2>&1 || ok=1
+    # The cdk-go pin: same doctrine, second fenced module. Was red-by-design
+    # from the fence's landing until the v0.18.3 reconciliation converged
+    # every carrier (pre-cdk-migration, enabled by cdk-go's build-tag
+    # isolation: every import sits behind cdk_wallet); red from now on means
+    # real drift. Also refuses any replace of the cdk-go module path (the
+    # #1149 fork class).
+    python3 tests/contract/check-cdkgo-pin.py >>"$tmpdir/deps.log" 2>&1 || ok=1
+    python3 tests/contract/check-cdkgo-pin.py --latest >>"$tmpdir/deps.log" 2>&1 || ok=1
     if [ "$ok" = 0 ]; then
         record "Dependency/import consistency" PASS
     else
