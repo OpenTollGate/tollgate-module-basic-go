@@ -119,6 +119,8 @@ PHASE_LOG = {
     "swap-timeout-retry": ["swap_timeout_retry.log"],
     "pay-kill-post-receive-pre-session": ["kill_boundary_setup.log", "kill_boundary_aftermath.log"],
     "mint-alias-spellings": ["mint_alias_spellings.log"],
+    "issuer-400-keyset-unknown": ["issuer_400_keyset_unknown.log"],
+    "swap-replay-rejected-ladder": ["swap_replay_rejected_ladder.log"],
 }
 
 
@@ -542,3 +544,151 @@ def test_mint_alias_spellings(lab_up, identities):
         f"alias-spelled token rejected: {resp.status_code} {resp.text[:300]} — "
         "canonicalization must fold case/trailing-slash spellings (#375/#480)"
     )
+
+
+# ------------------------------------------- issuer-400 (matrix: issuer-400-keyset-unknown)
+# A definitive issuer refusal wearing a mint's clothes: the proxy answers
+# POST /v1/swap with a NUT-shaped 400 keyset-unknown body while the mint
+# itself stays up. The #1222 shape: a 4xx from the mint is NOT an outage and
+# NOT an ambiguity -- the intent resolves abandoned/resubmittable, and after
+# the fault clears the SAME token must still redeem.
+
+
+def test_issuer_400_keyset_unknown(lab_up, identities, client_mac):
+    scenario = "issuer-400-keyset-unknown"
+    mac = client_mac
+    wallet = _fund_wallet()
+    token = create_cashu_token(wallet, 100, PROXY_MINT_URL)
+    obs_before = _swap_counts(_observations())
+
+    _proxyctl({"rules": [{
+        "id": "issuer-400-keyset-unknown",
+        "match_path": "/v1/swap", "match_method": "POST",
+        "action": "status", "status_code": 400,
+        "body": {"code": 0, "detail": "keyset 007311aa2fa58cc8 unknown"},
+        "remaining": 3,
+    }]})
+
+    faulted = _pay(token, identities["tollgate_pub"], identities["customer"], mac)
+    faulted_body = {}
+    try:
+        faulted_body = faulted.json()
+    except ValueError:
+        pass
+    raw_tags = faulted_body.get("tags") or []
+    code_values = [
+        v
+        for pair in raw_tags
+        if isinstance(pair, list) and len(pair) > 1 and pair[0] == "code"
+        for v in pair[1:]
+    ]
+    fault_code = code_values[0] if code_values else ""
+    refused_ok = faulted.status_code in (400, 409, 422)
+    # A definitive 4xx must classify as the mint-refused class, never the
+    # infrastructure outage class (the #1222 misclassification).
+    classified = fault_code == "payment-error-mint-refused"
+    misclassified = fault_code == "payment-error-mint-unreachable"
+
+    # Replay the SAME token after the fault clears: it was never spent (the
+    # mint answered a definitive no), so it MUST redeem now. A refusal here
+    # is value stranded against this module instance -- the #1222 finding.
+    _proxyctl({"clear": True})
+    for _ in range(10):
+        if _daemon_answers():
+            break
+        time.sleep(1)
+    cleared = _pay(token, identities["tollgate_pub"], identities["customer"], mac)
+    redeemed = cleared.status_code == 200 and _kind(cleared) == 1022
+
+    reused = _phase_reuse(obs_before, _swap_counts(_observations()))
+
+    _write_verdict(
+        scenario,
+        {
+            "no-fund-loss": _inv(
+                "pass" if redeemed else "fail",
+                f"post-clear replay of the unspent token: {cleared.status_code}/k{_kind(cleared)}"
+                + (" -- value stranded (the #1222 class)" if not redeemed else ""),
+            ),
+            "no-output-reuse": _inv("pass" if not reused else "fail", f"reused={reused}"),
+            "service-or-refund": _inv(
+                "pass" if (classified and redeemed) else "fail",
+                f"during-fault code={fault_code or 'none'} "
+                f"(misclassified-as-outage={misclassified}) post-clear redeemed={redeemed}",
+            ),
+            "retry-safe": _inv(
+                "pass" if redeemed else "fail",
+                f"refused-under-fault={refused_ok} post-clear-same-token={cleared.status_code}/k{_kind(cleared)}",
+            ),
+        },
+    )
+    assert redeemed, (
+        f"the unspent token did not redeem after the fault cleared "
+        f"(under fault: {faulted.status_code} code={fault_code}): {cleared.text[:200]}"
+    )
+
+
+# --------------------------------------- replay-rejected (matrix: swap-replay-rejected-ladder)
+# A NUT-19-blind mint: the wallet's reconciliation replays the ORIGINAL swap
+# request (correct first move) and the mint rejects the replay with 11008
+# "duplicate outputs" (legacy 10002). The wallet must fall through the
+# ladder -- checkstate/restore of the SAME outputs -- and never derive a
+# fresh output range for the same operation.
+
+
+def test_swap_replay_rejected_ladder(lab_up, identities, client_mac):
+    scenario = "swap-replay-rejected-ladder"
+    mac = client_mac
+    wallet = _fund_wallet()
+    token = create_cashu_token(wallet, 100, PROXY_MINT_URL)
+    obs_before = _swap_counts(_observations())
+
+    _proxyctl({"rules": [
+        {"id": "drop-first-swap-response", "match_path": "/v1/swap", "match_method": "POST",
+         "action": "drop_response", "remaining": 1},
+        {"id": "reject-replayed-outputs", "match_path": "/v1/swap", "match_method": "POST",
+         "action": "status", "status_code": 400,
+         "body": {"code": 11008, "detail": "Outputs already signed"},
+         "remaining": 2},
+    ]})
+
+    resp = _pay(token, identities["tollgate_pub"], identities["customer"], mac, timeout=180)
+    resp_kind = _kind(resp)
+    settled = resp.status_code == 200 and resp_kind == 1022
+
+    _proxyctl({"clear": True})
+    for _ in range(10):
+        if _daemon_answers():
+            break
+        time.sleep(1)
+
+    # If the first attempt did not settle (the ambiguity held), the customer
+    # retry must resolve cleanly now: the ladder must have either recovered
+    # the original outputs or compensated with a provably fresh range.
+    if not settled:
+        resp = _pay(token, identities["tollgate_pub"], identities["customer"], mac)
+        resp_kind = _kind(resp)
+        settled = resp.status_code == 200 and resp_kind == 1022
+
+    grew = _phase_reuse(obs_before, _swap_counts(_observations()))
+    # The original B_ set may legitimately appear twice (drop + replay). A
+    # THIRD, previously-unseen set for the same operation is re-derivation
+    # only if the inputs were proven spent; at lane scope we flag any set
+    # sighted more than twice.
+    suspicious = {d: v for d, v in grew.items() if v["total"] > 2}
+
+    _write_verdict(
+        scenario,
+        {
+            "no-fund-loss": _inv("pending", PENDING_NOTE["no-fund-loss"]),
+            "no-output-reuse": _inv(
+                "pass" if not suspicious else "fail",
+                f"sets-over-two-sightings={suspicious} (two = drop+replay, legitimate; >two = fresh derivation)",
+            ),
+            "service-or-refund": _inv(
+                "pass" if settled else "fail",
+                f"final response {resp.status_code}/k{resp_kind}",
+            ),
+        },
+    )
+    assert settled, f"payment never settled through the rejection ladder: {resp.status_code} {resp.text[:200]}"

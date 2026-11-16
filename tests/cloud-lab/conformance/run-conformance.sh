@@ -35,6 +35,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 PROXY_HOST_URL="${PROXY_HOST_URL:-http://127.0.0.1:9090}"
+UPSTREAM_HOST_URL="${UPSTREAM_HOST_URL:-http://127.0.0.1:2121}"
 PROXY_MINT_URL="${PROXY_MINT_URL:-http://faultproxy:9090}"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -70,7 +71,8 @@ mkdir -p "$CONF_DIR/verdict-parts" "$CONF_DIR/evidence"
 python3 - "$PRTA_CONFORMANCE_DIR/matrix.yaml" <<'EOF'
 import sys, yaml
 fast = {"swap-timeout-retry", "duplicate-post-sequential", "duplicate-post-concurrent",
-        "mint-alias-spellings", "pay-kill-post-receive-pre-session"}
+        "mint-alias-spellings", "pay-kill-post-receive-pre-session",
+        "issuer-400-keyset-unknown", "swap-replay-rejected-ladder"}
 m = yaml.safe_load(open(sys.argv[1]))
 have = {s["id"] for s in m["scenarios"] if s.get("subset") == "fast"}
 missing = fast - have
@@ -171,13 +173,19 @@ done
 cat "$CONF_DIR/kill.json"
 
 docker start tg-upstream >/dev/null
-for _ in $(seq 1 30); do curl -sf http://127.0.0.1:2121/ >/dev/null && break; sleep 1; done
-curl -sf http://127.0.0.1:2121/ >/dev/null || { echo "conformance: upstream did not come back"; exit 1; }
+for _ in $(seq 1 30); do curl -sf "$UPSTREAM_HOST_URL/" >/dev/null && break; sleep 1; done
+curl -sf "$UPSTREAM_HOST_URL/" >/dev/null || { echo "conformance: upstream did not come back"; exit 1; }
 
 run_phase "kill_boundary_aftermath"
 
 echo "== phase: mint alias spellings"
 run_phase "mint_alias_spellings"
+
+echo "== phase: issuer 400 keyset-unknown (the #1222 refusal class)"
+run_phase "issuer_400_keyset_unknown"
+
+echo "== phase: swap replay rejected -> ladder (NUT-19-blind mint)"
+run_phase "swap_replay_rejected_ladder"
 
 echo "== host-side: wallet mint count via the CLI socket (alias fold)"
 docker exec tg-upstream sh -c \
@@ -190,7 +198,8 @@ conf = sys.argv[1]
 rows = [json.load(open(p)) for p in sorted(glob.glob(f"{conf}/verdict-parts/*.json"))]
 
 expected = {"swap-timeout-retry", "duplicate-post-sequential", "duplicate-post-concurrent",
-            "mint-alias-spellings", "pay-kill-post-receive-pre-session"}
+            "mint-alias-spellings", "pay-kill-post-receive-pre-session",
+            "issuer-400-keyset-unknown", "swap-replay-rejected-ladder"}
 seen = {r["scenario"] for r in rows}
 for missing in sorted(expected - seen):
     rows.append({"scenario": missing, "invariants": {},
