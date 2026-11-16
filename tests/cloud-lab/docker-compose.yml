@@ -25,6 +25,7 @@ services:
 
   mint:
     build:
+      network: host
       context: .
       dockerfile: Dockerfile.mint
     container_name: tg-mint
@@ -53,6 +54,7 @@ services:
 
   mint-fees:
     build:
+      network: host
       context: .
       dockerfile: Dockerfile.mint
     container_name: tg-mint-fees
@@ -95,6 +97,7 @@ services:
   # land on the very keyset phase 2 expires.
   mint-rotate:
     build:
+      network: host
       context: .
       dockerfile: Dockerfile.mint
     container_name: tg-mint-rotate
@@ -124,6 +127,7 @@ services:
 
   upstream:
     build:
+      network: host
       context: ../..
       dockerfile: tests/cloud-lab/Dockerfile.tollgate
       args:
@@ -146,7 +150,7 @@ services:
       - ./configs/install.json:/etc/tollgate/install.json
       - ./configs/dhcp.leases:/tmp/dhcp.leases
     ports:
-      - "2121:2121"
+      - "${TG_UPSTREAM_HOST_PORT:-2121}:2121"
     networks:
       tollgate-lab:
         ipv4_address: 172.28.0.10
@@ -164,6 +168,7 @@ services:
   # http://upstream-ext:2121 via UPSTREAM_URL.
   upstream-ext:
     build:
+      network: host
       context: ../..
       dockerfile: tests/cloud-lab/Dockerfile.tollgate
       args:
@@ -196,6 +201,7 @@ services:
 
   reseller:
     build:
+      network: host
       context: ../..
       dockerfile: tests/cloud-lab/Dockerfile.tollgate
       args:
@@ -223,6 +229,7 @@ services:
 
   client:
     build:
+      network: host
       context: .
       dockerfile: Dockerfile.client
     container_name: tg-client
@@ -249,6 +256,7 @@ services:
 
   upstream-bytes:
     build:
+      network: host
       context: ../..
       dockerfile: tests/cloud-lab/Dockerfile.tollgate
     container_name: tg-upstream-bytes
@@ -279,6 +287,7 @@ services:
   # dhcp.leases — keep them in sync if either IP changes.
   client-ns:
     build:
+      network: host
       context: .
       dockerfile: Dockerfile.client-ns
     container_name: tg-client-ns
