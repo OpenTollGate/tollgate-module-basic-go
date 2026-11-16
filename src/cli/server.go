@@ -120,6 +120,16 @@ func claimSocketLock(socketPath string) (*os.File, error) {
 func (s *CLIServer) Start() error {
 	socketPath := getSocketPath()
 
+	// AF_UNIX's sun_path is 108 bytes; at or over it, bind AND dial fail
+	// with a bare EINVAL that reads like an ownership problem ("cannot
+	// determine ownership of existing socket") while the path may not even
+	// exist. Fail with the actual cause instead (#1167/#1166: a test
+	// config dir under a long TMPDIR produced exactly-108-byte paths that
+	// flaked deterministically by random-suffix length).
+	if len(socketPath) >= 108 {
+		return fmt.Errorf("CLI socket path is %d bytes, at or over the AF_UNIX sun_path limit (108): %s — relocate the config dir to a shorter path (tests: set TOLLGATE_TEST_CONFIG_DIR)", len(socketPath), socketPath)
+	}
+
 	// A socket file can be leftover debris (crashed daemon) or the live
 	// surface of a RUNNING daemon. Removing it unconditionally — the old
 	// behavior — let a second daemon steal the CLI surface from a healthy
