@@ -89,6 +89,15 @@ func GetConfigSchema() []FieldSchema {
 			},
 		},
 		{
+			Name: "Wallet", JSONKey: "wallet", Type: "object",
+			Description: "Cashu wallet backend selection",
+			Required:    true, Editable: true,
+			Children: []FieldSchema{
+				{Name: "Backend", JSONKey: "backend", Type: "string", Description: "Wallet backend: default = in-process gonuts wallet; cdk = the cdk-walletd sidecar daemon (AF_UNIX)", Default: "default", Required: true, Editable: true, Enum: []string{"default", "cdk"}},
+				{Name: "Socket", JSONKey: "socket", Type: "string", Description: "AF_UNIX socket of the cdk-walletd sidecar (backend=cdk)", Default: "/var/run/cdk-walletd.sock", Required: true, Editable: true},
+			},
+		},
+		{
 			Name: "UpstreamDetector", JSONKey: "upstream_detector", Type: "object",
 			Description: "Upstream gateway detector configuration", Required: true, Editable: true,
 			Children: []FieldSchema{
@@ -186,6 +195,11 @@ func GetConfigSchema() []FieldSchema {
 			Description: "Which network may reach the administration surfaces (board :8090/:8443 and LuCI :8080/:443). br-private = the private SSID only; br-mgmt = the wired management bridge only; both = either (default, which changes nothing until br-mgmt exists); loopback-only = nothing off the router. The guest bridge is never in scope.",
 			Default:     "both", Required: true, Editable: true,
 			Enum: []string{"br-private", "br-mgmt", "both", "loopback-only"},
+		},
+		{
+			Name: "PaidBridge", JSONKey: "paid_bridge", Type: "string",
+			Description: "Bridge device that carries paid/captive clients (for example br-lan on the stock layout or br-tollgate on an isolated one). Published so management clients and the NDS fragment never hardcode a bridge name. Empty means derive it from the paid AP's network at install time; this is a device name, not a UCI network name.",
+			Default:     "", Required: false, Editable: true,
 		},
 		{
 			Name: "EntryUI", JSONKey: "entry_ui", Type: "string",

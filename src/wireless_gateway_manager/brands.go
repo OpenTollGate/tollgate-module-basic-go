@@ -1,65 +1,134 @@
 package wireless_gateway_manager
 
-import "strings"
+import (
+	"os"
+	"regexp"
+	"strings"
+)
 
-// The SSID recognition set: who counts as a TollGate.
+// Captive-SSID recognition.
 //
-// The captive SSID carries the brand's prefix, and the first-boot writer
-// (99-tollgate-setup load_brand) plus the installer's brandingCommands can
-// emit two of them: the default `TollGate-…` and the whitelabel re-brand's
-// equivalent prefix. A whitelabel-branded TollGate is a valid upstream in
-// reseller mode, so recognition must match every prefix the writer can
-// emit — case-insensitively, because the pre-device-code installer wrote
-// lowercase `tollgate-<code>` captive SSIDs and those routers are still in
-// the fleet (docs/architecture/one-device-code.md, "The measured drift").
-// The definitive brand-independent identification remains the vendor IE
-// (vendor_element_manager), staged behind VendorIEDiscovery.
+// The prefix is a ZERO-DEPENDENCY FALLBACK: it decides which AP is worth the
+// signed kind-10021 probe on :2121, and nothing more. The probe remains the
+// authority; a spoofed prefix only costs one failed probe.
 //
-// whitelabelCaptivePrefix is assembled, never spelled: upstream source must
-// not carry the re-brand's name as a contiguous literal — the rebrand gutter
-// (tests/packaging/rebrand-literal-gutter_test.sh) scans code surfaces
-// case-insensitively for exactly that (#722). This is the same
-// non-contiguous-bytes trick the gutter itself uses to carry its own scan
-// pattern. The name's legitimate homes are the SSID contract checker
-// (tests/contract/check-ssid-format.sh) and the decision records under
-// docs/. brands_test.go pins the assembled value against an independent
-// construction, so an assembly typo fails a test instead of silently
-// dropping a whole brand from upstream recognition.
-const whitelabelCaptivePrefix = "Net4" + "sats" + "-"
+// The set is no longer compiled in. A router always recognises `TollGate-`
+// (the protocol default), its own brand from `/etc/tollgate/brand`, and any
+// extra prefixes an operator or downstream skin puts in
+// `/etc/tollgate/ssid-prefixes` (one per line). A custom skin therefore adds
+// its name by writing a file, without a PR to this repository.
+const (
+	// defaultCaptivePrefix is always recognised, even with no brand file and
+	// no extra-prefix file. It is the name every existing TollGate router
+	// carries and every third-party matcher knows.
+	defaultCaptivePrefix = "TollGate"
 
-// tollGateBrandPrefixes is every captive-SSID prefix the first-boot writer
-// can emit. Mirrored by the shell side's load_brand table (99-tollgate-setup)
-// and pinned by tests/contract/check-ssid-format.sh; keep the three in
-// agreement.
-var tollGateBrandPrefixes = []string{"TollGate-", whitelabelCaptivePrefix}
+	// ssidDecoration is the optional leading '!' the captive-SSID writer may
+	// emit (#706: 0x21 sorts before digits and letters). It is PRESENTATION
+	// ONLY: recognition strips at most ONE, so `!!TollGate-…` is not a
+	// TollGate name.
+	ssidDecoration = "!"
 
-// ssidDecoration is the optional leading '!' the captive-SSID writer may emit
-// (#706: the guest SSID sorts first in alphabetically-ordered client lists; '!'
-// is 0x21, before digits and letters). It is PRESENTATION ONLY, never part of
-// the discovery contract: the bare TollGate-<code> form is what already-deployed
-// routers and third-party clients carry, and both forms identify the same
-// gateway. It is decoration, never a new brand prefix: recognition strips at
-// most ONE occurrence, so a double '!!TollGate-…' is explicitly not a TollGate
-// name (a fixture class, not an accident).
-//
-// The name is pinned: tests/contract/check-ssid-naming.sh asserts this literal
-// is present, so do not rename it without moving that fence too.
-const ssidDecoration = "!"
+	// brandFile is written by the package/installer. TOLLGATE_BRAND_FILE is
+	// the test/portable override.
+	brandFile = "/etc/tollgate/brand"
 
-// hasTollGateSSID reports whether ssid starts with any brand prefix the
-// captive-SSID writer can emit, case-insensitively, with at most one leading
-// '!' decoration stripped first. It is the single Go reader of the SSID
-// discovery contract (reseller-mode upstream selection, the vendor-element
-// score heuristic); the shell side's equivalent strips the same decoration via
-// strip_ssid_decoration in 99-tollgate-setup. The acceptance table both this
-// helper and the contract check run against is pinned in
-// tests/contract/ssid-naming-fixtures.txt (#618: the matcher was once
-// brand-blind; #706: the decoration arrived) — keep table and prefixes in
-// agreement.
+	// prefixFile carries extra prefixes (one per line, `#` comments). It is
+	// deliberately plain text: the shell side (99-tollgate-setup) reads the
+	// same file, and a router cannot be assumed to have a JSON parser.
+	prefixFile = "/etc/tollgate/ssid-prefixes"
+)
+
+// brandToken is the local brand, lowercased, or "" for the default. The file
+// is a single alphanumeric token; an unreadable/invalid file means "default",
+// never an error.
+func brandToken() string {
+	path := strings.TrimSpace(os.Getenv("TOLLGATE_BRAND_FILE"))
+	if path == "" {
+		path = brandFile
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	token := strings.ToLower(strings.TrimSpace(string(data)))
+	if !brandTokenRe.MatchString(token) || token == "tollgate" {
+		return ""
+	}
+	return token
+}
+
+var brandTokenRe = regexp.MustCompile(`^[a-z0-9]+$`)
+
+// ssidPrefixRe bounds an extra prefix. Hyphens are excluded because the
+// device code is separated by a hyphen; a prefix with one would make the
+// `<prefix>-<code>` split ambiguous. 3..32 chars keeps a typo from matching
+// half the neighbourhood.
+var ssidPrefixRe = regexp.MustCompile(`^[A-Za-z0-9_]{3,32}$`)
+
+// ssidPrefixes returns the effective recognition set, in precedence order:
+// the default, the local brand, then the operator's extra file.
+func ssidPrefixes() []string {
+	out := []string{defaultCaptivePrefix}
+	if brand := brandToken(); brand != "" {
+		out = append(out, brand)
+	}
+	out = append(out, readSSIDPrefixFile()...)
+	return dedupeFold(out)
+}
+
+// readSSIDPrefixFile parses the optional extra-prefix file. Invalid lines are
+// ignored: a bad file must never break discovery.
+func readSSIDPrefixFile() []string {
+	path := strings.TrimSpace(os.Getenv("TOLLGATE_SSID_PREFIXES_FILE"))
+	if path == "" {
+		path = prefixFile
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, ssidDecoration))
+		line = strings.TrimSuffix(line, "-")
+		if !ssidPrefixRe.MatchString(line) {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// dedupeFold removes case-insensitive duplicates while preserving order.
+func dedupeFold(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		key := strings.ToLower(v)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+// hasTollGateSSID reports whether ssid starts with a recognised captive
+// prefix, case-insensitively, with at most one leading '!' stripped. It is
+// the single Go reader of the selection contract (reseller-mode upstream
+// selection and the vendor-element score heuristic); the shell side's
+// code_from_name reads the same files.
 func hasTollGateSSID(ssid string) bool {
 	name := strings.TrimPrefix(ssid, ssidDecoration)
-	for _, prefix := range tollGateBrandPrefixes {
-		if len(name) >= len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) {
+	for _, prefix := range ssidPrefixes() {
+		candidate := prefix + "-"
+		if len(name) >= len(candidate) && strings.EqualFold(name[:len(candidate)], candidate) {
 			return true
 		}
 	}

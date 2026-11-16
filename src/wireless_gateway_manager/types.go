@@ -13,6 +13,9 @@ type STASection struct {
 }
 
 type UpstreamManagerConfig struct {
+	// PortalLoginWindow bounds one manual venue-login opportunity. Internal only;
+	// zero/negative construction values use the production default.
+	PortalLoginWindow      time.Duration
 	ScanInterval           time.Duration
 	FastCheck              time.Duration
 	LostThreshold          int

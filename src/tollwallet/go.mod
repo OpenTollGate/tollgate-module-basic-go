@@ -3,13 +3,14 @@ module github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet
 go 1.26.0
 
 require (
-	github.com/OpenTollGate/gonuts-tollgate v0.14.1
+	github.com/OpenTollGate/gonuts-tollgate v0.17.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.12.1
 )
 
 require (
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
@@ -44,12 +45,12 @@ require (
 	github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd // indirect
 	github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792 // indirect
 	github.com/btcsuite/winsvc v1.0.0 // indirect
-	github.com/cashubtc/cdk-go v0.17.3
+	github.com/cashubtc/cdk-go v0.18.3
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 	github.com/decred/dcrd/lru v1.1.3 // indirect
-	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.8.0
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/jessevdk/go-flags v1.6.1 // indirect

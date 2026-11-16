@@ -58,7 +58,7 @@ All upstream Wi-Fi settings are surfaced in `/etc/tollgate/config.json` under th
 | `emergency_penalty` | 20 | Penalty applied to TollGate SSIDs during emergency scans |
 | `max_consecutive_failures` | 3 | Switch failures before circuit breaker cooldown |
 | `switch_cooldown_minutes` | 10 | Circuit breaker cooldown duration |
-| `startup_grace_seconds` | 90 | Skip connectivity checks at startup |
+| `startup_grace_seconds` | 90 | Defer automatic scans and switches at startup; active login windows keep checking |
 | `post_switch_wait_seconds` | 5 | Wait after switch before verifying connectivity |
 | `dhcp_timeout_seconds` | 180 | Timeout for DHCP after switching upstream |
 | `manual_pause_seconds` | 120 | Pause duration after manual CLI connect |
@@ -83,6 +83,44 @@ When `reseller_mode` is enabled in config, the daemon automatically discovers an
 The scan also carries the peer metadata from the TollGate vendor IE: reseller capability, internet advertised, open network, mint URL and pubkey. `upstream status` exposes the live session's allotment, usage, spend, price, mint and bootstrap phase to the admin Peering page.
 
 `upstream disconnect` is the explicit "stop peering" verb. It selects the best known, non-blacklisted, non-TollGate upstream, switches to it, verifies connectivity, and only reports success when that check passes. If every fallback fails, it restores the peer and returns an error instead of leaving the router offline.
+
+## Recovery after internet loss
+
+Emergency scans can try a known saved upstream even when its signal is weaker than the active connection. Signal hysteresis still applies to routine optimization. Candidate filtering, BSSID blacklists, reseller policy and the circuit breaker remain in force; an unknown private network is never enrolled automatically.
+
+After a handover, the existing layered connectivity probe retries failures over a 30-second convergence window, using `post_switch_wait_seconds` between attempts. An in-flight probe keeps its own timeout and can finish after that window. A later handover or manual join supersedes the old verification, so it cannot blacklist the new connection or publish stale connectivity metadata.
+
+Manual plain/streaming joins acquire an explicit writer lease before enabling radios and hold it through scanning, STA creation and the full DHCP wait, even when that operation exceeds `manual_pause_seconds`. Remove and stop-peering fallback use the same lease. Concurrent manual writers serialize. Automatic switch decisions recheck pause and generation while holding that lease through the connector call; startup nudges, candidate creation, radio enabling and cleanup also decline without queueing when it is busy. A completed manual operation invalidates scans and connectivity observations from before it. Declined work does not count as a failed connection or trigger cooldown. The existing timed pause is retained after a join. A successful manual join clears the failure entry for the selected SSID/BSSID only.
+
+`BeginManualOperation`/`EndManualOperation` remain nested pause-only scopes; they do not grant writer ownership. Radio-mutating callers use `BeginManualWriter` and defer its `End`. The lease coordinates this manager and its CLI handlers, not external root/UCI writers. `LoopTicks` reports loop progress without using a radio mutation as a heartbeat. These source-level concurrency tests do not qualify RF, DHCP handover or deployed-router recovery; those remain PRTA/physical acceptance gates.
+
+## Venue portal login window
+
+An associated venue Wi-Fi uplink that returns an unexpected HTTP probe response
+gets one two-minute opportunity for manual portal login. Startup, periodic checks
+and post-switch verification share the same deadline. Repeated captive responses,
+newly learned BSSIDs and transient route/DNS/HTTP errors do not extend it. During
+that window the manager keeps probing, including during startup grace, and declines
+automatic radio nudges, cleanup, scanning, switching and failure blacklisting.
+The uplink is still reported unhealthy until the Internet probe actually succeeds.
+
+Verified Internet access clears the window and the loop's loss count. Losing the
+association resumes ordinary recovery immediately. Manual joins, disconnect and
+stop-peering retain priority; a new connection generation invalidates old callbacks.
+The existing TollGate gateway-recognition exemption remains in place.
+
+At expiry the manager requests a saved-network-only fallback, even in reseller
+mode and even if the alternative has a weaker signal. It does not enroll unknown
+TollGates from this timeout or force a disconnect when no saved alternative exists.
+Startup grace, manual pauses, cooldown, the next control tick and candidate
+availability may defer the actual handover beyond two minutes. Structured logs
+report window start, successful Internet verification, expiry and deferred fallback.
+
+An unexpected HTTP response is only suspected captivity: a false positive can cause
+one bounded delay. This adds no portal credential storage, automatic login,
+frontend or public configuration field. The internal `PortalLoginWindow` constructor
+override uses two minutes for zero or negative values. Router/venue behavior still
+requires artifact-bound PRTA acceptance; source tests alone do not qualify it.
 
 ## Circuit Breaker
 

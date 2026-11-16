@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"sync"
@@ -172,13 +173,23 @@ func (tp *tollGateProber) performRequestWithContext(ctx context.Context, url str
 		return nil, fmt.Errorf("HTTP request returned status %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	// Check content type (optional, but good practice)
+	// Check content type (optional, but good practice).
+	//
+	// Compare the media type, not the whole header: `application/json;
+	// charset=utf-8` is a spec-valid spelling of the same media type that
+	// net/http itself emits, and a whole-string compare warned on it — the
+	// warning says a working upstream is not a TollGate (#628). Parsing also
+	// keeps a genuinely unexpected type (text/html from a captive portal)
+	// and an unparseable header warning, so the check still means something.
 	contentType := resp.Header.Get("Content-Type")
-	if contentType != "" && contentType != "application/json" {
-		logger.WithFields(logrus.Fields{
-			"url":          url,
-			"content_type": contentType,
-		}).Warn("Gateway returned unexpected content type")
+	if contentType != "" {
+		mediaType, _, parseErr := mime.ParseMediaType(contentType)
+		if parseErr != nil || mediaType != "application/json" {
+			logger.WithFields(logrus.Fields{
+				"url":          url,
+				"content_type": contentType,
+			}).Warn("Gateway returned unexpected content type")
+		}
 	}
 
 	// Read response body
