@@ -71,10 +71,11 @@ func (um *UpstreamManager) switchAutomatically(generation uint64, active string,
 		return 0, errOperationBusy
 	}
 	defer um.writerMu.Unlock()
-	if um.isPaused() || um.connectionGeneration.Load() != generation {
+	if um.isPaused() || um.connectionGeneration.Load() != generation || um.portalLoginDisposition(generation) == portalHold {
 		return 0, errSupersededOperation
 	}
 	current := um.connectionGeneration.Add(1)
+	um.isTollGateConnection.Store(false)
 	return current, um.connector.SwitchUpstream(active, candidate.IfaceName, candidate.SSID, candidate.BSSID)
 }
 
@@ -89,7 +90,7 @@ func (um *UpstreamManager) tryOperation(action func()) bool {
 	defer um.writerMu.Unlock()
 	// A manual join may have ended since this tick observed its state,
 	// while its post-connect pause window still protects radio churn.
-	if um.isPaused() {
+	if um.isPaused() || um.portalLoginDisposition(um.connectionGeneration.Load()) == portalHold {
 		return false
 	}
 	action()
@@ -105,7 +106,7 @@ func (um *UpstreamManager) maintainAutomatically(action func()) {
 		return
 	}
 	defer um.writerMu.Unlock()
-	if !um.isPaused() {
+	if !um.isPaused() && um.portalLoginDisposition(um.connectionGeneration.Load()) != portalHold {
 		action()
 	}
 }
@@ -117,7 +118,7 @@ func (um *UpstreamManager) applyAutomaticResult(generation uint64, action func()
 		return false
 	}
 	defer um.writerMu.Unlock()
-	if um.isPaused() || um.connectionGeneration.Load() != generation {
+	if um.isPaused() || um.connectionGeneration.Load() != generation || um.portalLoginDisposition(generation) == portalHold {
 		return false
 	}
 	action()
@@ -149,8 +150,12 @@ func (um *UpstreamManager) findCandidatesForGeneration(generation uint64, networ
 		return nil, errOperationBusy
 	}
 	defer um.writerMu.Unlock()
-	if um.isPaused() || um.connectionGeneration.Load() != generation {
+	if um.isPaused() || um.connectionGeneration.Load() != generation || um.portalLoginDisposition(generation) == portalHold {
 		return nil, errSupersededOperation
+	}
+	if um.portalLoginDisposition(generation) == portalFallback {
+		// This lane must never enroll an unknown TollGate, even in reseller mode.
+		return um.findKnownCandidates(networks)
 	}
 	return um.findCandidates(networks, reseller, emergency)
 }
