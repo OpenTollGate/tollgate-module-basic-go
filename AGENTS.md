@@ -576,7 +576,7 @@ get wrong:
 
   It runs `gofmt` (must print nothing), `go vet`, `go build` and
   `go test -race -count=1 -tags testenv` in **every** Go module —
-  [src/](src/) is a multi-module tree (18 nested `go.mod` files), so
+  [src/](src/) is a multi-module tree (19 nested `go.mod` files), so
   running those commands from `src/` alone covers only the root module
   and silently skips all subpackages. One implementation:
   [scripts/go-battery.sh](scripts/go-battery.sh).

@@ -1,0 +1,61 @@
+# docker-compose.cdk-kp-backend.yml — the CDK lane's issuer-fault routing
+# (LEG F on backend=cdk; the both-backend conformance claim for the
+# #1222 refusal class, mirroring LEG D's gonuts/cdk duality).
+#
+# Stacks ON TOP of docker-compose.cdk-backend.yml: the module keeps the
+# cdk sidecar (wallet.backend=cdk, unix socket); its accepted mint #1 is
+# re-pointed at the in-network killproxy, so the SIDECAST's mint traffic
+# (swap, checkstate, restore) flows through the fault injector — the
+# same interception point the gonuts lane uses, one layer deeper
+# (module→walletd→kp→mint instead of module→kp→mint).
+services:
+
+  killproxy:
+    image: python:3.12-alpine
+    container_name: tg-killproxy
+    depends_on:
+      mint:
+        condition: service_healthy
+    volumes:
+      - ./killproxy.py:/killproxy.py:ro
+      - ./kp-state:/tmp
+    entrypoint: ["python3", "/killproxy.py", "33390", "http://mint:8085", "/v1/swap", "/tmp/kp.marker", "/tmp/kp.arm"]
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.40
+        aliases:
+          - kp
+
+  mint:
+    build:
+      network: host
+    environment:
+      - RUST_LOG=info,tower_http=debug
+
+  # The sidecar's mint must be the PROXY (the base entrypoint hardcodes
+  # the direct mint; LEG F's fault must sit in the walletd->mint leg).
+  cdk-walletd:
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p /run/walletd /data
+        exec /walletd/cdk-walletd \
+          --socket /run/walletd/w.sock \
+          --work-dir /data \
+          --mint http://kp:33390 \
+          --mnemonic-file /data/seed.txt
+
+  upstream-cdk:
+    depends_on:
+      mint:
+        condition: service_healthy
+      cdk-walletd:
+        condition: service_healthy
+      killproxy:
+        condition: service_started
+    volumes: !override
+      - ./configs/upstream-cdk-kp-config.json:/etc/tollgate/config.json
+      - ./configs/install.json:/etc/tollgate/install.json
+      - ./configs/dhcp.leases:/tmp/dhcp.leases
+      - ./walletd-socket:/var/run/cdk-walletd
