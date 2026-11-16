@@ -1,0 +1,1 @@
+- **Host doctrine: destructive docker ops are label-scoped on ai-legion** — a guard wrapper refuses rm/stop/kill on unlabeled containers (conwrt-bench ADR-0009), lanes self-label, and port collisions are solved by parameterizing the lane's publish, never by removing the incumbent service ([#1236](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1236))
