@@ -96,8 +96,9 @@ type UpstreamNetwork struct {
 }
 
 type UpstreamSTA struct {
-	SSID       string `json:"ssid"`
-	Status     string `json:"status"`
-	Radio      string `json:"radio"`
-	Encryption string `json:"encryption"`
+	CanReconnect bool   `json:"can_reconnect"`
+	SSID         string `json:"ssid"`
+	Status       string `json:"status"`
+	Radio        string `json:"radio"`
+	Encryption   string `json:"encryption"`
 }

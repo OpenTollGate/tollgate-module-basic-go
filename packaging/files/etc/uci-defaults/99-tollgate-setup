@@ -469,11 +469,12 @@ setup_marker_decision() {
 # from the value — a nine-character brand collapsed to a four-character
 # fragment and coerced to the default.
 load_brand() {
+    local brand_file="${TOLLGATE_BRAND_FILE:-/etc/tollgate/brand}"
     # [ -r ] guard, not redirection with 2>/dev/null: BusyBox ash prints
     # "can't open …" for the failed redirect itself before the null-stderr
     # of the command applies (seen live in the alpha4-pre15 postinst).
     BRAND=""
-    [ -r /etc/tollgate/brand ] && read -r BRAND < /etc/tollgate/brand
+    [ -r "$brand_file" ] && read -r BRAND < "$brand_file"
     case "$BRAND" in
         # A brand reaches a hostname and an SSID: one alphanumeric token only.
         # Anything else — an empty file, stray whitespace, punctuation — is not
@@ -502,11 +503,12 @@ load_brand() {
 # behave exactly like the default build.
 brand_token() {
     local brand="${BRAND:-}"
+    local brand_file="${TOLLGATE_BRAND_FILE:-/etc/tollgate/brand}"
     if [ -z "$brand" ]; then
         # [ -r ] guard, see load_brand above: a failed redirect is reported by
         # the shell itself, before the command's `2>/dev/null` can apply.
         brand=""
-        [ -r /etc/tollgate/brand ] && read -r brand < /etc/tollgate/brand
+        [ -r "$brand_file" ] && read -r brand < "$brand_file"
     fi
     brand=$(printf '%s' "$brand" | tr 'A-Z' 'a-z')
     case "$brand" in
@@ -646,14 +648,42 @@ strip_ssid_decoration() {
 # the prefix compare sees '!tollgate' here, this returns nothing, and the chain
 # falls through to mint_device_code() — a SECOND code over a router whose
 # hostname and SSID still carry the first one (docs/architecture/one-device-code.md).
+# ssid_prefix_known returns 0 when the prefix appears in the operator's extra
+# file. The default `tollgate` and the local brand are checked by the caller;
+# this file is how a downstream skin adds its own name without a source change.
+# Format: one prefix per line, `#` comments and blanks ignored.
+ssid_prefix_known() {
+    local want file line
+    want=$(printf '%s' "$1" | tr 'A-Z' 'a-z')
+    file="${TOLLGATE_SSID_PREFIXES_FILE:-/etc/tollgate/ssid-prefixes}"
+    [ -r "$file" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Trim boundaries only: internal whitespace is invalid, not a new prefix.
+        line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        case "$line" in ''|'#'*) continue ;; esac
+        line=${line#\!}
+        # Match the Go reader's ordering: trim after decoration, before suffix.
+        line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        line=${line%-}
+        case "$line" in
+            ''|*[!A-Za-z0-9_]*) continue ;;
+        esac
+        [ ${#line} -ge 3 ] && [ ${#line} -le 32 ] || continue
+        line=$(printf '%s' "$line" | tr 'A-Z' 'a-z')
+        [ "$line" = "$want" ] && return 0
+    done < "$file"
+    return 1
+}
+
 code_from_name() {
     local name prefix suffix brand
     name=$(strip_ssid_decoration "$1")
     prefix=$(printf '%s' "${name%%-*}" | tr 'A-Z' 'a-z')
     suffix=${name#*-}
     brand=$(brand_token)
-    [ "$prefix" = "tollgate" ] || [ "$prefix" = "$brand" ] || return 0
-    normalize_device_code "$suffix"
+    if [ "$prefix" = "tollgate" ] || [ "$prefix" = "$brand" ] || ssid_prefix_known "$prefix"; then
+        normalize_device_code "$suffix"
+    fi
 }
 
 # Is this SSID suffix the shape a machine minted? Four characters, or digits
@@ -948,7 +978,31 @@ setup_uhttpd_portal() {
     uci -q delete uhttpd.portal.listen_http
     uci add_list uhttpd.portal.listen_http='0.0.0.0:2051'
     uci add_list uhttpd.portal.listen_http='[::]:2051'
-    uci set uhttpd.portal.home='/etc/tollgate/tollgate-captive-portal-site'
+    # The guest docroot is the one brand-derived path that used to be a
+    # literal (#1122): a re-brand shipping its own portal under
+    # /etc/tollgate/<brand>-captive-portal-site had it silently overwritten
+    # on first boot. Existence-guarded so an unbranded install is
+    # byte-identical to before; BRAND is loaded and coerced to one
+    # alphanumeric token by load_brand before this runs. TOLLGATE_PORTAL_ETC
+    # is the offline-test seam; production defaults to /etc/tollgate.
+    portal_etc="${TOLLGATE_PORTAL_ETC:-/etc/tollgate}"
+    portal_home="$portal_etc/tollgate-captive-portal-site"
+    if [ -n "${BRAND:-}" ] && [ "$BRAND" != tollgate ]; then
+        # brand_token is the machine-name spelling (lowercased) the file's
+        # own convention gives directory names; probe it first, then the
+        # raw token, so a case-mismatched re-brand does not silently fall
+        # back to the stock portal — the #1122 symptom resurfacing via case.
+        local bt; bt=$(brand_token)
+        if [ -d "$portal_etc/${bt}-captive-portal-site" ]; then
+            portal_home="$portal_etc/${bt}-captive-portal-site"
+        elif [ -d "$portal_etc/${BRAND}-captive-portal-site" ]; then
+            portal_home="$portal_etc/${BRAND}-captive-portal-site"
+        fi
+        if [ "$portal_home" != "$portal_etc/tollgate-captive-portal-site" ]; then
+            log "brand portal docroot: ${portal_home} (brand=${BRAND})"
+        fi
+    fi
+    uci set uhttpd.portal.home="$portal_home"
     uci set uhttpd.portal.rfc1918_filter='0'
     # The SPA ships no index.html — without this, / would serve a file
     # inventory to pre-auth clients.

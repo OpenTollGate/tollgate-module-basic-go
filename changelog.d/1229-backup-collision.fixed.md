@@ -1,0 +1,1 @@
+- **Preserve corruption backups created in the same second:** nanosecond names and an exclusive path reservation prevent a later backup from silently overwriting an earlier one for the same code version ([#1229](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1229))
