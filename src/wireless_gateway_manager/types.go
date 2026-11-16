@@ -13,6 +13,9 @@ type STASection struct {
 }
 
 type UpstreamManagerConfig struct {
+	// PortalLoginWindow bounds one manual venue-login opportunity. Internal only;
+	// zero/negative construction values use the production default.
+	PortalLoginWindow      time.Duration
 	ScanInterval           time.Duration
 	FastCheck              time.Duration
 	LostThreshold          int
@@ -89,6 +92,14 @@ type NetworkInfo struct {
 	Radio                  string
 	Band                   string // "2g"/"5g", or "unknown" when no band info exists
 	IsTollGate             bool
+	// Peer metadata from the TollGate vendor IE. These are unsigned hints used
+	// to present a peering choice; the signed kind-10021 advertisement remains
+	// authoritative for pricing and payment.
+	IsReseller  bool
+	HasInternet bool
+	OpenNetwork bool
+	MintURL     string
+	Pubkey      []byte
 }
 
 type TollGateAdvertisement struct {

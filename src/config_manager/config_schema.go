@@ -28,7 +28,7 @@ func GetConfigSchema() []FieldSchema {
 	return []FieldSchema{
 		{
 			Name: "ConfigVersion", JSONKey: "config_version", Type: "string",
-			Description: "Configuration file version", Default: "v0.0.10", Required: true, Editable: false,
+			Description: "Configuration file version", Default: "v0.0.11", Required: true, Editable: false,
 		},
 		{
 			Name: "LogLevel", JSONKey: "log_level", Type: "string",
@@ -55,7 +55,7 @@ func GetConfigSchema() []FieldSchema {
 		},
 		{
 			Name: "ResellerMode", JSONKey: "reseller_mode", Type: "bool",
-			Description: "Enable reseller mode for upstream gateway discovery", Default: false, Required: true, Editable: true,
+			Description: "Buy upstream access from a peer and resell it to customers (reseller mode). On by default; turn it off to opt out.", Default: true, Required: true, Editable: true,
 		},
 		{
 			Name: "AuthDelaySeconds", JSONKey: "auth_delay_seconds", Type: "int",
@@ -76,6 +76,7 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "MinPayoutAmount", JSONKey: "min_payout_amount", Type: "uint64", Description: "Minimum payout amount in sats", Default: uint64(128), Required: true, Editable: true},
 				{Name: "PricePerStep", JSONKey: "price_per_step", Type: "uint64", Description: "Price per step in sats", Default: uint64(1), Required: true, Editable: true, Min: uint64(1)},
 				{Name: "PriceUnit", JSONKey: "price_unit", Type: "string", Description: "Price unit", Default: "sat", Required: true, Editable: true},
+				{Name: "Unit", JSONKey: "unit", Type: "string", Description: "Currency unit this mint issues as it declares it on the wire (\"sat\", \"msat\", \"usd\", or an operator-issued custom unit such as \"mb\"/\"min\"). Empty means sat. A token in any other unit is refused rather than mispriced, so this must match the mint's actual keyset unit.", Default: "", Required: false, Editable: true},
 				{Name: "MinPurchaseSteps", JSONKey: "purchase_min_steps", Type: "uint64", Description: "Minimum number of steps per purchase (clients reject min_steps=0; the parser also floors absent/0 to 1 for legacy configs)", Default: uint64(1), Required: true, Editable: true, Min: uint64(1)},
 			},
 		},
@@ -85,6 +86,15 @@ func GetConfigSchema() []FieldSchema {
 			Children: []FieldSchema{
 				{Name: "Factor", JSONKey: "factor", Type: "float64", Description: "Share ratio (0.0\u20131.0). All factors MUST sum to 1.0. Use 0.79 not 79\u2014this is a ratio, not a percentage.", Required: true, Editable: true, Min: 0.0, Max: 1.0},
 				{Name: "Identity", JSONKey: "identity", Type: "string", Description: "Identity name from identities.json", Required: true, Editable: true},
+			},
+		},
+		{
+			Name: "Wallet", JSONKey: "wallet", Type: "object",
+			Description: "Cashu wallet backend selection",
+			Required:    true, Editable: true,
+			Children: []FieldSchema{
+				{Name: "Backend", JSONKey: "backend", Type: "string", Description: "Wallet backend: default = in-process gonuts wallet; cdk = the cdk-walletd sidecar daemon (AF_UNIX)", Default: "default", Required: true, Editable: true, Enum: []string{"default", "cdk"}},
+				{Name: "Socket", JSONKey: "socket", Type: "string", Description: "AF_UNIX socket of the cdk-walletd sidecar (backend=cdk)", Default: "/var/run/cdk-walletd.sock", Required: true, Editable: true},
 			},
 		},
 		{
@@ -148,8 +158,20 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "PostSwitchWaitSeconds", JSONKey: "post_switch_wait_seconds", Type: "int", Description: "Seconds to wait after a switch before scoring", Default: 5, Required: true, Editable: true, Min: 1, Max: 60},
 				{Name: "DHCPTimeoutSeconds", JSONKey: "dhcp_timeout_seconds", Type: "int", Description: "Timeout for DHCP after connecting to a network", Default: 180, Required: true, Editable: true, Min: 10, Max: 600},
 				{Name: "ManualPauseSeconds", JSONKey: "manual_pause_seconds", Type: "int", Description: "Seconds to pause scanning after manual intervention", Default: 120, Required: true, Editable: true, Min: 10, Max: 600},
-				{Name: "VendorIEDiscovery", JSONKey: "vendor_ie_discovery", Type: "bool", Description: "Enable 802.11 vendor-specific IE for TollGate router-to-router discovery", Default: false, Required: false, Editable: true},
+				{Name: "VendorIEDiscovery", JSONKey: "vendor_ie_discovery", Type: "bool", Description: "Discover nearby TollGate peers through the 802.11 vendor IE. On by default; turn it off to opt out.", Default: true, Required: false, Editable: true},
 			},
+		},
+		{
+			Name: "SSIDSuffix", JSONKey: "ssid_suffix", Type: "string",
+			Description: "Suffix appended to both the guest (!<brand>-<suffix>) and private (Private-<operator>-<suffix>) SSIDs. Empty uses the router's stored four-character device code, which is the default and keeps the suffix stable across reinstalls. A custom value renames both networks and disconnects current clients; it does not change the hostname or TLS identity.",
+			Default:     "", Required: false, Editable: true,
+			MaxLength: 12,
+		},
+		{
+			Name: "PrivateSSIDOperator", JSONKey: "private_ssid_operator", Type: "string",
+			Description: "Operator token in the private SSID (Private-<operator>-<suffix>). Empty keeps the stored operator token; the default is c08r4d0r (leetspeak for cobrador, Spanish for the person who collects the toll). A brand build can set this default, and an operator can override it here. Changing it renames the private network only.",
+			Default:     "", Required: false, Editable: true,
+			MaxLength: 32,
 		},
 		{
 			Name: "PrivateSSID", JSONKey: "private_ssid", Type: "string",
@@ -173,6 +195,11 @@ func GetConfigSchema() []FieldSchema {
 			Description: "Which network may reach the administration surfaces (board :8090/:8443 and LuCI :8080/:443). br-private = the private SSID only; br-mgmt = the wired management bridge only; both = either (default, which changes nothing until br-mgmt exists); loopback-only = nothing off the router. The guest bridge is never in scope.",
 			Default:     "both", Required: true, Editable: true,
 			Enum: []string{"br-private", "br-mgmt", "both", "loopback-only"},
+		},
+		{
+			Name: "PaidBridge", JSONKey: "paid_bridge", Type: "string",
+			Description: "Bridge device that carries paid/captive clients (for example br-lan on the stock layout or br-tollgate on an isolated one). Published so management clients and the NDS fragment never hardcode a bridge name. Empty means derive it from the paid AP's network at install time; this is a device name, not a UCI network name.",
+			Default:     "", Required: false, Editable: true,
 		},
 		{
 			Name: "EntryUI", JSONKey: "entry_ui", Type: "string",
