@@ -235,7 +235,7 @@ type receiveResult struct {
 // make the reference the customer quotes answerable today, because the operator
 // cannot tell a late success (the mint took the note) from a late failure (it
 // did not) without it.
-func (m *Merchant) recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, macAddress, reference string, tokenAmount uint64) {
+func (m *Merchant) recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, macAddress, reference string, tokenAmount uint64, tokenUnit string) {
 	res := <-ch
 	if res.err != nil {
 		// An error is not a refusal. A `Receive` that answers after the deadline
@@ -266,7 +266,7 @@ func (m *Merchant) recordLateReceiveOutcome(ch <-chan receiveResult, mintURL, ma
 	// over-grant by the swap fee, noted in the journal record.
 	log.Printf("PurchaseSession: late Receive COMPLETED for mint=%s mac=%s reference=%s amount=%d — recording the owed entitlement",
 		mintURL, macAddress, reference, res.amount)
-	allotment, allotErr := m.calculateAllotment(tokenAmount, mintURL)
+	allotment, allotErr := m.calculateAllotmentForUnit(tokenAmount, tokenUnit, mintURL)
 	if allotErr != nil {
 		log.Printf("ReceiveIntent: late success for reference %s could not be priced (%v) — reconciler will retry", reference, allotErr)
 		return
@@ -363,13 +363,23 @@ type MerchantInterface interface {
 	SetOnReachableSetChanged(callback func())
 	IssueSessionTicket(macAddress string) (string, int64, error)
 	RebindSession(ticket, macAddress string) (*CustomerSession, error)
+	// IssueOnRequest issues custom-unit ecash from an operator mint to hand to
+	// a customer, who holds it and spends it in small transactions.
+	IssueOnRequest(mintURL, unit string, amount uint64) (string, error)
+	// DefaultIssuanceMint returns the configured mint issuing a unit, or "".
+	DefaultIssuanceMint(unit string) string
 }
 
 // Merchant represents the financial decision maker for the tollgate
 type Merchant struct {
-	config            *config_manager.Config
-	configManager     *config_manager.ConfigManager
-	tollwallet        tollwallet.WalletPort
+	config        *config_manager.Config
+	configManager *config_manager.ConfigManager
+	tollwallet    tollwallet.WalletPort
+	// issuePollInterval/issueTimeout bound how long IssueOnRequest waits for a
+	// quote to be paid. Zero means the package defaults; they are fields so a
+	// test can exercise the timeout path without waiting two minutes.
+	issuePollInterval time.Duration
+	issueTimeout      time.Duration
 	mintHealthTracker *MintHealthTracker
 	customerSessions  map[string]*CustomerSession
 	expiredSessions   map[string]int64
@@ -529,7 +539,7 @@ func New(configManager *config_manager.ConfigManager) (MerchantInterface, error)
 	if len(reachableMints) == 0 {
 		log.Printf("WARNING: No reachable mints detected. Starting in degraded mode.")
 		walletDirPath := walletDirFor(configManager)
-		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, walletFactoryForBackend(configManager), walletDirPath)
 		deg.SetDegradeReason("no reachable mints")
 		mintHealthTracker.StartProactiveChecks()
 		deg.WireRecoveryTrigger()
@@ -564,8 +574,19 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	}
 
 	mintURLs := make([]string, len(reachableMints))
+	mintUnits := make(map[string]string, len(reachableMints))
 	for i, mint := range reachableMints {
 		mintURLs[i] = mint.URL
+		// Per-mint currency unit. Empty means sat, so a config written before
+		// custom units existed behaves exactly as before. The cdk backend uses
+		// this to open the mint's wallet in the unit the mint issues; gonuts
+		// ignores it.
+		for _, mc := range configManager.GetConfig().AcceptedMints {
+			if mc.URL == mint.URL {
+				mintUnits[mint.URL] = mc.Unit
+				break
+			}
+		}
 	}
 
 	log.Printf("Setting up wallet...")
@@ -573,7 +594,11 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 	if err := os.MkdirAll(walletDirPath, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create wallet directory %s: %w", walletDirPath, err)
 	}
-	tw, walletErr := tollwallet.NewWalletPort(walletDirPath, mintURLs, false)
+	// Backend selection (#1139): route through the selection seam so
+	// wallet.backend=cdk runs the service on the cdk-walletd sidecar. An
+	// absent wallet section (Backend "") selects the in-process wallet —
+	// the pre-selection behavior, byte-identical.
+	tw, walletErr := openServiceWallet(configManager, walletDirPath, mintURLs, mintUnits)
 
 	if walletErr != nil {
 		if bootErr := walletLockBootError(walletErr); bootErr != nil {
@@ -584,7 +609,7 @@ func newFullMerchant(configManager *config_manager.ConfigManager, mintHealthTrac
 		} else {
 			log.Printf("WARNING: Wallet initialization failed (%v) — starting in degraded mode", walletErr)
 		}
-		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, DefaultWalletFactory, walletDirPath)
+		deg := NewMerchantDegradedWithWallet(configManager, mintHealthTracker, walletFactoryForBackend(configManager), walletDirPath)
 		// Honest reason: the mints may all be reachable — this is the
 		// #583/#1035 class where "no reachable mints" pointed triage at
 		// the network for days while the wallet was the broken half.
@@ -1627,6 +1652,20 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Process payment
 	paymentCashuToken, err := m.tollwallet.DecodeToken(cashuToken)
 	if err != nil {
+		// A wallet-backend outage is not a verdict about the note. On the
+		// sidecar backend DecodeToken is an RPC, so a daemon outage lands
+		// here; classifying it as an invalid token tells a paying customer
+		// their money is fake. The note provably never moved (the connect
+		// failed before any money op), so try-again guidance is SAFE here —
+		// unlike the post-Receive ambiguity classes.
+		if errors.Is(err, tollwallet.ErrSidecarNotConnected) {
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-processing-unavailable",
+				"This TollGate cannot reach its wallet service right now. Your e-cash note was not spent — nothing was taken. Please try again in a moment.", "")
+			if noticeErr != nil {
+				return nil, fmt.Errorf("wallet backend unreachable and failed to create notice: %w", noticeErr)
+			}
+			return noticeEvent, nil
+		}
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-invalid-token",
 			fmt.Sprintf("Invalid cashu token: %v", err), "")
 		if noticeErr != nil {
@@ -1799,7 +1838,7 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		// is consumed, so a resubmission arriving after the deadline but before
 		// the mint answers is refused exactly like a concurrent one.
 		go func() {
-			m.recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference, paymentCashuToken.Amount())
+			m.recordLateReceiveOutcome(ch, paymentCashuToken.Mint(), macAddress, reference, paymentCashuToken.Amount(), paymentCashuToken.Unit())
 			m.endReceive(reference)
 		}()
 
@@ -1822,14 +1861,15 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		// note, and a sequential duplicate still lands in the mint's own
 		// refusal below. Ambiguous outcomes (ErrOutcomeUnknown) stay
 		// pending for the reconciler.
-		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) || isExpiredKeysetError(err) || isBelowSwapFeeError(err) || isRateLimitError(err) {
+		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) || isExpiredKeysetError(err) || isBelowSwapFeeError(err) || isRateLimitError(err) || isMintRefusalError(err) {
 			m.resolveReceiveIntent(reference, intentStateAbandoned, fmt.Sprintf("mint refused: %v", err))
 		}
 
 		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) &&
 			!errors.Is(err, tollwallet.ErrOutcomeUnknown) &&
 			!isExpiredKeysetError(err) &&
-			!isRateLimitError(err) {
+			!isRateLimitError(err) &&
+			!isMintRefusalError(err) {
 			// A rate-limit answer means the mint is UP and telling us to slow
 			// down, so it must not condemn the mint. On a single-mint
 			// deployment a single 429 used to empty the reachable set, fire the
@@ -1874,6 +1914,18 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			errorMessage = fmt.Sprintf(
 				"This e-cash note was issued on a keyset that mint %s has retired (expired): the proofs are no longer spendable there. The note cannot be recovered by retrying; obtain a new token. Cause: %v",
 				mintURL, err)
+		} else if isMintRefusalError(err) {
+			// The mint ANSWERED and refused (definitive 4xx with a NUT-19
+			// body — e.g. "keyset <id> unknown", the #1153/#1222 Coinos
+			// shape). The mint is up; the note was not spent. This is not
+			// the unreachable class (no degrade, no infrastructure story)
+			// and not the ambiguity class (a definitive refusal consumed
+			// nothing) — the customer may retry once the mint-side issue
+			// clears, or use another mint.
+			errorCode = "payment-error-mint-refused"
+			errorMessage = fmt.Sprintf(
+				"Mint %s refused this e-cash note: %v. The note was not spent by this attempt — it is safe to try again later or use a token from another mint.",
+				mintURL, err)
 		} else if isMintUnreachableError(err) {
 			errorCode = "payment-error-mint-unreachable"
 			errorMessage = fmt.Sprintf(
@@ -1893,9 +1945,13 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 
 	log.Printf("Amount after swap: %d", amountAfterSwap)
 
-	// Calculate allotment using the configured metric and mint-specific pricing
+	// Calculate allotment using the configured metric and mint-specific pricing.
+	// The token's unit is part of the price: an operator-issued custom-unit
+	// token (mb/min from a local CDK mint) prices against a mint config that
+	// declares the same unit; a mismatch is refused by calculateAllotmentForUnit
+	// instead of being silently treated as sats.
 	mintURL := paymentCashuToken.Mint()
-	allotment, err := m.calculateAllotment(amountAfterSwap, mintURL)
+	allotment, err := m.calculateAllotmentForUnit(amountAfterSwap, paymentCashuToken.Unit(), mintURL)
 	if err != nil {
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "session-error",
 			fmt.Sprintf("Failed to calculate allotment: %v", err), "")
@@ -2018,12 +2074,39 @@ func isMintUnreachableError(err error) bool {
 	// unreachable-class: the mint is healthy and the token is dead (#440).
 	if strings.Contains(msg, "keyset") &&
 		(strings.Contains(msg, "not found") ||
-			strings.Contains(msg, "could not") ||
+			strings.Contains(msg, "could not resolve") ||
 			strings.Contains(msg, "error getting") ||
 			strings.Contains(msg, "resolve")) {
 		return !isExpiredKeysetError(err)
 	}
 	return false
+}
+
+// isMintRefusalError reports whether a Receive error is the mint
+// ANSWERING with a definitive refusal (a 4xx carrying a NUT-19 error
+// body), relayed by the wallet as "could not swap proofs: <the mint's
+// own message>". Everything after the wallet's wrapper prefix is the
+// mint's message — an unreachable mint produces connection errors, never
+// mint prose — so this shape is proof the mint is UP and the attempt
+// consumed nothing (#1222: the Coinos "keyset <id> unknown" refusal was
+// misread as mint-unreachable, degrading sales and stranding a
+// still-spendable note). Companion shapes: the melt wrapper. When the
+// fork's typed error identity lands (gonuts-tollgate #55), this text
+// classifier stays as the compatible fallback for older pins.
+func isMintRefusalError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	// The in-process (gonuts) relay: "could not swap proofs: <mint prose>".
+	if strings.Contains(msg, "could not swap proofs: ") ||
+		strings.Contains(msg, "could not melt proofs: ") {
+		return true
+	}
+	// The sidecar (cdk) relay: "Unknown error response: `code: N,
+	// detail: <mint prose>`" — the daemon surfaces the mint's NUT-19
+	// body verbatim under this wrapper (measured on the cdk-kp lane,
+	// LEG F: the Coinos keyset-unknown refusal). An unreachable mint
+	// produces connection errors, never a parsed mint error body — this
+	// wrapper is proof the mint ANSWERED (#1222, both-backend leg).
+	return strings.Contains(msg, "unknown error response:")
 }
 
 // isAmbiguousMintOutcomeError reports whether a `Receive` error leaves the fate
@@ -2175,13 +2258,34 @@ func (m *Merchant) extractDeviceIdentifier(paymentEvent nostr.Event) (string, er
 	return "", fmt.Errorf("no device-identifier tag found in event")
 }
 
-// calculateAllotment calculates allotment using the configured metric and mint-specific pricing
+// calculateAllotment calculates allotment using the configured metric and mint-specific pricing.
+//
+// Kept for every sat-priced path that predates unit-aware pricing; it
+// delegates to calculateAllotmentForUnit with the sat unit, which preserves
+// its exact behaviour (division by PricePerStep in sats) while keeping ONE
+// pricing implementation.
 func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64, error) {
+	return m.calculateAllotmentForUnit(amountSats, "sat", mintURL)
+}
+
+// calculateAllotmentForUnit prices an amount in the token's unit against the
+// mint's price table. The unit is part of the price: a number without its
+// unit is not a price. Rules:
+//
+//   - The mint config's Unit names what that config prices ("sat" when
+//     empty — every pre-existing config is a satoshi mint).
+//   - A token whose unit does not match the config is REFUSED. Silently
+//     treating 64 "mb" as 64 sats is the exact mispricing this exists to
+//     prevent; an operator who issues megabyte tokens configures
+//     price_per_step=1&unit=mb and a 64mb token prices as 64 steps.
+//   - Case-folded comparison ("MB" == "mb"): Cashu units are lowercase on
+//     the wire but config files are human-written.
+func (m *Merchant) calculateAllotmentForUnit(amount uint64, tokenUnit string, mintURL string) (uint64, error) {
 	// Find the mint configuration for this mint
 	var mintConfig *config_manager.MintConfig
-	for _, mint := range m.config.AcceptedMints {
-		if tollwallet.MintURLMatches(mint.URL, mintURL) {
-			mintConfig = &mint
+	for i := range m.config.AcceptedMints {
+		if tollwallet.MintURLMatches(m.config.AcceptedMints[i].URL, mintURL) {
+			mintConfig = &m.config.AcceptedMints[i]
 			break
 		}
 	}
@@ -2194,7 +2298,23 @@ func (m *Merchant) calculateAllotment(amountSats uint64, mintURL string) (uint64
 		return 0, fmt.Errorf("price_per_step is 0 for mint %s (division by zero)", mintURL)
 	}
 
-	steps := amountSats / mintConfig.PricePerStep
+	// Unit gate: the config's unit ("" == sat) must match the token's unit
+	// ("" == unknown — priced only when the config does not declare a
+	// custom unit, i.e. sat-priced legacy flow). This is the one place a
+	// unit mismatch becomes a refusal instead of a silent misprice.
+	configUnit := mintConfig.Unit
+	if configUnit == "" {
+		configUnit = "sat"
+	}
+	tokenUnitNorm := strings.ToLower(strings.TrimSpace(tokenUnit))
+	if tokenUnitNorm == "" {
+		tokenUnitNorm = "sat"
+	}
+	if tokenUnitNorm != strings.ToLower(configUnit) {
+		return 0, fmt.Errorf("token unit %q does not match mint %s pricing unit %q: refusing rather than mispricing (configure price_per_step with \"unit\" on the mint if this is an operator-issued custom unit)", tokenUnitNorm, mintURL, configUnit)
+	}
+
+	steps := amount / mintConfig.PricePerStep
 
 	// Check if payment meets minimum purchase requirement
 	if steps < mintConfig.MinPurchaseSteps {
@@ -2831,4 +2951,35 @@ func (m *Merchant) Fund(cashuToken string) (uint64, error) {
 
 	log.Printf("Successfully funded wallet with %d sats", amountReceived)
 	return amountReceived, nil
+}
+
+// openServiceWallet routes the merchant service's wallet construction
+// through the selection seam (#1139): wallet.backend=cdk opens the
+// cdk-walletd sidecar client at wallet.socket (the `info` handshake runs
+// at construction, so a dead daemon fails here); an absent section or
+// "default" opens the in-process wallet — the pre-selection behavior,
+// identical arguments to the tollwallet.NewWalletPort call this replaced.
+func openServiceWallet(configManager *config_manager.ConfigManager, walletPath string, mintURLs []string, mintUnits map[string]string) (tollwallet.WalletPort, error) {
+	walletCfg := configManager.GetConfig().Wallet
+	tw, _, err := tollwallet.OpenWallet(tollwallet.WalletConfig{
+		Backend:                    walletCfg.Backend,
+		Socket:                     walletCfg.Socket,
+		Path:                       walletPath,
+		AcceptedMints:              mintURLs,
+		AllowAndSwapUntrustedMints: false,
+		MintUnits:                  mintUnits,
+	})
+	if err == nil {
+		log.Printf("Wallet backend selected: %s", walletBackendName(walletCfg.Backend))
+	}
+	return tw, err
+}
+
+// walletBackendName renders the selected backend for logs; empty means the
+// default in-process wallet.
+func walletBackendName(backend string) string {
+	if backend == "" {
+		return "default (in-process)"
+	}
+	return backend
 }

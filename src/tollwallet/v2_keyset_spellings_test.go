@@ -21,9 +21,23 @@ import (
 // (gonuts resolveShortKeysetIds, wallet.go:592). Everything runs against an
 // in-process stub mint — no live-mint traffic.
 
-const v2KeysetFull = "01e73e75a0809604372487732ee917e8f881cc4c882ccd9fbac094fbfd3e3a42e6"
+// The advertised id must be the one these keys DERIVE to — the #705
+// forged-keyset-id guard refuses anything else (this fixture used to
+// hardcode an arbitrary id and went red the day the guard landed; see
+// honest_keyset_test.go for the shared derivation helper, #1156).
+var v2KeysetKeys = map[uint64]string{
+	1: "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+	2: "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+	4: "02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+}
 
-const stubKeysJSON = `{"keysets":[{"id":"` + v2KeysetFull + `","unit":"sat","active":true,"input_fee_ppk":0,"keys":{"1":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798","2":"02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5","4":"02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13"}}]}`
+var v2KeysetFull = deriveHonestKeysetID(v2KeysetKeys)
+
+var stubKeysJSON = `{"keysets":[{"id":"` + v2KeysetFull + `","unit":"sat","active":true,"input_fee_ppk":0,"keys":{` +
+	`"1":"` + v2KeysetKeys[1] + `",` +
+	`"2":"` + v2KeysetKeys[2] + `",` +
+	`"4":"` + v2KeysetKeys[4] + `"` +
+	`}}]}`
 
 type swapRecorder struct {
 	mu       sync.Mutex
