@@ -149,6 +149,8 @@ notices; every code is stable API for the portal:
 | `invalid-mac-address` | `21023` | The resolved client identity is not a valid MAC. |
 | `payment-processing-failed` | `21023` | Unclassified Receive failure (the residual bucket). |
 | `payment-error-below-swap-fee`, `payment-error-keyset-expired`, `payment-error-mint-unreachable`, `mint-rate-limited`, `payment-error-invalid-token`, `session-error` | `21023` | Classified refusals; see the merchant source for the exact conditions. |
+| `payment-error-mint-refused` | `21023` | The mint answered with a definitive refusal after consuming nothing (for example, an unknown keyset). The note was not spent; retry later or use another mint. |
+| `payment-processing-unavailable` | `21023` | The wallet backend could not be reached before any money operation; the note was not spent and may be retried. |
 
 The owed-entitlement machinery (`owed-grants.json`, atomic + fsync, written
 before the response completes) is what makes `payment-received-grant-pending`
