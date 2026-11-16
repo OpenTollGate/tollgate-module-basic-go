@@ -142,12 +142,11 @@ func TestFindOrCreateSTAForSSID_ReuseRefreshesCredentials(t *testing.T) {
 		"no new section may be created when a reusable one exists")
 }
 
-// The reverse transition: a section created encrypted, later reused for an
-// open network, must not keep a stale key (a leftover key on an open
-// network is at best ignored, at worst a join failure).
+// A profile already configured as open must not retain a stale key. Changing
+// an encrypted profile to open is refused separately by the profile guard.
 func TestFindOrCreateSTAForSSID_ReuseOpenNetworkDropsStaleKey(t *testing.T) {
 	f := newFakeUCI()
-	seedSTA(f, "upstream_cafe", "Cafe", "radio0", "psk2", "old-password", "1")
+	seedSTA(f, "upstream_cafe", "Cafe", "radio0", "none", "old-password", "1")
 
 	c := &Connector{runUCI: f.exec}
 	iface, err := c.FindOrCreateSTAForSSID("Cafe", "", "none", "radio0")

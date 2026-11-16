@@ -504,6 +504,14 @@ Rules, in order of leverage:
    available memory crosses 20% — that banner is roughly ten minutes
    ahead of earlyoom's 5% kill floor, and it means stop soaks and
    fan-outs NOW, not after the next build finishes.
+5. **Destructive docker ops are label-scoped.** On the bench host,
+   `/usr/local/bin/docker` refuses `rm|stop|kill|restart|pause` on
+   containers without the `ai-legion.lane` label (conwrt-bench ADR-0009;
+   journaled refusals; `DOCKER_ALLOW_FOREIGN=1` is the explicit, verified
+   override — never a reflex). Lanes label their own compose services; a
+   port collision is solved by parameterizing the lane's own publish
+   (the #1236 pattern), never by removing the incumbent service, and
+   never by feeding `docker rm -f` from a broad `docker ps --filter`.
 
 ### Where each class of verification lives (single source of truth)
 

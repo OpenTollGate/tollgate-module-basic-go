@@ -18,10 +18,12 @@ import (
 // flow's competitor sweep (#848) has just disabled — so an unguarded tick
 // counter-switches to it and the join never completes.
 //
-// Determinism: ticks are counted through EnsureRadiosEnabled (called once per
-// loop iteration), association is modeled with an empty netdev (isSTAAssociated
-// short-circuits without exec), and every wait is event-driven via
-// require.Eventually — no wall-clock sleeps guard any assertion.
+// Determinism: loop progress is counted through the manager's read-only
+// LoopTicks counter (never through a mutating connector call, which must be
+// declined while a manual writer owns the radio), association is modeled
+// with an empty netdev (isSTAAssociated short-circuits without exec), and
+// every wait is event-driven via require.Eventually — no wall-clock sleeps
+// guard any assertion.
 
 // midJoinConnector wraps the shared mock to add the phase-dependent state the
 // race needs: GetActiveSTA's first call is consumed by the startup check
@@ -30,16 +32,10 @@ import (
 // mock.Expectation so both the paused and unpaused verdicts can assert on it.
 type midJoinConnector struct {
 	*MockConnector
-	ticks          atomic.Int32
 	getActiveCalls atomic.Int32
 
 	mu       sync.Mutex
 	switches []string
-}
-
-func (c *midJoinConnector) EnsureRadiosEnabled() error {
-	c.ticks.Add(1)
-	return c.MockConnector.EnsureRadiosEnabled()
 }
 
 func (c *midJoinConnector) GetActiveSTA() (*STASection, error) {
@@ -150,7 +146,7 @@ func TestUpstreamManagerTickPausedDoesNotCounterSwitchMidJoin(t *testing.T) {
 	cancel, done := startManager(t, um)
 	defer cancel()
 
-	require.Eventually(t, func() bool { return int(connector.ticks.Load()) >= 5 },
+	require.Eventually(t, func() bool { return um.LoopTicks() >= 5 },
 		10*time.Second, time.Millisecond,
 		"the paused manager must keep observing ticks (each one a counter-switch opportunity pre-fix)")
 

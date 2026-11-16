@@ -23,8 +23,10 @@ import (
 // section the connect flow just swept (#848).
 //
 // Determinism: the manual SwitchUpstream blocks on a channel (not a timer),
-// ticks are counted through EnsureRadiosEnabled, association is modeled with
-// an empty netdev (no exec), and all waits are require.Eventually.
+// manager-loop progress is counted through the manager's read-only LoopTicks
+// counter while radio mutations are asserted frozen (a mutating call must be
+// declined while the manual writer owns the radio), association is modeled
+// with an empty netdev (no exec), and all waits are require.Eventually.
 
 const (
 	phaseBoot      = iota // startup check: no active STA yet
@@ -178,23 +180,27 @@ func TestHandleUpstreamConnectStreaming_PausesManagerBeforeSwitch(t *testing.T) 
 		t.Fatal("manual connect never reached its SwitchUpstream (DHCP wait)")
 	}
 
-	// The join window. Post-fix the manager keeps ticking (each tick a
-	// declined opportunity); pre-fix it counter-switches and parks inside
-	// the recorded SwitchUpstream — either outcome ends this wait, and the
-	// verdict below decides which one was correct.
-	ticksAtEntry := connector.ticks.Load()
-	require.Eventually(t, func() bool {
-		return connector.ticks.Load() >= ticksAtEntry+5 || connector.switchCount() >= 2
-	},
+	// The join window. The manual writer owns the radio: the manager loop
+	// keeps iterating (um.LoopTicks — progress is the loop itself, never a
+	// mutating connector call), while every automatic mutation declines.
+	// This is a bounded negative observation across many fast-check
+	// opportunities: if the manager had counter-switched, the switch count
+	// below would catch it; if the harness stalled, the LoopTicks wait
+	// would catch that instead.
+	loopsAtEntry := um.LoopTicks()
+	mutationsAtEntry := connector.ticks.Load() // the handler's own radio-enable already ran before the switch parked
+	require.Eventually(t, func() bool { return um.LoopTicks() >= loopsAtEntry+5 },
 		10*time.Second, time.Millisecond,
-		"manager neither ticked nor counter-switched inside the join window (harness stall)")
+		"manager loop stopped iterating during the manual join window (harness stall)")
 
-	// THE FENCE: no counter-switch may have happened while the manual
-	// switch was parked. Pre-fix this is exactly where the manager drove
-	// the radio back to tollgate_uplink.
+	// THE FENCE: no counter-switch and no radio mutation may happen while
+	// the manual switch is parked. Pre-fix this is exactly where the
+	// manager drove the radio back to tollgate_uplink.
 	require.Equal(t, 1, connector.switchCount(),
 		"#880 repro: the auto-manager switched the radio during the manual join: %v", connector.recordedSwitches())
 	require.Equal(t, "tollgate_uplink -> upstream_2 (2)", connector.recordedSwitches()[0])
+	require.Equal(t, mutationsAtEntry, connector.ticks.Load(),
+		"the auto-manager invoked a radio-enabling mutation during the manual join")
 
 	close(connector.release)
 	select {

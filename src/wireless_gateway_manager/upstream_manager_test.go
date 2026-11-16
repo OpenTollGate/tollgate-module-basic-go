@@ -1009,13 +1009,13 @@ func TestUpstreamManager_FindKnownCandidates_BlacklistedBSSID_SiblingEligible(t 
 // portal apart — a bare ICMP ping cannot, which is how a dead "EnterSSID"
 // upstream (gateway pingable, no internet) gets treated as up.
 func TestProbeUpstreamInternet_Layered(t *testing.T) {
-	origRoute, origDNS, origHTTP := defaultRouteFn, resolveHostFn, httpStatusFn
-	defer func() { defaultRouteFn, resolveHostFn, httpStatusFn = origRoute, origDNS, origHTTP }()
+	origRoute, origDNS, origHTTP := defaultRouteFn, resolveHostFn, httpResponseFn
+	defer func() { defaultRouteFn, resolveHostFn, httpResponseFn = origRoute, origDNS, origHTTP }()
 
 	// happy path
 	defaultRouteFn = func() (string, error) { return "default via 10.0.0.1 dev wlan0", nil }
 	resolveHostFn = func(string) error { return nil }
-	httpStatusFn = func(string) (int, error) { return 204, nil }
+	httpResponseFn = func(string) (int, string, error) { return 204, "", nil }
 	assert.Equal(t, ConnectivityResult{OK: true, Reason: "ok"}, probeUpstreamInternet())
 
 	// no default route
@@ -1029,13 +1029,13 @@ func TestProbeUpstreamInternet_Layered(t *testing.T) {
 
 	// DNS works but the 204 probe returns a portal page
 	resolveHostFn = func(string) error { return nil }
-	httpStatusFn = func(string) (int, error) { return 200, nil }
+	httpResponseFn = func(string) (int, string, error) { return 200, "<html>Log in</html>", nil }
 	r := probeUpstreamInternet()
 	assert.False(t, r.OK)
 	assert.Equal(t, "captive", r.Reason)
 
 	// DNS works but HTTP is blocked entirely
-	httpStatusFn = func(string) (int, error) { return 0, fmt.Errorf("blocked") }
+	httpResponseFn = func(string) (int, string, error) { return 0, "", fmt.Errorf("blocked") }
 	assert.Equal(t, "no-http", probeUpstreamInternet().Reason)
 }
 

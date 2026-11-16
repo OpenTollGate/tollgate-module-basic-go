@@ -1,0 +1,1 @@
+- `scripts/bump-gonuts.sh` now heals a manifest-ahead-of-carriers half-update instead of exiting "nothing to do" — the same reconciliation ability PR #1195 gave `bump-cdkgo.sh`; only full manifest+carrier agreement is a no-op ([#1199](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1199))
