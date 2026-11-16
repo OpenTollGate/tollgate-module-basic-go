@@ -87,6 +87,13 @@ run_deps_imports() {
     # tag than the one every carrier pins (the #705-in-v0.13.2 near-miss).
     python3 tests/contract/check-gonuts-pin.py >>"$tmpdir/deps.log" 2>&1 || ok=1
     python3 tests/contract/check-gonuts-pin.py --latest >>"$tmpdir/deps.log" 2>&1 || ok=1
+    # The captive-portal daemon: identity offline + the live-feed leg (the
+    # release-time verdict that the manifest still names what each era's feed
+    # builds). Same shape as the gonuts pair above, same reason: a pin that
+    # names a package the feed no longer publishes is a release blocker, and
+    # a fence that cannot look must not pass.
+    python3 tests/contract/check-nodogsplash-pin.py >>"$tmpdir/deps.log" 2>&1 || ok=1
+    python3 tests/contract/check-nodogsplash-pin.py --feed >>"$tmpdir/deps.log" 2>&1 || ok=1
     # The cdk-go pin: same doctrine, second fenced module. Was red-by-design
     # from the fence's landing until the v0.18.3 reconciliation converged
     # every carrier (pre-cdk-migration, enabled by cdk-go's build-tag
