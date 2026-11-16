@@ -303,6 +303,34 @@ redeemed.
 > Lightning drain (`tollgate wallet drain lightning`) is not yet
 > implemented; only `cashu` is supported.
 
+## Account-based Lightning backends (NIP-47 / LNbits)
+
+Cashu is a **bearer** instrument: possession of the token controls the value.
+NIP-47 and LNbits are **account-based** Lightning backends: the router connects
+to a Lightning wallet/account and receives spending authority. They are not
+bearer ecash.
+
+An account-based backend needs a **persistent session identity** so the router
+can grant access once, recover after a reconnect or restart, reconcile a
+payment by lookup, and avoid charging or granting twice. That identity is a
+temporary session record, not a personal customer account, but it links the
+Lightning payment to the access session and is visible to you as the operator.
+
+If you enable one of these backends:
+
+- read the full [payment-backend disclosure decision](architecture/payment-backend-disclosure-decision.md);
+- use a dedicated Lightning wallet with a limited balance, not your primary treasury;
+- set a retention period for session/payment records and purge them when no longer needed;
+- keep the NWC/LNbits credential out of logs, screenshots and general configuration;
+- expect the wallet provider and relay to see payment metadata (amount, timing,
+  counterparty public keys), even though the invoice must not contain the
+  customer's session ID, MAC address or name.
+
+The guest payment page must show the account-based/persistent-session notice and
+require acknowledgement before a Lightning payment. Do not present this backend
+as bearer ecash or as anonymous. Cashu and Lightning have different trust and
+linkability models; neither is anonymous by default.
+
 ## Private network management
 
 The private Wi-Fi is the network *you* (the operator) connect to,
