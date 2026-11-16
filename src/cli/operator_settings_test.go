@@ -470,6 +470,45 @@ func TestHandleConfigSavePreservesStoredSecret(t *testing.T) {
 	}
 }
 
+func TestHandleConfigSavePreservesStoredNestedSecret(t *testing.T) {
+	withTempNftablesDir(t)
+	s := newConfigCLIServer(t)
+
+	const bondPassword = "synthetic-mptcp-bond-secret-marker"
+	if err := config_manager.SetDotPath(s.configManager, "mptcp_bonding.password", bondPassword); err != nil {
+		t.Fatalf("seed nested secret: %v", err)
+	}
+
+	// The redacted config-get payload contains an empty nested secret. An
+	// unrelated edit must not turn that empty value into an instruction to
+	// erase the bond credential.
+	cfg := config_manager.NewDefaultConfig()
+	cfg.LogLevel = "debug"
+	payload, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(payload), bondPassword) {
+		t.Fatal("the test payload must be the redacted shape the board sends")
+	}
+
+	resp := s.handleConfigSave(string(payload))
+	if !resp.Success {
+		t.Fatalf("save failed: %s", resp.Error)
+	}
+	if !strings.Contains(resp.Message, "mptcp_bonding.password") {
+		t.Errorf("the save must name the preserved nested secret, got: %s", resp.Message)
+	}
+
+	stored := s.configManager.GetConfig()
+	if stored.MPTCPBonding.Password != bondPassword {
+		t.Errorf("a wholesale save cleared the stored MPTCP bond password: got %q, want it preserved", stored.MPTCPBonding.Password)
+	}
+	if stored.LogLevel != "debug" {
+		t.Errorf("the save did not apply the real edit: log_level=%q", stored.LogLevel)
+	}
+}
+
 func TestHandleConfigSaveValidatesOperatorEnums(t *testing.T) {
 	withTempNftablesDir(t)
 	s := newConfigCLIServer(t)

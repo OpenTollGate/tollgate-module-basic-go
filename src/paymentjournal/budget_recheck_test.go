@@ -109,7 +109,10 @@ func TestSubmitOutgoingKeepsUnknownReservationsAcrossPeriods(t *testing.T) {
 	if _, err = s.SubmitOutgoing(b.ID, b.Version, budget); err == nil {
 		t.Fatal("unknown reserve released at period boundary")
 	}
-	if _, err = s.Advance(a.ID, a.Version, Paid, 50); err != nil {
+	if _, err = s.RecordOutgoingPaid(a.ID, a.Version); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ResolveOutgoingFee(a.ID, a.Version+1, 50); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.SubmitOutgoing(b.ID, b.Version, budget); err != nil {
@@ -177,7 +180,11 @@ func TestVerifiedActualFeeOverReserveIsDurableAndExhaustsBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	op, err = s.Advance(op.ID, op.Version, Paid, 101)
+	op, err = s.RecordOutgoingPaid(op.ID, op.Version)
+	if err != nil {
+		t.Fatal("verified settlement could not be recorded", err)
+	}
+	op, err = s.ResolveOutgoingFee(op.ID, op.Version, 101)
 	if err != nil {
 		t.Fatal("verified actual fee above reservation was refused", err)
 	}
