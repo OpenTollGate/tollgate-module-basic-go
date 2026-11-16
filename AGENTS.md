@@ -187,6 +187,20 @@ than inventing new harnesses.
   nucula sidecar daemon over AF_UNIX (`sidecar.go`). Money-moving
   sidecar requests surface `ErrSidecarAmbiguous` — reconcile, never
   blind-retry.
+- **Single writer per wallet DB (#504).** Exactly one process may hold
+  `wallet.db` open for write at any time. The bbolt flock is the
+  enforcement mechanism (fork's `InitBolt`: 5 s open timeout →
+  `ErrDBLocked`; surfaced as `tollwallet.ErrWalletLocked`), and the
+  architecture must never route around it: the `tollgate` CLI is
+  socket-routed (`/var/run/tollgate.sock` → the daemon's in-process
+  CLIServer) and never opens the DB; a daemon boot that finds the lock
+  held fails fast instead of degrading; `CLIServer.Start()` refuses to
+  replace a live daemon's socket (probe before remove — a stale file
+  from a crash is reclaimed, a live one is not). New wallet-touching
+  entry points (migration tools, sidecar configs) must preserve this:
+  route through the daemon, or own the DB exclusively. The residual
+  assumption — flock actually working on the target filesystem (NAND/
+  overlayfs corners) — is lab-verification territory, not code.
 - **Pure-Go/OpenWrt constraint.** The binary must stay `CGO_ENABLED=0`
   and build for mips/mipsel/arm/arm64/x86. Any wallet dependency that
   breaks that (e.g. cdk-go FFI on MIPS) belongs behind the sidecar, not
@@ -490,6 +504,14 @@ Rules, in order of leverage:
    available memory crosses 20% — that banner is roughly ten minutes
    ahead of earlyoom's 5% kill floor, and it means stop soaks and
    fan-outs NOW, not after the next build finishes.
+5. **Destructive docker ops are label-scoped.** On the bench host,
+   `/usr/local/bin/docker` refuses `rm|stop|kill|restart|pause` on
+   containers without the `ai-legion.lane` label (conwrt-bench ADR-0009;
+   journaled refusals; `DOCKER_ALLOW_FOREIGN=1` is the explicit, verified
+   override — never a reflex). Lanes label their own compose services; a
+   port collision is solved by parameterizing the lane's own publish
+   (the #1236 pattern), never by removing the incumbent service, and
+   never by feeding `docker rm -f` from a broad `docker ps --filter`.
 
 ### Where each class of verification lives (single source of truth)
 
@@ -562,7 +584,7 @@ get wrong:
 
   It runs `gofmt` (must print nothing), `go vet`, `go build` and
   `go test -race -count=1 -tags testenv` in **every** Go module —
-  [src/](src/) is a multi-module tree (18 nested `go.mod` files), so
+  [src/](src/) is a multi-module tree (19 nested `go.mod` files), so
   running those commands from `src/` alone covers only the root module
   and silently skips all subpackages. One implementation:
   [scripts/go-battery.sh](scripts/go-battery.sh).

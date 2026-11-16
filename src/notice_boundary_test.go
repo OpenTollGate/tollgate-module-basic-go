@@ -75,13 +75,15 @@ func (m *boundaryMerchant) GetSessionState(string) (merchant.SessionState, error
 func (m *boundaryMerchant) AddAllotment(string, string, uint64) (*merchant.CustomerSession, error) {
 	return nil, nil
 }
-func (m *boundaryMerchant) GetUsage(string) (string, error)       { return "", nil }
-func (m *boundaryMerchant) GetBalance() uint64                    { return 0 }
-func (m *boundaryMerchant) GetBalanceByMint(string) uint64        { return 0 }
-func (m *boundaryMerchant) GetAllMintBalances() map[string]uint64 { return nil }
-func (m *boundaryMerchant) GetAdvertisement() string              { return "" }
-func (m *boundaryMerchant) StartPayoutRoutine()                   {}
-func (m *boundaryMerchant) StartDataUsageMonitoring()             {}
+func (m *boundaryMerchant) IssueOnRequest(string, string, uint64) (string, error) { return "", nil }
+func (m *boundaryMerchant) DefaultIssuanceMint(string) string                     { return "" }
+func (m *boundaryMerchant) GetUsage(string) (string, error)                       { return "", nil }
+func (m *boundaryMerchant) GetBalance() uint64                                    { return 0 }
+func (m *boundaryMerchant) GetBalanceByMint(string) uint64                        { return 0 }
+func (m *boundaryMerchant) GetAllMintBalances() map[string]uint64                 { return nil }
+func (m *boundaryMerchant) GetAdvertisement() string                              { return "" }
+func (m *boundaryMerchant) StartPayoutRoutine()                                   {}
+func (m *boundaryMerchant) StartDataUsageMonitoring()                             {}
 func (m *boundaryMerchant) IssueSessionTicket(string) (string, int64, error) {
 	return "", 0, nil
 }

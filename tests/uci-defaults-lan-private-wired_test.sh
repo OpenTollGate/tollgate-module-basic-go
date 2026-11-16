@@ -420,10 +420,10 @@ echo "== the guard fragments are unchanged and still br-lan-scoped"
 # br-lan). The RULES are unchanged — a diff of the two revisions with comment lines
 # stripped is empty — and the scope assertions below still prove the br-lan literal,
 # which is the property that matters. Re-pinned deliberately, with that proof.
-GUARD_DIGESTS='20-nds-enforce 4cae6ef31d23d10ee4a730e1b2797281
-30-backend-firewall 9d4702bdc1d2b468fb39a402372bb27c
-31-admin-board-not-guest-reachable e854e0650a2a532cf787e69156b3ddae
-32-luci-not-guest-reachable c86e5dc022b8a4108f305eba7febefe1'
+GUARD_DIGESTS='20-nds-enforce e1b9dc9ad9ba9da2bcdad8a75efbe6cf
+30-backend-firewall b67957401b658aac12108b203a57ad59
+31-admin-board-not-guest-reachable 66f4fb0b8dcd984fbeec3ac359076049
+32-luci-not-guest-reachable a71f56eb0fd11b4812168dfc98206117'
 while read -r frag digest; do
     [ -n "$frag" ] || continue
     got=$(md5sum "$NFT_DIR/$frag.nft" 2>/dev/null | cut -d' ' -f1)
@@ -434,20 +434,21 @@ while read -r frag digest; do
     fi
 done <<< "$GUARD_DIGESTS"
 # The scope literal itself: each guard must still carry iifname "br-lan".
-if grep -qF -- 'iifname "br-lan"' "$NFT_DIR/20-nds-enforce.nft"; then
-    ok "20-nds-enforce.nft is still br-lan-scoped"
+# The guards now scope through 00-tollgate-defs.nft's $tg_portal_if (whose
+# shipped default is br-lan), so the property is: the guard uses the define,
+# and the define is the captive bridge.
+for frag in 20-nds-enforce 31-admin-board-not-guest-reachable 32-luci-not-guest-reachable; do
+    if grep -qF -- 'iifname $tg_portal_if' "$NFT_DIR/$frag.nft"; then
+        ok "$frag.nft is still scoped to the captive bridge (\$tg_portal_if)"
+    else
+        bad "$frag.nft lost its \$tg_portal_if scope"
+    fi
+done
+if grep -qF -- 'define tg_portal_if = "br-lan"' "$NFT_DIR/00-tollgate-defs.nft" &&
+   grep -qF -- 'define tg_private_if = "br-private"' "$NFT_DIR/00-tollgate-defs.nft"; then
+    ok "00-tollgate-defs.nft still defines the captive/private bridges"
 else
-    bad "20-nds-enforce.nft lost its iifname \"br-lan\" scope"
-fi
-if grep -qF -- 'iifname "br-lan"' "$NFT_DIR/31-admin-board-not-guest-reachable.nft"; then
-    ok "31-admin-board-not-guest-reachable.nft is still br-lan-scoped"
-else
-    bad "31-admin-board-not-guest-reachable.nft lost its iifname \"br-lan\" scope"
-fi
-if grep -qF -- 'iifname "br-lan"' "$NFT_DIR/32-luci-not-guest-reachable.nft"; then
-    ok "32-luci-not-guest-reachable.nft is still br-lan-scoped"
-else
-    bad "32-luci-not-guest-reachable.nft lost its iifname \"br-lan\" scope"
+    bad "00-tollgate-defs.nft lost the br-lan/br-private defines"
 fi
 # 30-backend-firewall scopes by NOT-the-LAN-bridges
 # (iifname != { "br-lan", "br-private", "lo" }): br-lan because a guest pays
@@ -455,7 +456,7 @@ fi
 # that network, not on the captive bridge — reads all of its data from the same
 # API. Dropping br-private there is what left the board rendering with every
 # panel empty.
-if grep -qF -- 'iifname != { "br-lan", "br-private", "lo" }' "$NFT_DIR/30-backend-firewall.nft"; then
+if grep -qF -- 'iifname != { $tg_portal_if, $tg_private_if, "lo" }' "$NFT_DIR/30-backend-firewall.nft"; then
     ok "30-backend-firewall.nft exempts both LAN bridges and lo"
 else
     bad "30-backend-firewall.nft lost its LAN-bridge exemption set"

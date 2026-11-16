@@ -15,18 +15,25 @@ const profitShareSumTolerance = 1e-6
 // Config represents the main configuration for the Tollgate service.
 type Config struct {
 	// MultiWAN is optional declared intent; validation and policy derivation live in multi_wan.
-	MultiWAN               *MultiWANConfig              `json:"multi_wan,omitempty"`
-	ConfigVersion          string                       `json:"config_version"`
-	LogLevel               string                       `json:"log_level"`
-	AcceptedMints          []MintConfig                 `json:"accepted_mints"`
-	ProfitShare            []ProfitShareConfig          `json:"profit_share"`
-	StepSize               uint64                       `json:"step_size"`
-	Margin                 float64                      `json:"margin,omitempty"`
-	Metric                 string                       `json:"metric"`
-	ShowSetup              bool                         `json:"show_setup"`
-	ResellerMode           bool                         `json:"reseller_mode"`
-	RedirectURL            string                       `json:"redirect_url,omitempty"`
-	AuthDelaySeconds       int                          `json:"auth_delay_seconds,omitempty"`
+	MultiWAN         *MultiWANConfig     `json:"multi_wan,omitempty"`
+	ConfigVersion    string              `json:"config_version"`
+	LogLevel         string              `json:"log_level"`
+	AcceptedMints    []MintConfig        `json:"accepted_mints"`
+	ProfitShare      []ProfitShareConfig `json:"profit_share"`
+	StepSize         uint64              `json:"step_size"`
+	Margin           float64             `json:"margin,omitempty"`
+	Metric           string              `json:"metric"`
+	ShowSetup        bool                `json:"show_setup"`
+	ResellerMode     bool                `json:"reseller_mode"`
+	RedirectURL      string              `json:"redirect_url,omitempty"`
+	AuthDelaySeconds int                 `json:"auth_delay_seconds,omitempty"`
+	// Wallet selects the Cashu backend the merchant service runs on
+	// (#1139): "" or "default" = the in-process gonuts wallet (identical
+	// to the pre-selection behavior for legacy configs without the
+	// section), "cdk" = the cdk-walletd sidecar daemon over AF_UNIX at
+	// Socket. The selection seam is tollwallet.OpenWallet; the merchant
+	// service routes every wallet construction through it.
+	Wallet                 WalletBackendConfig          `json:"wallet,omitempty"`
 	UpstreamDetector       UpstreamDetectorConfig       `json:"upstream_detector"`
 	UpstreamSessionManager UpstreamSessionManagerConfig `json:"upstream_session_manager"`
 	UpstreamWifi           UpstreamWifiConfig           `json:"upstream_wifi"`
@@ -66,10 +73,20 @@ type Config struct {
 	// PrivateKey is a SECRET: it is redacted on every read path (see
 	// cli.redactSecretFields) and a wholesale save that omits or blanks it
 	// preserves the stored value rather than clearing it.
-	PrivateSSID       string `json:"private_ssid,omitempty"`
-	PrivateKey        string `json:"private_key,omitempty"`
-	PrivateEncryption string `json:"private_encryption"`
-	AdminAccess       string `json:"admin_access"`
+	PrivateSSID         string `json:"private_ssid,omitempty"`
+	SSIDSuffix          string `json:"ssid_suffix,omitempty"`
+	PrivateSSIDOperator string `json:"private_ssid_operator,omitempty"`
+	PrivateKey          string `json:"private_key,omitempty"`
+	PrivateEncryption   string `json:"private_encryption"`
+	AdminAccess         string `json:"admin_access"`
+	// PaidBridge names the bridge device that carries paid/captive clients
+	// (`br-lan` on the stock layout, `br-tollgate` on an isolated one).
+	//
+	// This is published intent, not a router mutation: management clients
+	// (Archy, dashboards) and the feed's NDS fragment read it instead of
+	// hardcoding a bridge name. Empty means "derive it from the paid AP's
+	// network at install time". It is a device name, not a UCI network name.
+	PaidBridge string `json:"paid_bridge,omitempty"`
 	// EntryUI decides which UI owns the router's entry port pair (:8080 + :443).
 	// It is declared intent, like the four fields above: nothing reads the value
 	// directly. The uci-defaults writers (the module's 99 and the portal's 92)
@@ -135,7 +152,15 @@ type MintConfig struct {
 	MinPayoutAmount         uint64 `json:"min_payout_amount"`
 	PricePerStep            uint64 `json:"price_per_step"`
 	PriceUnit               string `json:"price_unit"`
-	MinPurchaseSteps        uint64 `json:"purchase_min_steps"`
+	// Unit names the ecash unit this mint issues and this config prices, as
+	// the mint declares it on the wire ("sat", "msat", "usd", or an
+	// operator-issued custom unit such as "mb"/"min"). Empty means "sat":
+	// every pre-existing config is a satoshi mint, and the merchant prices
+	// sat tokens against it without a config change. A token in any OTHER
+	// unit is refused rather than mispriced — the 2026-10 draft integration
+	// with an operator-run CDK mint depends on this being explicit.
+	Unit             string `json:"unit"`
+	MinPurchaseSteps uint64 `json:"purchase_min_steps"`
 }
 
 // UnmarshalJSON accepts both "purchase_min_steps" (the Go field tag) and
@@ -174,6 +199,18 @@ func (m *MintConfig) UnmarshalJSON(data []byte) error {
 type ProfitShareConfig struct {
 	Factor   float64 `json:"factor"`
 	Identity string  `json:"identity"`
+}
+
+// WalletBackendConfig selects the merchant service's Cashu wallet backend.
+// An empty Backend (an absent section in legacy configs) selects the default
+// in-process wallet — the selection itself happens in tollwallet.OpenWallet,
+// the one seam every wallet construction must pass through (#1139, #1157).
+type WalletBackendConfig struct {
+	// Backend: "default" (in-process gonuts wallet) or "cdk" (the
+	// cdk-walletd sidecar daemon over AF_UNIX).
+	Backend string `json:"backend,omitempty"`
+	// Socket is the sidecar's AF_UNIX socket path (backend=cdk only).
+	Socket string `json:"socket,omitempty"`
 }
 
 // UpstreamDetectorConfig holds configuration for the upstream_detector module
@@ -266,6 +303,15 @@ func LoadConfig(filePath string) (*Config, error) {
 	err = json.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err
+	}
+	// A mint that publishes a unit it does not issue must stop the router here,
+	// on every load — not only on first boot. The customer would pay in a unit
+	// the gate then refuses: value leaves and no access arrives. No pre-existing
+	// config can trip this (both unit fields empty mean sat; a mismatch needs an
+	// explicitly configured custom unit), so refusing cannot break a working
+	// router.
+	if err := config.ValidateAdvertisedUnitsForConfig(); err != nil {
+		return nil, fmt.Errorf("config %s advertises a unit it does not issue: %w", filePath, err)
 	}
 	return &config, nil
 }
@@ -394,7 +440,7 @@ func NewDefaultConfig() *Config {
 	}
 
 	return &Config{
-		ConfigVersion: "v0.0.10",
+		ConfigVersion: "v0.0.11",
 		LogLevel:      "info",
 		AcceptedMints: mints,
 		ProfitShare: []ProfitShareConfig{
@@ -415,11 +461,15 @@ func NewDefaultConfig() *Config {
 				Identity: "origami74",
 			},
 		},
+		Wallet: WalletBackendConfig{
+			Backend: "default",
+			Socket:  "/var/run/cdk-walletd.sock",
+		},
 		StepSize:     22020096, // 21 MiB
 		Margin:       0.1,
 		Metric:       "bytes",
 		ShowSetup:    true,
-		ResellerMode: false,
+		ResellerMode: true,
 		UpstreamDetector: UpstreamDetectorConfig{
 			ProbeTimeout:          10 * time.Second,
 			ProbeRetryCount:       3,
@@ -461,15 +511,18 @@ func NewDefaultConfig() *Config {
 			PostSwitchWaitSeconds:  5,
 			DHCPTimeoutSeconds:     180,
 			ManualPauseSeconds:     120,
+			VendorIEDiscovery:      true,
 		},
 		// Empty means "keep what the router already has" — see the field
 		// comments on Config. These two are the literals the schema declares,
 		// so defaults_parity_test.go pins them together.
-		PrivateSSID:       "",
-		PrivateKey:        "",
-		PrivateEncryption: "psk2+ccmp",
-		AdminAccess:       "both",
-		EntryUI:           "board",
+		PrivateSSID:         "",
+		SSIDSuffix:          "",
+		PrivateSSIDOperator: "",
+		PrivateKey:          "",
+		PrivateEncryption:   "psk2+ccmp",
+		AdminAccess:         "both",
+		EntryUI:             "board",
 		// MPTCP bonding is OPT-IN: Enabled is false, and the remaining fields
 		// carry the schema's declared defaults so defaults_parity_test.go
 		// keeps schema and code in step. An operator who never touches this
@@ -564,7 +617,7 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 			return nil, fmt.Errorf("config %s is valid JSON but does not match the schema (%v); refusing to fall back to factory defaults — fix the field and restart", filePath, unmarshalErr)
 		}
 		log.Printf("WARNING: Invalid config JSON, backing up and recreating: %v", unmarshalErr)
-		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", defaultConfig.ConfigVersion); backupErr != nil {
+		if backupErr := backupAndLog(filePath, configBackupDir, "config", defaultConfig.ConfigVersion); backupErr != nil {
 			log.Printf("CRITICAL: Failed to backup invalid config: %v", backupErr)
 			return nil, backupErr
 		}
@@ -575,9 +628,34 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 		log.Printf("WARNING: Invalid profit_share, resetting to defaults: %v", profitShareErr)
 		config.ProfitShare = defaultConfig.ProfitShare
 	}
+	// A custom-unit mint priced with a step_size from another unit gives away
+	// access on every sale (unit "mb" with the bytes default 22020096 sold 21x
+	// the access for the same money in the 2026-10 CDK integration). Warn
+	// rather than refuse: the router must keep serving customers who already
+	// paid, but the operator has to see this in logread.
+	if err := config.ValidateUnitPricingForConfig(); err != nil {
+		log.Printf("WARNING: unit/step_size mismatch — this router is mispricing access: %v", err)
+	}
+	// A mint that publishes a unit it does not issue is a different class: the
+	// customer pays in a unit the gate then refuses, so value leaves and no
+	// access arrives. Enforced in LoadConfig, which every boot goes through; the
+	// step_size check above stays a warning because over-granting is survivable
+	// and refusing to boot is not.
+	// The Cobrador defaults are opt-out, not opt-in. A field that is absent is
+	// a fresh/upgraded config that never made a choice, so it takes the new
+	// default. A field that is present (even false) is an explicit choice and
+	// is never overwritten.
+	if raw, rawErr := decodeConfigPresence(data); rawErr == nil {
+		if !raw.resellerMode {
+			config.ResellerMode = defaultConfig.ResellerMode
+		}
+		if raw.upstreamWifi && !raw.vendorIEDiscovery {
+			config.UpstreamWifi.VendorIEDiscovery = defaultConfig.UpstreamWifi.VendorIEDiscovery
+		}
+	}
 	if config.ConfigVersion != defaultConfig.ConfigVersion {
 		log.Printf("INFO: Config version %s → %s, migrating (preserving user settings)", config.ConfigVersion, defaultConfig.ConfigVersion)
-		if backupErr := backupAndLog(filePath, "/etc/tollgate/config_backups", "config", config.ConfigVersion); backupErr != nil {
+		if backupErr := backupAndLog(filePath, configBackupDir, "config", config.ConfigVersion); backupErr != nil {
 			log.Printf("WARN: Failed to backup config before migration (continuing): %v", backupErr)
 		}
 		applyBackedEntryUIDefault(defaultConfig)
@@ -589,6 +667,29 @@ func EnsureDefaultConfig(filePath string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+type configPresence struct {
+	resellerMode      bool
+	upstreamWifi      bool
+	vendorIEDiscovery bool
+}
+
+func decodeConfigPresence(data []byte) (configPresence, error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return configPresence{}, err
+	}
+	p := configPresence{}
+	_, p.resellerMode = top["reseller_mode"]
+	if rawWifi, ok := top["upstream_wifi"]; ok {
+		p.upstreamWifi = true
+		var wifi map[string]json.RawMessage
+		if err := json.Unmarshal(rawWifi, &wifi); err == nil {
+			_, p.vendorIEDiscovery = wifi["vendor_ie_discovery"]
+		}
+	}
+	return p, nil
 }
 
 func migrateConfig(config *Config, defaults *Config) {

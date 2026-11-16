@@ -149,6 +149,10 @@ for script in /etc/uci-defaults/90-tollgate-captive-portal-symlink \
         "$$script" || echo "Warning: $$script exited with code $$?"
     fi
 done
+# Commit pending uci sessions the scripts left behind (#1087) - the boot
+# harness does this after each uci-defaults script; the install path must
+# not be the one path without it.
+uci commit 2>/dev/null || true
 
 echo "Restarting network..."
 # A full netifd restart re-applies UCI-backed routes only. Default routes that
@@ -295,6 +299,9 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-apply-ssl $(1)/usr/bin/
 	$(INSTALL_BIN) $(PKG_MAKEFILE_DIR)files/usr/bin/tollgate-remove-ssl $(1)/usr/bin/
 
+	$(INSTALL_DIR) $(1)/usr/lib/tollgate
+	$(INSTALL_DATA) $(PKG_MAKEFILE_DIR)files/usr/lib/tollgate/wallet-storage.sh $(1)/usr/lib/tollgate/
+
 	$(INSTALL_DIR) $(1)/etc/crontabs
 
 	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
@@ -325,6 +332,7 @@ FILES_$(PKG_NAME) += \
 	/usr/bin/tollgate \
 	/usr/bin/tollgate-apply-ssl \
 	/usr/bin/tollgate-remove-ssl \
+	/usr/lib/tollgate/wallet-storage.sh \
 	/etc/init.d/tollgate-wrt \
 	/usr/bin/tollgate-first-login-setup \
 	/usr/bin/tollgate-check-package-path \

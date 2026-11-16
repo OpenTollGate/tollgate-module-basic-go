@@ -1,0 +1,1 @@
+- Add an injected-runner multi-WAN applier with backup-before-write, strict unchanged-config no-op, ordered UCI commit and mwan3 restart, changed-only persistent nft fragment reload, and explicit configuration restore.
