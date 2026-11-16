@@ -1652,6 +1652,20 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 	// Process payment
 	paymentCashuToken, err := m.tollwallet.DecodeToken(cashuToken)
 	if err != nil {
+		// A wallet-backend outage is not a verdict about the note. On the
+		// sidecar backend DecodeToken is an RPC, so a daemon outage lands
+		// here; classifying it as an invalid token tells a paying customer
+		// their money is fake. The note provably never moved (the connect
+		// failed before any money op), so try-again guidance is SAFE here —
+		// unlike the post-Receive ambiguity classes.
+		if errors.Is(err, tollwallet.ErrSidecarNotConnected) {
+			noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-processing-unavailable",
+				"This TollGate cannot reach its wallet service right now. Your e-cash note was not spent — nothing was taken. Please try again in a moment.", "")
+			if noticeErr != nil {
+				return nil, fmt.Errorf("wallet backend unreachable and failed to create notice: %w", noticeErr)
+			}
+			return noticeEvent, nil
+		}
 		noticeEvent, noticeErr := m.CreateNoticeEvent("error", "payment-error-invalid-token",
 			fmt.Sprintf("Invalid cashu token: %v", err), "")
 		if noticeErr != nil {
@@ -1847,14 +1861,15 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 		// note, and a sequential duplicate still lands in the mint's own
 		// refusal below. Ambiguous outcomes (ErrOutcomeUnknown) stay
 		// pending for the reconciler.
-		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) || isExpiredKeysetError(err) || isBelowSwapFeeError(err) || isRateLimitError(err) {
+		if errors.Is(err, tollwallet.ErrTokenAlreadySpent) || isExpiredKeysetError(err) || isBelowSwapFeeError(err) || isRateLimitError(err) || isMintRefusalError(err) {
 			m.resolveReceiveIntent(reference, intentStateAbandoned, fmt.Sprintf("mint refused: %v", err))
 		}
 
 		if !errors.Is(err, tollwallet.ErrTokenAlreadySpent) &&
 			!errors.Is(err, tollwallet.ErrOutcomeUnknown) &&
 			!isExpiredKeysetError(err) &&
-			!isRateLimitError(err) {
+			!isRateLimitError(err) &&
+			!isMintRefusalError(err) {
 			// A rate-limit answer means the mint is UP and telling us to slow
 			// down, so it must not condemn the mint. On a single-mint
 			// deployment a single 429 used to empty the reachable set, fire the
@@ -1898,6 +1913,18 @@ func (m *Merchant) PurchaseSession(cashuToken string, macAddress string) (*nostr
 			errorCode = "payment-error-keyset-expired"
 			errorMessage = fmt.Sprintf(
 				"This e-cash note was issued on a keyset that mint %s has retired (expired): the proofs are no longer spendable there. The note cannot be recovered by retrying; obtain a new token. Cause: %v",
+				mintURL, err)
+		} else if isMintRefusalError(err) {
+			// The mint ANSWERED and refused (definitive 4xx with a NUT-19
+			// body — e.g. "keyset <id> unknown", the #1153/#1222 Coinos
+			// shape). The mint is up; the note was not spent. This is not
+			// the unreachable class (no degrade, no infrastructure story)
+			// and not the ambiguity class (a definitive refusal consumed
+			// nothing) — the customer may retry once the mint-side issue
+			// clears, or use another mint.
+			errorCode = "payment-error-mint-refused"
+			errorMessage = fmt.Sprintf(
+				"Mint %s refused this e-cash note: %v. The note was not spent by this attempt — it is safe to try again later or use a token from another mint.",
 				mintURL, err)
 		} else if isMintUnreachableError(err) {
 			errorCode = "payment-error-mint-unreachable"
@@ -2047,12 +2074,39 @@ func isMintUnreachableError(err error) bool {
 	// unreachable-class: the mint is healthy and the token is dead (#440).
 	if strings.Contains(msg, "keyset") &&
 		(strings.Contains(msg, "not found") ||
-			strings.Contains(msg, "could not") ||
+			strings.Contains(msg, "could not resolve") ||
 			strings.Contains(msg, "error getting") ||
 			strings.Contains(msg, "resolve")) {
 		return !isExpiredKeysetError(err)
 	}
 	return false
+}
+
+// isMintRefusalError reports whether a Receive error is the mint
+// ANSWERING with a definitive refusal (a 4xx carrying a NUT-19 error
+// body), relayed by the wallet as "could not swap proofs: <the mint's
+// own message>". Everything after the wallet's wrapper prefix is the
+// mint's message — an unreachable mint produces connection errors, never
+// mint prose — so this shape is proof the mint is UP and the attempt
+// consumed nothing (#1222: the Coinos "keyset <id> unknown" refusal was
+// misread as mint-unreachable, degrading sales and stranding a
+// still-spendable note). Companion shapes: the melt wrapper. When the
+// fork's typed error identity lands (gonuts-tollgate #55), this text
+// classifier stays as the compatible fallback for older pins.
+func isMintRefusalError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	// The in-process (gonuts) relay: "could not swap proofs: <mint prose>".
+	if strings.Contains(msg, "could not swap proofs: ") ||
+		strings.Contains(msg, "could not melt proofs: ") {
+		return true
+	}
+	// The sidecar (cdk) relay: "Unknown error response: `code: N,
+	// detail: <mint prose>`" — the daemon surfaces the mint's NUT-19
+	// body verbatim under this wrapper (measured on the cdk-kp lane,
+	// LEG F: the Coinos keyset-unknown refusal). An unreachable mint
+	// produces connection errors, never a parsed mint error body — this
+	// wrapper is proof the mint ANSWERED (#1222, both-backend leg).
+	return strings.Contains(msg, "unknown error response:")
 }
 
 // isAmbiguousMintOutcomeError reports whether a `Receive` error leaves the fate

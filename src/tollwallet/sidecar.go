@@ -167,7 +167,12 @@ func (s *SidecarWallet) call(method string, params any, out any) error {
 		s.conn = nil
 		s.rd = nil
 		if written && !sidecarReadOnlyMethods[method] {
-			return fmt.Errorf("%w (method %s, request id %d)", ErrSidecarAmbiguous, method, req.ID)
+			// Port contract: ambiguity on a money-moving call surfaces as
+			// ErrOutcomeUnknown — the do-not-resubmit class the merchant
+			// classifies (#640), the same mapping the gonuts path applies
+			// to its AmbiguousOutcomeError. ErrSidecarAmbiguous stays
+			// wrapped inside for diagnostics.
+			return fmt.Errorf("%w: %w (method %s, request id %d)", ErrOutcomeUnknown, ErrSidecarAmbiguous, method, req.ID)
 		}
 	}
 	return fmt.Errorf("%w: %s", ErrSidecarNotConnected, method)
