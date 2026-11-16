@@ -322,9 +322,12 @@ If you enable one of these backends:
 - use a dedicated Lightning wallet with a limited balance, not your primary treasury;
 - set a retention period for session/payment records and purge them when no longer needed;
 - keep the NWC/LNbits credential out of logs, screenshots and general configuration;
-- expect the wallet provider and relay to see payment metadata (amount, timing,
-  counterparty public keys), even though the invoice must not contain the
-  customer's session ID, MAC address or name.
+- expect the wallet provider to see payment contents, including amount and timing;
+- for NIP-47, expect the relay to see connection public keys, event timing and
+  traffic volume. Request/response contents are encrypted: the relay alone does
+  not learn amounts or memos from them. A provider operating the relay can
+  correlate both views;
+- keep the customer's session ID, MAC address and name out of the invoice/memo.
 
 The guest payment page must show the account-based/persistent-session notice and
 require acknowledgement before a Lightning payment. Do not present this backend
