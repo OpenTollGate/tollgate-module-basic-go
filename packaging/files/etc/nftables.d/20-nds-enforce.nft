@@ -4,13 +4,58 @@
 # the renderer's empty-allowlist output are byte-identical by contract
 # (tests/contract/check-nds-preauth-nft.sh).
 #
-# NDS 5.0.2 inserts enforcement chains in ip filter FORWARD (iptables-nft).
-# On OpenWrt 24.10, fw4's inet fw4 forward chain (priority 0) accepts
-# forwarded traffic before the ip filter FORWARD chain (same priority)
-# ever sees it — leaving NDS's enforcement chain dead (0 packets).
+# WHAT WAS OBSERVED (#283): NDS 5.0.2 inserts its enforcement chains in
+# `ip filter FORWARD` (iptables-nft) and its marking chains in mangle
+# PREROUTING. On the #283 bench box the marks were reportedly being set, yet
+# clients that should have been gated were not, and the NDS chains read 0
+# packets. No counter dump, `fw4 print` or per-chain capture was archived with
+# that report: the 0-packet reading is remembered, not recorded.
 #
-# This include hooks into inet fw4 forward at priority -1, BEFORE fw4's
-# accept. It checks marks set by NDS's mangle PREROUTING (priority -150):
+# THE CAUSE IS NOT ESTABLISHED. This header used to assert one — "fw4's inet
+# fw4 forward chain (priority 0) accepts forwarded traffic before the ip filter
+# FORWARD chain (same priority) ever sees it". That is false in nftables, and
+# measured false (nftables 1.0.9, 2026-10-28,
+# docs/measurements/nft-verdict-propagation-2026-10-28.md): an `accept` is
+# final only for the chain that issued it, so a packet accepted by one base
+# chain still traverses later base chains on the same hook — 6/6 packets
+# reached the chain behind an accept, in either registration order and across
+# priorities. Only drop/reject starve a later chain. The ordering half was no
+# sound premise either: two base chains at the same priority have unspecified
+# order, so "fw4 runs first" cannot be assumed on any box. Retracted — do not
+# restore it, and do not repeat it as fact.
+#
+# WHAT WOULD SETTLE THE ORIGINAL QUESTION (not done; needs the router, not a
+# host): one known-marked flow (one MAC, one proto, one destination), one
+# `nft list ruleset` snapshot plus `fw4 print` taken after it, and
+# counter-only probe chains — `counter` with no verdict, so they cannot
+# perturb the path — at priorities -150, -1, 0 and +1 in BOTH the ip and inet
+# families. A probe reading 0 while its neighbours read non-zero localises the
+# decision. Repeat per build lane (24.10/ipk and 25.12/apk do not necessarily
+# render the same ruleset) and count both directions.
+#
+# WHAT THIS FILE IS FOR rests on #754's bench evidence, which IS archived
+# (issue #754, comment 6066054958): the priority -1 reject below executes
+# before NDS's priority-0 allow chain, so an allowlist entry nodogsplash
+# compiled can never rescue its own flow. The shape that comment verified is
+# the allowlist rendered at the TOP of this chain — see #754 below.
+#
+# STANDING HAZARD: same-priority base chains have UNSPECIFIED relative order
+# (nftables wiki, "Configuring chains"; AGENTS.md, "Firewall, nftables, and
+# topology-naming rules of engagement"). NDS's `ip filter FORWARD` and fw4's
+# `inet fw4 forward` both sit at priority filter, so nothing may be assumed
+# about which runs first. Never add a base chain at a priority where
+# cross-chain order matters; pick an earlier or later priority deliberately,
+# which is why this chain sits at -1.
+#
+# A TRAP FOR THE NEXT MEASUREMENT: what does preempt a later chain is a
+# terminal verdict, and this chain ends in `reject` at priority -1, ahead of
+# NDS's priority-0 chain. So on any build carrying this file an unmarked flow
+# is rejected here and NDS's counters read 0 packets — which is CONSISTENT
+# WITH THIS FILE WORKING, not evidence of a fault. Diagnose the gate from this
+# chain's own counters (`nft list chain inet fw4 nds_enforce_forward`), never
+# from NDS's.
+#
+# This include checks marks set by NDS's mangle PREROUTING (priority -150):
 #   0x10000 = pre-authenticated → drop
 #   0x20000 = trusted           → accept
 #   0x30000 = authenticated     → accept
