@@ -452,6 +452,8 @@ assert_mapping() { # assert_mapping <label> <board|luci> [refused]
 uhttpd_lines() { grep -E '^uhttpd\.' "$UCI_STATE" 2>/dev/null | sort; }
 
 run_99()  { : > "$LOGFILE"; sh "$SCRIPT99" > "$TMP/99.out" 2> "$TMP/99.err"; }
+run_99_env() { : > "$LOGFILE"; TOLLGATE_PORTAL_ETC="$TMP/etc/tollgate" LOGFILE="$LOGFILE" BRAND="${BRAND:-}" sh "$SCRIPT99" > "$TMP/99.out" 2> "$TMP/99.err"; }
+uhttpd_value() { grep -E "^uhttpd\.$1=" "$UCI_STATE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "'"; }
 run_999() { sh "$NINETYNINE" > "$TMP/999.out" 2> "$TMP/999.err"; }
 
 # ------------------------------------------- controls: the fence can see it
@@ -584,6 +586,39 @@ assert_fence "scenario 4b" refused board
 assert_mapping "scenario 4b" board refused
 
 echo
+echo
+echo "== scenario B: a brand shipping its own portal keeps it (#1122)"
+# The docroot path is CONSTRUCTED at runtime, so the scenario uses the
+# production script's TOLLGATE_PORTAL_ETC test seam to put the brand dir
+# under the harness sandbox. Covers both #1170 guard arms: brand dir
+# present -> brand docroot; absent -> stock fallback.
+BRANDTEST=entryuitestbrand
+BRANDDIR="$TMP/etc/tollgate/${BRANDTEST}-captive-portal-site"
+if [ -e "$BRANDDIR" ]; then
+    bad "scenario B: refusing to touch pre-existing $BRANDDIR"
+else
+    mkdir -p "$BRANDDIR" "$TMP/etc/tollgate"
+    printf '%s\n' "$BRANDTEST" > "$TMP/etc/tollgate/brand"
+    BRAND="$BRANDTEST" run_99_env
+    got_home="$(uhttpd_value portal.home)"
+    if [ "$got_home" = "$BRANDDIR" ]; then
+        ok "scenario B: brand docroot chosen ($got_home)"
+    else
+        bad "scenario B: expected brand docroot $BRANDDIR, got '${got_home:-<unset>}'"
+    fi
+    grep -q "brand portal docroot: $BRANDDIR" "$LOGFILE" \
+        && ok "scenario B: the choice is logged" \
+        || bad "scenario B: brand docroot choice not logged"
+    rmdir "$BRANDDIR"
+    BRAND="$BRANDTEST" run_99_env
+    got_home="$(uhttpd_value portal.home)"
+    if [ "$got_home" = "$TMP/etc/tollgate/tollgate-captive-portal-site" ]; then
+        ok "scenario B: absent brand dir falls back to stock"
+    else
+        bad "scenario B: fallback expected stock docroot, got '${got_home:-<unset>}'"
+    fi
+fi
+
 printf 'tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" = 0 ] || exit 1
 exit 0

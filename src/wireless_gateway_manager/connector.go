@@ -193,8 +193,15 @@ func (c *Connector) ExecuteUCI(args ...string) (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		operation := "unknown"
+		if len(args) > 0 {
+			switch args[0] {
+			case "get", "set", "show", "delete", "commit", "revert", "export", "changes":
+				operation = args[0]
+			}
+		}
 		if len(args) > 0 && args[0] == "delete" && strings.Contains(stderr.String(), "Entry not found") {
-			logger.WithField("command", strings.Join(args, " ")).Debug("UCI entry to delete was not found (which is okay)")
+			logger.WithField("operation", operation).Debug("UCI entry to delete was not found (which is okay)")
 			return "", nil
 		}
 		if len(args) > 0 && args[0] == "get" && strings.Contains(stderr.String(), "Entry not found") {
@@ -206,13 +213,15 @@ func (c *Connector) ExecuteUCI(args ...string) (string, error) {
 			// above makes the same call): radio-less systems carry no wireless
 			// config, and callers like GetSTASections parse an empty section
 			// list instead of surfacing a raw exit status (#1002 C1).
-			logger.WithField("command", strings.Join(args, " ")).Debug("UCI config absent for show (treating as empty)")
+			logger.WithField("operation", operation).Debug("UCI config absent for show (treating as empty)")
 			return "", nil
 		}
 		logger.WithFields(logrus.Fields{
-			"error":  err,
-			"stderr": stderr.String(),
+			"error":     err,
+			"operation": operation,
 		}).Error("Failed to execute UCI command")
+		// UCI arguments and stderr can contain saved or supplied passwords.
+		// Keep the exit error, but never forward either payload to logs.
 		return "", err
 	}
 
@@ -866,6 +875,21 @@ func (c *Connector) FindOrCreateSTAForSSID(ssid, passphrase, encryption, radio s
 	sections, err := c.GetSTASections()
 	if err != nil {
 		return "", err
+	}
+
+	// Recheck before any profile write: handler eligibility can become stale.
+	// An active section must not turn into a second saved profile, and an open
+	// advertisement must not erase a previously encrypted profile's key.
+	for _, section := range sections {
+		if section.SSID != ssid {
+			continue
+		}
+		if !section.Disabled {
+			return "", fmt.Errorf("saved upstream is active; switch away before updating it")
+		}
+		if encryption == "none" && section.Encryption != "none" {
+			return "", fmt.Errorf("saved upstream security differs from open network")
+		}
 	}
 
 	for _, section := range sections {

@@ -87,7 +87,13 @@ Step 4.
 ### Group B — Diff content
 
 4. **Does it do what it says it does**. Walk each claimed behavior
-   from the PR body against the actual diff lines.
+   from the PR body against the actual diff lines. For every numeric field
+   accepted from callers or the wire: state the domain-valid range and verify
+   the code enforces THAT range. Comparisons against type maxima
+   (`math.MaxInt64` & friends) are flagged as *prove the domain range* — they
+   may be reachable representation boundaries (uint64 values above 2⁶³ pass
+   `> math.MaxInt64`), never classified as dead; trace each written value
+   into downstream aggregates (budgets, sums) for poisoning.
 5. **Coherent whole**. Are all parts of the diff in service of the
    stated goal, or are there drive-by formatting changes, unrelated
    touch-ups, planning documents or agent scratch files, or scope

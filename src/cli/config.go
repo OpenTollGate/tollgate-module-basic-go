@@ -263,6 +263,10 @@ func (s *CLIServer) handleConfigSave(jsonStr string) CLIResponse {
 			cfg.AdminAccess = stored.AdminAccess
 			preserved = append(preserved, "admin_access")
 		}
+		if cfg.MPTCPBonding.Password == "" && stored.MPTCPBonding.Password != "" {
+			cfg.MPTCPBonding.Password = stored.MPTCPBonding.Password
+			preserved = append(preserved, "mptcp_bonding.password")
+		}
 	}
 
 	// The wholesale path bypasses per-key schema validation, so the enum values
