@@ -761,7 +761,11 @@ func (m *Merchant) grantSessionAccess(macAddress string, allotment uint64) (*Cus
 func openGateForSession(macAddress string, session *CustomerSession) error {
 	switch session.Metric {
 	case "milliseconds":
-		endTimestamp := session.StartTime + int64(session.Allotment/1000)
+		// The timer and the lookup must agree on one instant: the session's
+		// paid-through watermark (see sessionPaidThroughUnix). Arming from a
+		// second expression of it is how a top-up that grew the allotment stops
+		// moving the horizon it was bought to move.
+		endTimestamp := sessionPaidThroughUnix(session)
 		if err := valve.OpenGateUntil(macAddress, endTimestamp); err != nil {
 			return fmt.Errorf("failed to open gate: %w", err)
 		}
