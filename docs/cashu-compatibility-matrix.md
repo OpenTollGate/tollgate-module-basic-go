@@ -33,11 +33,12 @@ keys, making them self-verifying (NUT-02).
 ## The 6 Combinations
 
 
-> **Re-verified against `gonuts-tollgate` v0.14.1 (2026-10-06), code-level
+> **Re-verified against `gonuts-tollgate` v0.17.0 (2026-11-16), code-level
 > plus the executable suite** (`src/tollwallet/compatibility_matrix_test.go`
 > and the round-trip/cross-vector tests, run under `-tags testenv` in
-> `make go-battery` — all green on the pinned baseline). What changed
-> since the v0.7.6 snapshot this matrix was written against:
+> `make go-battery` — all green on the pinned baseline). The v0.14.1→v0.17.0 delta is wallet recovery, EOF tolerance and quote
+> hygiene; the token decode/keyset paths this matrix covers are unchanged.
+> What changed since the v0.7.6 snapshot this matrix was written against:
 >
 > - **V1 (bare-JSON) tokens are no longer decoded by the master
 >   `DecodeToken` path** (it tries V4, then V3, and stops) — cells 1/2
