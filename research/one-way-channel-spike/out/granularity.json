@@ -1,0 +1,11 @@
+{
+  "source": "live tollgate-A04E config.json",
+  "metric": "bytes",
+  "step_size_bytes": 22020096,
+  "price_per_step_sat": 1,
+  "channel_setup_close_sat": 716,
+  "tables": {
+    "erratum_hours_if_ms": 6.116693333333334,
+    "sats_per_gib": 48.76190476190476
+  }
+}

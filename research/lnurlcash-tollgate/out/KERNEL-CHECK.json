@@ -1,0 +1,20 @@
+{
+  "core": "/Satoshi:31.1.0/",
+  "height": 160,
+  "results": {
+    "OP_CHECKMULTISIG": {
+      "leaf_len": 69,
+      "ctrl_len": 33,
+      "addr": "bcrt1pupyjy4a8et8e8x3m2ld4nej0w8am6ljy6r020hscqh6rpdprfztsr8a7hs",
+      "allowed": false,
+      "reject_reason": "mempool-script-verify-flag-failed (OP_CHECKMULTISIG(VERIFY) is not available in tapscript)"
+    },
+    "OP_CHECKSIGADD": {
+      "leaf_len": 70,
+      "ctrl_len": 33,
+      "addr": "bcrt1ptlllgewrqxp00vh8slnvzqt22cqkw5tfy7grwvhfp8cav8elxnpq46sam5",
+      "allowed": false,
+      "reject_reason": "mempool-script-verify-flag-failed (Invalid Schnorr signature)"
+    }
+  }
+}
