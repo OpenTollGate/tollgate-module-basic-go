@@ -191,6 +191,10 @@ func TestUpstreamManager_RunScanCycle_NoActiveUpstream(t *testing.T) {
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "", "upstream_mynet", "MyNet", "").Return(nil)
+	// Poll-tolerant stub for the post-switch verifier (#1243): a plain
+	// On(...).Return matches unlimited calls; nil makes the verifier exit
+	// benignly instead of panicking an unstubbed strict mock.
+	connector.On("GetActiveSTA").Maybe().Return(nil, nil)
 
 	um.runScanCycle("", "", "", 0, "no-active-upstream", false)
 
@@ -233,6 +237,10 @@ func TestUpstreamManager_RunScanCycle_AboveHysteresis_Switches(t *testing.T) {
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_othernet", "upstream_mynet", "MyNet", "").Return(nil)
+	// Poll-tolerant stub for the post-switch verifier (#1243): a plain
+	// On(...).Return matches unlimited calls; nil makes the verifier exit
+	// benignly instead of panicking an unstubbed strict mock.
+	connector.On("GetActiveSTA").Maybe().Return(nil, nil)
 
 	um.runScanCycle("upstream_othernet", "OtherNet", "", -60, "scheduled", false)
 
@@ -255,6 +263,10 @@ func TestUpstreamManager_RunScanCycle_BelowSignalFloor(t *testing.T) {
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_othernet", "upstream_mynet", "MyNet", "").Return(nil)
+	// Poll-tolerant stub for the post-switch verifier (#1243): a plain
+	// On(...).Return matches unlimited calls; nil makes the verifier exit
+	// benignly instead of panicking an unstubbed strict mock.
+	connector.On("GetActiveSTA").Maybe().Return(nil, nil)
 
 	um.runScanCycle("upstream_othernet", "OtherNet", "", -90, "scheduled", false)
 
@@ -572,6 +584,10 @@ func TestUpstreamManager_PostSwitch_NoBlacklistWhenConnectivityOK(t *testing.T) 
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_old", "upstream_mynet", "MyNet", "").Return(nil)
+	// Poll-tolerant stub for the post-switch verifier (#1243): a plain
+	// On(...).Return matches unlimited calls; nil makes the verifier exit
+	// benignly instead of panicking an unstubbed strict mock.
+	connector.On("GetActiveSTA").Maybe().Return(nil, nil)
 
 	um.runScanCycle("upstream_old", "OldNet", "", -90, "emergency", false)
 
@@ -642,7 +658,7 @@ func TestUpstreamManager_StartupCheck_NoActiveSTA(t *testing.T) {
 
 	um := NewUpstreamManager(connector, scanner, reseller, config)
 
-	connector.On("GetActiveSTA").Return(nil, nil)
+	connector.On("GetActiveSTA").Maybe().Return(nil, nil)
 
 	um.startupConnectivityCheck()
 
