@@ -11,7 +11,7 @@
   },
   "gonuts": {
     "repo": "https://github.com/OpenTollGate/gonuts-tollgate",
-    "version": "v0.17.0",
+    "version": "v0.17.1",
     "comment": "The wallet fork every Go module pins IDENTICALLY. tests/contract/check-gonuts-pin.py enumerates carriers by glob (never a hand list) and fails on any disagreement with this value; scripts/bump-gonuts.sh rewrites manifest and every carrier together. Before a release is cut, release-check verifies this is the fork's latest stable tag. Pseudo-version integration pins are for branches only and must not outlive their tag on main."
   },
   "cdk_go": {
@@ -57,7 +57,7 @@
         "feed_branch": "openwrt-25.12",
         "downloads_arch": "x86_64",
         "source_hash": "908d3674e93726fdcefb4c3b6705c745753435df9d46425781a57e3f6b417797",
-        "comment": "The only FEATURE target (25.12/apk). PKG_VERSION/PKG_RELEASE of openwrt/routing@openwrt-25.12; the released 25.12.0 feed publishes nodogsplash-5.0.2-r2.apk. source_hash is the feed recipe's PKG_HASH — the tarball the SDK unpacks. downloads_arch is the arch whose released-feed index is read to prove the package is PUBLISHED (the version is arch-independent; x86_64 always exists)."
+        "comment": "The only FEATURE target (25.12/apk). PKG_VERSION/PKG_RELEASE of openwrt/routing@openwrt-25.12; the released 25.12.0 feed publishes nodogsplash-5.0.2-r2.apk. source_hash is the feed recipe's PKG_HASH \u2014 the tarball the SDK unpacks. downloads_arch is the arch whose released-feed index is read to prove the package is PUBLISHED (the version is arch-independent; x86_64 always exists)."
       },
       "ipk": {
         "version": "5.0.2",
@@ -71,7 +71,7 @@
       }
     },
     "era_divergence": "The two eras DO resolve different packaging releases of the same upstream version: apk 5.0.2-r2, ipk 5.0.2-r1 (the -r2 bump landed on the 25.12 branch only). That is why this pin is per-era rather than one string: a single value would be a false equality, passing for one lane while naming a package the other lane does not publish. Any consumer that names a nodogsplash version with a -rN suffix must name one of these two, and tests/contract/check-nodogsplash-pin.py reports which era each carrier matched instead of collapsing them.",
-    "rebuild": "Bumping this pin is NOT the way to get a fix: scripts/* do not rewrite it. Raise the feed's PKG_RELEASE upstream, or carry a deliberate decision (changelog fragment + ADR) — the daemon's behaviour is what every gate, session and pre-auth allow-list in this repo was bench-verified against, so a version change is a re-verification event."
+    "rebuild": "Bumping this pin is NOT the way to get a fix: scripts/* do not rewrite it. Raise the feed's PKG_RELEASE upstream, or carry a deliberate decision (changelog fragment + ADR) \u2014 the daemon's behaviour is what every gate, session and pre-auth allow-list in this repo was bench-verified against, so a version change is a re-verification event."
   },
   "openwrt_sdk": {
     "image": "openwrt/sdk",

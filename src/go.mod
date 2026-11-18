@@ -14,7 +14,13 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager v0.0.0
+	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6
+	github.com/btcsuite/btcd/btcec/v2 v2.3.4
+	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
+	github.com/coder/websocket v1.8.13
+	github.com/lightningnetwork/lnd v0.19.1-beta.rc1
 	github.com/nbd-wtf/go-nostr v0.51.12
+	github.com/nbd-wtf/ln-decodepay v1.13.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/time v0.15.0
@@ -41,17 +47,14 @@ require (
 	github.com/FactomProject/basen v0.0.0-20150613233007-fe3947df716e // indirect
 	github.com/FactomProject/btcutilecc v0.0.0-20130527213604-d3a63a5752ec // indirect
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
-	github.com/OpenTollGate/gonuts-tollgate v0.17.0 // indirect
+	github.com/OpenTollGate/gonuts-tollgate v0.17.1 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol v0.0.0 // indirect
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/siphash v1.0.1 // indirect
-	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6 // indirect
-	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10 // indirect
-	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c // indirect
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084 // indirect
 	github.com/btcsuite/btcwallet v0.16.14 // indirect
@@ -68,7 +71,6 @@ require (
 	github.com/cashubtc/cdk-go v0.18.3 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
-	github.com/coder/websocket v1.8.13 // indirect
 	github.com/containerd/continuity v0.4.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
@@ -92,7 +94,6 @@ require (
 	github.com/lightninglabs/neutrino v0.16.1 // indirect
 	github.com/lightninglabs/neutrino/cache v1.1.2 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
-	github.com/lightningnetwork/lnd v0.19.1-beta.rc1 // indirect
 	github.com/lightningnetwork/lnd/clock v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.8 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
@@ -103,7 +104,6 @@ require (
 	github.com/miekg/dns v1.1.66 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/nbd-wtf/ln-decodepay v1.13.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
