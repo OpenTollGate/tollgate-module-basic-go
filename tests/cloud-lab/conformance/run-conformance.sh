@@ -98,6 +98,37 @@ COPY faultproxy.py /app/faultproxy.py
 ENTRYPOINT ["python3", "/app/faultproxy.py"]
 EOF
 
+# The NUT-13 adversarial mint (matrix: keyset-id-collision-quarantine). Same
+# generated-build pattern as the proxy: PRTA's file copied verbatim, never
+# committed here. Duplicate mode announces the honest mint's OWN keys, so the
+# wallet's keyset-ID verification passes and the residue trivially collides —
+# the registration quarantine must refuse the mint, not brick the wallet.
+ADV_SRC="$PRTA_CONFORMANCE_DIR/adversarial-mint.py"
+HAVE_ADV=0
+if [ -f "$ADV_SRC" ]; then
+    mkdir -p "$CONF_DIR/adv-build"
+    cp "$ADV_SRC" "$CONF_DIR/adv-build/adversarial-mint.py"
+    printf '%s\n' \
+        'FROM python:3.12-slim-bookworm' \
+        'COPY adversarial-mint.py /app/adversarial-mint.py' \
+        'ENTRYPOINT ["python3", "/app/adversarial-mint.py", "duplicate", "--listen", "0.0.0.0:9099", "--honest-keys", "http://mint:8085/v1/keys"]' \
+        >"$CONF_DIR/adv-build/Dockerfile"
+    { echo 'services:'
+      echo '  adversarial-mint:'
+      echo '    build:'
+      echo '      network: host'
+      echo '      context: ./.conformance/adv-build'
+      echo '    container_name: tg-adversarial-mint'
+      echo '    labels: ["ai-legion.lane=tollgate-cloud-lab"]'
+      echo '    restart: unless-stopped'
+      echo '    networks:'
+      echo '      tollgate-lab:'
+      echo '        ipv4_address: 172.28.0.40'
+    } >"$CONF_DIR/adv-mint-compose.yml"
+    export CLOUD_LAB_EXTRA_COMPOSE=".conformance/adv-mint-compose.yml"
+    HAVE_ADV=1
+fi
+
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.conformance.yml)
 if [ -n "${CLOUD_LAB_EXTRA_COMPOSE:-}" ]; then
     COMPOSE+=(-f "$CLOUD_LAB_EXTRA_COMPOSE")
@@ -187,6 +218,37 @@ run_phase "issuer_400_keyset_unknown"
 echo "== phase: swap replay rejected -> ladder (NUT-19-blind mint)"
 run_phase "swap_replay_rejected_ladder"
 
+if [ "$HAVE_ADV" = 1 ]; then
+    echo "== phase: adversarial keyset registration (NUT-13 duplicate collision)"
+    # Bring the adversarial mint up next to the honest (proxy-fronted) one,
+    # then reconfigure the module to accept BOTH mints and restart it: the
+    # registration of the adversarial keyset (the honest mint's own keys,
+    # announced cross-mint) must be REFUSED by the NUT-13 quarantine while
+    # the honest mint keeps working.
+    "${COMPOSE[@]}" up -d --build adversarial-mint >/dev/null 2>&1 || {
+        echo "conformance: adversarial-mint did not come up"; exit 1;
+    }
+    python3 - "$CONF_DIR" <<'PYGEN'
+import json, sys
+conf = sys.argv[1]
+cfg = json.load(open(f"{conf}/runtime-config.json"))
+adv = dict(cfg["accepted_mints"][0])
+adv["url"] = "http://adversarial-mint:9099"
+cfg["accepted_mints"] = [cfg["accepted_mints"][0], adv]
+json.dump(cfg, open(f"{conf}/collision-config.json", "w"), indent=2)
+PYGEN
+    docker cp "$CONF_DIR/collision-config.json" tg-upstream:/etc/tollgate/config.json
+    docker restart tg-upstream >/dev/null
+    for _ in $(seq 1 30); do curl -sf "$UPSTREAM_HOST_URL/" >/dev/null && break; sleep 1; done
+    run_phase "adversarial_keyset"
+    # restore the single-mint config so later folds see the standard lab
+    docker cp "$CONF_DIR/runtime-config.json" tg-upstream:/etc/tollgate/config.json
+    docker restart tg-upstream >/dev/null
+    for _ in $(seq 1 30); do curl -sf "$UPSTREAM_HOST_URL/" >/dev/null && break; sleep 1; done
+else
+    echo "== phase: adversarial keyset — SKIPPED (PRTA checkout lacks adversarial-mint.py)"
+fi
+
 echo "== host-side: wallet mint count via the CLI socket (alias fold)"
 docker exec tg-upstream sh -c \
     "printf '%s\n' '{\"command\":\"wallet\",\"args\":[\"info\"]}' | socat - UNIX-CONNECT:/etc/tollgate/tollgate.sock" \
@@ -199,7 +261,8 @@ rows = [json.load(open(p)) for p in sorted(glob.glob(f"{conf}/verdict-parts/*.js
 
 expected = {"swap-timeout-retry", "duplicate-post-sequential", "duplicate-post-concurrent",
             "mint-alias-spellings", "pay-kill-post-receive-pre-session",
-            "issuer-400-keyset-unknown", "swap-replay-rejected-ladder"}
+            "issuer-400-keyset-unknown", "swap-replay-rejected-ladder",
+            "keyset-id-collision-quarantine"}
 seen = {r["scenario"] for r in rows}
 for missing in sorted(expected - seen):
     rows.append({"scenario": missing, "invariants": {},
