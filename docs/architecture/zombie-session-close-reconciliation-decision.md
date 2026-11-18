@@ -128,8 +128,13 @@ moving.
    > [2026-09-28 amendment](startup-nds-reconciliation-decision.md#amendment-2026-09-28-the-same-question-asked-periodically)),
    > which closes an authorisation this module never made — one created by
    > `ndsctl auth` run outside the module, restored from NoDogSplash's own state
-   > file when the SERVICE restarts, or left standing on a box whose merchant came
-   > up degraded and so never ran the startup pass. The sentence in decision 4 of
+   > file when the SERVICE restarts (only on a nodogsplash build that imports a
+   > state file across a service restart — the v5.0.2 source this repo pins has no
+   > such integration, and whether the deployed package backports it is
+   > TODO(unverified); see
+   > [the start-up record's door 2](startup-nds-reconciliation-decision.md#the-doors-a-startup-pass-cannot-close)),
+   > or left standing on a box whose merchant came up blind — degraded — and so
+   > never ran the startup pass. The sentence in decision 4 of
    > the startup record that said *never periodically* is withdrawn there.
 
 6. **The wording matches the verified state.** No line claims a client "may still
