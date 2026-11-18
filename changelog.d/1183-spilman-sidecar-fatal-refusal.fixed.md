@@ -4,4 +4,4 @@
   and a one-byte typo were both indistinguishable from a crashed daemon. A
   partial frame that stalls mid-read is now refused as `invalid_request` rather
   than pinning the connection until the read timeout, and an oversize frame is
-  answered with exactly one uncorrelated refusal before the close.
+  answered with exactly one uncorrelated refusal before the close. ([#1183](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1183))

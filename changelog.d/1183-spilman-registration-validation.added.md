@@ -6,4 +6,4 @@
   unsupported unit, zero capacity, an expired registration, and a channel id
   that cannot be derived. It returns only values the sidecar derived, carries an
   always-false `mint_funds_asserted` marker, and performs no signing, swap,
-  restore or mint call — it does not make settlement work.
+  restore or mint call — it does not make settlement work. ([#1183](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1183))
