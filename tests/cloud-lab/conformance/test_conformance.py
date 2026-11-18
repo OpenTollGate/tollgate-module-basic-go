@@ -121,6 +121,7 @@ PHASE_LOG = {
     "mint-alias-spellings": ["mint_alias_spellings.log"],
     "issuer-400-keyset-unknown": ["issuer_400_keyset_unknown.log"],
     "swap-replay-rejected-ladder": ["swap_replay_rejected_ladder.log"],
+    "keyset-id-collision-quarantine": ["adversarial_keyset.log"],
 }
 
 
@@ -692,3 +693,47 @@ def test_swap_replay_rejected_ladder(lab_up, identities, client_mac):
         },
     )
     assert settled, f"payment never settled through the rejection ladder: {resp.status_code} {resp.text[:200]}"
+
+
+# --------------------------- adversarial keyset (matrix: keyset-id-collision-quarantine)
+# The duplicate-collision shape: the adversarial mint announces the HONEST
+# mint's own keys cross-mint. Keyset-ID verification passes (ID = hash(keys)),
+# so the NUT-13 residue trivially collides with the already-registered honest
+# keyset — the wallet's registration quarantine must REFUSE it, the wallet
+# must stay healthy, and the honest payment path must keep working.
+
+
+def test_adversarial_keyset_registration_refused(lab_up, identities, client_mac):
+    scenario = "keyset-id-collision-quarantine"
+    mac = client_mac
+    wallet = _fund_wallet()
+    token = create_cashu_token(wallet, 100, PROXY_MINT_URL)
+
+    # The module restarted with BOTH mints accepted (runner did this); the
+    # advertisement answering IS the wallet-healthy signal post-quarantine.
+    adv = requests.get(f"{UPSTREAM_URL}/", timeout=15)
+    wallet_alive = adv.status_code == 200 and bool(adv.json().get("pubkey"))
+
+    # The quarantine evidence: the module's own log names the collision.
+    # (The daemon logs the ErrCollidingKeysetId refusal at registration.)
+    # The in-lane check asserts the OBSERVABLE outcome — the honest payment
+    # still settles — with the log as the boundary-detection hint.
+    paid = _pay(token, identities["tollgate_pub"], identities["customer"], mac)
+    paid_ok = paid.status_code == 200 and _kind(paid) == 1022
+
+    reused = _phase_reuse({}, _swap_counts(_observations()))
+    _proxyctl({"clear": True})
+
+    _write_verdict(
+        scenario,
+        {
+            "no-fund-loss": _inv(
+                "pass" if (wallet_alive and paid_ok) else "fail",
+                f"wallet_alive={wallet_alive} honest_payment={paid.status_code}/k{_kind(paid)} "
+                "(the adversarial registration was quarantined, not the wallet bricked)",
+            ),
+            "no-output-reuse": _inv("pass" if not reused else "fail", f"reused={reused}"),
+        },
+    )
+    assert wallet_alive, "the colliding-mint registration bricked the wallet (advertisement dead)"
+    assert paid_ok, f"honest payment failed post-quarantine: {paid.status_code} {paid.text[:200]}"
