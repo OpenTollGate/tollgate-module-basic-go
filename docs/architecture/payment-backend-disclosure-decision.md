@@ -14,7 +14,7 @@ consumer is enabled by this record.
 | Value model | Bearer token; possession controls value | Account-based wallet; the router receives spending authority |
 | Router role | Verifier of ecash | Remote client of a Lightning wallet/account |
 | Persistent identity | Not required to hold a token | Required for the access session, payment reconciliation and restart recovery |
-| Primary privacy tradeoff | The mint sees proofs/redemption; the router sees the payment flow | The wallet provider/relay can see payment metadata; the router keeps a session-to-payment record |
+| Primary privacy tradeoff | The mint sees proofs/redemption; the router sees the payment flow | The wallet provider sees payment contents; a NIP-47 relay sees connection/event metadata; the router keeps a session-to-payment record |
 | Offline behavior | A token can be held; verification needs the mint | Relay/wallet availability is required |
 | Failure class | Mint refusal, keyset loss, stale proofs | Wallet/relay outage, ambiguous payment outcome, account compromise |
 
@@ -53,10 +53,12 @@ operator must see and acknowledge:
 > That record links the Lightning payment to the customer's access session and
 > is visible to the operator.
 >
-> The wallet provider and Nostr relay can see payment metadata such as amount,
-> timing and counterparty public keys. A compromised router or connection secret
-> can spend the wallet. Use a dedicated wallet with a limited balance, and set a
-> retention policy.
+> The wallet provider sees payment contents, including amount and timing. For
+> NIP-47, a Nostr relay sees connection public keys, event timing and traffic
+> volume, but encrypted request/response contents do not reveal amounts or memos
+> to the relay alone. A provider that also operates the relay can correlate both.
+> A compromised router or spending-capable connection secret can spend the
+> wallet. Use a dedicated wallet with a limited balance, and set a retention policy.
 
 Required acknowledgements:
 
@@ -166,3 +168,7 @@ A consumer must not enable an account-based backend unless:
 - `#1210` — LNbits client; same account-based disclosure.
 - `#1212` / `#1231` — durable journal and paid/unresolved-fee reconciliation.
 - `docs/operator-guide.md` — operator-facing summary.
+
+NIP-47 distinguishes encrypted request/response contents from relay-visible kinds
+and tags; unique keys are recommended for each connection. See the
+[protocol description](https://github.com/nostr-protocol/nips/blob/c53877571f96eb423661fc23c620d629d37b8f19/47.md#theory-of-operation).
