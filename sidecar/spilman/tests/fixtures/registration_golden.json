@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "Cross-language golden vector for the validate_registration.v1 contract.",
+    "GENERATED from the pinned protocol crate; both the Rust sidecar contract test",
+    "and the Go client contract test recompute against it. Do not hand-edit:",
+    "regenerate with `cargo run --example emit_registration_golden` in sidecar/spilman.",
+    "The two *_secret_hex values are public, throwaway test scalars."
+  ],
+  "expected": {
+    "canonical_params_json": "{\"capacity\":1000,\"expiry_timestamp\":4102444800,\"funding_token_amount\":1024,\"input_fee_ppk\":100,\"keyset_id\":\"0026f0e2e77f87a6\",\"maximum_amount_for_one_output\":64,\"mint\":\"https://mint.example\",\"receiver_pubkey\":\"02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27\",\"sender_pubkey\":\"034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa\",\"setup_timestamp\":1700000000,\"unit\":\"sat\"}",
+    "channel_id": "be1dcca1b542eb2cc64fff0c1b1a5deff04984e3c2b5c60f176c61ae1eaff91e",
+    "receiver_pubkey": "02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+    "sender_pubkey": "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"
+  },
+  "nested_params_json": "{\"capacity\":1000,\"expiry_timestamp\":4102444800,\"funding_token_amount\":1024,\"input_fee_ppk\":100,\"keyset_id\":\"0026f0e2e77f87a6\",\"maximum_amount_for_one_output\":64,\"mint\":\"https://mint.example\",\"receiver_pubkey\":\"02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27\",\"sender_pubkey\":\"034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa\",\"setup_timestamp\":1700000000,\"unit\":\"sat\"}",
+  "receiver_secret_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+  "registration": {
+    "capacity": 1000,
+    "expiry_timestamp": 4102444800,
+    "funding_token_amount": 1024,
+    "input_fee_ppk": 100,
+    "keyset_id": "0026f0e2e77f87a6",
+    "maximum_amount_for_one_output": 64,
+    "mint": "https://mint.example",
+    "receiver_pubkey": "02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+    "sender_pubkey": "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+    "setup_timestamp": 1700000000,
+    "unit": "sat"
+  },
+  "sender_secret_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+  "trusted_keyset_info": {
+    "inputFeePpk": 100,
+    "keys": {
+      "1": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+      "16": "03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556",
+      "2": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+      "32": "025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc",
+      "4": "02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+      "64": "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+      "8": "022f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4"
+    },
+    "keysetId": "0026f0e2e77f87a6",
+    "unit": "sat"
+  },
+  "trusted_mint_url": "https://mint.example"
+}

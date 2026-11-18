@@ -26,6 +26,11 @@ src/cmd/tollgate-cli/tollgate-cli
 src/cmd/tg-vendor-ie-demo/tg-vendor-ie-demo
 *.exe
 
+# Rust build output for the Spilman protocol sidecar (sidecar/spilman).
+# The binary is a separately packaged artifact, never a committed one.
+sidecar/*/target/
+*.rs.bk
+
 # Per-developer Go workspace overrides. Local fork redirects belong in a
 # go.work file (gitignored, never committed or stashed), never in go.mod —
 # a replace directive whose target directory is missing makes every build
@@ -107,6 +112,7 @@ tests/cloud-lab/.conformance/
 # session scratch (review prompts + PR body are session artifacts, not deliverables)
 PR-BODY.md
 PROGRESS.md
+REPORT.md
 build-review-prompt*.py
 src/cmd/tollgate-cvm/tollgate-cvm
 # Each cmd/ module's built binary lands next to its sources (module
