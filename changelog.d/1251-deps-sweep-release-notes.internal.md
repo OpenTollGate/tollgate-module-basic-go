@@ -5,5 +5,5 @@
   against shipped versions had no paper trail in the changelog. This
   fragment backfills the class: dependency/security changes always carry
   a fragment, per the changelog policy
-  ([#1051](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/1051))
+  ([#1055 tracked in the review-debt audit; fragment carried by [#1251](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1251)))
   ([#885](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/885)).
