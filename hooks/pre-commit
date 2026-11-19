@@ -1,7 +1,25 @@
 #!/usr/bin/env bash
-# Pre-commit hook: check dependency sync + stale import paths.
+# Pre-commit hook: gitleaks staged scan + dependency sync + stale import paths.
 # Install with: git config core.hooksPath hooks
 set -euo pipefail
+
+# Secrets are cheap to remove BEFORE the commit and expensive after push.
+# Scans the staged diff with gitleaks (same pinned version as CI's lanes —
+# org enrollment #657, one-config/two-lanes #758/#759, frugal lanes #820).
+# Optional-but-recommended locally; GITLEAKS_REQUIRED=1 fails closed when
+# absent. Complements, never replaces, the CI scan (--no-verify bypasses
+# this; only machines with the hook installed are covered).
+if command -v gitleaks >/dev/null 2>&1; then
+    echo "🔍 gitleaks: scanning staged changes..."
+    gitleaks protect --staged --redact --verbose
+elif [ -n "${GITLEAKS_REQUIRED:-}" ]; then
+    echo "❌ gitleaks not found and GITLEAKS_REQUIRED is set"
+    echo "   install: go install github.com/zricethezav/gitleaks/v8@v8.30.1"
+    exit 1
+else
+    echo "⚠️  gitleaks not installed — skipping staged secret scan"
+    echo "   install: go install github.com/zricethezav/gitleaks/v8@v8.30.1"
+fi
 
 if git diff --cached --name-only | grep -q '\.mod$\|go\.sum$'; then
     echo "🔍 Checking dependency sync across go.mod files..."
