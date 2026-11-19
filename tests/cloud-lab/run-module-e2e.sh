@@ -291,7 +291,8 @@ if [ "$BACKEND" = cdk ]; then
   docker rm -f walletd-legd >/dev/null 2>&1 || true
   docker stop tg-cdk-walletd >/dev/null
   rm -f walletd-socket/real.sock
-  docker run -d --name walletd-legd --network "$DOCKER_NET" \
+  docker run -d --name walletd-legd --label ai-legion.lane=tollgate-cloud-lab \
+    --network "$DOCKER_NET" \
     -v "$CDK_WALLETD_BIN":/walletd/cdk-walletd:ro \
     -v "$(pwd)/walletd-socket":/run/walletd -v cloud-lab_walletd-data:/data \
     alpine:3.20 /bin/sh -c \

@@ -44,6 +44,7 @@ services:
         condition: service_healthy
 
   cdk-walletd:
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     image: alpine:3.20
     pull_policy: missing
     container_name: tg-cdk-walletd
@@ -79,6 +80,7 @@ services:
       retries: 15
 
   upstream-cdk:
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     build:
       network: host
       context: ../..
