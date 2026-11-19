@@ -18,6 +18,7 @@ services:
   # unreachable from the containers). Passthrough until the driver arms it
   # via the shared kp-state bind mount.
   killproxy:
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
     image: python:3.12-alpine
     container_name: tg-killproxy
     depends_on:
