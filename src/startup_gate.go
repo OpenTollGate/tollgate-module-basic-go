@@ -255,3 +255,8 @@ func (startingMerchant) IssueOnRequest(string, string, uint64) (string, error) {
 func (startingMerchant) DefaultIssuanceMint(string) string { return "" }
 
 func (startingMerchant) SetOnReachableSetChanged(func()) {}
+
+// Shutdown satisfies the MerchantInterface contract (#1026): the starting
+// merchant owns nothing — a no-op, never an error, so a shutdown path that
+// races startup-degraded mode still converges.
+func (startingMerchant) Shutdown() error { return nil }

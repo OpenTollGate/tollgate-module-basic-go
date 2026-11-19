@@ -31,6 +31,8 @@ func (m *namedMerchant) IssueOnRequest(string, string, uint64) (string, error) {
 
 func (m *namedMerchant) DefaultIssuanceMint(string) string { return "" }
 
+func (m *namedMerchant) Shutdown() error { return nil }
+
 func providerMerchantName(p merchant_types.MerchantProvider) string {
 	m := p.GetMerchant()
 	if m == nil {

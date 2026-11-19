@@ -404,6 +404,11 @@ type MerchantInterface interface {
 	IssueOnRequest(mintURL, unit string, amount uint64) (string, error)
 	// DefaultIssuanceMint returns the configured mint issuing a unit, or "".
 	DefaultIssuanceMint(unit string) string
+	// Shutdown releases the merchant's resources (wallet, monitors). Both
+	// implementations define it; declaring it here lets interface holders
+	// shut their merchant down without a type assertion (#1026) — the
+	// degraded wrapper's upgrade path already depends on this contract.
+	Shutdown() error
 }
 
 // Merchant represents the financial decision maker for the tollgate

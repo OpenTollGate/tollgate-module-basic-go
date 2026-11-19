@@ -120,6 +120,8 @@ func (m *scriptedDrainMerchant) GetLightningInvoiceStatus(quoteID, macAddress st
 }
 func (m *scriptedDrainMerchant) SetOnReachableSetChanged(func()) {}
 
+func (m *scriptedDrainMerchant) Shutdown() error { return nil }
+
 func newDrainTestServer(t *testing.T, m merchant.MerchantInterface) *CLIServer {
 	// Drain successes are journaled; keep the journal in a temp dir so
 	// tests never touch /etc/tollgate.

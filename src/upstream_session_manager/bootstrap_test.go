@@ -34,6 +34,8 @@ func (m *bootstrapMerchant) GetBalanceByMint(mintURL string) uint64 {
 
 func (m *bootstrapMerchant) Fund(cashuToken string) (uint64, error) { return 0, nil }
 
+func (m *bootstrapMerchant) Shutdown() error { return nil }
+
 func newBootstrapMerchant() *bootstrapMerchant {
 	return &bootstrapMerchant{balances: map[string]uint64{}}
 }

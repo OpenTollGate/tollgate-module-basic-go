@@ -89,6 +89,8 @@ func (m *boundaryMerchant) IssueSessionTicket(string) (string, int64, error) {
 }
 func (m *boundaryMerchant) SetOnReachableSetChanged(func()) {}
 
+func (m *boundaryMerchant) Shutdown() error { return nil }
+
 // #950's invariant is that a device identifier never occupies the `p` tag of a
 // kind-21023 notice. #968 enforces it at the choke point (createNoticeEvent
 // drops any recipient that is not a 64-hex Nostr pubkey) and stopped passing

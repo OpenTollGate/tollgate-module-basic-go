@@ -37,6 +37,9 @@ type PaymentMerchant interface {
 	GetAcceptedMints() []config_manager.MintConfig
 	GetBalanceByMint(mintURL string) uint64
 	Fund(cashuToken string) (uint64, error)
+	// Shutdown releases the merchant's resources; declared so provider
+	// consumers can clean up without type assertions (#1026).
+	Shutdown() error
 }
 
 type MerchantProvider interface {
