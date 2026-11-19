@@ -6,6 +6,9 @@ USE_PROCD=1
 EXTRA_COMMANDS="status"
 EXTRA_HELP="        status          Check service status"
 
+PROG=/usr/bin/tollgate-wrt
+PIDFILE=/var/run/tollgate-wrt.pid
+
 # The money path a customer or an operator actually needs (see status_service).
 API_PORT=2121
 API_SOCKET=/var/run/tollgate.sock
@@ -47,7 +50,10 @@ start_service() {
     
     # Add respawn parameters: tries 3 times with 5-second intervals and retries indefinitely
     procd_set_param respawn 3 5 0
-    
+
+    # Managed-instance pid file for operators
+    procd_set_param pidfile "$PIDFILE"
+
     procd_close_instance
 
     # Fail loudly when the guards' interfaces are missing (#757's ask): the
@@ -79,8 +85,31 @@ reload_service() {
     /usr/local/bin/tollgate-nft-interfaces-render --reload
 }
 
-stop() {
-    # Log the stop for debugging
+# procd terminates its own instance after this hook. Anything it does NOT
+# own — a manual/setsid start, a leftover debug session — must be swept
+# here: a stray holder of :2121 outlives every service restart and keeps
+# serving stale in-memory state (rate limiter, wallet caches) while the
+# procd instance crash-loops on the busy port. This hook must be
+# stop_service(), never an overridden stop() — the override replaces
+# rc.common's procd_kill teardown and broke restart/stop entirely (the
+# pre-fix stop() here only wrote a log line, so `service tollgate-wrt
+# stop|restart` did nothing at all).
+stop_service() {
+    local pids tries
+
+    pids=$(pgrep -f "^${PROG}" 2>/dev/null)
+    [ -n "$pids" ] && kill $pids 2>/dev/null
+
+    tries=0
+    while [ "$tries" -lt 5 ] && pgrep -f "^${PROG}" >/dev/null 2>&1; do
+        sleep 1
+        tries=$((tries + 1))
+    done
+
+    pids=$(pgrep -f "^${PROG}" 2>/dev/null)
+    [ -n "$pids" ] && kill -9 $pids 2>/dev/null
+
+    rm -f "$PIDFILE"
     echo "TollGate basic stopped and nodogsplash disabled" >> /tmp/basic.log
 }
 

@@ -137,12 +137,27 @@ jobs:
         run: |
           # Offline (no SDK, no router, no network): every in-tree packaging
           # recipe - packaging/Makefile, packaging/local-build-ipk.sh,
-          # .github/workflows/build-package.yml's own DEPENDS line and the
-          # generated .ngit/act/workflows shards - must declare the daemon the
+          # .github/workflows/build-package.yml's own DEPENDS line and
+          # the generated .ngit/act/workflows shards - must declare the daemon the
           # module gates the network with and must not claim to replace it.
           # This test has existed since the nodogsplash dependency incident but
           # was never wired into CI, so nothing ran it automatically.
           bash tests/packaging/package-nodogsplash-dependency_test.sh
+
+      - name: init.d stop regression harness
+        run: |
+          # Offline (stubbed pgrep/kill/rc.common; no OpenWrt required):
+          # the tollgate-wrt init script must sweep stray daemon processes
+          # through the procd stop_service() hook — a manual/setsid start
+          # must not outlive `service tollgate-wrt stop|restart`, or it
+          # keeps serving :2121 with stale in-memory state (rate limiter,
+          # wallet caches) while the procd instance crash-loops on the busy
+          # port. Guards both the hook shape (never an overridden stop(),
+          # which replaces rc.common's procd_kill teardown and broke
+          # stop/restart entirely) and the TERM→KILL escalation against a
+          # TERM-immune stray (#1027; harness carried from the archived
+          # Amperstrand fork's #98, previously never wired into CI here).
+          bash tests/packaging/initd_stop_test.sh
 
       - name: Version-stamp override and consistency fence
         run: |
