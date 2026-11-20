@@ -37,6 +37,8 @@ func (m *mockPaymentMerchant) IssueOnRequest(string, string, uint64) (string, er
 
 func (m *mockPaymentMerchant) DefaultIssuanceMint(string) string { return "" }
 
+func (m *mockPaymentMerchant) Shutdown() error { return nil }
+
 func TestPaymentMerchant_Interface(t *testing.T) {
 	var _ PaymentMerchant = &mockPaymentMerchant{}
 }

@@ -68,6 +68,8 @@ func (emptyMerchant) GetBalanceByMint(mintURL string) uint64 { return 0 }
 
 func (emptyMerchant) Fund(cashuToken string) (uint64, error) { return 0, nil }
 
+func (emptyMerchant) Shutdown() error { return nil }
+
 type providerOf struct {
 	m merchant_types.PaymentMerchant
 }

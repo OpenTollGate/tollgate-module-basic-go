@@ -68,6 +68,8 @@ func (m *namedMerchant) RebindSession(ticket, macAddress string) (*merchant.Cust
 	return nil, nil
 }
 
+func (m *namedMerchant) Shutdown() error { return nil }
+
 func getCLIMerchantName(s *CLIServer) string {
 	m := s.merchantProvider.GetMerchant()
 	if m == nil {
