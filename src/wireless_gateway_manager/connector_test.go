@@ -40,7 +40,7 @@ func TestConnector_GetActiveSTA(t *testing.T) {
 
 func TestConnector_GetActiveSTA_NoneActive(t *testing.T) {
 	m := &MockConnector{}
-	m.On("GetActiveSTA").Return(nil, nil)
+	m.On("GetActiveSTA").Maybe().Return(nil, nil)
 
 	result, err := m.GetActiveSTA()
 	assert.NoError(t, err)

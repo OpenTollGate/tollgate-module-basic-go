@@ -213,7 +213,7 @@ func TestPortalLoginNoActiveSTAReleasesHold(t *testing.T) {
 	m, c, s, _, id, _ := portalCallerManager(t)
 	m.observePortalLogin(id, true, ConnectivityResult{Reason: "captive"})
 	c.ExpectedCalls = nil
-	c.On("GetActiveSTA").Return(nil, nil)
+	c.On("GetActiveSTA").Maybe().Return(nil, nil)
 	c.On("EnsureRadiosEnabled").Return(nil)
 	c.On("CleanupStaleSTAs").Return(nil)
 	c.On("GetSTASections").Return([]STASection{}, nil)
@@ -281,6 +281,10 @@ func TestPortalLoginManualStopPeeringRemainsAuthoritative(t *testing.T) {
 	c.On("GetSTASections").Return([]STASection{{Name: "backup", SSID: "Saved", Disabled: true}}, nil)
 	s.On("ScanAllRadios").Return([]NetworkInfo{{SSID: "Saved", BSSID: "02:00:00:00:00:02", Signal: -70}}, nil)
 	c.On("SwitchUpstream", id.iface, "backup", "Saved", "02:00:00:00:00:02").Return(nil)
+	// Poll-tolerant stub for the post-switch verifier (#1243): a plain
+	// On(...).Return matches unlimited calls; nil makes the verifier exit
+	// benignly instead of panicking an unstubbed strict mock.
+	c.On("GetActiveSTA").Maybe().Return(nil, nil)
 	m.fallbackVerifyFn = func() bool { return true }
 	ssid, err := m.FallbackToKnownGoodNonTollGate()
 	require.NoError(t, err)

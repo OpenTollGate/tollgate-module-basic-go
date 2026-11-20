@@ -47,10 +47,15 @@ type UpstreamManager struct {
 	connectivityCheckFn  func() bool
 	connectivityProbeFn  func() ConnectivityResult
 	// Command/proof seams keep manager control-flow tests off the host network.
-	runCommandFn       func(string, ...string) ([]byte, error)
-	tollGateProbeFn    func(string) bool
-	now                func() time.Time
-	portalMu           sync.Mutex
+	runCommandFn    func(string, ...string) ([]byte, error)
+	tollGateProbeFn func(string) bool
+	now             func() time.Time
+	portalMu        sync.Mutex
+	// verifyWG tracks in-flight post-switch verification goroutines so
+	// Stop() can wait them out (#1243): a leaked verifier outlives teardown
+	// and touches the connector after its owner is gone.
+	verifyWG           sync.WaitGroup
+	stopOnce           sync.Once
 	portalLogin        portalLoginEpisode
 	tollGateGeneration atomic.Uint64
 	// fallbackVerifyFn overrides the post-switch route+connectivity check for
@@ -274,7 +279,11 @@ func (um *UpstreamManager) startupConnectivityCheck() {
 		}) {
 			return
 		}
-		go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID, verifiedGeneration)
+		um.verifyWG.Add(1)
+		go func() {
+			defer um.verifyWG.Done()
+			um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID, verifiedGeneration)
+		}()
 		switched = true
 		break
 	}
@@ -347,7 +356,11 @@ func (um *UpstreamManager) Start(ctx context.Context) {
 }
 
 func (um *UpstreamManager) Stop() {
-	close(um.stopChan)
+	um.stopOnce.Do(func() { close(um.stopChan) })
+	// Wait out in-flight post-switch verification goroutines (#1243): they
+	// call connector methods whose owner may otherwise already be gone. The
+	// verifiers are bounded by their own probe budgets, so this wait is too.
+	um.verifyWG.Wait()
 }
 
 func (um *UpstreamManager) PauseConnectivityChecks(d time.Duration) {
@@ -599,7 +612,11 @@ func (um *UpstreamManager) runScanCycleGeneration(generation uint64, activeIface
 			}) {
 				return
 			}
-			go um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID, verifiedGeneration)
+			um.verifyWG.Add(1)
+			go func() {
+				defer um.verifyWG.Done()
+				um.verifyPostSwitchConnectivity(candidate.SSID, candidate.BSSID, verifiedGeneration)
+			}()
 		}
 	}
 }
