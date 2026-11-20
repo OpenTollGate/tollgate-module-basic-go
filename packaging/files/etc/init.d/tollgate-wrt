@@ -89,11 +89,12 @@ reload_service() {
 # own — a manual/setsid start, a leftover debug session — must be swept
 # here: a stray holder of :2121 outlives every service restart and keeps
 # serving stale in-memory state (rate limiter, wallet caches) while the
-# procd instance crash-loops on the busy port. This hook must be
-# stop_service(), never an overridden stop() — the override replaces
-# rc.common's procd_kill teardown and broke restart/stop entirely (the
-# pre-fix stop() here only wrote a log line, so `service tollgate-wrt
-# stop|restart` did nothing at all).
+# procd instance crash-loops on the busy port. This is the supported hook
+# (rc.common's stop() calls stop_service before killing its instances);
+# the file-local stop() this replaces was DEAD CODE under USE_PROCD=1 —
+# rc.common defines stop() after sourcing the init file (same mechanics
+# the status_service note below documents for status()) — so it never
+# ran, and only misled readers into thinking stop was handled (#1208).
 stop_service() {
     local pids tries
 
