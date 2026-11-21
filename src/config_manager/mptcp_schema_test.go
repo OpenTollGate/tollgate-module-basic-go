@@ -72,6 +72,50 @@ func TestMPTCPBondingUplinksIsAnArray(t *testing.T) {
 	}
 }
 
+func TestMPTCPBondingTransportIsConfigurable(t *testing.T) {
+	f := findField(GetConfigSchema(), "mptcp_bonding")
+	if f == nil {
+		t.Fatal("mptcp_bonding section missing")
+	}
+	transport := findField(f.Children, "transport")
+	if transport == nil {
+		t.Fatal("mptcp_bonding must expose `transport`; without it the NAT-safe proxy-terminated shape cannot be selected through the CLI")
+	}
+	got := map[string]bool{}
+	for _, v := range transport.Enum {
+		got[v] = true
+	}
+	if !got["advertised-address"] || !got["proxy-terminated"] {
+		t.Fatalf("transport enum must allow advertised-address and proxy-terminated, got %v", transport.Enum)
+	}
+}
+
+func TestMPTCPBondingTunnelsAreConfigurable(t *testing.T) {
+	f := findField(GetConfigSchema(), "mptcp_bonding")
+	if f == nil {
+		t.Fatal("mptcp_bonding section missing")
+	}
+	tunnels := findField(f.Children, "tunnels")
+	if tunnels == nil {
+		t.Fatal("mptcp_bonding must expose `tunnels`")
+	}
+	if tunnels.Type != "array" {
+		t.Fatalf("tunnels must be an array, got %q", tunnels.Type)
+	}
+	for _, key := range []string{"name", "interface", "peer_host", "peer_port", "peer_pubkey", "address"} {
+		if findField(tunnels.Children, key) == nil {
+			t.Errorf("tunnel entries must have a %q field", key)
+		}
+	}
+	pk := findField(tunnels.Children, "private_key")
+	if pk == nil {
+		t.Fatal("tunnel entries must have a `private_key` field")
+	}
+	if !pk.Secret {
+		t.Error("tunnel private_key must be marked Secret so it is never rendered back")
+	}
+}
+
 func TestMPTCPBondingPasswordIsSecret(t *testing.T) {
 	// The bond carries a shared secret. It must be flagged Secret so the API
 	// and CLI never echo it back in rendered config.

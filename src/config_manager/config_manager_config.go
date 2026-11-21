@@ -122,12 +122,18 @@ type UpstreamWifiConfig struct {
 //
 // Password is a SECRET and must be redacted on read paths.
 type MPTCPBondingConfig struct {
-	Enabled      bool                `json:"enabled"`
-	Policy       string              `json:"policy,omitempty"`
-	Server       string              `json:"server,omitempty"`
-	Method       string              `json:"method,omitempty"`
-	Password     string              `json:"password,omitempty"`
-	Uplinks      []MPTCPUplinkConfig `json:"uplinks,omitempty"`
+	Enabled  bool                `json:"enabled"`
+	Policy   string              `json:"policy,omitempty"`
+	Server   string              `json:"server,omitempty"`
+	Method   string              `json:"method,omitempty"`
+	Password string              `json:"password,omitempty"`
+	Uplinks  []MPTCPUplinkConfig `json:"uplinks,omitempty"`
+	// Transport selects the bond's far-end shape. Empty means the historic
+	// advertised-address shape; "proxy-terminated" is the NAT-safe shape.
+	Transport string `json:"transport,omitempty"`
+	// Tunnels are optional per-uplink WireGuard overlays, used when the
+	// advertised-address shape needs a peer-reachable address behind NAT.
+	Tunnels      []MPTCPTunnelConfig `json:"tunnels,omitempty"`
 	Subflows     int                 `json:"subflows,omitempty"`
 	SteeringCIDR string              `json:"steering_cidr,omitempty"`
 	SocksPort    int                 `json:"socks_port,omitempty"`
@@ -141,6 +147,26 @@ type MPTCPBondingConfig struct {
 type MPTCPUplinkConfig struct {
 	Interface string `json:"interface"`
 	Address   string `json:"address,omitempty"`
+}
+
+// MPTCPTunnelConfig is one optional per-uplink WireGuard overlay. The JSON
+// tags must match mptcp_bonding.Tunnel exactly: main.go marshals this typed
+// struct into the bytes mptcp_bonding.LoadConfig parses, and that loader
+// rejects unknown fields.
+type MPTCPTunnelConfig struct {
+	Name       string `json:"name"`
+	Interface  string `json:"interface"`
+	LocalAddr  string `json:"local_addr,omitempty"`
+	FwMark     int    `json:"fwmark,omitempty"`
+	Gateway    string `json:"gateway,omitempty"`
+	Table      int    `json:"table,omitempty"`
+	PeerHost   string `json:"peer_host"`
+	PeerPort   int    `json:"peer_port"`
+	PeerPubKey string `json:"peer_pubkey"`
+	Address    string `json:"address"`
+	// PrivateKey is a SECRET and must be redacted on read paths.
+	PrivateKey string `json:"private_key,omitempty"`
+	Keepalive  int    `json:"keepalive,omitempty"`
 }
 
 // MintConfig holds configuration for a specific mint.
@@ -530,6 +556,7 @@ func NewDefaultConfig() *Config {
 		MPTCPBonding: MPTCPBondingConfig{
 			Enabled:     false,
 			Policy:      "guest_only",
+			Transport:   "advertised-address",
 			Method:      "chacha20-ietf-poly1305",
 			Subflows:    8,
 			SocksPort:   1081,

@@ -255,6 +255,7 @@ func GetConfigSchema() []FieldSchema {
 			Children: []FieldSchema{
 				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Enable the MPTCP bond on this node", Default: false, Required: true, Editable: true},
 				{Name: "Policy", JSONKey: "policy", Type: "string", Description: "When the bond is used", Default: "guest_only", Required: false, Editable: true, Enum: []string{"guest_only", "always"}},
+				{Name: "Transport", JSONKey: "transport", Type: "string", Description: "How the bond reaches its far end: advertised-address needs peer-reachable uplink addresses; proxy-terminated is the NAT-safe shape where the client opens every path", Default: "advertised-address", Required: false, Editable: true, Enum: []string{"advertised-address", "proxy-terminated"}},
 				{Name: "Server", JSONKey: "server", Type: "string", Description: "Peer endpoint host:port", Default: "", Required: false, Editable: true},
 				{Name: "Method", JSONKey: "method", Type: "string", Description: "Cipher suite", Default: "chacha20-ietf-poly1305", Required: false, Editable: true},
 				{Name: "Password", JSONKey: "password", Type: "string", Description: "Shared secret for the bond (sensitive)", Default: "", Required: false, Editable: true, Secret: true},
@@ -264,6 +265,24 @@ func GetConfigSchema() []FieldSchema {
 					Children: []FieldSchema{
 						{Name: "Interface", JSONKey: "interface", Type: "string", Description: "Interface name", Default: "", Required: true, Editable: true},
 						{Name: "Address", JSONKey: "address", Type: "string", Description: "Address to advertise (optional; learned at runtime if empty)", Required: false, Editable: true},
+					},
+				},
+				{
+					Name: "Tunnels", JSONKey: "tunnels", Type: "array",
+					Description: "Optional per-uplink WireGuard overlays for the advertised-address shape behind NAT", Required: false, Editable: true,
+					Children: []FieldSchema{
+						{Name: "Name", JSONKey: "name", Type: "string", Description: "Tunnel interface name", Required: true, Editable: true},
+						{Name: "Interface", JSONKey: "interface", Type: "string", Description: "Underlay uplink interface", Required: true, Editable: true},
+						{Name: "LocalAddr", JSONKey: "local_addr", Type: "string", Description: "Underlay source address", Required: false, Editable: true},
+						{Name: "FwMark", JSONKey: "fwmark", Type: "int", Description: "Policy-routing mark for this tunnel", Required: false, Editable: true},
+						{Name: "Gateway", JSONKey: "gateway", Type: "string", Description: "Underlay next hop", Required: false, Editable: true},
+						{Name: "Table", JSONKey: "table", Type: "int", Description: "Policy-routing table for this tunnel", Required: false, Editable: true},
+						{Name: "PeerHost", JSONKey: "peer_host", Type: "string", Description: "Far-end host", Required: true, Editable: true},
+						{Name: "PeerPort", JSONKey: "peer_port", Type: "int", Description: "Far-end port", Required: true, Editable: true, Min: 1, Max: 65535},
+						{Name: "PeerPubKey", JSONKey: "peer_pubkey", Type: "string", Description: "Far-end WireGuard public key", Required: true, Editable: true},
+						{Name: "Address", JSONKey: "address", Type: "string", Description: "Tunnel address advertised to the MPTCP peer", Required: true, Editable: true},
+						{Name: "PrivateKey", JSONKey: "private_key", Type: "string", Description: "This side's WireGuard private key (sensitive)", Required: false, Editable: true, Secret: true},
+						{Name: "Keepalive", JSONKey: "keepalive", Type: "int", Description: "Persistent keepalive in seconds", Required: false, Editable: true, Min: 0},
 					},
 				},
 				{Name: "Subflows", JSONKey: "subflows", Type: "int", Description: "Subflow ceiling; must cover the uplink count", Default: 8, Required: false, Editable: true, Min: 1, Max: 64},
