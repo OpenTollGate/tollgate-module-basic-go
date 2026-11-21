@@ -110,6 +110,10 @@ fi
 	b.WriteString("    exit 1\n")
 	b.WriteString("fi\n")
 
+	// Endpoints alone do not make the second subflow leave the second uplink.
+	// The per-address policy rules are the other half (see routing.go).
+	b.WriteString(c.policyRoutingFragment())
+
 	return b.String()
 }
 
