@@ -18,7 +18,7 @@ That leaves a product question the code cannot answer today: a router may have
 several upstreams of *different* cost and quality, and a buyer currently has no
 way to say which trade-off they want. The router's own configuration has no
 weight or preference concept anywhere (`mptcp_bonding` carries `policy:
-guest_only|always` and nothing finer), and the provisioning repository now
+guest_only|all` and nothing finer), and the provisioning repository now
 supports a second engine, `mwan3`, whose distinguishing property is exactly the
 one missing here: **per-flow weighted balancing**.
 
