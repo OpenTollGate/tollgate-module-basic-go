@@ -93,6 +93,28 @@ func TestEnabledBondRegistersAndDoesNotFlush(t *testing.T) {
 	}
 }
 
+// Enabling the bond must install the NDS-aware steering chain once, and a
+// disable must remove it, even though the config section is still present.
+func TestBondAppliesAndFlushesSteering(t *testing.T) {
+	cfg := []byte(`{"enabled":true,"server":"203.0.113.10:65101","method":"chacha20-ietf-poly1305",
+		"password":"fixture","policy":"guest_only","steering_cidr":"10.115.249.0/24",
+		"fwmark":"0x1","fwmark_table":100,"tproxy_port":1082,
+		"uplinks":[{"interface":"eth1","address":"192.0.2.10"},{"interface":"phy1-sta0","address":"198.51.100.7"}]}`)
+	app := &recordingApplier{}
+	applyBondConfig(cfg, app.run, func(upstream_detector.InterfaceEventSink) {}, &capturingLogger{})
+	if !strings.Contains(app.joined(), "/etc/nftables.d/50-mptcp-steering.nft") {
+		t.Fatalf("enabled bond did not install steering:\n%s", app.joined())
+	}
+
+	disabled := []byte(`{"enabled":false,"policy":"guest_only","steering_cidr":"10.115.249.0/24",
+		"fwmark":"0x1","fwmark_table":100}`)
+	flushApp := &recordingApplier{}
+	applyBondConfig(disabled, flushApp.run, func(upstream_detector.InterfaceEventSink) {}, &capturingLogger{})
+	if !strings.Contains(flushApp.joined(), `rm -f "$FILE"`) {
+		t.Fatalf("disable did not remove steering:\n%s", flushApp.joined())
+	}
+}
+
 // A malformed section must change nothing — not register, not flush — because
 // the bond is optional and a router that boots without it still serves
 // customers.
