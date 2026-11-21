@@ -254,7 +254,7 @@ func GetConfigSchema() []FieldSchema {
 			Required: false, Editable: true,
 			Children: []FieldSchema{
 				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Enable the MPTCP bond on this node", Default: false, Required: true, Editable: true},
-				{Name: "Policy", JSONKey: "policy", Type: "string", Description: "When the bond is used", Default: "guest_only", Required: false, Editable: true, Enum: []string{"guest_only", "always"}},
+				{Name: "Policy", JSONKey: "policy", Type: "string", Description: "When the bond is used", Default: "guest_only", Required: false, Editable: true, Enum: []string{"guest_only", "all"}},
 				{Name: "Server", JSONKey: "server", Type: "string", Description: "Peer endpoint host:port", Default: "", Required: false, Editable: true},
 				{Name: "Method", JSONKey: "method", Type: "string", Description: "Cipher suite", Default: "chacha20-ietf-poly1305", Required: false, Editable: true},
 				{Name: "Password", JSONKey: "password", Type: "string", Description: "Shared secret for the bond (sensitive)", Default: "", Required: false, Editable: true, Secret: true},

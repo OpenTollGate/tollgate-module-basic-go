@@ -72,6 +72,31 @@ func TestMPTCPBondingUplinksIsAnArray(t *testing.T) {
 	}
 }
 
+func TestMPTCPBondingPolicyEnumMatchesTheBond(t *testing.T) {
+	// src/mptcp_bonding validates `guest_only` and `all` (PolicyAll = "all").
+	// The schema used to advertise `always`, so `config set policy=always`
+	// passed the schema and was then rejected by the bond at load time, while
+	// the value the bond accepts could not be set through the CLI at all.
+	f := findField(GetConfigSchema(), "mptcp_bonding")
+	if f == nil {
+		t.Fatal("mptcp_bonding section missing")
+	}
+	p := findField(f.Children, "policy")
+	if p == nil {
+		t.Fatal("mptcp_bonding must have a `policy` child")
+	}
+	got := map[string]bool{}
+	for _, v := range p.Enum {
+		got[v] = true
+	}
+	if !got["guest_only"] || !got["all"] {
+		t.Fatalf("policy enum must allow guest_only and all, got %v", p.Enum)
+	}
+	if got["always"] {
+		t.Fatalf("policy enum must not advertise `always`: the bond validates `all`, got %v", p.Enum)
+	}
+}
+
 func TestMPTCPBondingPasswordIsSecret(t *testing.T) {
 	// The bond carries a shared secret. It must be flagged Secret so the API
 	// and CLI never echo it back in rendered config.
