@@ -112,6 +112,17 @@ type UpstreamWifiConfig struct {
 	DHCPTimeoutSeconds     int  `json:"dhcp_timeout_seconds"`
 	ManualPauseSeconds     int  `json:"manual_pause_seconds"`
 	VendorIEDiscovery      bool `json:"vendor_ie_discovery"`
+	// Automatic captive-portal login. Off by default: a portal form is a
+	// different trust boundary from a WiFi PSK, and an operator must opt in.
+	PortalLoginEnabled   bool   `json:"portal_login_enabled,omitempty"`
+	PortalLoginMode      string `json:"portal_login_mode,omitempty"` // click_through | form
+	PortalLoginURL       string `json:"portal_login_url,omitempty"`
+	PortalLoginUserField string `json:"portal_login_user_field,omitempty"`
+	PortalLoginPassField string `json:"portal_login_pass_field,omitempty"`
+	PortalLoginUsername  string `json:"portal_login_username,omitempty"`
+	PortalLoginPassword  string `json:"portal_login_password,omitempty"` // SECRET
+	PortalLoginExtra     string `json:"portal_login_extra,omitempty"`    // urlencoded k=v&k2=v2
+	PortalLoginTimeoutS  int    `json:"portal_login_timeout_s,omitempty"`
 }
 
 // MPTCPBondingConfig describes an optional MPTCP multi-WAN bond.
@@ -512,6 +523,11 @@ func NewDefaultConfig() *Config {
 			DHCPTimeoutSeconds:     180,
 			ManualPauseSeconds:     120,
 			VendorIEDiscovery:      true,
+			PortalLoginEnabled:     false,
+			PortalLoginMode:        "click_through",
+			PortalLoginUserField:   "username",
+			PortalLoginPassField:   "password",
+			PortalLoginTimeoutS:    10,
 		},
 		// Empty means "keep what the router already has" — see the field
 		// comments on Config. These two are the literals the schema declares,

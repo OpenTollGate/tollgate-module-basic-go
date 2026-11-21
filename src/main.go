@@ -852,6 +852,15 @@ func initUpstreamManager() {
 			SwitchCooldown:         time.Duration(cfg.UpstreamWifi.SwitchCooldownMinutes) * time.Minute,
 			StartupGracePeriod:     time.Duration(cfg.UpstreamWifi.StartupGraceSeconds) * time.Second,
 			PostSwitchWait:         time.Duration(cfg.UpstreamWifi.PostSwitchWaitSeconds) * time.Second,
+			PortalAutoLogin:        cfg.UpstreamWifi.PortalLoginEnabled,
+			PortalLoginMode:        cfg.UpstreamWifi.PortalLoginMode,
+			PortalLoginURL:         cfg.UpstreamWifi.PortalLoginURL,
+			PortalLoginUserField:   cfg.UpstreamWifi.PortalLoginUserField,
+			PortalLoginPassField:   cfg.UpstreamWifi.PortalLoginPassField,
+			PortalLoginUsername:    cfg.UpstreamWifi.PortalLoginUsername,
+			PortalLoginPassword:    cfg.UpstreamWifi.PortalLoginPassword,
+			PortalLoginExtra:       cfg.UpstreamWifi.PortalLoginExtra,
+			PortalLoginTimeout:     time.Duration(cfg.UpstreamWifi.PortalLoginTimeoutS) * time.Second,
 		}
 	}
 

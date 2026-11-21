@@ -32,6 +32,17 @@ type UpstreamManagerConfig struct {
 	StartupRetryInterval   time.Duration
 	StartupScanInterval    time.Duration
 	VendorIEDiscovery      bool
+
+	// Automatic captive-portal login. Off by default; the operator opts in.
+	PortalAutoLogin      bool
+	PortalLoginMode      string
+	PortalLoginURL       string
+	PortalLoginUserField string
+	PortalLoginPassField string
+	PortalLoginUsername  string
+	PortalLoginPassword  string
+	PortalLoginExtra     string
+	PortalLoginTimeout   time.Duration
 }
 
 type Connector struct {

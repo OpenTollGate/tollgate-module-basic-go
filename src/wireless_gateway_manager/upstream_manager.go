@@ -47,12 +47,18 @@ type UpstreamManager struct {
 	connectivityCheckFn  func() bool
 	connectivityProbeFn  func() ConnectivityResult
 	// Command/proof seams keep manager control-flow tests off the host network.
-	runCommandFn       func(string, ...string) ([]byte, error)
-	tollGateProbeFn    func(string) bool
-	now                func() time.Time
-	portalMu           sync.Mutex
-	portalLogin        portalLoginEpisode
-	tollGateGeneration atomic.Uint64
+	runCommandFn    func(string, ...string) ([]byte, error)
+	tollGateProbeFn func(string) bool
+	now             func() time.Time
+	portalMu        sync.Mutex
+	portalLogin     portalLoginEpisode
+	// Automatic-login attempt bookkeeping. One attempt per connection
+	// generation; the HTTP work happens before writerMu is taken.
+	portalAutoMu         sync.Mutex
+	portalAutoGeneration uint64
+	portalAutoAttempted  bool
+	portalAutoLoginFn    func(upstreamIdentity) bool
+	tollGateGeneration   atomic.Uint64
 	// fallbackVerifyFn overrides the post-switch route+connectivity check for
 	// the manual "stop peering" fallback. Tests use it; production leaves it nil.
 	fallbackVerifyFn func() bool
@@ -84,6 +90,10 @@ func DefaultUpstreamManagerConfig() UpstreamManagerConfig {
 		StartupSettle:          15 * time.Second,
 		StartupRetryInterval:   10 * time.Second,
 		StartupScanInterval:    10 * time.Second,
+		PortalLoginMode:        "click_through",
+		PortalLoginUserField:   "username",
+		PortalLoginPassField:   "password",
+		PortalLoginTimeout:     10 * time.Second,
 	}
 }
 
