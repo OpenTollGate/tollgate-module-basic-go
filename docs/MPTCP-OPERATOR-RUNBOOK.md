@@ -17,11 +17,26 @@ the measured evidence. Do **not** market this as doubling a connection.
 | ≥2 local addresses the peer can reach | MPTCP needs distinct local addresses to form subflows. Two addresses on the *same* L2 is not enough — see "Real paths vs. fake paths". |
 | The far end also speaks MPTCP | A plain TCP far end yields a single-path connection. |
 
-Install the mandatory package:
+`ip-full` is a declared dependency of the TollGate package. On a router where
+TollGate was installed before that dependency existed, install it manually.
+The package manager depends on the OpenWrt era:
 
 ```sh
+# OpenWrt 25.12 and newer (apk)
+apk update && apk add ip-full
+
+# OpenWrt 24.10 and older (opkg)
 opkg update && opkg install ip-full
 ```
+
+Verify the binary the bond will actually execute, not just the package name:
+
+```sh
+ip mptcp limits
+```
+
+A BusyBox usage error means `ip-full` is installed but not first on `PATH`;
+check `command -v ip` and `/sbin/ip`.
 
 > `mptcpize`, `mptcpd`, and `ncat` are also available from the stock OpenWrt
 > feeds if you need them. `mptcpize` is only required to make a *normal* binary

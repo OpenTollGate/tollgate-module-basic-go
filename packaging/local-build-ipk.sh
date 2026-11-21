@@ -233,7 +233,7 @@ env \
   ARCH="$ARCH" \
   MAINTAINER="TollGate <tollgate@tollgate.me>" \
   LICENSE="GPL-3.0-only" \
-  DEPENDS="libc, nodogsplash, jq, ca-bundle" \
+  DEPENDS="libc, nodogsplash, jq, ca-bundle, ip-full" \
   PROVIDES="nodogsplash-files" \
   REPLACES="base-files" \
   DESCRIPTION="TollGate Basic Module for OpenWrt" \
