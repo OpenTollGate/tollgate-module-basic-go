@@ -49,34 +49,34 @@ import (
 // Tunnel is a WireGuard overlay for one uplink.
 type Tunnel struct {
 	// Name is the interface name, e.g. "mptcp-wan1".
-	Name string
+	Name string `json:"name"`
 	// Interface is the underlay uplink this tunnel is pinned to.
-	Interface string
+	Interface string `json:"interface"`
 	// LocalAddr is the uplink's source address. It is used for the routing
 	// rule's `src`, NOT for any wg bind (no such option exists).
-	LocalAddr string
+	LocalAddr string `json:"local_addr,omitempty"`
 	// FwMark marks this tunnel's outgoing packets so policy routing can pin them
 	// to this uplink. THIS is the mechanism that keeps tunnels on separate
 	// uplinks -- `wg set ... bind` does not exist and failed on device.
-	FwMark int
+	FwMark int `json:"fwmark,omitempty"`
 	// Gateway is the uplink's next hop, used for the per-tunnel default route.
-	Gateway string
+	Gateway string `json:"gateway,omitempty"`
 	// Table is the dedicated routing table for this tunnel.
-	Table int
+	Table int `json:"table,omitempty"`
 	// PeerHost/PeerPort is the public endpoint the router initiates to.
-	PeerHost string
-	PeerPort int
+	PeerHost string `json:"peer_host"`
+	PeerPort int    `json:"peer_port"`
 	// PeerPubKey is the far end's public key.
-	PeerPubKey string
+	PeerPubKey string `json:"peer_pubkey"`
 	// Address is the tunnel address advertised to the MPTCP peer. It must be an
 	// address the peer can reach THROUGH the tunnel.
-	Address string
+	Address string `json:"address"`
 	// PrivateKey is this side's key. Never rendered by TunnelPlan().
-	PrivateKey string
+	PrivateKey string `json:"private_key,omitempty"`
 	// Keepalive is the persistent-keepalive interval in seconds. Behind NAT a
 	// keepalive is mandatory: without it the NAT mapping expires and the peer
 	// loses the ability to reach the tunnel address.
-	Keepalive int
+	Keepalive int `json:"keepalive,omitempty"`
 }
 
 // DefaultKeepaliveSeconds is used when Keepalive is unset. 25 s is the
