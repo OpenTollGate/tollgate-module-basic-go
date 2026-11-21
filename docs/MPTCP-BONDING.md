@@ -7,6 +7,9 @@ Related: [`mt6000-mptcp-bonding`](https://github.com/felixfelix-bot/mt6000-mptcp
 holds the Ansible that builds and verifies the bond, plus the full list of
 platform gotchas.
 
+Hardware-specific constraints, the CVE-2026-98432 kernel floor, and the
+two-STA limitation are recorded in [MPTCP-MT3000.md](MPTCP-MT3000.md).
+
 ## The idea in one paragraph
 
 TollGate's job is portal + payment + gated access. Its **uplink** is whatever
