@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +44,10 @@ type PortalRecipeSpec struct {
 	Identity      json.RawMessage   `json:"identity,omitempty"`
 	AllowHosts    []string          `json:"allow_hosts,omitempty"`
 	Metadata      map[string]string `json:"metadata,omitempty"`
+	// SeedVars are runtime variables supplied by the caller (for example the
+	// discovered start_url). They are never serialized and never contain
+	// credentials.
+	SeedVars map[string]string `json:"-"`
 }
 
 // PortalRecipeFlow is the ordered procedure. Only "http-api" is executed;
@@ -71,7 +76,11 @@ type PortalRecipeStep struct {
 	// context. It is our extension; the original recipe model only extracted
 	// JSON bodies, which is not enough for an Aruba controller redirect.
 	HeaderVars map[string]string `json:"header_vars,omitempty"`
-	Retries    int               `json:"retries,omitempty"`
+	// HTMLVars extracts a regex capture group from the response body into the
+	// context. It is how a CSRF token or a meta-refresh target is read without
+	// a full HTML parser.
+	HTMLVars map[string]string `json:"html_vars,omitempty"`
+	Retries  int               `json:"retries,omitempty"`
 	// NoRedirect keeps a 3xx visible to HeaderVars instead of following it.
 	NoRedirect bool `json:"no_redirect,omitempty"`
 
@@ -181,6 +190,10 @@ func ExecutePortalRecipe(ctx context.Context, binding PortalBinding, spec Portal
 		dns:        binding.DNS,
 		allowHosts: append([]string(nil), spec.AllowHosts...),
 	}
+	vars := map[string]string{"user": creds.Username, "pass": creds.Password}
+	for name, value := range spec.SeedVars {
+		vars[name] = value
+	}
 	run := &portalRecipeRun{
 		ctx:     ctx,
 		spec:    spec,
@@ -189,7 +202,7 @@ func ExecutePortalRecipe(ctx context.Context, binding PortalBinding, spec Portal
 		recipe:  netRecipe,
 		jar:     jar,
 		client:  portalClient(netRecipe, portalBinding{iface: binding.Interface, sourceIP: binding.SourceIP}, true, jar),
-		vars:    map[string]string{"user": creds.Username, "pass": creds.Password},
+		vars:    vars,
 		probeFn: probe,
 	}
 
@@ -374,6 +387,21 @@ func (r *portalRecipeRun) doRequest(step PortalRecipeStep) error {
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("%s %s returned HTTP %d", method, target, resp.StatusCode)
 	}
+	if resp.Request != nil && resp.Request.URL != nil {
+		r.vars["current_url"] = resp.Request.URL.String()
+		r.vars["origin"] = resp.Request.URL.Scheme + "://" + resp.Request.URL.Host
+	}
+	for name, pattern := range step.HTMLVars {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return fmt.Errorf("html_vars %s: %w", name, err)
+		}
+		match := re.FindStringSubmatch(string(raw))
+		if len(match) < 2 {
+			return fmt.Errorf("html_vars %s: no match", name)
+		}
+		r.vars[name] = html.UnescapeString(match[1])
+	}
 	for name, path := range step.Vars {
 		value, err := jsonPathLite(raw, path)
 		if err != nil {
@@ -389,6 +417,9 @@ func (r *portalRecipeRun) doRequest(step PortalRecipeStep) error {
 
 func (r *portalRecipeRun) allowedURL(raw string) (string, error) {
 	raw = strings.TrimSpace(r.render(raw))
+	if strings.HasPrefix(raw, "/") && r.vars["origin"] != "" {
+		raw = r.vars["origin"] + raw
+	}
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "", fmt.Errorf("recipe URL: %w", err)

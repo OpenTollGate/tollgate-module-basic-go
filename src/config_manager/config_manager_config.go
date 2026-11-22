@@ -151,6 +151,10 @@ type PortalLoginRecipeConfig struct {
 	// SSID is advisory: it records which network this recipe belongs to and is
 	// logged, but the binding is the interface.
 	SSID string `json:"ssid,omitempty"`
+	// Recipe selects a built-in multi-step recipe (man-purple-free,
+	// ask4-guest). When set, URL is the recipe's start_url and the single-form
+	// fields are not used.
+	Recipe string `json:"recipe,omitempty"`
 	// Mode is "click_through" or "form".
 	Mode string `json:"mode,omitempty"`
 	// URL is the portal page. Empty discovers it from the captive probe.

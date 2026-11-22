@@ -224,6 +224,29 @@ bond's second STA, which the single-STA manager does not own:
 }
 ```
 
+When `recipe` names a built-in multi-step recipe, `url` is that recipe's
+`start_url` and the single-form fields are ignored:
+
+```json
+{
+  "interface": "phy1-sta0",
+  "ssid": "Manchester Airport",
+  "recipe": "man-purple-free",
+  "url": "http://1.1.1.1/?cmd=redirect&arubalp=12345",
+  "username": "operator@example.com",
+  "allow_hosts": ["purpleportal.net", "10.234.240.41"],
+  "budget_seconds": 7200,
+  "budget_bytes": 2000000000
+}
+```
+
+Built-ins:
+
+| Id | Flow |
+|---|---|
+| `man-purple-free` | Aruba redirect → Purple email sign-in → free plan 739 → `/access/validate` → controller `cmd=authenticate`. `username` is the portal email; no password is used. The plan id is Manchester-specific and inspectable in `portal_recipes_builtin.go`. |
+| `ask4-guest` | ASK4 `/en/guest-signup` first name + surname + CSRF. No account password. |
+
 Each recipe gets one attempt per association/lease generation, then a bounded
 retry (three attempts with 30-second steps). When the cap is reached, or when
 `budget_seconds`/`budget_bytes` is exceeded after a successful login, the uplink

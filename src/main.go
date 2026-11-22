@@ -891,6 +891,7 @@ func startPortalWatchers() {
 	}
 
 	uplinks := make([]wireless_gateway_manager.PortalUplinkConfig, 0, len(cfg.UpstreamWifi.PortalLoginRecipes))
+	builtin := wireless_gateway_manager.BuiltinPortalRecipes()
 	for _, r := range cfg.UpstreamWifi.PortalLoginRecipes {
 		iface := strings.TrimSpace(r.Interface)
 		if iface == "" {
@@ -920,6 +921,21 @@ func startPortalWatchers() {
 		if len(allow) == 0 {
 			allow = append(allow, cfg.UpstreamWifi.PortalLoginAllowHosts...)
 		}
+		var specPtr *wireless_gateway_manager.PortalRecipeSpec
+		var seedVars map[string]string
+		if r.Recipe != "" {
+			if spec, ok := builtin[r.Recipe]; ok {
+				if strings.TrimSpace(r.URL) == "" {
+					mainLogger.WithField("recipe", r.Recipe).Warn("Built-in portal recipe needs a start URL in portal_login_recipes[].url; recipe not enabled")
+				} else {
+					specCopy := spec
+					specPtr = &specCopy
+					seedVars = map[string]string{"start_url": strings.TrimSpace(r.URL)}
+				}
+			} else {
+				mainLogger.WithField("recipe", r.Recipe).Warn("Unknown portal recipe id; using the single-form recipe")
+			}
+		}
 		uplinks = append(uplinks, wireless_gateway_manager.PortalUplinkConfig{
 			Interface: iface,
 			SSID:      r.SSID,
@@ -934,6 +950,9 @@ func startPortalWatchers() {
 				Timeout:    timeout,
 				AllowHosts: allow,
 			},
+			RecipeSpec:    specPtr,
+			RecipeVars:    seedVars,
+			Credentials:   wireless_gateway_manager.PortalRecipeCredentials{Username: r.Username, Password: r.Password},
 			Mark:          mark,
 			DNS:           dns,
 			BudgetSeconds: r.BudgetSeconds,

@@ -2,6 +2,9 @@ package wireless_gateway_manager
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -103,4 +106,34 @@ func TestPortalWatcherBudgetBytesExhausts(t *testing.T) {
 	bytes = 1600
 	w.Tick(context.Background())
 	require.Equal(t, "exhausted", w.Status()[0].State)
+}
+
+func TestPortalWatcherRunsRecipeSpec(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	spec := PortalRecipeSpec{
+		ID:   "watch-recipe",
+		Name: "watch-recipe",
+		Flow: PortalRecipeFlow{Type: "http-api", Steps: []PortalRecipeStep{{Type: "request", URL: srv.URL}}},
+	}
+	w := NewPortalWatcher([]PortalUplinkConfig{{
+		Interface:  "lo",
+		SSID:       "venue",
+		RecipeSpec: &spec,
+	}}, time.Minute)
+	w.now = func() time.Time { return time.Unix(1700000000, 0) }
+	w.addrFn = func(string) (string, bool) { return "127.0.0.1", true }
+	w.bytesFn = func(string) int64 { return 0 }
+	var probes atomic.Int32
+	w.probe = func(context.Context, PortalBinding) bool { return probes.Add(1) > 1 }
+	w.attempt = func(context.Context, PortalBinding, PortalRecipe, func(context.Context) bool) PortalResult {
+		t.Fatal("the single-form path must not run when RecipeSpec is set")
+		return PortalResult{}
+	}
+
+	w.Tick(context.Background())
+	require.Equal(t, "authorized", w.Status()[0].State)
 }

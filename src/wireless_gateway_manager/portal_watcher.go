@@ -27,6 +27,10 @@ type PortalUplinkConfig struct {
 	// SSID is advisory and only used in logs.
 	SSID   string
 	Recipe PortalRecipe
+	// RecipeSpec selects the multi-step engine. When set it supersedes Recipe.
+	RecipeSpec  *PortalRecipeSpec
+	RecipeVars  map[string]string
+	Credentials PortalRecipeCredentials
 	// Mark and DNS override the recipe's socket mark/resolver.
 	Mark int
 	DNS  string
@@ -207,9 +211,30 @@ func (w *PortalWatcher) tickUplink(ctx context.Context, cfg PortalUplinkConfig) 
 		return
 	}
 
-	result := w.attempt(ctx, binding, cfg.Recipe, func(ctx context.Context) bool {
-		return w.probe(ctx, binding)
-	})
+	var result PortalResult
+	if cfg.RecipeSpec != nil {
+		spec := *cfg.RecipeSpec
+		if len(cfg.RecipeVars) > 0 {
+			spec.SeedVars = make(map[string]string, len(cfg.RecipeVars))
+			for name, value := range cfg.RecipeVars {
+				spec.SeedVars[name] = value
+			}
+		}
+		recipeResult := ExecutePortalRecipe(ctx, binding, spec, cfg.Credentials, func(ctx context.Context) bool {
+			return w.probe(ctx, binding)
+		})
+		if recipeResult.OK {
+			result.Outcome = PortalOK
+			result.Reason = recipeResult.Reason
+		} else {
+			result.Outcome = PortalStillCaptive
+			result.Reason = recipeResult.Reason
+		}
+	} else {
+		result = w.attempt(ctx, binding, cfg.Recipe, func(ctx context.Context) bool {
+			return w.probe(ctx, binding)
+		})
+	}
 
 	w.mu.Lock()
 	if result.Outcome == PortalOK {

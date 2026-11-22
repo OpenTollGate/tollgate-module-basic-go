@@ -174,6 +174,7 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "PortalLoginRecipes", JSONKey: "portal_login_recipes", Type: "array", Description: "One portal recipe per uplink, keyed by netdev. A matching entry supersedes the flat portal_login_* fields for that interface.", Required: false, Editable: true, Children: []FieldSchema{
 					{Name: "Interface", JSONKey: "interface", Type: "string", Description: "Netdev the login must leave through, e.g. phy1-sta0.", Required: true, Editable: true},
 					{Name: "SSID", JSONKey: "ssid", Type: "string", Description: "Network this recipe belongs to (advisory; the interface is the binding).", Required: false, Editable: true},
+					{Name: "Recipe", JSONKey: "recipe", Type: "string", Description: "Built-in multi-step recipe id (man-purple-free, ask4-guest). When set, url is the recipe's start_url and the single-form fields are ignored.", Required: false, Editable: true},
 					{Name: "Mode", JSONKey: "mode", Type: "string", Description: "click_through submits the page's own fields; form also fills username/password.", Default: "click_through", Required: false, Editable: true, Enum: []string{"click_through", "form"}},
 					{Name: "URL", JSONKey: "url", Type: "string", Description: "Portal page URL. Empty discovers it from the captive probe.", Required: false, Editable: true},
 					{Name: "UserField", JSONKey: "user_field", Type: "string", Description: "Username form field for form mode.", Default: "username", Required: false, Editable: true},
