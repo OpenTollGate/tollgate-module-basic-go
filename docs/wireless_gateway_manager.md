@@ -94,6 +94,65 @@ Manual plain/streaming joins acquire an explicit writer lease before enabling ra
 
 `BeginManualOperation`/`EndManualOperation` remain nested pause-only scopes; they do not grant writer ownership. Radio-mutating callers use `BeginManualWriter` and defer its `End`. The lease coordinates this manager and its CLI handlers, not external root/UCI writers. `LoopTicks` reports loop progress without using a radio mutation as a heartbeat. These source-level concurrency tests do not qualify RF, DHCP handover or deployed-router recovery; those remain PRTA/physical acceptance gates.
 
+## Multi-step portal recipes
+
+The single-form login in the previous section covers a portal that asks for one
+submission. Airports and hotels often need a sequence: redirect, email
+registration, plan selection, then a controller callback.
+`portal_recipe.go` implements a small, Go-native recipe engine for that:
+
+```json
+{
+  "id": "venue-multi-step",
+  "name": "Venue multi-step login",
+  "schema_version": 1,
+  "match": { "host_regex": "portal\\.example" },
+  "credentials": true,
+  "allow_hosts": ["portal.example", "controller.example"],
+  "flow": {
+    "type": "http-api",
+    "steps": [
+      { "type": "request", "url": "https://portal.example/session",
+        "vars": { "token": "$.token" } },
+      { "type": "request", "method": "POST", "url": "https://portal.example/login",
+        "form": { "email": "{{user}}", "token": "{{token}}" },
+        "header_vars": { "next": "Location" }, "no_redirect": true },
+      { "type": "attempts", "candidates": [
+        [ { "type": "request", "url": "https://portal.example/plan/free" } ],
+        [ { "type": "request", "url": "https://portal.example/plan/guest" } ]
+      ] },
+      { "type": "form_generic", "url": "https://portal.example/terms" }
+    ]
+  }
+}
+```
+
+Supported step types:
+
+| Type | Behaviour |
+|---|---|
+| `request` | GET/POST/form/JSON, headers, `auth_from`, transport retries, JSON `vars`, `header_vars`, optional `no_redirect`. |
+| `attempts` | Ordered candidate groups; each group is tried, then the uplink is probed; stop at the first online result. |
+| `skip_if` | A numeric context variable at or above `min` ends the flow successfully. |
+| `fail_if` | `var_empty` aborts with `reason`. |
+| `form_generic` | Fetch a page, fill user/email and password fields heuristically, preserve hidden fields, submit. |
+| `wispr` | Parse a WISPr `<LoginURL>` and POST `LoginUsername`/`LoginPassword`. |
+
+Constraints, deliberately:
+
+- `identity` strategies are rejected; no MAC or node-key rotation.
+- `paid: true` recipes never auto-run; a human must execute them.
+- `form_generic` refuses a page that looks like a payment form.
+- Every URL must be the first host or an `allow_hosts` entry; credentials are
+  substituted from the caller, never stored in the recipe.
+- `recorded` flows and the JSONPath filter form are not implemented. A
+  `header_vars` extraction (for example Aruba's `Location`) covers the
+  controller-redirect case.
+
+The engine is not yet wired to the per-uplink watcher; the watcher still runs
+the single-form recipe. That wiring and the Purple/Aruba recipe are the next
+step.
+
 ## Venue portal login window
 
 An associated venue Wi-Fi uplink that returns an unexpected HTTP probe response
