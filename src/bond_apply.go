@@ -55,11 +55,23 @@ func applyBondConfig(
 
 	if !cfg.Enabled {
 		// Disable-path teardown: idempotent; a no-op on kernels without MPTCP.
+		// Endpoints and the per-uplink policy rules are separate pieces of
+		// kernel state and must both be removed, or a later enable inherits
+		// stale rules for addresses it no longer owns.
+		flushOK := true
 		if err := applier("/bin/sh", "-c", mptcp_bonding.FlushScript()); err != nil {
 			logger.WithError(err).Warn("MPTCP bond disabled; endpoint flush failed")
-			return
+			flushOK = false
 		}
-		logger.Info("MPTCP bond disabled; kernel endpoints flushed")
+		if extra := cfg.PolicyRoutingFlushScript(); extra != "" {
+			if err := applier("/bin/sh", "-c", "#!/bin/sh\n"+extra); err != nil {
+				logger.WithError(err).Warn("MPTCP bond disabled; policy-route flush failed")
+				flushOK = false
+			}
+		}
+		if flushOK {
+			logger.Info("MPTCP bond disabled; kernel endpoints and policy routes flushed")
+		}
 		return
 	}
 

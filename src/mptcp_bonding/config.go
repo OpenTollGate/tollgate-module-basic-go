@@ -42,6 +42,10 @@ type Uplink struct {
 	// Address, when set, is the local address advertised for this subflow.
 	// Empty means "discover at runtime".
 	Address string `json:"address,omitempty"`
+	// Gateway is the next hop for this uplink. Empty means "discover at
+	// runtime"; a static value is needed when the uplink has no default route
+	// (for example a DHCP client configured with defaultroute=0).
+	Gateway string `json:"gateway,omitempty"`
 }
 
 // Config is the bond configuration.

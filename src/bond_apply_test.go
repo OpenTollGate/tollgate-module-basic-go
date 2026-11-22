@@ -70,6 +70,34 @@ func TestAbsentBondSectionAlsoFlushes(t *testing.T) {
 	}
 }
 
+// A disabled bond that still carries uplink addresses must also remove the
+// per-uplink policy rules and tables. Endpoint flush alone leaves those
+// behind, and a later enable inherits rules for addresses it no longer owns.
+func TestDisabledBondWithUplinksFlushesPolicyRoutes(t *testing.T) {
+	app := &recordingApplier{}
+
+	applyBondConfig([]byte(`{"enabled":false,"fwmark_table":100,
+		"uplinks":[{"interface":"eth1","address":"192.0.2.10"},{"interface":"phy1-sta0","address":"198.51.100.7"}]}`),
+		app.run, func(upstream_detector.InterfaceEventSink) {}, &capturingLogger{})
+
+	if len(app.scripts) != 2 {
+		t.Fatalf("disable path ran %d script(s), want endpoint flush + policy-route flush: %q",
+			len(app.scripts), app.joined())
+	}
+	if !strings.Contains(app.joined(), "ip mptcp endpoint flush") {
+		t.Errorf("disable path did not flush endpoints:\n%s", app.joined())
+	}
+	for _, want := range []string{
+		"ip rule del from 192.0.2.10/32 lookup 101",
+		"ip route flush table 101",
+		"ip rule del from 198.51.100.7/32 lookup 102",
+	} {
+		if !strings.Contains(app.joined(), want) {
+			t.Errorf("disable path did not remove policy routing (%q missing):\n%s", want, app.joined())
+		}
+	}
+}
+
 // An enabled bond must register a reconciler and must NOT flush — flushing
 // would tear down the endpoints it is about to manage.
 func TestEnabledBondRegistersAndDoesNotFlush(t *testing.T) {
