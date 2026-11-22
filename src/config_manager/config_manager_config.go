@@ -130,6 +130,51 @@ type UpstreamWifiConfig struct {
 	// PortalLoginDNS is an explicit resolver for the portal host (usually the
 	// venue DHCP server). Empty means the system resolver.
 	PortalLoginDNS string `json:"portal_login_dns,omitempty"`
+	// PortalLoginAllowHosts lists external hosts the portal may redirect to or
+	// submit to, for example an identity/signup host. The page host is always
+	// allowed; credentials are never sent anywhere else.
+	PortalLoginAllowHosts []string `json:"portal_login_allow_hosts,omitempty"`
+	// PortalLoginRecipes configures one portal login per uplink. The flat
+	// portal_login_* fields above remain the recipe for the active single STA;
+	// this list is how a bond's second STA (or any named netdev) gets its own
+	// recipe. A matching entry supersedes the flat fields for that interface.
+	PortalLoginRecipes []PortalLoginRecipeConfig `json:"portal_login_recipes,omitempty"`
+}
+
+// PortalLoginRecipeConfig is one uplink-scoped portal recipe.
+//
+// Password and the CSRF token are secrets: they must be redacted on read paths
+// and never logged.
+type PortalLoginRecipeConfig struct {
+	// Interface is the netdev the login must leave through, e.g. "phy1-sta0".
+	Interface string `json:"interface"`
+	// SSID is advisory: it records which network this recipe belongs to and is
+	// logged, but the binding is the interface.
+	SSID string `json:"ssid,omitempty"`
+	// Mode is "click_through" or "form".
+	Mode string `json:"mode,omitempty"`
+	// URL is the portal page. Empty discovers it from the captive probe.
+	URL string `json:"url,omitempty"`
+	// UserField and PassField are the form field names for form mode.
+	UserField string `json:"user_field,omitempty"`
+	PassField string `json:"pass_field,omitempty"`
+	Username  string `json:"username,omitempty"`
+	Password  string `json:"password,omitempty"` // SECRET
+	// Extra is urlencoded form data merged into the submission.
+	Extra string `json:"extra,omitempty"`
+	// AllowHosts permits cross-host redirects/form actions (exact host, or
+	// host:port when a port is given).
+	AllowHosts []string `json:"allow_hosts,omitempty"`
+	TimeoutS   int      `json:"timeout_s,omitempty"`
+	// Mark is the SO_MARK value; 0 uses the module default.
+	Mark int `json:"mark,omitempty"`
+	// DNS is the venue resolver, usually the uplink's DHCP server.
+	DNS string `json:"dns,omitempty"`
+	// BudgetSeconds and BudgetBytes bound one authorized session. When either
+	// is exceeded the uplink becomes exhausted and is not logged in again.
+	// Zero means no budget.
+	BudgetSeconds int   `json:"budget_seconds,omitempty"`
+	BudgetBytes   int64 `json:"budget_bytes,omitempty"`
 }
 
 // MPTCPBondingConfig describes an optional MPTCP multi-WAN bond.
@@ -536,6 +581,8 @@ func NewDefaultConfig() *Config {
 			PortalLoginPassField:   "password",
 			PortalLoginTimeoutS:    10,
 			PortalLoginMark:        0x20000,
+			PortalLoginAllowHosts:  []string{},
+			PortalLoginRecipes:     []PortalLoginRecipeConfig{},
 		},
 		// Empty means "keep what the router already has" — see the field
 		// comments on Config. These two are the literals the schema declares,

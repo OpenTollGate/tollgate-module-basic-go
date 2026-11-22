@@ -45,6 +45,10 @@ type UpstreamManagerConfig struct {
 	PortalLoginTimeout   time.Duration
 	PortalLoginMark      int
 	PortalLoginDNS       string
+	// PortalLoginAllowHosts lists external hosts the portal may redirect to
+	// (for example an identity/signup host). The page host is always allowed;
+	// credentials are never sent to any other host.
+	PortalLoginAllowHosts []string
 }
 
 type Connector struct {

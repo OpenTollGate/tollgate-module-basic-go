@@ -51,16 +51,26 @@ const (
 var portalProbeURL = "http://connectivitycheck.gstatic.com/generate_204"
 
 type portalRecipe struct {
-	mode      string
-	pageURL   string
-	userField string
-	passField string
-	username  string
-	password  string
-	extra     string
-	timeout   time.Duration
-	mark      int
-	dns       string
+	mode       string
+	pageURL    string
+	userField  string
+	passField  string
+	username   string
+	password   string
+	extra      string
+	timeout    time.Duration
+	mark       int
+	dns        string
+	allowHosts []string
+}
+
+// portalBinding pins one attempt to an uplink. The portal request must leave
+// through the interface that owns the session: with two STAs the default route
+// belongs to the other uplink, so an unbound request reaches the wrong venue
+// (or no venue at all).
+type portalBinding struct {
+	iface    string
+	sourceIP string
 }
 
 type portalForm struct {
@@ -106,16 +116,17 @@ func (um *UpstreamManager) portalRecipe() portalRecipe {
 		timeout = 10 * time.Second
 	}
 	return portalRecipe{
-		mode:      mode,
-		pageURL:   strings.TrimSpace(um.config.PortalLoginURL),
-		userField: userField,
-		passField: passField,
-		username:  um.config.PortalLoginUsername,
-		password:  um.config.PortalLoginPassword,
-		extra:     um.config.PortalLoginExtra,
-		timeout:   timeout,
-		mark:      um.config.PortalLoginMark,
-		dns:       strings.TrimSpace(um.config.PortalLoginDNS),
+		mode:       mode,
+		pageURL:    strings.TrimSpace(um.config.PortalLoginURL),
+		userField:  userField,
+		passField:  passField,
+		username:   um.config.PortalLoginUsername,
+		password:   um.config.PortalLoginPassword,
+		extra:      um.config.PortalLoginExtra,
+		timeout:    timeout,
+		mark:       um.config.PortalLoginMark,
+		dns:        strings.TrimSpace(um.config.PortalLoginDNS),
+		allowHosts: append([]string(nil), um.config.PortalLoginAllowHosts...),
 	}
 }
 
@@ -131,59 +142,59 @@ func (um *UpstreamManager) attemptPortalLogin(id upstreamIdentity) bool {
 	um.portalAutoAttempted = true
 	um.portalAutoMu.Unlock()
 
+	netdev := ""
+	if um.connector != nil {
+		if n, err := um.connector.GetSTANetdev(id.iface); err == nil {
+			netdev = n
+		}
+	}
 	recipe := um.portalRecipe()
-	pageURL := recipe.pageURL
-	if pageURL == "" {
-		pageURL = discoverPortalURL(recipe)
+	binding := PortalBinding{
+		Interface: netdev,
+		Mark:      um.config.PortalLoginMark,
+		DNS:       um.config.PortalLoginDNS,
 	}
-	if pageURL == "" {
-		logger.Warn("Captive portal login: no portal URL discovered; leaving the manual window open")
-		return false
-	}
+	result := AttemptPortalLogin(context.Background(), binding, PortalRecipe{
+		Mode:       recipe.mode,
+		PageURL:    recipe.pageURL,
+		UserField:  recipe.userField,
+		PassField:  recipe.passField,
+		Username:   recipe.username,
+		Password:   recipe.password,
+		Extra:      recipe.extra,
+		Timeout:    recipe.timeout,
+		AllowHosts: recipe.allowHosts,
+	}, func(context.Context) bool {
+		return um.probeConnectivity(netdev).OK
+	})
 
-	page, base, err := fetchPortalPage(pageURL, recipe)
-	if err != nil {
-		logger.WithError(err).WithField("portal_host", portalHost(pageURL)).Warn("Captive portal login: could not fetch the portal page")
-		return false
-	}
-	form, err := parsePortalForm(page, base)
-	if err != nil {
-		logger.WithError(err).WithField("portal_host", base.Host).Warn("Captive portal login: no usable form found")
-		return false
-	}
-	if recipe.mode == portalLoginModeForm {
-		applyPortalCredentials(form, recipe)
-	}
-	if err := mergePortalExtra(form, recipe.extra); err != nil {
-		logger.WithError(err).Warn("Captive portal login: malformed extra fields")
-		return false
-	}
-	if err := submitPortalForm(form, recipe); err != nil {
-		logger.WithError(err).WithField("portal_host", form.action.Host).Warn("Captive portal login: submission failed")
-		return false
-	}
-
-	result := um.probeConnectivity("")
-	if result.OK {
+	switch result.Outcome {
+	case PortalOK:
 		logger.WithFields(map[string]interface{}{
-			"portal_host": form.action.Host,
+			"portal_host": result.PortalHost,
 			"mode":        recipe.mode,
+			"interface":   netdev,
 		}).Info("Captive portal login succeeded")
 		return true
+	case PortalNoPortal:
+		logger.WithField("interface", netdev).Warn("Captive portal login: no portal URL discovered; leaving the manual window open")
+	default:
+		logger.WithFields(map[string]interface{}{
+			"portal_host": result.PortalHost,
+			"mode":        recipe.mode,
+			"interface":   netdev,
+			"reason":      result.Reason,
+		}).Warn("Captive portal login did not reach the internet")
 	}
-	logger.WithFields(map[string]interface{}{
-		"portal_host": form.action.Host,
-		"mode":        recipe.mode,
-		"reason":      result.Reason,
-	}).Warn("Captive portal login submitted but internet is still unavailable")
 	return false
 }
 
 // portalResolver returns a resolver pointed at the venue's DNS. Without it,
 // the router's dnsmasq may still be using the other uplink's resolver and
 // return NXDOMAIN for the portal host (measured with ASK4: the portal name
-// resolved only on 10.32.64.1).
-func portalResolver(dns string) *net.Resolver {
+// resolved only on 10.32.64.1). The resolver socket uses the same uplink
+// binding as the HTTP request.
+func portalResolver(dns string, binding portalBinding) *net.Resolver {
 	dns = strings.TrimSpace(dns)
 	if dns == "" {
 		return nil
@@ -191,24 +202,36 @@ func portalResolver(dns string) *net.Resolver {
 	return &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			d := net.Dialer{Timeout: 5 * time.Second}
+			d := net.Dialer{Timeout: 5 * time.Second, Control: portalControl(0, binding)}
 			return d.DialContext(ctx, "udp", net.JoinHostPort(dns, "53"))
 		},
 	}
 }
 
-// portalMarkControl stamps SO_MARK on the login socket. TollGate's NDS chain
-// DNATs router-originated TCP/80 to 192.168.99.1:2050, but returns for the
-// trusted/authenticated marks; marking the socket 0x20000 lets the venue
-// portal request leave instead of being swallowed by our own portal.
-func portalMarkControl(mark int) func(string, string, syscall.RawConn) error {
-	if mark <= 0 {
+// portalControl stamps SO_MARK on the login socket and, when an uplink is
+// named, binds the socket to that device. The bind is the part that makes a
+// per-uplink login possible: the default route belongs to the other STA.
+//
+// TollGate's NDS chain DNATs router-originated TCP/80 to 192.168.99.1:2050,
+// but returns for the trusted/authenticated marks; marking the socket 0x20000
+// lets the venue portal request leave instead of being swallowed by our own
+// portal.
+func portalControl(mark int, binding portalBinding) func(string, string, syscall.RawConn) error {
+	if mark <= 0 && binding.iface == "" && binding.sourceIP == "" {
 		return nil
 	}
 	return func(_, _ string, c syscall.RawConn) error {
 		var serr error
 		if err := c.Control(func(fd uintptr) {
-			serr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, soMark, mark)
+			if binding.iface != "" {
+				if e := syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, binding.iface); e != nil {
+					serr = e
+					return
+				}
+			}
+			if mark > 0 {
+				serr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, soMark, mark)
+			}
 		}); err != nil {
 			return err
 		}
@@ -216,9 +239,14 @@ func portalMarkControl(mark int) func(string, string, syscall.RawConn) error {
 	}
 }
 
-func portalTransport(recipe portalRecipe) *http.Transport {
-	dialer := &net.Dialer{Timeout: recipe.timeout, Control: portalMarkControl(recipe.mark)}
-	resolver := portalResolver(recipe.dns)
+func portalTransport(recipe portalRecipe, binding portalBinding) *http.Transport {
+	dialer := &net.Dialer{Timeout: recipe.timeout, Control: portalControl(recipe.mark, binding)}
+	if binding.sourceIP != "" {
+		if ip := net.ParseIP(binding.sourceIP); ip != nil {
+			dialer.LocalAddr = &net.TCPAddr{IP: ip}
+		}
+	}
+	resolver := portalResolver(recipe.dns, binding)
 	return &http.Transport{
 		Proxy: nil,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -241,24 +269,60 @@ func portalTransport(recipe portalRecipe) *http.Transport {
 	}
 }
 
-func portalClient(recipe portalRecipe, followSameHost bool) *http.Client {
+func portalClient(recipe portalRecipe, binding portalBinding, followSameHost bool, jar http.CookieJar) *http.Client {
 	return &http.Client{
 		Timeout:   recipe.timeout,
-		Transport: portalTransport(recipe),
+		Transport: portalTransport(recipe, binding),
+		Jar:       jar,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if !followSameHost || (len(via) > 0 && !samePortalHost(req.URL, via[0].URL)) {
+			if !followSameHost || len(via) == 0 {
 				return http.ErrUseLastResponse
 			}
-			return nil
+			if samePortalHost(req.URL, via[0].URL) || portalHostAllowed(req.URL, recipe.allowHosts) {
+				return nil
+			}
+			return http.ErrUseLastResponse
 		},
 	}
 }
 
+// portalHostAllowed reports whether u is in the operator's explicit allow-list.
+// An entry without a port matches any port on that host; an entry with a port
+// must match host and port. The allow-list is for redirects and form actions,
+// never for arbitrary credential destinations.
+func portalHostAllowed(u *url.URL, allow []string) bool {
+	if u == nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	hostPort := strings.ToLower(u.Host)
+	for _, raw := range allow {
+		entry := strings.ToLower(strings.TrimSpace(raw))
+		if entry == "" {
+			continue
+		}
+		if strings.Contains(entry, ":") {
+			if entry == hostPort {
+				return true
+			}
+			continue
+		}
+		if entry == host {
+			return true
+		}
+	}
+	return false
+}
+
 // discoverPortalURL asks the captive probe where the portal lives. A 3xx
 // Location or a meta refresh is the portal; a 204 is no portal at all.
-func discoverPortalURL(recipe portalRecipe) string {
-	client := portalClient(recipe, false)
-	resp, err := client.Get(portalProbeURL)
+func discoverPortalURL(ctx context.Context, recipe portalRecipe, binding portalBinding, jar http.CookieJar) string {
+	client := portalClient(recipe, binding, false, jar)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, portalProbeURL, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return ""
 	}
@@ -295,13 +359,17 @@ func discoverPortalURL(recipe portalRecipe) string {
 	return ""
 }
 
-func fetchPortalPage(pageURL string, recipe portalRecipe) (string, *url.URL, error) {
+func fetchPortalPage(ctx context.Context, pageURL string, recipe portalRecipe, binding portalBinding, jar http.CookieJar) (string, *url.URL, error) {
 	start, err := url.Parse(pageURL)
 	if err != nil || (start.Scheme != "http" && start.Scheme != "https") || start.Host == "" {
 		return "", nil, fmt.Errorf("portal URL must be http(s) with a host")
 	}
-	client := portalClient(recipe, true)
-	resp, err := client.Get(start.String())
+	client := portalClient(recipe, binding, true, jar)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, start.String(), nil)
+	if err != nil {
+		return "", nil, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", nil, err
 	}
@@ -316,7 +384,7 @@ func fetchPortalPage(pageURL string, recipe portalRecipe) (string, *url.URL, err
 	return string(body), resp.Request.URL, nil
 }
 
-func parsePortalForm(page string, base *url.URL) (*portalForm, error) {
+func parsePortalForm(page string, base *url.URL, allowHosts []string) (*portalForm, error) {
 	m := portalFormRe.FindStringSubmatch(page)
 	if len(m) != 3 {
 		return nil, fmt.Errorf("no <form> on the portal page")
@@ -333,8 +401,8 @@ func parsePortalForm(page string, base *url.URL) (*portalForm, error) {
 	if action.Scheme != "http" && action.Scheme != "https" {
 		return nil, fmt.Errorf("portal form action is not http(s)")
 	}
-	if !samePortalHost(action, base) {
-		return nil, fmt.Errorf("portal form action points at a different host (%s); refusing to send credentials there", action.Host)
+	if !samePortalHost(action, base) && !portalHostAllowed(action, allowHosts) {
+		return nil, fmt.Errorf("portal form action points at a host that is neither the page host nor allow-listed (%s); refusing to send credentials there", action.Host)
 	}
 
 	method := strings.ToUpper(strings.TrimSpace(attrs["method"]))
@@ -426,8 +494,8 @@ func mergePortalExtra(form *portalForm, extra string) error {
 	return nil
 }
 
-func submitPortalForm(form *portalForm, recipe portalRecipe) error {
-	client := portalClient(recipe, false)
+func submitPortalForm(ctx context.Context, form *portalForm, recipe portalRecipe, binding portalBinding, jar http.CookieJar) error {
+	client := portalClient(recipe, binding, false, jar)
 	var req *http.Request
 	var err error
 	if form.method == "GET" {
@@ -439,9 +507,9 @@ func submitPortalForm(form *portalForm, recipe portalRecipe) error {
 			}
 		}
 		u.RawQuery = q.Encode()
-		req, err = http.NewRequest(http.MethodGet, u.String(), nil)
+		req, err = http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	} else {
-		req, err = http.NewRequest(http.MethodPost, form.action.String(), strings.NewReader(form.fields.Encode()))
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, form.action.String(), strings.NewReader(form.fields.Encode()))
 		if req != nil {
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		}

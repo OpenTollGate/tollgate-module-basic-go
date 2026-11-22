@@ -1,6 +1,7 @@
 package wireless_gateway_manager
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -227,5 +228,5 @@ func TestDiscoverPortalURLFollowsRedirect(t *testing.T) {
 	portalProbeURL = srv.URL + "/captive"
 	defer func() { portalProbeURL = old }()
 
-	require.Equal(t, srv.URL+"/login", discoverPortalURL(portalRecipe{timeout: 2 * time.Second}))
+	require.Equal(t, srv.URL+"/login", discoverPortalURL(context.Background(), portalRecipe{timeout: 2 * time.Second}, portalBinding{}, nil))
 }
