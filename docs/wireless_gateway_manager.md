@@ -122,6 +122,64 @@ frontend or public configuration field. The internal `PortalLoginWindow` constru
 override uses two minutes for zero or negative values. Router/venue behavior still
 requires artifact-bound PRTA acceptance; source tests alone do not qualify it.
 
+## Automatic portal login (opt-in)
+
+`upstream_wifi.portal_login_enabled` enables one bounded, automatic submission of
+the venue's own form. `portal_login_mode` is `click_through` (submit the page's
+hidden fields and accept button) or `form` (also fill the configured
+username/password fields). `portal_login_extra` carries urlencoded fields for a
+guest form that wants a name or room but no password. Credentials are never
+logged.
+
+The login is **bound to the uplink that owns it**. Every request, redirect and
+DNS lookup uses the target netdev (`SO_BINDTODEVICE`), the configured venue
+resolver and the existing `SO_MARK`, so a second STA does not inherit the
+default route of the first. Redirects and form actions may leave the page host
+only when the destination is listed in `portal_login_allow_hosts` (exact host,
+or `host:port`). The page host is always allowed; credentials never go
+elsewhere. One cookie jar carries the session across fetch, redirect and submit.
+
+### Per-uplink recipes
+
+`upstream_wifi.portal_login_recipes` is a list keyed by netdev. It exists for a
+bond's second STA, which the single-STA manager does not own:
+
+```json
+{
+  "upstream_wifi": {
+    "portal_login_enabled": true,
+    "portal_login_recipes": [
+      {
+        "interface": "phy1-sta0",
+        "ssid": "Venue Guest",
+        "mode": "click_through",
+        "url": "https://signin.example.com/guest",
+        "dns": "10.32.64.1",
+        "allow_hosts": ["signin.example.com"],
+        "extra": "firstname=TollGate&surname=Operator",
+        "budget_seconds": 7200,
+        "budget_bytes": 2000000000
+      }
+    ]
+  }
+}
+```
+
+Each recipe gets one attempt per association/lease generation, then a bounded
+retry (three attempts with 30-second steps). When the cap is reached, or when
+`budget_seconds`/`budget_bytes` is exceeded after a successful login, the uplink
+is **exhausted** and is not submitted again. A new lease resets the attempt
+state; the exhausted state does not reset on a timer.
+
+This is deliberately **not** an identity-rotation feature. The client does not
+change a MAC address, regenerate the node key, or invent a new user to obtain
+another free session. An exhausted session is left for the operator (or the
+venue's own paid/renewal flow). See the operator guide's client-identity
+section for why MAC/key rotation is not a supported access mechanism.
+
+Router/venue behavior still requires artifact-bound PRTA acceptance; source
+tests alone do not qualify it.
+
 ## Circuit Breaker
 
 After `max_consecutive_failures` consecutive switch failures, the circuit breaker enters a cooldown period (`switch_cooldown_minutes`). During cooldown, scan cycles are skipped to avoid rapid reconnection attempts.
