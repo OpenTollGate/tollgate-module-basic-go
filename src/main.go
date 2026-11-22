@@ -677,6 +677,11 @@ func bootSequence(addr string, construct merchantConstructor) error {
 	// its uplink while the wallet is still loading instead of after.
 	initUpstreamManager()
 
+	// The portal watcher is also merchant-independent. It must start here, not
+	// after construct(): a cold boot can spend minutes probing mints, and an
+	// airport/hotel uplink has to be logged in long before that finishes.
+	startPortalWatchers()
+
 	// The CLI socket is bound and served here too. The operator's
 	// `tollgate wallet balance` failed with ENOENT for the same minutes the API
 	// was missing; the socket now exists before the mint-dependent work, and a
@@ -692,7 +697,6 @@ func bootSequence(addr string, construct merchantConstructor) error {
 	installMerchant(merchantInstance)
 
 	initUpstreamDetector()
-	startPortalWatchers()
 
 	apiStartup.markReady()
 	return nil
