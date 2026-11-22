@@ -9,8 +9,13 @@ type NetworkEvent struct {
 	Type          EventType
 	InterfaceName string
 	InterfaceInfo *InterfaceInfo
-	GatewayIP     string
-	Timestamp     time.Time
+	// Address is the interface address this event is about. For an
+	// address-added/deleted event it is the address that appeared or vanished;
+	// for a link event it is the interface's first IPv4 address. It is NOT the
+	// gateway: the bond registers endpoints by local address.
+	Address   string
+	GatewayIP string
+	Timestamp time.Time
 }
 
 // EventType represents the type of network event

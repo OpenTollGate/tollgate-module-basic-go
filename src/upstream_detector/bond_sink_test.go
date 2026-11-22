@@ -46,11 +46,38 @@ func TestDetectorForwardsInterfaceUp(t *testing.T) {
 	d := newTestDetector(t, fs)
 	d.handleInterfaceUp(NetworkEvent{
 		InterfaceName: "lan1",
-		GatewayIP:     "192.168.2.1",
+		Address:       "10.0.0.7",
+		GatewayIP:     "10.0.0.1",
 		InterfaceInfo: &InterfaceInfo{},
 	})
-	if len(fs.ups) != 1 || fs.ups[0] != "lan1|192.168.2.1" {
-		t.Errorf("interface-up must reach the bond sink with its address, got %v", fs.ups)
+	if len(fs.ups) != 1 || fs.ups[0] != "lan1|10.0.0.7" {
+		t.Errorf("interface-up must reach the bond sink with its own address, not the gateway, got %v", fs.ups)
+	}
+}
+
+func TestDetectorInterfaceUpWithoutAddressDoesNotWithdraw(t *testing.T) {
+	fs := &fakeSink{}
+	d := newTestDetector(t, fs)
+	d.handleInterfaceUp(NetworkEvent{
+		InterfaceName: "lan1",
+		GatewayIP:     "10.0.0.1",
+		InterfaceInfo: &InterfaceInfo{},
+	})
+	if len(fs.ups) != 0 {
+		t.Errorf("an up event without an IPv4 address must not register an endpoint, got %v", fs.ups)
+	}
+}
+
+func TestDetectorFallsBackToInterfaceInfoAddress(t *testing.T) {
+	fs := &fakeSink{}
+	d := newTestDetector(t, fs)
+	d.handleAddressAdded(NetworkEvent{
+		InterfaceName: "phy1-sta0",
+		GatewayIP:     "10.32.64.1",
+		InterfaceInfo: &InterfaceInfo{IPAddresses: []string{"10.32.76.220/20", "fe80::1/64"}},
+	})
+	if len(fs.addrs) != 1 || fs.addrs[0] != "phy1-sta0|10.32.76.220" {
+		t.Errorf("address-added must use the interface address from InterfaceInfo, got %v", fs.addrs)
 	}
 }
 
@@ -68,20 +95,21 @@ func TestDetectorForwardsAddressAdded(t *testing.T) {
 	d := newTestDetector(t, fs)
 	d.handleAddressAdded(NetworkEvent{
 		InterfaceName: "phy0-sta0",
+		Address:       "10.2.0.7",
 		GatewayIP:     "10.2.0.1",
 		InterfaceInfo: &InterfaceInfo{},
 	})
-	if len(fs.addrs) != 1 || fs.addrs[0] != "phy0-sta0|10.2.0.1" {
-		t.Errorf("address-added must reach the bond sink, got %v", fs.addrs)
+	if len(fs.addrs) != 1 || fs.addrs[0] != "phy0-sta0|10.2.0.7" {
+		t.Errorf("address-added must reach the bond sink with the interface address, not the gateway, got %v", fs.addrs)
 	}
 }
 
 func TestDetectorForwardsAddressDeleted(t *testing.T) {
 	fs := &fakeSink{}
 	d := newTestDetector(t, fs)
-	d.handleAddressDeleted(NetworkEvent{InterfaceName: "phy0-sta0"})
-	if len(fs.deleted) != 1 {
-		t.Errorf("address-deleted must reach the bond sink, got %v", fs.deleted)
+	d.handleAddressDeleted(NetworkEvent{InterfaceName: "phy0-sta0", Address: "10.2.0.7"})
+	if len(fs.deleted) != 1 || fs.deleted[0] != "phy0-sta0|10.2.0.7" {
+		t.Errorf("address-deleted must reach the bond sink with the vanished address, got %v", fs.deleted)
 	}
 }
 

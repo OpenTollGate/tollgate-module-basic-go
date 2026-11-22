@@ -193,6 +193,7 @@ func (nm *networkMonitor) handleLinkUpdate(update netlink.LinkUpdate) {
 		Type:          eventType,
 		InterfaceName: interfaceName,
 		InterfaceInfo: interfaceInfo,
+		Address:       firstIPv4(interfaceInfo.IPAddresses),
 		GatewayIP:     gatewayIP,
 		Timestamp:     time.Now(),
 	}
@@ -260,6 +261,7 @@ func (nm *networkMonitor) handleAddressUpdate(update netlink.AddrUpdate) {
 		Type:          eventType,
 		InterfaceName: interfaceName,
 		InterfaceInfo: interfaceInfo,
+		Address:       update.LinkAddress.IP.String(),
 		GatewayIP:     gatewayIP,
 		Timestamp:     time.Now(),
 	}
@@ -564,4 +566,25 @@ func (nm *networkMonitor) sendEvent(event NetworkEvent) {
 	default:
 		logger.WithField("interface", event.InterfaceName).Warn("Network event channel full, dropping event for interface")
 	}
+}
+
+// firstIPv4 returns the first IPv4 address in an interface's address list.
+// The bond registers endpoints by local address; the gateway is a different
+// fact and must not be substituted for it.
+func firstIPv4(addrs []string) string {
+	for _, raw := range addrs {
+		ip := net.ParseIP(raw)
+		if ip == nil {
+			if parsed, _, err := net.ParseCIDR(raw); err == nil {
+				ip = parsed
+			}
+		}
+		if ip == nil {
+			continue
+		}
+		if ip4 := ip.To4(); ip4 != nil {
+			return ip4.String()
+		}
+	}
+	return ""
 }
