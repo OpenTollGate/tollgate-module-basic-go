@@ -1,0 +1,26 @@
+==============================================================================
+CONSENSUS CROSS-CHECK — LUD-25 @ fd80cdd (v2)
+==============================================================================
+bitcoind /Satoshi:31.1.0/  chain=regtest  height=610  rpc=127.0.0.1:18443
+
+--- A  the notes' own output keys, expanded by Core
+  key_path  Q=690ac33892c64aa5…  addr=bcrt1pznqsa038cuzcf8tzvx7d  spk-type=witness_v1_taproot
+  bearer    Q=d18b619687343df2…  addr=bcrt1p0wruu85vgy2suvcpfrqm  spk-type=witness_v1_taproot
+  timelock  Q=c0f5569495465776…  addr=bcrt1puprqquvgfqaht6eh0mzm  spk-type=witness_v1_taproot
+
+--- B  fund a P2TR output at the bearer note's spk, spend it with its cw1
+  derived spk = 5120d18b619687343df2fc7a47e1daf25260b909bb563fb4b4b11e59e2bd64880982
+  Core rawtr(d18b61968734…) -> bcrt1p6x9kr958xs7l9lr6glsa  spk-identical=True
+  wallet signed the funding tx: complete=True
+  funded txid=2d8288217188b753 vout=0 value=0.5 type=witness_v1_taproot
+  funded spk == derived spk : True
+  cw1 → locktime=0 sequence=0xffffffff script=a820630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd87 control=33 B witness=1 item(s)
+  Core's asm of that leaf: OP_SHA256 630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd OP_EQUAL
+  RESULT: Core ACCEPTED the bearer script-path spend  txid=0d270abd47a34f36
+
+--- C  the timelock is a claim; consensus never sees 'now'
+  vector locktime T=1800000000; the two spends claim [1800000000, 1799999999]
+  vector 'expect' for each: [{'1799999999': 'refused', '1800000000': 'accepted'}, {'1799999999': 'refused', '1800000000': 'refused'}]
+  Core's view of the leaf: 1800000000 OP_CHECKLOCKTIMEVERIFY OP_DROP 48711c155a7403e2b10da4a69803a0efb6aa5324e8a25fa774fed47e8da2da88 OP_CHECKSIG
+  Both spends are syntactically valid tapscript. Which one a SERVICE
+  accepts is decided by its clock — which is exactly the spec's warning.
