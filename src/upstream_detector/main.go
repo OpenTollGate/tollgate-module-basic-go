@@ -2,6 +2,8 @@ package upstream_detector
 
 import (
 	"fmt"
+	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -181,7 +183,10 @@ func (ud *upstreamDetector) handleInterfaceUp(event NetworkEvent) {
 	// resolved: an interface can be part of the bond before it has a default
 	// route, and the reconciler decides what that means.
 	if ud.bondSink != nil {
-		if err := ud.bondSink.HandleInterfaceUp(event.InterfaceName, event.GatewayIP); err != nil {
+		if addr := eventUplinkAddress(event); addr == "" {
+			logger.WithField("interface", event.InterfaceName).
+				Debug("Interface is up without an IPv4 address; bond waits for the address event")
+		} else if err := ud.bondSink.HandleInterfaceUp(event.InterfaceName, addr); err != nil {
 			logger.WithError(err).WithField("interface", event.InterfaceName).
 				Error("MPTCP bond failed to register uplink")
 		}
@@ -233,7 +238,10 @@ func (ud *upstreamDetector) handleAddressAdded(event NetworkEvent) {
 	// A new address on an uplink is the common DHCP-renewal / STA-association
 	// path, and it is exactly when the bond needs to (re)register an endpoint.
 	if ud.bondSink != nil {
-		if err := ud.bondSink.HandleAddressAdded(event.InterfaceName, event.GatewayIP); err != nil {
+		if addr := eventUplinkAddress(event); addr == "" {
+			logger.WithField("interface", event.InterfaceName).
+				Warn("Address event without an IPv4 address; bond not updated")
+		} else if err := ud.bondSink.HandleAddressAdded(event.InterfaceName, addr); err != nil {
 			logger.WithError(err).WithField("interface", event.InterfaceName).
 				Error("MPTCP bond failed to register uplink address")
 		}
@@ -255,7 +263,7 @@ func (ud *upstreamDetector) handleAddressDeleted(event NetworkEvent) {
 
 	// The bond must drop the endpoint for a vanished address.
 	if ud.bondSink != nil {
-		if err := ud.bondSink.HandleAddressDeleted(event.InterfaceName, event.GatewayIP); err != nil {
+		if err := ud.bondSink.HandleAddressDeleted(event.InterfaceName, event.Address); err != nil {
 			logger.WithError(err).WithField("interface", event.InterfaceName).
 				Error("MPTCP bond failed to withdraw uplink address")
 		}
@@ -384,4 +392,33 @@ func (ud *upstreamDetector) performInitialInterfaceScan() {
 	ud.reportGatewaysForInterfaces()
 
 	logger.Info("Initial interface scan completed")
+}
+
+// eventUplinkAddress is the local address a bond endpoint should use.
+//
+// Address is authoritative; InterfaceInfo.IPAddresses is the fallback for an
+// event built before Address was populated. GatewayIP is a different fact and
+// must never be substituted: it produced endpoints for the router's next hop
+// instead of the uplink's own address.
+func eventUplinkAddress(event NetworkEvent) string {
+	if addr := strings.TrimSpace(event.Address); addr != "" {
+		return addr
+	}
+	if event.InterfaceInfo != nil {
+		for _, raw := range event.InterfaceInfo.IPAddresses {
+			ip := net.ParseIP(raw)
+			if ip == nil {
+				if parsed, _, err := net.ParseCIDR(raw); err == nil {
+					ip = parsed
+				}
+			}
+			if ip == nil {
+				continue
+			}
+			if ip4 := ip.To4(); ip4 != nil {
+				return ip4.String()
+			}
+		}
+	}
+	return ""
 }
