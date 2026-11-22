@@ -123,6 +123,13 @@ type UpstreamWifiConfig struct {
 	PortalLoginPassword  string `json:"portal_login_password,omitempty"` // SECRET
 	PortalLoginExtra     string `json:"portal_login_extra,omitempty"`    // urlencoded k=v&k2=v2
 	PortalLoginTimeoutS  int    `json:"portal_login_timeout_s,omitempty"`
+	// PortalLoginMark is the firewall mark set on the login socket. TollGate's
+	// NDS chain DNATs router-originated port 80 to the local portal; the NDS
+	// chain returns for marks 0x20000/0x30000, so the default bypasses it.
+	PortalLoginMark int `json:"portal_login_mark,omitempty"`
+	// PortalLoginDNS is an explicit resolver for the portal host (usually the
+	// venue DHCP server). Empty means the system resolver.
+	PortalLoginDNS string `json:"portal_login_dns,omitempty"`
 }
 
 // MPTCPBondingConfig describes an optional MPTCP multi-WAN bond.
@@ -528,6 +535,7 @@ func NewDefaultConfig() *Config {
 			PortalLoginUserField:   "username",
 			PortalLoginPassField:   "password",
 			PortalLoginTimeoutS:    10,
+			PortalLoginMark:        0x20000,
 		},
 		// Empty means "keep what the router already has" — see the field
 		// comments on Config. These two are the literals the schema declares,

@@ -23,15 +23,22 @@
 package wireless_gateway_manager
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 )
+
+// SO_MARK is Linux-specific and absent from the syscall package on some
+// architectures; the router is Linux, so the constant is explicit.
+const soMark = 36
 
 const (
 	portalLoginModeClickThrough = "click_through"
@@ -52,6 +59,8 @@ type portalRecipe struct {
 	password  string
 	extra     string
 	timeout   time.Duration
+	mark      int
+	dns       string
 }
 
 type portalForm struct {
@@ -105,6 +114,8 @@ func (um *UpstreamManager) portalRecipe() portalRecipe {
 		password:  um.config.PortalLoginPassword,
 		extra:     um.config.PortalLoginExtra,
 		timeout:   timeout,
+		mark:      um.config.PortalLoginMark,
+		dns:       strings.TrimSpace(um.config.PortalLoginDNS),
 	}
 }
 
@@ -123,14 +134,14 @@ func (um *UpstreamManager) attemptPortalLogin(id upstreamIdentity) bool {
 	recipe := um.portalRecipe()
 	pageURL := recipe.pageURL
 	if pageURL == "" {
-		pageURL = discoverPortalURL(recipe.timeout)
+		pageURL = discoverPortalURL(recipe)
 	}
 	if pageURL == "" {
 		logger.Warn("Captive portal login: no portal URL discovered; leaving the manual window open")
 		return false
 	}
 
-	page, base, err := fetchPortalPage(pageURL, recipe.timeout)
+	page, base, err := fetchPortalPage(pageURL, recipe)
 	if err != nil {
 		logger.WithError(err).WithField("portal_host", portalHost(pageURL)).Warn("Captive portal login: could not fetch the portal page")
 		return false
@@ -147,7 +158,7 @@ func (um *UpstreamManager) attemptPortalLogin(id upstreamIdentity) bool {
 		logger.WithError(err).Warn("Captive portal login: malformed extra fields")
 		return false
 	}
-	if err := submitPortalForm(form, recipe.timeout); err != nil {
+	if err := submitPortalForm(form, recipe); err != nil {
 		logger.WithError(err).WithField("portal_host", form.action.Host).Warn("Captive portal login: submission failed")
 		return false
 	}
@@ -168,15 +179,85 @@ func (um *UpstreamManager) attemptPortalLogin(id upstreamIdentity) bool {
 	return false
 }
 
-// discoverPortalURL asks the captive probe where the portal lives. A 3xx
-// Location or a meta refresh is the portal; a 204 is no portal at all.
-func discoverPortalURL(timeout time.Duration) string {
-	client := &http.Client{
-		Timeout: timeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
+// portalResolver returns a resolver pointed at the venue's DNS. Without it,
+// the router's dnsmasq may still be using the other uplink's resolver and
+// return NXDOMAIN for the portal host (measured with ASK4: the portal name
+// resolved only on 10.32.64.1).
+func portalResolver(dns string) *net.Resolver {
+	dns = strings.TrimSpace(dns)
+	if dns == "" {
+		return nil
+	}
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 5 * time.Second}
+			return d.DialContext(ctx, "udp", net.JoinHostPort(dns, "53"))
 		},
 	}
+}
+
+// portalMarkControl stamps SO_MARK on the login socket. TollGate's NDS chain
+// DNATs router-originated TCP/80 to 192.168.99.1:2050, but returns for the
+// trusted/authenticated marks; marking the socket 0x20000 lets the venue
+// portal request leave instead of being swallowed by our own portal.
+func portalMarkControl(mark int) func(string, string, syscall.RawConn) error {
+	if mark <= 0 {
+		return nil
+	}
+	return func(_, _ string, c syscall.RawConn) error {
+		var serr error
+		if err := c.Control(func(fd uintptr) {
+			serr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, soMark, mark)
+		}); err != nil {
+			return err
+		}
+		return serr
+	}
+}
+
+func portalTransport(recipe portalRecipe) *http.Transport {
+	dialer := &net.Dialer{Timeout: recipe.timeout, Control: portalMarkControl(recipe.mark)}
+	resolver := portalResolver(recipe.dns)
+	return &http.Transport{
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			if resolver != nil && net.ParseIP(host) == nil {
+				ips, err := resolver.LookupHost(ctx, host)
+				if err != nil {
+					return nil, err
+				}
+				if len(ips) == 0 {
+					return nil, fmt.Errorf("no addresses for portal host %s", host)
+				}
+				address = net.JoinHostPort(ips[0], port)
+			}
+			return dialer.DialContext(ctx, network, address)
+		},
+	}
+}
+
+func portalClient(recipe portalRecipe, followSameHost bool) *http.Client {
+	return &http.Client{
+		Timeout:   recipe.timeout,
+		Transport: portalTransport(recipe),
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if !followSameHost || (len(via) > 0 && !samePortalHost(req.URL, via[0].URL)) {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+}
+
+// discoverPortalURL asks the captive probe where the portal lives. A 3xx
+// Location or a meta refresh is the portal; a 204 is no portal at all.
+func discoverPortalURL(recipe portalRecipe) string {
+	client := portalClient(recipe, false)
 	resp, err := client.Get(portalProbeURL)
 	if err != nil {
 		return ""
@@ -214,20 +295,12 @@ func discoverPortalURL(timeout time.Duration) string {
 	return ""
 }
 
-func fetchPortalPage(pageURL string, timeout time.Duration) (string, *url.URL, error) {
+func fetchPortalPage(pageURL string, recipe portalRecipe) (string, *url.URL, error) {
 	start, err := url.Parse(pageURL)
 	if err != nil || (start.Scheme != "http" && start.Scheme != "https") || start.Host == "" {
 		return "", nil, fmt.Errorf("portal URL must be http(s) with a host")
 	}
-	client := &http.Client{
-		Timeout: timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) > 0 && !samePortalHost(req.URL, via[0].URL) {
-				return http.ErrUseLastResponse
-			}
-			return nil
-		},
-	}
+	client := portalClient(recipe, true)
 	resp, err := client.Get(start.String())
 	if err != nil {
 		return "", nil, err
@@ -348,13 +421,8 @@ func mergePortalExtra(form *portalForm, extra string) error {
 	return nil
 }
 
-func submitPortalForm(form *portalForm, timeout time.Duration) error {
-	client := &http.Client{
-		Timeout: timeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+func submitPortalForm(form *portalForm, recipe portalRecipe) error {
+	client := portalClient(recipe, false)
 	var req *http.Request
 	var err error
 	if form.method == "GET" {

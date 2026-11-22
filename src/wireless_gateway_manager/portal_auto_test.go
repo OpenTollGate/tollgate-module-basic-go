@@ -200,5 +200,5 @@ func TestDiscoverPortalURLFollowsRedirect(t *testing.T) {
 	portalProbeURL = srv.URL + "/captive"
 	defer func() { portalProbeURL = old }()
 
-	require.Equal(t, srv.URL+"/login", discoverPortalURL(2*time.Second))
+	require.Equal(t, srv.URL+"/login", discoverPortalURL(portalRecipe{timeout: 2 * time.Second}))
 }

@@ -43,6 +43,8 @@ type UpstreamManagerConfig struct {
 	PortalLoginPassword  string
 	PortalLoginExtra     string
 	PortalLoginTimeout   time.Duration
+	PortalLoginMark      int
+	PortalLoginDNS       string
 }
 
 type Connector struct {

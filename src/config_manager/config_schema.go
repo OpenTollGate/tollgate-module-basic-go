@@ -168,6 +168,8 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "PortalLoginPassword", JSONKey: "portal_login_password", Type: "string", Description: "Password for form mode (sensitive).", Default: "", Required: false, Editable: true, Secret: true},
 				{Name: "PortalLoginExtra", JSONKey: "portal_login_extra", Type: "string", Description: "Additional urlencoded form fields, for example room=101&lastname=Smith.", Default: "", Required: false, Editable: true},
 				{Name: "PortalLoginTimeoutS", JSONKey: "portal_login_timeout_s", Type: "int", Description: "Total seconds allowed for one automatic portal login attempt.", Default: 10, Required: false, Editable: true, Min: 1, Max: 120},
+				{Name: "PortalLoginMark", JSONKey: "portal_login_mark", Type: "int", Description: "Firewall mark on the portal-login socket. The default 0x20000 matches the NDS trusted mark, so TollGate's own port-80 DNAT does not swallow the venue portal request.", Default: 0x20000, Required: false, Editable: true, Min: 0},
+				{Name: "PortalLoginDNS", JSONKey: "portal_login_dns", Type: "string", Description: "Resolver for the portal host, usually the venue DHCP server. Empty uses the system resolver, which may be the wrong uplink's DNS.", Default: "", Required: false, Editable: true},
 			},
 		},
 		{

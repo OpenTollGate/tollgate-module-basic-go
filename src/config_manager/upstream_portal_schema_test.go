@@ -17,6 +17,8 @@ func TestUpstreamPortalLoginSchema(t *testing.T) {
 		"portal_login_password",
 		"portal_login_extra",
 		"portal_login_timeout_s",
+		"portal_login_mark",
+		"portal_login_dns",
 	} {
 		if findField(upstream.Children, key) == nil {
 			t.Errorf("upstream_wifi must expose %q", key)

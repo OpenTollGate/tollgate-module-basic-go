@@ -861,6 +861,8 @@ func initUpstreamManager() {
 			PortalLoginPassword:    cfg.UpstreamWifi.PortalLoginPassword,
 			PortalLoginExtra:       cfg.UpstreamWifi.PortalLoginExtra,
 			PortalLoginTimeout:     time.Duration(cfg.UpstreamWifi.PortalLoginTimeoutS) * time.Second,
+			PortalLoginMark:        cfg.UpstreamWifi.PortalLoginMark,
+			PortalLoginDNS:         cfg.UpstreamWifi.PortalLoginDNS,
 		}
 	}
 

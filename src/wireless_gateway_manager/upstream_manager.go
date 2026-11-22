@@ -94,6 +94,7 @@ func DefaultUpstreamManagerConfig() UpstreamManagerConfig {
 		PortalLoginUserField:   "username",
 		PortalLoginPassField:   "password",
 		PortalLoginTimeout:     10 * time.Second,
+		PortalLoginMark:        0x20000,
 	}
 }
 
