@@ -797,6 +797,9 @@ func (um *UpstreamManager) FallbackToKnownGoodNonTollGate() (string, error) {
 		if um.isBlacklisted(section.SSID, net.BSSID) {
 			continue
 		}
+		if !um.consentAllows(net) {
+			continue
+		}
 		candidates = append(candidates, fallbackCandidate{section: section, net: net, signal: net.Signal})
 	}
 	if len(candidates) == 0 {
@@ -862,6 +865,9 @@ func (um *UpstreamManager) findKnownCandidates(networks []NetworkInfo) (*Candida
 		if !ok {
 			continue
 		}
+		if !um.consentAllows(net) {
+			continue
+		}
 		if um.isBlacklisted(net.SSID, net.BSSID) {
 			continue
 		}
@@ -905,6 +911,9 @@ func (um *UpstreamManager) findResellerCandidates(networks []NetworkInfo, isEmer
 			continue
 		}
 		if um.isBlacklisted(net.SSID, net.BSSID) {
+			continue
+		}
+		if !um.consentAllows(net) {
 			continue
 		}
 
