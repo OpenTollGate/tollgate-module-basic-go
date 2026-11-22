@@ -362,8 +362,13 @@ func parsePortalForm(page string, base *url.URL) (*portalForm, error) {
 		}
 		fields.Add(name, html.UnescapeString(attrs["value"]))
 	}
-	if len(fields) == 0 {
-		return nil, fmt.Errorf("portal form has no submittable fields")
+	// A GET form with no named fields is a real portal shape: ASK4's
+	// "Continue online" button is <form method="get" action="..."><input
+	// type="submit" value="Continue online"></form>. Submitting the action
+	// with an empty query is the click-through. A POST form with no fields is
+	// more likely a parse failure, so keep that loud.
+	if len(fields) == 0 && method != "GET" {
+		return nil, fmt.Errorf("portal POST form has no submittable fields")
 	}
 	return &portalForm{action: action, method: method, fields: fields}, nil
 }

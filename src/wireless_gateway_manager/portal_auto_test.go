@@ -59,6 +59,33 @@ func TestPortalAutoLoginClickThrough(t *testing.T) {
 	require.Equal(t, "yes", got.Get("accept"))
 }
 
+func TestPortalAutoLoginClickThroughNoNamedFields(t *testing.T) {
+	// ASK4's "Continue online" form has a submit button with no name and no
+	// other inputs. The click-through is a GET to the action with an empty
+	// query; rejecting it as "no submittable fields" made the real portal
+	// unusable.
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/portal":
+			fmt.Fprint(w, `<form method="get" action="/continue">
+				<input type="submit" class="btn" value="Continue online"></form>`)
+		case "/continue":
+			hits.Add(1)
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	m := portalAutoManager(srv.URL + "/portal")
+	m.connectivityProbeFn = func() ConnectivityResult { return ConnectivityResult{OK: true, Reason: "ok"} }
+
+	require.True(t, m.attemptPortalLogin(upstreamIdentity{generation: 1}))
+	require.Equal(t, int32(1), hits.Load())
+}
+
 func TestPortalAutoLoginFormCredentials(t *testing.T) {
 	var got url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
