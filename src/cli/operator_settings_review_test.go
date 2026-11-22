@@ -29,11 +29,26 @@ func TestEverySchemaSecretIsRedactedAndReported(t *testing.T) {
 	cfg := config_manager.NewDefaultConfig()
 	cfg.PrivateKey = "Unique-Pass-2026"
 	cfg.MPTCPBonding.Password = "fixture-bond-value-not-a-secret"
+	cfg.UpstreamWifi.PortalLoginPassword = "fixture-portal-value-not-a-secret"
+	cfg.UpstreamWifi.PortalLoginRecipes = []config_manager.PortalLoginRecipeConfig{{
+		Interface: "phy1-sta0",
+		Password:  "fixture-recipe-value-not-a-secret",
+	}}
 
 	handled := map[string]func() string{
 		"private_key": func() string { return redactSecretFields(cfg).PrivateKey },
 		"password": func() string {
 			return redactSecretFields(cfg).MPTCPBonding.Password
+		},
+		"portal_login_password": func() string {
+			return redactSecretFields(cfg).UpstreamWifi.PortalLoginPassword
+		},
+		"portal_password": func() string {
+			recipes := redactSecretFields(cfg).UpstreamWifi.PortalLoginRecipes
+			if len(recipes) == 0 {
+				return ""
+			}
+			return recipes[0].Password
 		},
 	}
 

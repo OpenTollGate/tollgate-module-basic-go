@@ -179,7 +179,7 @@ func GetConfigSchema() []FieldSchema {
 					{Name: "UserField", JSONKey: "user_field", Type: "string", Description: "Username form field for form mode.", Default: "username", Required: false, Editable: true},
 					{Name: "PassField", JSONKey: "pass_field", Type: "string", Description: "Password form field for form mode.", Default: "password", Required: false, Editable: true},
 					{Name: "Username", JSONKey: "username", Type: "string", Description: "Username/room/booking value for form mode.", Required: false, Editable: true},
-					{Name: "Password", JSONKey: "password", Type: "string", Description: "Password for form mode (sensitive).", Required: false, Editable: true, Secret: true},
+					{Name: "Password", JSONKey: "portal_password", Type: "string", Description: "Password for form mode (sensitive).", Required: false, Editable: true, Secret: true},
 					{Name: "Extra", JSONKey: "extra", Type: "string", Description: "Additional urlencoded form fields, for example room=101&lastname=Smith.", Required: false, Editable: true},
 					{Name: "AllowHosts", JSONKey: "allow_hosts", Type: "array", Description: "External hosts this recipe may redirect to or submit to.", Required: false, Editable: true, Children: []FieldSchema{{Type: "string"}}},
 					{Name: "TimeoutS", JSONKey: "timeout_s", Type: "int", Description: "Seconds allowed for one attempt.", Default: 10, Required: false, Editable: true, Min: 1, Max: 120},

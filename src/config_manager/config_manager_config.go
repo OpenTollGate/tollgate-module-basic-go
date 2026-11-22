@@ -159,7 +159,12 @@ type PortalLoginRecipeConfig struct {
 	UserField string `json:"user_field,omitempty"`
 	PassField string `json:"pass_field,omitempty"`
 	Username  string `json:"username,omitempty"`
-	Password  string `json:"password,omitempty"` // SECRET
+	// Password is the recipe's form secret. The JSON key is deliberately
+	// distinct from the bond's `password` and the flat
+	// `portal_login_password`: the schema's secret walk is keyed by JSON key,
+	// so duplicate keys at different paths are ambiguous to the redaction
+	// contract.
+	Password string `json:"portal_password,omitempty"` // SECRET
 	// Extra is urlencoded form data merged into the submission.
 	Extra string `json:"extra,omitempty"`
 	// AllowHosts permits cross-host redirects/form actions (exact host, or
