@@ -94,10 +94,22 @@ func TestSteeringApplyScriptInstallsRuleAndReloadsIdempotently(t *testing.T) {
 		"ip rule add fwmark 0x1/0x1 lookup 100 pref 90",
 		"ip route replace local default dev lo table 100",
 		"nft list chain inet fw4 mptcp_steer",
+		`tr '\n' ','`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("steering apply script missing %q:\n%s", want, script)
 		}
+	}
+}
+
+func TestSteeringDoesNotRequireBusyBoxMissingPaste(t *testing.T) {
+	// OpenWrt's BusyBox has no `paste`; it made the whole apply exit 127.
+	script := steeringFixture().SteeringApplyScript()
+	if strings.Contains(script, "paste ") {
+		t.Fatalf("steering script must not require paste:\n%s", script)
+	}
+	if !strings.Contains(script, `tr '\n' ','`) {
+		t.Fatalf("steering script must join local addresses with tr/sed:\n%s", script)
 	}
 }
 

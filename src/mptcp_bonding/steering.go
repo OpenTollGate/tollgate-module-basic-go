@@ -131,7 +131,9 @@ func (c *Config) SteeringApplyScript() string {
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\nset -e\n")
 	fmt.Fprintf(&b, "FILE=%s\n", steeringFile)
-	b.WriteString(`LOCALS=$(ip -4 addr show 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | sort -u | paste -sd, -)
+	// BusyBox on OpenWrt has no `paste`; use tr/sed (the missing command made
+	// the whole steering script exit 127 on the MT3000).
+	b.WriteString(`LOCALS=$(ip -4 addr show 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | sort -u | tr '\n' ',' | sed 's/,$//')
 [ -n "$LOCALS" ] || LOCALS=127.0.0.1
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
