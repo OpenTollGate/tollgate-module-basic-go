@@ -159,6 +159,7 @@ func GetConfigSchema() []FieldSchema {
 				{Name: "DHCPTimeoutSeconds", JSONKey: "dhcp_timeout_seconds", Type: "int", Description: "Timeout for DHCP after connecting to a network", Default: 180, Required: true, Editable: true, Min: 10, Max: 600},
 				{Name: "ManualPauseSeconds", JSONKey: "manual_pause_seconds", Type: "int", Description: "Seconds to pause scanning after manual intervention", Default: 120, Required: true, Editable: true, Min: 10, Max: 600},
 				{Name: "VendorIEDiscovery", JSONKey: "vendor_ie_discovery", Type: "bool", Description: "Discover nearby TollGate peers through the 802.11 vendor IE. On by default; turn it off to opt out.", Default: true, Required: false, Editable: true},
+				{Name: "BondedSTANames", JSONKey: "bonded_sta_names", Type: "array", Description: "wifi-iface sections owned by an MPTCP bond; the single-STA manager must not disable or overwrite them.", Default: []string{}, Required: false, Editable: true, Children: []FieldSchema{{Type: "string"}}},
 			},
 		},
 		{
