@@ -267,6 +267,7 @@ func GetConfigSchema() []FieldSchema {
 					},
 				},
 				{Name: "Subflows", JSONKey: "subflows", Type: "int", Description: "Subflow ceiling; must cover the uplink count", Default: 8, Required: false, Editable: true, Min: 1, Max: 64},
+				{Name: "ReconcileIntervalSeconds", JSONKey: "reconcile_interval_s", Type: "int", Description: "Re-apply the bond on a timer to repair drift that produced no interface event. 0 disables the timer.", Default: 0, Required: false, Editable: true, Min: 0, Max: 3600},
 				{Name: "SteeringCIDR", JSONKey: "steering_cidr", Type: "string", Description: "Client networks whose traffic is steered over the bond", Default: "", Required: false, Editable: true},
 				{Name: "SocksPort", JSONKey: "socks_port", Type: "int", Description: "Local SOCKS port", Default: 1081, Required: false, Editable: true, Min: 1, Max: 65535},
 				{Name: "TproxyPort", JSONKey: "tproxy_port", Type: "int", Description: "Transparent proxy port", Default: 1082, Required: false, Editable: true, Min: 1, Max: 65535},

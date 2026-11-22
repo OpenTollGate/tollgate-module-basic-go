@@ -197,6 +197,23 @@ func (r *Reconciler) ReconcileCurrent() error {
 	return r.reconcile()
 }
 
+// ReconcileNow re-applies the bond even when the rendered script is unchanged.
+//
+// The event-driven path reacts only to address changes. A DHCP client can
+// replace a metric route, and another writer can remove an endpoint, a policy
+// rule or a table route without producing an event this reconciler sees. The
+// apply script is idempotent (it skips already-correct endpoints), so a
+// periodic call is the drift repair. Callers choose the interval.
+func (r *Reconciler) ReconcileNow() error {
+	if r.cfg == nil || !r.cfg.Enabled {
+		return nil
+	}
+	// Force the apply: the point is to repair state that may have drifted while
+	// the rendered script stayed byte-identical.
+	r.last = ""
+	return r.reconcile()
+}
+
 // RegisteredUplinks returns the interfaces whose addresses are currently part
 // of the bond, sorted for stable output in logs and tests.
 func (r *Reconciler) RegisteredUplinks() []string {

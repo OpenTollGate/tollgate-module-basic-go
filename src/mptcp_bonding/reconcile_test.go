@@ -157,3 +157,45 @@ func TestReconcilePropagatesApplyError(t *testing.T) {
 		t.Errorf("the underlying error must be preserved, got: %v", err)
 	}
 }
+
+func TestReconcileNowReappliesUnchangedScript(t *testing.T) {
+	c := validConfig()
+	c.Uplinks = []Uplink{
+		{Interface: "lan1", Address: "192.168.2.15"},
+		{Interface: "phy0-sta0", Address: "192.168.2.16"},
+	}
+	ap := &fakeApplier{}
+	r := NewReconciler(c, ap.apply)
+
+	if err := r.ReconcileCurrent(); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ReconcileCurrent(); err != nil {
+		t.Fatal(err)
+	}
+	if ap.calls != 1 {
+		t.Fatalf("an unchanged script must be a no-op on the event path, got %d applies", ap.calls)
+	}
+
+	// The timer path exists to repair drift that produced no event: it must
+	// re-run the idempotent script even though the render is byte-identical.
+	if err := r.ReconcileNow(); err != nil {
+		t.Fatal(err)
+	}
+	if ap.calls != 2 {
+		t.Fatalf("ReconcileNow must force one apply, got %d", ap.calls)
+	}
+}
+
+func TestReconcileNowIsInertWhenDisabled(t *testing.T) {
+	c := validConfig()
+	c.Enabled = false
+	ap := &fakeApplier{}
+	r := NewReconciler(c, ap.apply)
+	if err := r.ReconcileNow(); err != nil {
+		t.Fatal(err)
+	}
+	if ap.calls != 0 {
+		t.Fatalf("a disabled bond must not apply, got %d", ap.calls)
+	}
+}
