@@ -1,0 +1,1 @@
+Bitcoin Core daemon version v31.1.0 bitcoind

@@ -1,0 +1,34 @@
+=== V1  key_path_spend (SigMsg, sighash, ck1, spend_tx)
+[PASS] sigmsg field hash_type is present
+[PASS] sigmsg field nVersion is present
+[PASS] sigmsg field nLockTime is present
+[PASS] sigmsg field sha_prevouts is present
+[PASS] sigmsg field sha_amounts is present
+[PASS] sigmsg field sha_scriptpubkeys is present
+[PASS] sigmsg field sha_sequences is present
+[PASS] sigmsg field sha_outputs is present
+[PASS] sigmsg field spend_type is present
+[PASS] sigmsg field input_index is present
+[PASS] sighash is 32 bytes
+[PASS] ck1 decodes to (Q, sig)
+=== V2  certificates (cs1) — v2 carries `t`
+[PASS] amount=1000: message = 'LNURLcash:domain:amt:Q:t'
+[PASS] amount=1000: digest
+[PASS] amount=1000: cs1 payload is 69 bytes (r||s||recid||u32 t)
+[PASS] amount=1000: recovered t == vector t
+[PASS] amount=1000: v2 cs1 verifies offline against mintPubkey
+[PASS] amount=21000000: message = 'LNURLcash:domain:amt:Q:t'
+[PASS] amount=21000000: digest
+[PASS] amount=21000000: cs1 payload is 69 bytes (r||s||recid||u32 t)
+[PASS] amount=21000000: recovered t == vector t
+[PASS] amount=21000000: v2 cs1 verifies offline against mintPubkey
+=== X1  the v1 verifier against a v2 certificate
+[PASS] bearer v2 cs1 verifies under the v2 verifier
+[PASS] v1 codec rejects the 69-byte v2 payload
+=== V4  timelock_note
+[PASS] timelock leaf starts with a 4-byte push of T
+[PASS] first spend claims locktime T
+[PASS] second spend claims T-1
+==========================================================================
+SUMMARY  27 assertions   27 PASS   0 FAIL
+==========================================================================

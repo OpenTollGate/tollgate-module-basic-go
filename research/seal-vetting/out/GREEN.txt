@@ -1,0 +1,25 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v5.0.3 <workdir>/lnurl-wallet
+
+stdout | src/__adversarial_verify.test.ts > ADVERSARIAL #3: fabricate a seal with no mint, no note, no counterparty > a wholly invented 5-state history validates as VALID
+  verdict: ""
+  states: 5 terminal owner: e44f0a1db23b019f
+
+stdout | src/__adversarial_verify.test.ts > ADVERSARIAL #3: fabricate a seal with no mint, no note, no counterparty > the SAME fabricated history can be stretched to any depth
+  500-state fabricated chain verdict: VALID
+
+stdout | src/__adversarial_verify.test.ts > ADVERSARIAL #2: every PREFIX of a consignment is also valid > one consignment yields N distinct valid terminal states
+  6 states -> 6 distinct valid terminal hashes
+
+ ✓ src/__adversarial_verify.test.ts > ADVERSARIAL #3: fabricate a seal with no mint, no note, no counterparty > a wholly invented 5-state history validates as VALID 15ms
+ ✓ src/__adversarial_verify.test.ts > ADVERSARIAL #3: fabricate a seal with no mint, no note, no counterparty > the SAME fabricated history can be stretched to any depth 42ms
+ ✓ src/__adversarial_verify.test.ts > ADVERSARIAL #2: every PREFIX of a consignment is also valid > one consignment yields N distinct valid terminal states 2ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  21:23:01
+   Duration  367ms (transform 41%, tests 38%, import 17%, worker 4%)
+

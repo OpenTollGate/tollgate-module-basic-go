@@ -1,0 +1,137 @@
+Bitcoin Core daemon version v31.1.0 bitcoind
+regtest chain height 101, relay fee 1e-06 BTC/kvB
+variant            : naive
+witness script     : 35 bytes  (2102466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae...)
+scriptPubKey       : 0020236d6a25257e703cfbf1872dde616e60b03d8570644d6e4e0313c2a5e47fc4a3
+regtest address    : bcrt1qydkk5ff90ecre7l3sukauctwvzcrmptsv3xkunsrz0p2terlcj3szfcejm
+
+============================================================================
+T1  What the script encodes
+============================================================================
+  [PASS] naive variant: redeemer-only script, NO payer branch
+          this is the script you get if you insist the payer stay offline
+
+============================================================================
+T2  A payment state settles on-chain
+============================================================================
+    channel funded: 1519c18ab9c91dcb9e72ae505887d76ea8203d432309146b1bd202cc24e95399:1 = 10000000 sats (1 confirmation)
+    state(owed=100000) broadcast: ACCEPTED
+  [PASS] latest payment state is valid consensus
+    vsize 165 vB, fee 400 sats (2.4 sat/vB, 0.40% of the 100000 sat granule)
+
+============================================================================
+T3  NON-CUSTODY: can the redeemer take more than was signed off?
+============================================================================
+    redeemer takes 100% of channel: ACCEPTED
+  [FAIL] redeemer CANNOT take more than the signed state (non-custodial)
+          custodial: redeemer holds a valid unilateral 100% spend
+
+============================================================================
+T4  Stale state: why one-way channels need no revocation machinery
+============================================================================
+    redeemer broadcasts the OLDER state (owed 100000): ACCEPTED
+  [PASS] a stale state is consensus-valid (so no revocation is needed in one direction)
+          stale pays redeemer 100000; latest pays 200000 -- cheating downward is self-harm
+    newer state after the older one confirmed: REJECTED bad-txns-inputs-missingorspent
+  [PASS] only ONE state can settle -- the states are mutually exclusive
+          same outpoint: whichever lands first wins. This is the race the payee must win.
+
+============================================================================
+T5  The payer's refund: pre-signed, but gated on a BLOCK HEIGHT
+============================================================================
+    refund broadcast at height 107: REJECTED non-BIP68-final
+    mined 6 blocks -> height 113; refund again: REJECTED Non-canonical DER signature
+  [PASS] naive variant has NO payer escape hatch at all
+          the payer cannot get its money back, ever
+
+============================================================================
+T6  Fee sensitivity: the stuck-channel problem, quantified
+============================================================================
+    the pre-signed refund is 123 vB and commits to a FIXED fee of 400 sats.
+    mempool rate |  required | verdict
+    -------------+-----------+----------------------------
+             1 s/vB |     123 sat | OK
+             2 s/vB |     246 sat | OK
+             3 s/vB |     369 sat | OK
+             5 s/vB |     615 sat | STRANDED (unconfirmed, possibly forever)
+            10 s/vB |    1230 sat | STRANDED (unconfirmed, possibly forever)
+            20 s/vB |    2460 sat | STRANDED (unconfirmed, possibly forever)
+            50 s/vB |    6150 sat | STRANDED (unconfirmed, possibly forever)
+           100 s/vB |   12300 sat | STRANDED (unconfirmed, possibly forever)
+           200 s/vB |   24600 sat | STRANDED (unconfirmed, possibly forever)
+  [PASS] the pre-signed tx becomes uneconomical above a fee level
+          stranded from 5 sat/vB at a 123 vB tx / 400 sat fee
+    CPFP remedy at  20 sat/vB: child must pay   4260 sats (0.04% of the channel)
+    CPFP remedy at 100 sat/vB: child must pay  22900 sats (0.23% of the channel)
+    => the PAYER cannot CPFP: it needs a funded wallet and mempool
+       visibility, i.e. the internet it does not have. The PAYEE can --
+       but the payee is exactly the party the payer does not trust.
+
+============================================================================
+T7  What the payer must know -- the 'blockchain-blind' question
+============================================================================
+    variant                                payer must know                            verdict
+    -------------------------------------- ------------------------------------------ ----------------------------------------------
+    naive (redeemer-signs-alone)           nothing                                    redeemer holds a valid 100% spend at all times -> CUSTODIAL
+    spilman, payer present per payment     nothing; cosigns each state live           no party can move funds unilaterally -> NON-CUSTODIAL, but interactive
+    spilman, payer signs ahead & leaves    expiry height, fee environment, mempool    funds time-locked in a contract; escape needs the chain -> NON-CUSTODIAL, NOT chain-blind
+  [FAIL] named a construction that is BOTH payer-chain-blind AND non-custodial
+          none exists: chain-blindness and non-custody are in direct tension
+
+============================================================================
+T8  Oracle and tooling: can a third party verify a state with stock Core?
+============================================================================
+    Two questions. (a) is OUR encoding canonical? (b) can Core's own
+    signer co-sign a state, as a stock-tooling payer would need to?
+    Core DECLINED to sign this input: 'Unable to sign input,
+    invalid stack size (possibly missing key)'.
+  [PASS] Core cannot co-sign a channel state with stock tooling
+          EXPECTED and load-bearing: a 2-of-2 state is not a script Core's
+      own signer will touch. A payer that signs states must either
+      use a wallet that speaks the script, or hold its key in
+      software that signs arbitrary BIP143 sighashes. 'Use Bitcoin
+      Core as your wallet' is NOT available to the channel payer --
+      another integration cost the Cashu path does not have.
+  [PASS] our ECDSA is deterministic (RFC6979)
+  [PASS] Core's decoder agrees with our txid, size and vsize
+          txid 075f328b9f49aff21c4d.., size 249, vsize 165
+    The strongest oracle is T2/T3/T4 themselves -- Core only accepts a
+    spend whose signature and sighash are byte-correct, and it REJECTED
+    the tampered one. 'Accepted' + 'tampered rejected' is a two-sided
+    consensus check, not a self-report.
+    The payer pre-signs a LADDER of states while still online, then
+    goes dark. The router picks whichever state matches usage.
+    ladder: 5 states, granule 100,000 sats, top = 500,000 sats
+      state owed=100,000  -> payee 100,000  payer 9,899,600
+      state owed=200,000  -> payee 200,000  payer 9,799,600
+      state owed=300,000  -> payee 300,000  payer 9,699,600
+      state owed=400,000  -> payee 400,000  payer 9,599,600
+      state owed=500,000  -> payee 500,000  payer 9,499,600
+    honest router broadcasts state owed=200,000: ACCEPTED
+  [PASS] honest settlement works and costs the payer only what it used
+          router got exactly what it earned; remainder returned to payer
+    MALICIOUS router, having served only 2 granules, broadcasts the TOP state owed=500,000: ACCEPTED
+    => overcharge realised: 300,000 sats (60% of the ladder top) for 2 granules of service actually rendered.
+  [PASS] pre-signing a ladder lets the router extract the LADDER TOP
+          a malicious router needed no forgery: every ladder state is validly signed, and the states are mutually exclusive (T4)
+
+    THIS IS THE ANSWER TO THE SPIKE'S QUESTION, stated exactly:
+      * the payer needs NO chain state to participate -- T9 holds the
+        whole construction with no chain access in the payer's role;
+      * the payer is NOT offline for free: its exposure is the TOP of
+        the ladder it pre-signed, i.e. it must predict future spend;
+      * the construction is therefore NON-CUSTODIAL only when the payer
+        co-signs each granule as it is used (V1, T3), and CUSTODIAL UP
+        TO THE LADDER TOP when it pre-signs and leaves (T9);
+      * 'ladder top == amount actually spent' requires knowing usage in
+        advance, which is the interactivity requirement wearing a hat.
+  [FAIL] the ladder makes the construction non-custodial AND payer-offline
+          it is payer-offline, and it is custodial up to the ladder top. Dishonesty about which of the two you got is the failure mode this check exists to prevent.
+
+============================================================================
+RESULT -- variant=naive
+============================================================================
+  11/14 checks passed
+    FAILED: redeemer CANNOT take more than the signed state (non-custodial)
+    FAILED: named a construction that is BOTH payer-chain-blind AND non-custodial
+    FAILED: the ladder makes the construction non-custodial AND payer-offline

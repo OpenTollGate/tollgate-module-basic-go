@@ -1,0 +1,125 @@
+
+==============================================================================
+E1  A certificate is renewable for free — `t` is not a scarcity signal
+==============================================================================
+
+Spec (25.md @ fd80cdd):
+  * "SERVICE returns certificates on the informational GET of an outstanding note"
+  * "SERVICE MUST NOT sign a t ahead of its own clock, and MAY answer a retry
+     with a fresh one."
+Neither sentence limits how many certificates one Q may have, nor how often.
+So the only cost of a fresh t is one read-only GET. Measured, holding ONE note:
+
+  t=1800000000    cs1=cs10n1xptnjgf4v6w4ewce89mk…  verifies=True
+  t=1800000060    cs1=cs10n19283ckwgsm3kcu9xzn2j…  verifies=True
+  t=1800003600    cs1=cs10n1khv5k4wzrlmxz47jaata…  verifies=True
+  t=1800090000    cs1=cs10n1ax03r5p8qv04sylwqlk6…  verifies=True
+
+  → 4 distinct certificates for the SAME unspent note, all valid, none costing a
+    burn. An attacker who will double-spend at handover simply fetches a new one
+    immediately before it. Freshness of `t` therefore measures how recently the
+    SERVICE was polite, not how long the holder has held the note.
+
+==============================================================================
+E2  The window `t` bounds is attestation age, not possession age
+==============================================================================
+  received just now     held for        0 s -> cert age 0 s  policy(age<300) ACCEPT
+  held 1 h              held for     3600 s -> cert age 0 s  policy(age<300) ACCEPT
+  held 30 d             held for  2592000 s -> cert age 0 s  policy(age<300) ACCEPT
+
+  Note what is identical in all three rows: the holder. A thief who took the note
+  30 days ago passes the same policy by fetching one certificate. `t` cannot
+  distinguish "I just received this" from "I have held this for a month and have
+  just re-certified it", because the signer knows neither fact.
+
+==============================================================================
+E3  What `t` DOES buy: certificate replay across domains is now closed
+==============================================================================
+  v1 certificate (no domain, no t):
+    at mint.example  -> True
+    at gate.other    -> True  <- same cert, different SERVICE: v1 cannot tell
+  v2 certificate (domain + t):
+    at mint.example  -> True
+    at gate.other    -> False  <- bound: message rebuilt with the wrong domain recovers a different key
+
+  This is a genuine improvement and it is the strongest thing v2 adds. Note it
+  comes from `domain` being in the message, not from `t`.
+
+==============================================================================
+E4  The upgrade is a hard break: no version negotiation in cs1
+==============================================================================
+  v2 cs1 payload = 69 bytes;  v1 parser demands exactly 65.
+  v1 parser REJECTED a v2 certificate: cs1 payload must be 65 bytes (r || s || recovery-id)
+  v2 parser REJECTED a v1 certificate: v2 cs1 payload must be 69 bytes (r||s||recid||u32 t), got 65
+
+  Both directions reject, and the HRP is the same `cs<amount>`, so a wallet
+  cannot tell which generation a certificate is without trying both. The spec
+  says nothing about a transition: no version tag, no "MUST accept both", no
+  flag day. Any deployed v1 certificate becomes unverifiable the day a client
+  implements v2 — silently, as a signature failure. For a bearer note that is
+  value loss, not a cosmetic incompatibility.
+
+==============================================================================
+E5  `t` widens the trust in SERVICE: it now attests a clock too
+==============================================================================
+  v1 cs1 said: "this Q existed with this value".
+  v2 cs1 says: "…as of t, by my clock".
+
+  Consequences for a verifier:
+    * SERVICE can backdate (sign t in the past) with no detection — the message
+      only binds t to the signature, not t to any fact.
+    * SERVICE can extend a note's apparent freshness by re-signing; a hostile or
+      compromised mint makes every note look one minute old, forever.
+    * A verifier needs its own trustworthy clock to apply any age policy at all.
+      A TollGate has one (it is online, NTP-synced, and sells the link). The
+      customer device that has no internet may not — but in the TollGate flow the
+      gate is the verifier, so this is the direction that happens to be fine.
+
+  The spec's clock requirement is one-directional only:
+      "SERVICE MUST NOT sign a t ahead of its own clock"
+  There is no MUST on the receiver, no maximum age, no required rounding, and no
+  statement of what a receiver SHOULD do with an old-but-valid t. §4 of the
+  offline-verification steps says only "weighs the age of t against its own
+  policy" — i.e. the security parameter of the whole feature is left undefined.
+
+==============================================================================
+E6  Encoding facts a TollGate integration must live with
+==============================================================================
+  t field       : u32 seconds, big-endian, appended after the recovery id
+  payload       : 65 -> 69 bytes (+4)
+  cs1 length    : 116 chars (amount 1000 msat) -> 123 chars
+  t range       : 0 … 4294967295  (= 2106-02-07T06:28:15Z UTC)
+  t is minimal base-10 in the message, u32 in the payload — two encodings
+  of one value, so a re-encode bug is possible where a decimal-format bug
+  would be caught: 0000001 and 1 differ in the message, not in the payload.
+
+==============================================================================
+E7  The two-merchant double spend that a timestamp does not touch
+==============================================================================
+
+  Alice holds one note, Q_B, 1000 msat. She is at two TollGates with no
+  connectivity between them (the normal case: they are separate captive portals).
+
+    t=0     Alice takes a FRESH certificate for Q_B from the mint (one GET)
+    t=1     Gate A: offline verify — spend opens Q_B, cert fresh  -> ACCEPT, open
+    t=2     Gate B: offline verify — same bytes, same fresh cert  -> ACCEPT, open
+    t=3     Mint: Q_B is still OUTSTANDING (nobody rotated)
+            One of A or B loses its 1000 msat when it next reaches the mint.
+
+  The only spec-level defence is the "SHOULD rotate as soon as online" sentence.
+  Rotation is a callback the GATE must issue, and if both gates issue it, the
+  second is answered `already in use` — after it already gave away access.
+  `t` is orthogonal: both gates see a certificate 2 seconds old and are correct
+  to accept it.
+
+==============================================================================
+VERDICT OF THE MEASUREMENT
+==============================================================================
+
+  `t` converts "proof of issuance" into "proof of issuance, recent as of the
+  signer's clock". That closes two things (cross-domain certificate replay via
+  `domain`, and unbounded-age certificates a naive verifier might accept) and
+  closes neither of the two things a point-of-sale needs:
+    (i)  non-consumption   — unchanged, still requires an online rotate
+    (ii) possession age    — not attested, and not attestable by the mint
+
