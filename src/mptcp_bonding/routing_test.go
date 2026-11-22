@@ -18,8 +18,8 @@ func routingFixture() *Config {
 		SteeringCIDR: "10.115.249.0/24",
 		FwMarkTable:  100,
 		Uplinks: []Uplink{
-			{Interface: "eth1", Address: "192.0.2.10"},
-			{Interface: "phy1-sta0", Address: "198.51.100.7"},
+			{Interface: "eth1", Address: "192.0.2.10", Gateway: "192.0.2.1"},
+			{Interface: "phy1-sta0", Address: "198.51.100.7", Gateway: "198.51.100.1"},
 		},
 	}
 }
@@ -31,9 +31,11 @@ func TestPolicyRoutingPinsEveryIPv4Uplink(t *testing.T) {
 		t.Fatal("policy routing script must be rendered for a non-tunnel bond")
 	}
 	for _, want := range []string{
-		"TABLE=101; IFACE=eth1; ADDR=192.0.2.10; PREF=100",
-		"TABLE=102; IFACE=phy1-sta0; ADDR=198.51.100.7; PREF=101",
+		"TABLE=101; IFACE=eth1; ADDR=192.0.2.10; PREF=100; METRIC=10",
+		"TABLE=102; IFACE=phy1-sta0; ADDR=198.51.100.7; PREF=101; METRIC=11",
 		`ip route replace default via "$GW" dev "$IFACE" table "$TABLE"`,
+		`ip route replace default via "$GW" dev "$IFACE" metric "$METRIC"`,
+		`ip route del default via "$GW" dev "$IFACE" metric 0`,
 		`ip rule add from "$ADDR"/32 lookup "$TABLE" pref "$PREF"`,
 		`ip route replace "$ADDR/32" dev "$IFACE" table "$TABLE"`,
 		"scope link",
@@ -97,8 +99,10 @@ func TestApplyScriptEmbedsPolicyRouting(t *testing.T) {
 func TestPolicyRoutingFlushTargetsTheSameTables(t *testing.T) {
 	flush := routingFixture().PolicyRoutingFlushScript()
 	for _, want := range []string{
+		"ip route del default dev eth1 metric 10",
 		"ip rule del from 192.0.2.10/32 lookup 101",
 		"ip route flush table 101",
+		"ip route del default dev phy1-sta0 metric 11",
 		"ip rule del from 198.51.100.7/32 lookup 102",
 		"ip route flush table 102",
 	} {

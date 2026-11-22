@@ -65,7 +65,11 @@ func (c *Config) EndpointPlan() []string {
 		} else if net.ParseIP(addr) == nil {
 			continue
 		}
-		flags := "subflow"
+		// proxy-terminated: the client opens every path. `fullmesh` is what
+		// makes the in-kernel path manager open the additional subflows; a bare
+		// `subflow` endpoint only permits them. Measured on the MT3000: without
+		// fullmesh the second path never emitted an MP_JOIN.
+		flags := "subflow fullmesh"
 		if c.EffectiveTransport() == TransportAdvertisedAddress {
 			flags = "signal subflow"
 		}

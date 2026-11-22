@@ -85,17 +85,31 @@ func (c *Config) policyRoutingFragment() string {
 
 		table := base + 1 + i
 		pref := 100 + i
-		fmt.Fprintf(&b, "TABLE=%d; IFACE=%s; ADDR=%s; PREF=%d\n", table, iface, addr, pref)
-		b.WriteString(`GW=$(ip route show dev "$IFACE" 2>/dev/null | awk '/^default via /{print $3; exit}')
+		metric := 10 + i
+		fmt.Fprintf(&b, "TABLE=%d; IFACE=%s; ADDR=%s; PREF=%d; METRIC=%d\n", table, iface, addr, pref, metric)
+		if gw := strings.TrimSpace(u.Gateway); gw != "" {
+			fmt.Fprintf(&b, "GW=%s\n", gw)
+		} else {
+			b.WriteString(`GW=$(ip route show dev "$IFACE" 2>/dev/null | awk '/^default via /{print $3; exit}')
 if [ -z "$GW" ]; then
     GW=$(ip route show default 2>/dev/null | awk -v d="$IFACE" '$0 ~ ("dev " d "( |$)") {print $3; exit}')
 fi
-CONNECTED=$(ip route show dev "$IFACE" scope link 2>/dev/null | awk '$1 ~ /\// {print $1; exit}')
+`)
+		}
+		b.WriteString(`CONNECTED=$(ip route show dev "$IFACE" scope link 2>/dev/null | awk '$1 ~ /\// {print $1; exit}')
 if [ -n "$CONNECTED" ]; then
     ip route replace "$CONNECTED" dev "$IFACE" table "$TABLE" 2>/dev/null || true
 fi
 ip route replace "$ADDR/32" dev "$IFACE" table "$TABLE" 2>/dev/null || true
 if [ -n "$GW" ]; then
+    # The kernel MPTCP path manager needs a main-table default route per
+    # uplink (metrics 10/20). Leave only the metric route, not the DHCP metric-0
+    # default, so the manager can see both interfaces.
+    ip route del default via "$GW" dev "$IFACE" metric 0 2>/dev/null || true
+    ip route replace default via "$GW" dev "$IFACE" metric "$METRIC" 2>/dev/null || {
+        echo "mptcp_bonding: main default route failed for $IFACE metric $METRIC" >&2
+        ROUTE_FAILED=1
+    }
     ip route replace default via "$GW" dev "$IFACE" table "$TABLE" 2>/dev/null || {
         echo "mptcp_bonding: default route failed for $IFACE table $TABLE" >&2
         ROUTE_FAILED=1
@@ -143,7 +157,8 @@ func (c *Config) PolicyRoutingFlushScript() string {
 	rendered := 0
 	for i, u := range c.Uplinks {
 		addr := strings.TrimSpace(u.Address)
-		if addr == "" {
+		iface := strings.TrimSpace(u.Interface)
+		if addr == "" || iface == "" {
 			continue
 		}
 		if ip, _, err := net.ParseCIDR(addr); err == nil {
@@ -157,6 +172,7 @@ func (c *Config) PolicyRoutingFlushScript() string {
 			b.WriteString("\n# Remove per-uplink policy routing left by a previous enabled boot.\n")
 		}
 		table := base + 1 + i
+		fmt.Fprintf(&b, "ip route del default dev %s metric %d 2>/dev/null || true\n", iface, 10+i)
 		fmt.Fprintf(&b, "ip rule del from %s/32 lookup %d 2>/dev/null || true\n", addr, table)
 		fmt.Fprintf(&b, "ip route flush table %d 2>/dev/null || true\n", table)
 		rendered++

@@ -141,6 +141,7 @@ type MPTCPBondingConfig struct {
 type MPTCPUplinkConfig struct {
 	Interface string `json:"interface"`
 	Address   string `json:"address,omitempty"`
+	Gateway   string `json:"gateway,omitempty"`
 }
 
 // MintConfig holds configuration for a specific mint.

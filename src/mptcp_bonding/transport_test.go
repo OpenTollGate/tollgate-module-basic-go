@@ -63,6 +63,15 @@ func TestProxyTerminatedStillPermitsSubflows(t *testing.T) {
 		if !strings.Contains(cmd, "subflow") {
 			t.Errorf("endpoint must still permit subflows: %q", cmd)
 		}
+		// A bare `subflow` endpoint permits a second path but does not make the
+		// in-kernel path manager open it. The MT3000 produced no MP_JOIN until
+		// `fullmesh` was added.
+		if !strings.Contains(cmd, "fullmesh") {
+			t.Errorf("proxy-terminated endpoint must request fullmesh so the second path is opened: %q", cmd)
+		}
+		if strings.Contains(cmd, "signal") {
+			t.Errorf("proxy-terminated endpoint must not signal: %q", cmd)
+		}
 	}
 }
 
