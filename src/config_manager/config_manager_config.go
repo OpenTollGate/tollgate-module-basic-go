@@ -112,6 +112,9 @@ type UpstreamWifiConfig struct {
 	DHCPTimeoutSeconds     int  `json:"dhcp_timeout_seconds"`
 	ManualPauseSeconds     int  `json:"manual_pause_seconds"`
 	VendorIEDiscovery      bool `json:"vendor_ie_discovery"`
+	// BondedSTANames lists wifi-iface sections owned by an MPTCP bond. The
+	// single-STA upstream manager must never disable or overwrite them.
+	BondedSTANames []string `json:"bonded_sta_names,omitempty"`
 }
 
 // MPTCPBondingConfig describes an optional MPTCP multi-WAN bond.
@@ -512,6 +515,7 @@ func NewDefaultConfig() *Config {
 			DHCPTimeoutSeconds:     180,
 			ManualPauseSeconds:     120,
 			VendorIEDiscovery:      true,
+			BondedSTANames:         []string{},
 		},
 		// Empty means "keep what the router already has" — see the field
 		// comments on Config. These two are the literals the schema declares,

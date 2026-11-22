@@ -17,6 +17,13 @@ import (
 )
 
 // Connect configures the network to connect to the specified gateway.
+// isBondedSTA reports whether a wifi-iface section is owned by an MPTCP bond.
+// Bond members are managed by the bond reconciler, not the single-STA manager.
+func (c *Connector) isBondedSTA(name string) bool {
+	name = strings.TrimPrefix(name, "wireless.")
+	return c.BondedSTANames != nil && c.BondedSTANames[name]
+}
+
 func (c *Connector) Connect(gateway Gateway, password string) error {
 	logger.WithFields(logrus.Fields{
 		"ssid":       gateway.SSID,
@@ -378,6 +385,16 @@ func (c *Connector) findAvailableSTAInterface(band string) (string, error) {
 		}
 	}
 
+	if c.BondedSTANames != nil {
+		filtered := staInterfaces[:0]
+		for _, iface := range staInterfaces {
+			if !c.isBondedSTA(iface) {
+				filtered = append(filtered, iface)
+			}
+		}
+		staInterfaces = filtered
+	}
+
 	// If a specific band is requested, try to find an interface for that band
 	if band == "2g" || band == "5g" {
 		// Prefer disabled interfaces to avoid disrupting an active connection
@@ -489,6 +506,9 @@ func (c *Connector) disableOtherSTAInterfaces(activeInterfaceName string) error 
 
 	var commitNeeded bool
 	for _, iface := range staInterfaces {
+		if c.isBondedSTA(iface) {
+			continue
+		}
 		if iface != activeInterfaceName {
 			logger.WithField("interface", iface).Debug("Disabling STA interface")
 			if _, err := c.ExecuteUCI("set", iface+".disabled=1"); err != nil {
@@ -792,6 +812,9 @@ func (c *Connector) CleanupStaleSTAs() error {
 
 	ssidSections := make(map[string][]STASection)
 	for _, s := range sections {
+		if c.isBondedSTA(s.Name) {
+			continue
+		}
 		ssidSections[s.SSID] = append(ssidSections[s.SSID], s)
 	}
 

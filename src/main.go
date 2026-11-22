@@ -621,6 +621,12 @@ func init() {
 	if mainConfig != nil && mainConfig.UpstreamWifi.DHCPTimeoutSeconds > 0 {
 		sharedConnector.DHCPTimeout = time.Duration(mainConfig.UpstreamWifi.DHCPTimeoutSeconds) * time.Second
 	}
+	if mainConfig != nil && len(mainConfig.UpstreamWifi.BondedSTANames) > 0 {
+		sharedConnector.BondedSTANames = make(map[string]bool, len(mainConfig.UpstreamWifi.BondedSTANames))
+		for _, name := range mainConfig.UpstreamWifi.BondedSTANames {
+			sharedConnector.BondedSTANames[name] = true
+		}
+	}
 	// The vendor-IE discovery flag was declared in config but never read, so
 	// the scan-side producer that identifies TollGates by their vendor element
 	// could never fire. Wire it here so the flag has a consumer. The field
