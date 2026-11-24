@@ -92,5 +92,16 @@ chain nds_enforce_forward {
     # Pre-authenticated (unmarked) traffic from LAN to non-LAN — reject
     # Portable WAN detection: works on all architectures.
     # Old hardcoded oifname { "eth0", "phy0-sta0" } only matched GL-MT3000.
-    meta nfproto ipv4 iifname $tg_portal_if oifname != $tg_portal_if counter reject with icmp type port-unreachable
+    #
+    # FAMILY-NEUTRAL ON PURPOSE (#783). The three mark rules above are
+    # IPv4-qualified because NoDogSplash 5.0.2 only ever sets IPv4 marks — a
+    # `meta nfproto ipv6 meta mark` rule could not match, and widening those
+    # would not help a paying v6 client. This terminal reject therefore carries
+    # the dual-stack guarantee alone: `icmpx` is the family-agnostic ICMP
+    # reject type (nftables maps it to ICMP for v4 and ICMPv6 for v6), so one
+    # rule covers both address families. While IPv6 is disabled globally
+    # (#874) this is inert; the moment #783 re-enables v6 it is the only thing
+    # between a pre-authenticated client and the open internet. Do not
+    # re-qualify it with `meta nfproto ipv4`.
+    iifname $tg_portal_if oifname != $tg_portal_if counter reject with icmpx type port-unreachable
 }

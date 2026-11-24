@@ -413,6 +413,12 @@ echo "== the guard fragments are unchanged and still br-lan-scoped"
 # itself is owned by tests/packaging/backend-api-owner-network_test.sh; this
 # block only pins the bytes.
 #
+# 20-nds-enforce (#1265) is the third deliberate re-pin, and like 31- a
+# one-RULE change: the terminal reject dropped its `meta nfproto ipv4`
+# qualifier and switched `icmp` -> `icmpx` so it covers IPv4 and IPv6 alike.
+# The pin is re-asserted with that proof rather than dropped, because the
+# digest is what catches a *later* unrelated edit.
+#
 # 31-admin-board-not-guest-reachable is the second deliberate exception, and a
 # comment-only one: the entry-port decision swaps which UI owns :8080/:443, so the
 # comment there now states which pair it drops and why :8080/:443 are NOT exempt
@@ -420,7 +426,7 @@ echo "== the guard fragments are unchanged and still br-lan-scoped"
 # br-lan). The RULES are unchanged — a diff of the two revisions with comment lines
 # stripped is empty — and the scope assertions below still prove the br-lan literal,
 # which is the property that matters. Re-pinned deliberately, with that proof.
-GUARD_DIGESTS='20-nds-enforce e1b9dc9ad9ba9da2bcdad8a75efbe6cf
+GUARD_DIGESTS='20-nds-enforce 0a85584d1fa8dadfb5b589a50efe2755
 30-backend-firewall b67957401b658aac12108b203a57ad59
 31-admin-board-not-guest-reachable 66f4fb0b8dcd984fbeec3ac359076049
 32-luci-not-guest-reachable a71f56eb0fd11b4812168dfc98206117'
