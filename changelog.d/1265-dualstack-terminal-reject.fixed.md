@@ -12,4 +12,5 @@
   dual-stack guarantee via the family-agnostic `icmpx` reject type. The
   pristine-empty vs rendered-byte-identical contract is preserved, and the
   contract test gains a planted-drift case that fails if the reject is
-  re-qualified ([#783](https://github.com/OpenTollGate/tollgate-module-basic-go/issues/783)).
+  re-qualified
+  ([#1265](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1265)).
