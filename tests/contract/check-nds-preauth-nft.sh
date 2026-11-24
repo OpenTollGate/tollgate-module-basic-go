@@ -118,7 +118,7 @@ grep -qE 'type filter hook forward priority -1; policy accept' "$FRAG" \
 # --- the ordering that IS the fix: accepts before the first mark rule -------
 allow_line=$(grep -n 'counter accept' "$FRAG" | head -1 | cut -d: -f1)
 mark_line=$(grep -n 'meta mark & 0x00030000' "$FRAG" | head -1 | cut -d: -f1)
-reject_line=$(grep -n 'counter reject with icmp type port-unreachable' "$FRAG" | head -1 | cut -d: -f1)
+reject_line=$(grep -nE 'counter reject with icmp[x]? type port-unreachable' "$FRAG" | head -1 | cut -d: -f1)
 if [ -n "$allow_line" ] && [ -n "$mark_line" ] && [ "$allow_line" -lt "$mark_line" ] && [ "$allow_line" -lt "$reject_line" ]; then
     ok "allowlist accepts are the chain's FIRST rules (ahead of the mark-drop and the reject)"
 else
@@ -166,8 +166,30 @@ cmp -s "$FRAG" "$WORK/first.nft" \
 # --- the enforce semantics survive every render -------------------------------
 grep -q 'meta mark & 0x00030000 == 0x00010000 counter drop' "$FRAG" \
     && ok "the pre-auth mark-drop rule survives" || bad "mark-drop rule missing"
-grep -q 'counter reject with icmp type port-unreachable' "$FRAG" \
+grep -qE 'counter reject with icmp[x]? type port-unreachable' "$FRAG" \
     && ok "the terminal reject survives" || bad "terminal reject missing"
+
+# --- the terminal reject must cover BOTH address families (#783) ------------
+# The chain's mark rules are IPv4-only on purpose: NoDogSplash 5.0.2 sets no
+# v6 marks, so a v6 mark rule could never match and a paying v6 client would
+# still be rejected by the terminal rule below. The terminal reject therefore
+# carries the whole dual-stack guarantee on its own, and it has to be
+# family-neutral: while IPv6 is disabled (#874) it is inert, and the moment
+# #783 re-enables v6 it is the only thing standing between a pre-auth client
+# and the open internet. An IPv4-qualified reject leaves forwarded v6 from the
+# captive bridge untouched by this chain entirely.
+if grep -qE '^[[:space:]]*iifname \$tg_portal_if oifname != \$tg_portal_if counter reject with icmpx type port-unreachable[[:space:]]*$' "$FRAG"; then
+    ok "the terminal reject is family-neutral (covers IPv4 and IPv6)"
+else
+    bad "terminal reject is not family-neutral — forwarded IPv6 from \$tg_portal_if escapes this chain"
+fi
+# ...and it must NOT be a bare `meta nfproto ipv4` reject, which is the shape
+# that leaves v6 unenforced (the #783 latent trap).
+if grep -qE '^[[:space:]]*meta nfproto ipv4 iifname \$tg_portal_if oifname != \$tg_portal_if counter reject' "$FRAG"; then
+    bad "terminal reject is still IPv4-qualified (the #783 latent trap)"
+else
+    ok "no IPv4-qualified terminal reject remains"
+fi
 
 # --- single-entry list: one quote-wrapped value on one line ------------------
 UCI_EMISSION="$WORK/uci-single" run_renderer
