@@ -2494,6 +2494,35 @@ setup_disable_ipv6() {
     log "IPv6 disabled globally — no RA/DHCPv6 on LAN, no v6 on WAN/wan6 (captive-portal bypass prevention, #148/#783)"
 }
 
+# Flow offloading bypasses the whole enforcement story (#1265).
+#
+# Every access decision this package makes is one nftables base chain,
+# `nds_enforce_forward`, hooked at `forward priority -1`
+# (packaging/files/etc/nftables.d/20-nds-enforce.nft). Offloading defeats it by
+# design: once a flow is handed to the software fast path or the hardware flow
+# table, its packets stop traversing the netfilter hooks, so the chain stops
+# seeing them. Two things then break that this product sells as guarantees:
+#
+#   1. REVOCATION. `ndsctl deauth` is the module's only deauthorization
+#      mechanism. It refuses new flows but cannot touch an offloaded one, so a
+#      client whose session expired keeps its established TCP/QUIC sockets —
+#      indistinguishable from "the gate is still open".
+#   2. METERING. The byte counters that drive `used >= allotment` stop
+#      advancing on the offloaded flow, so the meter stops metering the traffic
+#      it is charging for.
+#
+# Neither option was ever declared by this package, which left both one LuCI
+# toggle away from silently removing enforcement. This is a DECLARATION, not a
+# discovery: it names the two keys OpenWrt's fw4 defaults section actually
+# carries (`flow_offloading`, `flow_offloading_hw` — the second is the
+# MediaTek/Qualcomm hardware flow table) and forces them off on every setup
+# pass, including an upgrade whose operator had turned them on for throughput.
+setup_flow_offload_guard() {
+    uci set firewall.@defaults[0].flow_offloading='0'
+    uci set firewall.@defaults[0].flow_offloading_hw='0'
+    log "flow offloading disabled — offloaded flows bypass nds_enforce_forward's priority -1, which would break revocation (ndsctl deauth) and byte metering (#1265)"
+}
+
 enable_modems() {
     local section
     for section in $(uci show network 2>/dev/null | awk -F'[.=]' '/^network\.modem_/ {print $2}' | sort -u); do
@@ -3328,6 +3357,7 @@ setup_nodogsplash
 setup_tollgate_firewall_rules
 setup_profile_hook
 setup_disable_ipv6
+setup_flow_offload_guard     # offloaded flows bypass nds_enforce_forward (#1265)
 enable_modems
 setup_private_network        # consumes CODE/NYM, R2G/R5G
 setup_management_alias       # tollgate.lan -> the management IP (reads network.private.ipaddr)

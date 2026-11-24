@@ -53,6 +53,19 @@ uci commit dhcp 2>/dev/null || true
 uci commit network 2>/dev/null || true
 echo "IPv6 disabled globally at install time (captive-portal bypass prevention, #148/#783)"
 
+# Flow offloading is disabled at INSTALL time, next to the IPv6 block above and
+# for the same reason: the pre-auth posture must be correct the moment the
+# package lands, not at the next full-setup pass. Offloaded flows stop
+# traversing the netfilter hooks, so `nds_enforce_forward` (forward priority -1)
+# never sees them — `ndsctl deauth` then cannot revoke an established flow and
+# the byte counters stop advancing (#1265). Same two axes as
+# setup_flow_offload_guard; the drift fence in
+# tests/uci-defaults-flow-offload_test.sh requires the key sets to match.
+uci set firewall.@defaults[0].flow_offloading='0'
+uci set firewall.@defaults[0].flow_offloading_hw='0'
+uci commit firewall 2>/dev/null || true
+echo "Flow offloading disabled at install time (enforcement revocation, #1265)"
+
 echo "Restarting network..."
 # A full netifd restart re-applies UCI-backed routes only. Default routes that
 # were added by hand (statically-routed bench/CI seats: no DHCP WAN, no uci
