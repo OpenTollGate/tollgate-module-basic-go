@@ -677,6 +677,11 @@ func bootSequence(addr string, construct merchantConstructor) error {
 	// its uplink while the wallet is still loading instead of after.
 	initUpstreamManager()
 
+	// The portal watcher is also merchant-independent. It must start here, not
+	// after construct(): a cold boot can spend minutes probing mints, and an
+	// airport/hotel uplink has to be logged in long before that finishes.
+	startPortalWatchers()
+
 	// The CLI socket is bound and served here too. The operator's
 	// `tollgate wallet balance` failed with ENOENT for the same minutes the API
 	// was missing; the socket now exists before the mint-dependent work, and a
@@ -852,6 +857,18 @@ func initUpstreamManager() {
 			SwitchCooldown:         time.Duration(cfg.UpstreamWifi.SwitchCooldownMinutes) * time.Minute,
 			StartupGracePeriod:     time.Duration(cfg.UpstreamWifi.StartupGraceSeconds) * time.Second,
 			PostSwitchWait:         time.Duration(cfg.UpstreamWifi.PostSwitchWaitSeconds) * time.Second,
+			PortalAutoLogin:        cfg.UpstreamWifi.PortalLoginEnabled,
+			PortalLoginMode:        cfg.UpstreamWifi.PortalLoginMode,
+			PortalLoginURL:         cfg.UpstreamWifi.PortalLoginURL,
+			PortalLoginUserField:   cfg.UpstreamWifi.PortalLoginUserField,
+			PortalLoginPassField:   cfg.UpstreamWifi.PortalLoginPassField,
+			PortalLoginUsername:    cfg.UpstreamWifi.PortalLoginUsername,
+			PortalLoginPassword:    cfg.UpstreamWifi.PortalLoginPassword,
+			PortalLoginExtra:       cfg.UpstreamWifi.PortalLoginExtra,
+			PortalLoginTimeout:     time.Duration(cfg.UpstreamWifi.PortalLoginTimeoutS) * time.Second,
+			PortalLoginMark:        cfg.UpstreamWifi.PortalLoginMark,
+			PortalLoginDNS:         cfg.UpstreamWifi.PortalLoginDNS,
+			PortalLoginAllowHosts:  cfg.UpstreamWifi.PortalLoginAllowHosts,
 		}
 	}
 
@@ -864,6 +881,95 @@ func initUpstreamManager() {
 	}()
 
 	mainLogger.Info("Upstream WiFi manager initialized")
+}
+
+// startPortalWatchers gives every configured per-uplink portal recipe its own
+// bounded login attempt. The single-STA manager cannot do this: it resolves the
+// active STA and inherits the default route, so a bond's second uplink would
+// never be logged in. Each watcher attempt is bound to its netdev and stops
+// after a small attempt cap; an exhausted session is not retried.
+func startPortalWatchers() {
+	cfg := configManager.GetConfig()
+	if cfg == nil || len(cfg.UpstreamWifi.PortalLoginRecipes) == 0 {
+		return
+	}
+
+	uplinks := make([]wireless_gateway_manager.PortalUplinkConfig, 0, len(cfg.UpstreamWifi.PortalLoginRecipes))
+	builtin := wireless_gateway_manager.BuiltinPortalRecipes()
+	for _, r := range cfg.UpstreamWifi.PortalLoginRecipes {
+		iface := strings.TrimSpace(r.Interface)
+		if iface == "" {
+			mainLogger.Warn("Per-uplink portal recipe has no interface; skipped")
+			continue
+		}
+		mode := strings.TrimSpace(r.Mode)
+		if mode == "" {
+			mode = cfg.UpstreamWifi.PortalLoginMode
+		}
+		timeout := time.Duration(r.TimeoutS) * time.Second
+		if timeout <= 0 {
+			timeout = time.Duration(cfg.UpstreamWifi.PortalLoginTimeoutS) * time.Second
+		}
+		if timeout <= 0 {
+			timeout = 10 * time.Second
+		}
+		mark := r.Mark
+		if mark == 0 {
+			mark = cfg.UpstreamWifi.PortalLoginMark
+		}
+		dns := strings.TrimSpace(r.DNS)
+		if dns == "" {
+			dns = cfg.UpstreamWifi.PortalLoginDNS
+		}
+		allow := append([]string(nil), r.AllowHosts...)
+		if len(allow) == 0 {
+			allow = append(allow, cfg.UpstreamWifi.PortalLoginAllowHosts...)
+		}
+		var specPtr *wireless_gateway_manager.PortalRecipeSpec
+		var seedVars map[string]string
+		if r.Recipe != "" {
+			if spec, ok := builtin[r.Recipe]; ok {
+				if strings.TrimSpace(r.URL) == "" {
+					mainLogger.WithField("recipe", r.Recipe).Warn("Built-in portal recipe needs a start URL in portal_login_recipes[].url; recipe not enabled")
+				} else {
+					specCopy := spec
+					specPtr = &specCopy
+					seedVars = map[string]string{"start_url": strings.TrimSpace(r.URL)}
+				}
+			} else {
+				mainLogger.WithField("recipe", r.Recipe).Warn("Unknown portal recipe id; using the single-form recipe")
+			}
+		}
+		uplinks = append(uplinks, wireless_gateway_manager.PortalUplinkConfig{
+			Interface: iface,
+			SSID:      r.SSID,
+			Recipe: wireless_gateway_manager.PortalRecipe{
+				Mode:       mode,
+				PageURL:    r.URL,
+				UserField:  r.UserField,
+				PassField:  r.PassField,
+				Username:   r.Username,
+				Password:   r.Password,
+				Extra:      r.Extra,
+				Timeout:    timeout,
+				AllowHosts: allow,
+			},
+			RecipeSpec:    specPtr,
+			RecipeVars:    seedVars,
+			Credentials:   wireless_gateway_manager.PortalRecipeCredentials{Username: r.Username, Password: r.Password},
+			Mark:          mark,
+			DNS:           dns,
+			BudgetSeconds: r.BudgetSeconds,
+			BudgetBytes:   r.BudgetBytes,
+		})
+	}
+	if len(uplinks) == 0 {
+		return
+	}
+
+	watcher := wireless_gateway_manager.NewPortalWatcher(uplinks, 30*time.Second)
+	go watcher.Run(context.Background())
+	mainLogger.WithField("uplinks", len(uplinks)).Info("Per-uplink captive-portal watcher started")
 }
 
 type resellerModeAdapter struct {

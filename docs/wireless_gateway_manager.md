@@ -94,6 +94,65 @@ Manual plain/streaming joins acquire an explicit writer lease before enabling ra
 
 `BeginManualOperation`/`EndManualOperation` remain nested pause-only scopes; they do not grant writer ownership. Radio-mutating callers use `BeginManualWriter` and defer its `End`. The lease coordinates this manager and its CLI handlers, not external root/UCI writers. `LoopTicks` reports loop progress without using a radio mutation as a heartbeat. These source-level concurrency tests do not qualify RF, DHCP handover or deployed-router recovery; those remain PRTA/physical acceptance gates.
 
+## Multi-step portal recipes
+
+The single-form login in the previous section covers a portal that asks for one
+submission. Airports and hotels often need a sequence: redirect, email
+registration, plan selection, then a controller callback.
+`portal_recipe.go` implements a small, Go-native recipe engine for that:
+
+```json
+{
+  "id": "venue-multi-step",
+  "name": "Venue multi-step login",
+  "schema_version": 1,
+  "match": { "host_regex": "portal\\.example" },
+  "credentials": true,
+  "allow_hosts": ["portal.example", "controller.example"],
+  "flow": {
+    "type": "http-api",
+    "steps": [
+      { "type": "request", "url": "https://portal.example/session",
+        "vars": { "token": "$.token" } },
+      { "type": "request", "method": "POST", "url": "https://portal.example/login",
+        "form": { "email": "{{user}}", "token": "{{token}}" },
+        "header_vars": { "next": "Location" }, "no_redirect": true },
+      { "type": "attempts", "candidates": [
+        [ { "type": "request", "url": "https://portal.example/plan/free" } ],
+        [ { "type": "request", "url": "https://portal.example/plan/guest" } ]
+      ] },
+      { "type": "form_generic", "url": "https://portal.example/terms" }
+    ]
+  }
+}
+```
+
+Supported step types:
+
+| Type | Behaviour |
+|---|---|
+| `request` | GET/POST/form/JSON, headers, `auth_from`, transport retries, JSON `vars`, `header_vars`, optional `no_redirect`. |
+| `attempts` | Ordered candidate groups; each group is tried, then the uplink is probed; stop at the first online result. |
+| `skip_if` | A numeric context variable at or above `min` ends the flow successfully. |
+| `fail_if` | `var_empty` aborts with `reason`. |
+| `form_generic` | Fetch a page, fill user/email and password fields heuristically, preserve hidden fields, submit. |
+| `wispr` | Parse a WISPr `<LoginURL>` and POST `LoginUsername`/`LoginPassword`. |
+
+Constraints, deliberately:
+
+- `identity` strategies are rejected; no MAC or node-key rotation.
+- `paid: true` recipes never auto-run; a human must execute them.
+- `form_generic` refuses a page that looks like a payment form.
+- Every URL must be the first host or an `allow_hosts` entry; credentials are
+  substituted from the caller, never stored in the recipe.
+- `recorded` flows and the JSONPath filter form are not implemented. A
+  `header_vars` extraction (for example Aruba's `Location`) covers the
+  controller-redirect case.
+
+The engine is not yet wired to the per-uplink watcher; the watcher still runs
+the single-form recipe. That wiring and the Purple/Aruba recipe are the next
+step.
+
 ## Venue portal login window
 
 An associated venue Wi-Fi uplink that returns an unexpected HTTP probe response
@@ -121,6 +180,87 @@ one bounded delay. This adds no portal credential storage, automatic login,
 frontend or public configuration field. The internal `PortalLoginWindow` constructor
 override uses two minutes for zero or negative values. Router/venue behavior still
 requires artifact-bound PRTA acceptance; source tests alone do not qualify it.
+
+## Automatic portal login (opt-in)
+
+`upstream_wifi.portal_login_enabled` enables one bounded, automatic submission of
+the venue's own form. `portal_login_mode` is `click_through` (submit the page's
+hidden fields and accept button) or `form` (also fill the configured
+username/password fields). `portal_login_extra` carries urlencoded fields for a
+guest form that wants a name or room but no password. Credentials are never
+logged.
+
+The login is **bound to the uplink that owns it**. Every request, redirect and
+DNS lookup uses the target netdev (`SO_BINDTODEVICE`), the configured venue
+resolver and the existing `SO_MARK`, so a second STA does not inherit the
+default route of the first. Redirects and form actions may leave the page host
+only when the destination is listed in `portal_login_allow_hosts` (exact host,
+or `host:port`). The page host is always allowed; credentials never go
+elsewhere. One cookie jar carries the session across fetch, redirect and submit.
+
+### Per-uplink recipes
+
+`upstream_wifi.portal_login_recipes` is a list keyed by netdev. It exists for a
+bond's second STA, which the single-STA manager does not own:
+
+```json
+{
+  "upstream_wifi": {
+    "portal_login_enabled": true,
+    "portal_login_recipes": [
+      {
+        "interface": "phy1-sta0",
+        "ssid": "Venue Guest",
+        "mode": "click_through",
+        "url": "https://signin.example.com/guest",
+        "dns": "10.32.64.1",
+        "allow_hosts": ["signin.example.com"],
+        "extra": "firstname=TollGate&surname=Operator",
+        "budget_seconds": 7200,
+        "budget_bytes": 2000000000
+      }
+    ]
+  }
+}
+```
+
+When `recipe` names a built-in multi-step recipe, `url` is that recipe's
+`start_url` and the single-form fields are ignored:
+
+```json
+{
+  "interface": "phy1-sta0",
+  "ssid": "Manchester Airport",
+  "recipe": "man-purple-free",
+  "url": "http://1.1.1.1/?cmd=redirect&arubalp=12345",
+  "username": "operator@example.com",
+  "allow_hosts": ["purpleportal.net", "10.234.240.41"],
+  "budget_seconds": 7200,
+  "budget_bytes": 2000000000
+}
+```
+
+Built-ins:
+
+| Id | Flow |
+|---|---|
+| `man-purple-free` | Aruba redirect → Purple email sign-in → free plan 739 → `/access/validate` → controller `cmd=authenticate`. `username` is the portal email; no password is used. The plan id is Manchester-specific and inspectable in `portal_recipes_builtin.go`. |
+| `ask4-guest` | ASK4 `/en/guest-signup` first name + surname + CSRF. No account password. |
+
+Each recipe gets one attempt per association/lease generation, then a bounded
+retry (three attempts with 30-second steps). When the cap is reached, or when
+`budget_seconds`/`budget_bytes` is exceeded after a successful login, the uplink
+is **exhausted** and is not submitted again. A new lease resets the attempt
+state; the exhausted state does not reset on a timer.
+
+This is deliberately **not** an identity-rotation feature. The client does not
+change a MAC address, regenerate the node key, or invent a new user to obtain
+another free session. An exhausted session is left for the operator (or the
+venue's own paid/renewal flow). See the operator guide's client-identity
+section for why MAC/key rotation is not a supported access mechanism.
+
+Router/venue behavior still requires artifact-bound PRTA acceptance; source
+tests alone do not qualify it.
 
 ## Circuit Breaker
 

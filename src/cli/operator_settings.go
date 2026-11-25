@@ -859,6 +859,18 @@ func redactSecretFields(cfg *config_manager.Config) *config_manager.Config {
 	// payload even though the schema marks it Secret.
 	redacted.MPTCPBonding = cfg.MPTCPBonding
 	redacted.MPTCPBonding.Password = ""
+	// Portal credentials are secrets too: the flat active-STA password and the
+	// per-uplink recipe passwords. Copy the recipe slice before blanking so the
+	// caller's config is untouched.
+	redacted.UpstreamWifi = cfg.UpstreamWifi
+	redacted.UpstreamWifi.PortalLoginPassword = ""
+	if cfg.UpstreamWifi.PortalLoginRecipes != nil {
+		redacted.UpstreamWifi.PortalLoginRecipes = make([]config_manager.PortalLoginRecipeConfig, len(cfg.UpstreamWifi.PortalLoginRecipes))
+		copy(redacted.UpstreamWifi.PortalLoginRecipes, cfg.UpstreamWifi.PortalLoginRecipes)
+		for i := range redacted.UpstreamWifi.PortalLoginRecipes {
+			redacted.UpstreamWifi.PortalLoginRecipes[i].Password = ""
+		}
+	}
 	return &redacted
 }
 
@@ -873,9 +885,23 @@ func secretFieldValues(cfg *config_manager.Config) map[string]string {
 		return map[string]string{}
 	}
 	return map[string]string{
-		"private_key": cfg.PrivateKey,
-		"password":    cfg.MPTCPBonding.Password,
+		"private_key":           cfg.PrivateKey,
+		"password":              cfg.MPTCPBonding.Password,
+		"portal_login_password": cfg.UpstreamWifi.PortalLoginPassword,
+		"portal_password":       firstPortalRecipePassword(cfg.UpstreamWifi.PortalLoginRecipes),
 	}
+}
+
+// firstPortalRecipePassword returns any recipe password, so secretFieldState
+// reports the secret as stored. Redaction blanks every recipe, not just the
+// first; this helper exists only for the boolean "is a value stored" answer.
+func firstPortalRecipePassword(recipes []config_manager.PortalLoginRecipeConfig) string {
+	for _, recipe := range recipes {
+		if recipe.Password != "" {
+			return recipe.Password
+		}
+	}
+	return ""
 }
 
 // secretFieldState reports, per secret schema field, whether a value is stored.

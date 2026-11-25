@@ -112,6 +112,78 @@ type UpstreamWifiConfig struct {
 	DHCPTimeoutSeconds     int  `json:"dhcp_timeout_seconds"`
 	ManualPauseSeconds     int  `json:"manual_pause_seconds"`
 	VendorIEDiscovery      bool `json:"vendor_ie_discovery"`
+	// Automatic captive-portal login. Off by default: a portal form is a
+	// different trust boundary from a WiFi PSK, and an operator must opt in.
+	PortalLoginEnabled   bool   `json:"portal_login_enabled,omitempty"`
+	PortalLoginMode      string `json:"portal_login_mode,omitempty"` // click_through | form
+	PortalLoginURL       string `json:"portal_login_url,omitempty"`
+	PortalLoginUserField string `json:"portal_login_user_field,omitempty"`
+	PortalLoginPassField string `json:"portal_login_pass_field,omitempty"`
+	PortalLoginUsername  string `json:"portal_login_username,omitempty"`
+	PortalLoginPassword  string `json:"portal_login_password,omitempty"` // SECRET
+	PortalLoginExtra     string `json:"portal_login_extra,omitempty"`    // urlencoded k=v&k2=v2
+	PortalLoginTimeoutS  int    `json:"portal_login_timeout_s,omitempty"`
+	// PortalLoginMark is the firewall mark set on the login socket. TollGate's
+	// NDS chain DNATs router-originated port 80 to the local portal; the NDS
+	// chain returns for marks 0x20000/0x30000, so the default bypasses it.
+	PortalLoginMark int `json:"portal_login_mark,omitempty"`
+	// PortalLoginDNS is an explicit resolver for the portal host (usually the
+	// venue DHCP server). Empty means the system resolver.
+	PortalLoginDNS string `json:"portal_login_dns,omitempty"`
+	// PortalLoginAllowHosts lists external hosts the portal may redirect to or
+	// submit to, for example an identity/signup host. The page host is always
+	// allowed; credentials are never sent anywhere else.
+	PortalLoginAllowHosts []string `json:"portal_login_allow_hosts,omitempty"`
+	// PortalLoginRecipes configures one portal login per uplink. The flat
+	// portal_login_* fields above remain the recipe for the active single STA;
+	// this list is how a bond's second STA (or any named netdev) gets its own
+	// recipe. A matching entry supersedes the flat fields for that interface.
+	PortalLoginRecipes []PortalLoginRecipeConfig `json:"portal_login_recipes,omitempty"`
+}
+
+// PortalLoginRecipeConfig is one uplink-scoped portal recipe.
+//
+// Password and the CSRF token are secrets: they must be redacted on read paths
+// and never logged.
+type PortalLoginRecipeConfig struct {
+	// Interface is the netdev the login must leave through, e.g. "phy1-sta0".
+	Interface string `json:"interface"`
+	// SSID is advisory: it records which network this recipe belongs to and is
+	// logged, but the binding is the interface.
+	SSID string `json:"ssid,omitempty"`
+	// Recipe selects a built-in multi-step recipe (man-purple-free,
+	// ask4-guest). When set, URL is the recipe's start_url and the single-form
+	// fields are not used.
+	Recipe string `json:"recipe,omitempty"`
+	// Mode is "click_through" or "form".
+	Mode string `json:"mode,omitempty"`
+	// URL is the portal page. Empty discovers it from the captive probe.
+	URL string `json:"url,omitempty"`
+	// UserField and PassField are the form field names for form mode.
+	UserField string `json:"user_field,omitempty"`
+	PassField string `json:"pass_field,omitempty"`
+	Username  string `json:"username,omitempty"`
+	// Password is the recipe's form secret. The JSON key is deliberately
+	// distinct from the bond's `password` and the flat
+	// `portal_login_password`: the schema's secret walk is keyed by JSON key,
+	// so duplicate keys at different paths are ambiguous to the redaction
+	// contract.
+	Password string `json:"portal_password,omitempty"` // SECRET
+	// Extra is urlencoded form data merged into the submission.
+	Extra string `json:"extra,omitempty"`
+	// AllowHosts permits cross-host redirects/form actions (exact host, or
+	// host:port when a port is given).
+	AllowHosts []string `json:"allow_hosts,omitempty"`
+	TimeoutS   int      `json:"timeout_s,omitempty"`
+	// Mark is the SO_MARK value; 0 uses the module default.
+	Mark int `json:"mark,omitempty"`
+	// DNS is the venue resolver, usually the uplink's DHCP server.
+	DNS string `json:"dns,omitempty"`
+	// BudgetSeconds and BudgetBytes bound one authorized session. When either
+	// is exceeded the uplink becomes exhausted and is not logged in again.
+	// Zero means no budget.
+	BudgetSeconds int   `json:"budget_seconds,omitempty"`
+	BudgetBytes   int64 `json:"budget_bytes,omitempty"`
 }
 
 // MPTCPBondingConfig describes an optional MPTCP multi-WAN bond.
@@ -512,6 +584,14 @@ func NewDefaultConfig() *Config {
 			DHCPTimeoutSeconds:     180,
 			ManualPauseSeconds:     120,
 			VendorIEDiscovery:      true,
+			PortalLoginEnabled:     false,
+			PortalLoginMode:        "click_through",
+			PortalLoginUserField:   "username",
+			PortalLoginPassField:   "password",
+			PortalLoginTimeoutS:    10,
+			PortalLoginMark:        0x20000,
+			PortalLoginAllowHosts:  []string{},
+			PortalLoginRecipes:     []PortalLoginRecipeConfig{},
 		},
 		// Empty means "keep what the router already has" — see the field
 		// comments on Config. These two are the literals the schema declares,

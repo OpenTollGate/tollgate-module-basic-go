@@ -31,6 +31,14 @@ type portalLoginEpisode struct {
 // never holds the radio writer while the user logs in. A connection generation
 // is the attempt boundary; discovering a BSSID later cannot renew its deadline.
 func (um *UpstreamManager) observePortalLogin(id upstreamIdentity, associated bool, result ConnectivityResult) portalDisposition {
+	// Try the configured automatic login before taking writerMu. The HTTP
+	// attempt can take seconds; holding the radio/UCI writer for it would
+	// stall every other operation the manager owns.
+	if associated && !result.OK && result.Reason == "captive" {
+		if um.tryAutoPortalLogin(id) {
+			result = um.probeConnectivity("")
+		}
+	}
 	// Establishing a window and admitting automatic writes share one owner.
 	// Never queue the control loop behind a manual DHCP wait. Work already
 	// admitted by the owner completes first; a later probe retries observation.
