@@ -1,0 +1,1 @@
+Recognize reserved disabled-default FIPS exit configuration and explicitly refuse unsupported activation during decoding, dotpath updates and persistence. Reject ambiguous section fields without replacing operator configuration. This does not enable a FIPS exit runtime.

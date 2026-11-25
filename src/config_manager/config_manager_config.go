@@ -14,6 +14,7 @@ const profitShareSumTolerance = 1e-6
 
 // Config represents the main configuration for the Tollgate service.
 type Config struct {
+	FIPSExit *FIPSExitConfig `json:"fips_exit,omitempty"`
 	// MultiWAN is optional declared intent; validation and policy derivation live in multi_wan.
 	MultiWAN         *MultiWANConfig     `json:"multi_wan,omitempty"`
 	ConfigVersion    string              `json:"config_version"`
@@ -324,6 +325,9 @@ func LoadConfig(filePath string) (*Config, error) {
 // loader then routes into the backup-and-defaults path: the operator's
 // accepted mints silently become the factory set.
 func SaveConfig(filePath string, config *Config) error {
+	if config != nil && config.FIPSExit != nil && config.FIPSExit.Enabled {
+		return fmt.Errorf("fips_exit.enabled: runtime activation is not supported yet")
+	}
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err

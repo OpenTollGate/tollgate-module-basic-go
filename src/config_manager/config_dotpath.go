@@ -67,6 +67,11 @@ func ValidateValue(key, value string) error {
 }
 
 func validateAgainstSchema(key, value string) error {
+	// This reserved section is read-only until a production exit applier exists.
+	// Reject before reflection can mutate the live configuration or save it.
+	if key == "fips_exit" || strings.HasPrefix(key, "fips_exit.") {
+		return fmt.Errorf("fips_exit: configuration is read-only until runtime activation is supported")
+	}
 	parts := strings.Split(key, ".")
 	if len(parts) == 0 {
 		return fmt.Errorf("empty key")
