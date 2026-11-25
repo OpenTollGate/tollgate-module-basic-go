@@ -2,9 +2,7 @@ package fips_exit
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -145,12 +143,10 @@ func TestRenderNFTCheckIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "guard.nft")
 	input := fmt.Sprintf("table inet fw4 {\ndefine tg_portal_if = %q\n%s}\n", c.GuestInterface, fragment)
-	if err := os.WriteFile(path, []byte(input), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := exec.Command(unshare, "-Urn", "--", nft, "-c", "-f", path).CombinedOutput(); err != nil {
+	cmd := exec.Command(unshare, "-Urn", "--", nft, "-c", "-f", "-")
+	cmd.Stdin = strings.NewReader(input)
+	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated fragment rejected: %v: %s", err, out)
 	}
 }
