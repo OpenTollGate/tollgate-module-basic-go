@@ -1,7 +1,7 @@
 # FIPS exit consumer foundations
 
 This package provides pure address derivation, configuration validation and an
-argv operation planner,
+argv operation planner and fw4 guard renderer,
 not an operational exit consumer. `Derive`
 accepts a decoded `[32]byte` x-only public key and returns `netip.Addr` values:
 
@@ -137,6 +137,59 @@ Do not replay this fresh-install plan as a convergence loop.
 Router guest ingress is the first slice. Bonding-server proxy egress via a
 separate UID/cgroup/namespace selector remains required later, not supported or
 replaced by this selector. Paid-service work follows a working transport.
+
+## Pure fw4 guard renderer
+
+`RenderFW4(config, portalInterface)` returns an inet-fw4 **table-body** fragment
+or an error with empty output. Disabled returns empty output, even with invalid
+unused fields. The caller supplies the resolved `$tg_portal_if` value from
+`00-tollgate-defs.nft`; mismatch with `GuestInterface` is refused. This is only
+static consistency, not a probe of the router. Rule lines use that existing
+define and a dedicated `tg_fexit_tunnel_if` define rendered from the validated
+config, never bridge literals. A future installer must persist the fragment
+under `/etc/nftables.d/` after `00-tollgate-defs.nft`, inside `table inet fw4`,
+exactly once; no runtime `nft add/insert` is generated or executed.
+
+The forward guard at priority -2 precedes the existing NDS bridge (-1) and fw4
+filter (0). It drops all selected guest native IPv6 forwarding and all selected
+guest forwarding off the tunnel (including other routed local networks).
+Router-local onboarding/DHCP/DNS/portal packets take INPUT, not FORWARD; this
+fragment does not touch INPUT/OUTPUT or grant new access there. Tunnel-to-guest
+forwarding is limited to IPv4 established/related conntrack traffic; everything
+else in that direction hits a terminal drop. Other ingress/egress pairs are
+left to existing policy. Same-bridge switching is outside this L3 guard.
+
+Both IPv4 TCP SYN directions clamp **only larger** advertised MSS to inner MTU
+minus 40, never increasing a smaller MSS (no option insertion when absent).
+Postrouting NAT at priority 99 precedes fw4 srcnat (100): `snat ip to` uses the
+derived local IPv4 host address (the tunnel's /32), and requires both guest
+ingress AND tunnel egress plus IPv4. Router-generated, unrelated guest/private,
+native IPv6 and FIPS outer traffic are not selected for this SNAT. Existing
+conntrack NAT bindings, flow offload and competing earlier hooks need separate
+lifecycle/integration validation; rendering cannot evict stale state or prove
+these guards see every packet.
+
+**No paid-gate bypass or connectivity claim:** there are no rule-level accepts,
+mark writes or NDS edits. Base-chain policy accept/return merely continues to
+other chains; it cannot override a later terminal reject. In particular, the
+existing NDS unmarked terminal reject still rejects selected guest IPv4 to the
+tunnel. Paid/trusted classification, preauth exceptions, fw4 zone forwarding,
+and return-path compatibility must be separately verified against effective
+NDS/fw4 rules. Do not add a broad accept to try to solve that incompatibility.
+
+**DNS remains separately required:** a guest resolver/redirect must route
+non-`.fips` queries exclusively via the exit resolver, with no resolv.conf/direct
+fallback; `.fips` resolution stays with FIPS. Local resolver traffic is OUTPUT,
+not covered by the guest ingress guard/SNAT. This fragment deliberately does
+not implement DNS redirects, resolver configuration, or RA/DHCPv6 changes.
+A rendered string sets **none** of `GuardReadiness`: installation, reload/failure
+behavior, effective DNS/NDS enforcement, offload handling, and kernel dataplane
+checks remain prerequisites for any applier. No runtime calls are wired here.
+
+`TestRenderNFTCheckIsolated` runs `nft -c` on the actual generated fragment inside
+an isolated user+network namespace when available, otherwise explicitly skips
+with `NOT RUN`. It never checks against or mutates the host ruleset. Even a
+successful check proves syntax/kernel acceptance, not packet-path behavior.
 
 From `src/`, using the manifest-pinned Go toolchain, run
 `go test -race -count=1 -cover ./fips_exit` and
