@@ -208,6 +208,13 @@ func GetConfigSchema() []FieldSchema {
 			Enum: []string{"board", "luci"},
 		},
 		{
+			Name: "FIPSExit", JSONKey: "fips_exit", Type: "object",
+			Description: "Reserved outbound FIPS exit intent. Disabled by default; enabled activation is refused until runtime support exists.",
+			Children: []FieldSchema{
+				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Default: false, Description: "Activation is currently unsupported and rejected."},
+			},
+		},
+		{
 			Name: "MultiWAN", JSONKey: "multi_wan", Type: "object", Description: "Optional multi-uplink policy intent; omission leaves existing behavior unchanged. Validation and derivation do not apply router configuration.", Editable: true,
 			Children: []FieldSchema{
 				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Enable multi-WAN policy intent.", Editable: true},
