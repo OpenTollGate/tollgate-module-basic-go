@@ -65,11 +65,48 @@ the integration must obtain current environment facts and refuse conflicts:
 Recheck facts under the future applier's ownership/serialization contract;
 configuration alone cannot discover live collisions or prevent later drift.
 
-No root configuration schema/main wiring, production executor, applied routing, firewall,
+No root configuration schema/main wiring, mutating production executor, applied routing, firewall,
 DNS, tunnel lifecycle, hardware access, runtime integration, payment or paid-exit
 behavior is implemented or enabled. No existing runtime calls this package.
 There is no persistent state or irreversible operation; only the injected
 read-only collector observes external state.
+
+### Linux bounded read-only runner
+
+`CollectLocalLinkRoutes(ctx, config, timeout)` opts into `RunIPProbe` without any
+main/daemon wiring. Only the five observer argv shapes are accepted: JSON link
+and address show, IPv4 rule show, IPv4 route show table all, and IPv6 route get
+with literal unzoned IPv6 destination/from addresses. Add/del/flush, arbitrary
+programs and extra arguments are refused. There is no shell or PATH lookup:
+fixed system ip paths must resolve to root-owned executables and non-writable
+root-owned ancestors. This assumes trusted root and a stable system installation;
+it is not protection against concurrent privileged replacement of the binary.
+
+Capture enforces a combined stdout/stderr ceiling (maximum 1 MiB) during writes,
+kills the process group on overflow/cancellation, waits for the direct process,
+and discards partial output. A 30-second runner ceiling applies even without a
+caller deadline; inherited-pipe cleanup has a 100 ms WaitDelay. Successful JSON
+comes only from stdout; nonzero status is always failure. Trusted ip does not
+spawn children; process-group cleanup also covers unexpected ordinary children
+(not hostile programs that deliberately escape the process group).
+
+Local compatibility tests observed `linkmode`, address `metric`, and
+`stable-privacy`; these explicitly typed metadata fields are accepted without
+changing required UP/address/MTU/route/rule checks. Unknown control fields remain
+refused. Real-host capture is opt-in, writes potentially sensitive local inventory
+outside git, and uses a clearly synthetic config which should be refused:
+
+```sh
+# From src; create a private output directory first.
+FIPS_PROBE_REPORT_DIR=/absolute/private/report-dir GOTOOLCHAIN=go1.26.10 \
+  go test ./fips_exit -run TestLocalReadOnlyProbes -v
+GOTOOLCHAIN=go1.26.10 go test -race ./fips_exit -cover
+GOTOOLCHAIN=go1.26.10 go vet ./fips_exit
+```
+
+A refusal proves refusal only, not a working exit. DNS, effective firewall rules,
+identity ownership, lifecycle/rollback and paid runtime remain unimplemented.
+
 
 ## Pure fresh-install routing planner
 

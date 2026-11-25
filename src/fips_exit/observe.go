@@ -237,9 +237,9 @@ func (o observation) number(k string) int {
 	return n
 }
 
-const linkSchema = "ifindex:n ifname:s flags:l mtu:n qdisc:s operstate:s group:s txqlen:n link_type:s address:s broadcast:s link_index:n link_netnsid:n master:s altnames:l"
+const linkSchema = "ifindex:n ifname:s flags:l mtu:n qdisc:s operstate:s group:s txqlen:n linkmode:s link_type:s address:s broadcast:s link_index:n link_netnsid:n master:s altnames:l"
 const routeSchema = "dst:s from:s dev:s table:t protocol:t scope:s prefsrc:s src:s metric:n flags:l pref:s type:s gateway:s uid:n cache:l"
-const addressSchema = "family:s local:s prefixlen:n scope:s label:s broadcast:s valid_life_time:t preferred_life_time:t tentative:b dadfailed:b deprecated:b noprefixroute:b mngtmpaddr:b temporary:b dynamic:b"
+const addressSchema = "family:s local:s prefixlen:n scope:s label:s broadcast:s valid_life_time:t preferred_life_time:t tentative:b dadfailed:b deprecated:b noprefixroute:b mngtmpaddr:b temporary:b dynamic:b metric:n stable-privacy:b"
 
 // Explicit supported iproute2 schema: new fields require review, not optimistic
 // interpretation. Harmless variation may refuse; this collector never activates.
