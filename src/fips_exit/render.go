@@ -21,9 +21,18 @@ func RenderFW4(c Config, portalInterface string) (string, error) {
 	// -2 precedes the existing NDS bridge (-1) and fw4 filter (0). We only
 	// restrict; return/policy accept continues through those authorization gates.
 	// 99 precedes fw4 srcnat (100), scoped by BOTH ingress and tunnel egress.
+	// INPUT allows only related IPv4 ICMP (e.g. errors/PMTU), not tunnel services.
+	// FORWARD allows guest return flows only; all other tunnel ingress is dropped.
+	// Match decapsulated tunnel ingress, never the outer FIPS control interface.
 	// MSS comparison never increases a smaller advertised value.
 	return fmt.Sprintf(`# FIPS exit guard: include inside table inet fw4 after 00-tollgate-defs.nft.
 define tg_fexit_tunnel_if = %q
+
+chain tg_fexit_input {
+    type filter hook input priority -2; policy accept;
+    meta nfproto ipv4 iifname $tg_fexit_tunnel_if ip protocol icmp ct state related return
+    iifname $tg_fexit_tunnel_if counter drop
+}
 
 chain tg_fexit_forward {
     type filter hook forward priority -2; policy accept;
@@ -32,7 +41,7 @@ chain tg_fexit_forward {
     meta nfproto ipv4 iifname $tg_portal_if oifname $tg_fexit_tunnel_if tcp flags & syn == syn tcp option maxseg size > %[2]d tcp option maxseg size set %[2]d
     meta nfproto ipv4 iifname $tg_fexit_tunnel_if oifname $tg_portal_if ct state established,related tcp flags & syn == syn tcp option maxseg size > %[2]d tcp option maxseg size set %[2]d
     meta nfproto ipv4 iifname $tg_fexit_tunnel_if oifname $tg_portal_if ct state established,related return
-    iifname $tg_fexit_tunnel_if oifname $tg_portal_if counter drop
+    iifname $tg_fexit_tunnel_if counter drop
 }
 
 chain tg_fexit_srcnat {

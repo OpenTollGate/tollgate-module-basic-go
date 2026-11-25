@@ -55,6 +55,12 @@ func TestRenderGuardContract(t *testing.T) {
 		want := fmt.Sprintf(`# FIPS exit guard: include inside table inet fw4 after 00-tollgate-defs.nft.
 define tg_fexit_tunnel_if = "renamed-exit"
 
+chain tg_fexit_input {
+    type filter hook input priority -2; policy accept;
+    meta nfproto ipv4 iifname $tg_fexit_tunnel_if ip protocol icmp ct state related return
+    iifname $tg_fexit_tunnel_if counter drop
+}
+
 chain tg_fexit_forward {
     type filter hook forward priority -2; policy accept;
     meta nfproto ipv6 iifname $tg_portal_if counter drop
@@ -62,7 +68,7 @@ chain tg_fexit_forward {
     meta nfproto ipv4 iifname $tg_portal_if oifname $tg_fexit_tunnel_if tcp flags & syn == syn tcp option maxseg size > %[1]d tcp option maxseg size set %[1]d
     meta nfproto ipv4 iifname $tg_fexit_tunnel_if oifname $tg_portal_if ct state established,related tcp flags & syn == syn tcp option maxseg size > %[1]d tcp option maxseg size set %[1]d
     meta nfproto ipv4 iifname $tg_fexit_tunnel_if oifname $tg_portal_if ct state established,related return
-    iifname $tg_fexit_tunnel_if oifname $tg_portal_if counter drop
+    iifname $tg_fexit_tunnel_if counter drop
 }
 
 chain tg_fexit_srcnat {
@@ -73,11 +79,50 @@ chain tg_fexit_srcnat {
 		if got != want {
 			t.Fatalf("guard contract mismatch (-want +got):\nWANT:\n%s\nGOT:\n%s", want, got)
 		}
-		for _, forbidden := range []string{" counter accept", "hook input", "hook output", "meta mark", "masquerade", "snat ip6", "br-", "nft add", "nft insert"} {
+		for _, forbidden := range []string{" counter accept", "hook output", "meta mark", "masquerade", "snat ip6", "br-", "nft add", "nft insert"} {
 			if strings.Contains(got, forbidden) {
 				t.Errorf("forbidden %q", forbidden)
 			}
 		}
+	}
+}
+
+// These assertions pin the restrictive rules independently of the full snapshot.
+// They are renderer contracts, not a simulation of conntrack or kernel behavior.
+func TestRenderTunnelIngressRestrictions(t *testing.T) {
+	c := validConfig()
+	got, err := RenderFW4(c, c.GuestInterface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"input", "forward"} {
+		t.Run(name, func(t *testing.T) {
+			start := strings.Index(got, "chain tg_fexit_"+name+" {")
+			if start < 0 {
+				t.Fatalf("missing tunnel %s guard", name)
+			}
+			chain := strings.SplitN(got[start:], "}", 2)[0]
+			drop := "    iifname $tg_fexit_tunnel_if counter drop\n"
+			if !strings.HasSuffix(chain, drop) {
+				t.Fatalf("missing unconditional tunnel ingress drop in %s", name)
+			}
+			if !strings.Contains(chain, "hook "+name+" priority -2; policy accept;") {
+				t.Fatal("guard must precede fw4 without overriding it")
+			}
+			exception := "meta nfproto ipv4 iifname $tg_fexit_tunnel_if ip protocol icmp ct state related return"
+			if name == "forward" {
+				exception = "meta nfproto ipv4 iifname $tg_fexit_tunnel_if oifname $tg_portal_if ct state established,related return"
+			}
+			if !strings.Contains(chain, exception) {
+				t.Fatal("missing narrow return/related-ICMP exception")
+			}
+			if name == "input" && (strings.Contains(chain, "$tg_portal_if") || strings.Contains(chain, c.FIPSInterface)) {
+				t.Fatal("input guard captures onboarding or outer FIPS control")
+			}
+		})
+	}
+	if strings.Contains(got, " counter accept") {
+		t.Fatal("must not bypass NDS")
 	}
 }
 

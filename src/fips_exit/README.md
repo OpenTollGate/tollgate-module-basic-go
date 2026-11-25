@@ -154,10 +154,17 @@ The forward guard at priority -2 precedes the existing NDS bridge (-1) and fw4
 filter (0). It drops all selected guest native IPv6 forwarding and all selected
 guest forwarding off the tunnel (including other routed local networks).
 Router-local onboarding/DHCP/DNS/portal packets take INPUT, not FORWARD; this
-fragment does not touch INPUT/OUTPUT or grant new access there. Tunnel-to-guest
-forwarding is limited to IPv4 established/related conntrack traffic; everything
-else in that direction hits a terminal drop. Other ingress/egress pairs are
-left to existing policy. Same-bridge switching is outside this L3 guard.
+fragment leaves guest INPUT and all OUTPUT to existing policy. A separate INPUT
+guard at priority -2 drops decapsulated tunnel ingress, except IPv4 ICMP with
+conntrack state related (including error/PMTU semantics), which continues to
+later fw4 policy. It does not grant tunnel-originated router service access.
+Tunnel-to-guest forwarding is limited to IPv4 established/related conntrack
+traffic, including related ICMP. All other tunnel ingress forwarding is dropped,
+including new/invalid/untracked guest-bound flows and traffic routed to non-guest
+interfaces even if established/related. Both guards match the tunnel interface,
+not outer FIPS ingress; outer control traffic and guest onboarding remain under
+existing policy. Unrelated ingress is unchanged. Same-bridge switching is outside
+this L3 guard. These are persistent-include contents only, not installed rules.
 
 Both IPv4 TCP SYN directions clamp **only larger** advertised MSS to inner MTU
 minus 40, never increasing a smaller MSS (no option insertion when absent).
@@ -184,7 +191,9 @@ not covered by the guest ingress guard/SNAT. This fragment deliberately does
 not implement DNS redirects, resolver configuration, or RA/DHCPv6 changes.
 A rendered string sets **none** of `GuardReadiness`: installation, reload/failure
 behavior, effective DNS/NDS enforcement, offload handling, and kernel dataplane
-checks remain prerequisites for any applier. No runtime calls are wired here.
+checks remain prerequisites for any applier. DNS escape, the read-only observer,
+compatibility dataplane proof (including paid/NDS authorization and return paths),
+and runtime/applier integration remain unresolved. No runtime calls are wired here.
 
 `TestRenderNFTCheckIsolated` runs `nft -c` on the actual generated fragment inside
 an isolated user+network namespace when available, otherwise explicitly skips
