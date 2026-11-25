@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/mptcp_bonding"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
 	"github.com/sirupsen/logrus"
@@ -66,6 +68,22 @@ func applyBondConfig(
 	run := func(script string) error { return applier("/bin/sh", "-c", script) }
 	reconciler := mptcp_bonding.NewReconciler(cfg, run)
 	register(reconciler)
+
+	// A DHCP client or another writer can replace a metric route or flush an
+	// endpoint without producing the address event the reconciler sees. The
+	// apply script is idempotent, so an opt-in timer is the drift repair.
+	if cfg.ReconcileIntervalSeconds > 0 {
+		interval := time.Duration(cfg.ReconcileIntervalSeconds) * time.Second
+		go func() {
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for range ticker.C {
+				if err := reconciler.ReconcileNow(); err != nil {
+					logger.WithError(err).Warn("MPTCP bond periodic reconcile failed")
+				}
+			}
+		}()
+	}
 
 	if err := reconciler.ReconcileCurrent(); err != nil {
 		logger.WithError(err).Error("MPTCP bond initial reconcile failed")

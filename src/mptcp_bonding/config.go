@@ -69,6 +69,12 @@ type Config struct {
 	// Subflows is the kernel MPTCP subflow ceiling.
 	Subflows int `json:"subflows"`
 
+	// ReconcileIntervalSeconds re-applies the bond on a timer to repair state
+	// that changed without an interface/address event (a DHCP client replacing
+	// a metric route, a flushed endpoint, a deleted rule). Zero disables the
+	// periodic pass; the event-driven reconciler still runs.
+	ReconcileIntervalSeconds int `json:"reconcile_interval_s,omitempty"`
+
 	// SteeringCIDR, for PolicyGuestOnly, is the guest network whose traffic
 	// is steered into the bond.
 	SteeringCIDR string `json:"steering_cidr,omitempty"`
