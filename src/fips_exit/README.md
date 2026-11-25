@@ -1,7 +1,7 @@
 # FIPS exit consumer foundations
 
 This package provides pure address derivation, configuration validation and an
-argv operation planner and fw4 guard renderer,
+argv operation planner, fw4 guard renderer and read-only link/route collector,
 not an operational exit consumer. `Derive`
 accepts a decoded `[32]byte` x-only public key and returns `netip.Addr` values:
 
@@ -48,7 +48,7 @@ outer IPv6 header in [v0.11.0 shim/src/exit.rs](https://github.com/fr34aky/fips2
 sets tunnel MTU to observed FIPS MTU minus 40. This validator does **not** observe
 that MTU or claim fragmentation/oversized-UDP support.
 
-### Mandatory future integration preflight (observation not implemented)
+### Mandatory future integration preflight (link/route slice implemented below)
 
 Static validation success is **not permission to apply**. Before any mutation,
 the integration must obtain current environment facts and refuse conflicts:
@@ -65,10 +65,11 @@ the integration must obtain current environment facts and refuse conflicts:
 Recheck facts under the future applier's ownership/serialization contract;
 configuration alone cannot discover live collisions or prevent later drift.
 
-No root configuration schema/main wiring, command runner, applied routing, firewall,
+No root configuration schema/main wiring, production executor, applied routing, firewall,
 DNS, tunnel lifecycle, hardware access, runtime integration, payment or paid-exit
 behavior is implemented or enabled. No existing runtime calls this package.
-There is no persistent state or irreversible operation; all functions are pure.
+There is no persistent state or irreversible operation; only the injected
+read-only collector observes external state.
 
 ## Pure fresh-install routing planner
 
@@ -191,7 +192,7 @@ not covered by the guest ingress guard/SNAT. This fragment deliberately does
 not implement DNS redirects, resolver configuration, or RA/DHCPv6 changes.
 A rendered string sets **none** of `GuardReadiness`: installation, reload/failure
 behavior, effective DNS/NDS enforcement, offload handling, and kernel dataplane
-checks remain prerequisites for any applier. DNS escape, the read-only observer,
+checks remain prerequisites for any applier. DNS escape, the remaining observer checks,
 compatibility dataplane proof (including paid/NDS authorization and return paths),
 and runtime/applier integration remain unresolved. No runtime calls are wired here.
 
@@ -200,6 +201,44 @@ an isolated user+network namespace when available, otherwise explicitly skips
 with `NOT RUN`. It never checks against or mutates the host ruleset. Even a
 successful check proves syntax/kernel acceptance, not packet-path behavior.
 
-From `src/`, using the manifest-pinned Go toolchain, run
-`go test -race -count=1 -cover ./fips_exit` and
-`go vet ./fips_exit`. These are package-level checks, not dataplane evidence.
+From `src/`, pin checks explicitly to Go 1.26.10:
+`GOTOOLCHAIN=go1.26.10 GOFLAGS=-mod=readonly go test -race -count=1 -cover ./fips_exit`
+and `GOTOOLCHAIN=go1.26.10 GOFLAGS=-mod=readonly go vet ./fips_exit`.
+These are package-level checks, not dataplane evidence.
+
+## Read-only link/route collector
+
+`CollectLinkRoutes(ctx, config, runner, timeout)` requests five typed argv probes:
+`ip -j link show`, `ip -j address show`, `ip -j -4 rule show`,
+`ip -j -4 route show table all`, and `ip -j -6 route get EXIT from LOCAL`.
+Endpoints are derived from configured keys. Disabled makes zero calls.
+The injected runner must execute directly without shell, resolve trusted `ip` in
+the intended namespace, honor context cancellation, stop capture at the supplied
+1 MiB limit and reject truncation. A total timeout in (0,30s] is mandatory.
+The collector checks cancellation before/after calls and rejects oversized output;
+it cannot forcibly stop a callback which violates its cancellation contract.
+There is no production executor or runtime wiring. This is the only non-pure API.
+
+Unknown/malformed JSON, incomplete inventories and failed commands (even with
+partial valid stdout) return zero evidence and an error. Supported iproute2 fields
+are allowlisted; new fields require review. Checks cover guest/FIPS existence and
+administrative UP, FIPS MTU, derived local address usability, tunnel occupancy,
+IPv4 table/priority conflicts, derived inner address/route overlap and a direct
+source-specific unicast exit route via FIPS. Only standard local/main/default
+IPv4 rules are accepted: custom/bonding rules and unknown table aliases refuse.
+`table all` avoids interpreting missing-table command errors as evidence of safety.
+
+`LinkRouteEvidence` is separate from `Environment` and `GuardReadiness`. It sets
+**no readiness booleans**: not Verified, DNS, NAT, MSS, firewall or NDS. Kernel
+routing into a TUN does not prove daemon identity ownership, exit registration,
+peer discovery, authenticated reachability or functioning transport. Interface
+names do not establish semantic roles. Still required: daemon identity/discovery,
+peer allowlist collision checks, IPv6 RPDB/table inventory and mark/ingress-specific
+lookups, effective DNS/forwarding/native-IPv6/NAT/MSS/NDS guards, offload/conntrack,
+rp_filter and restart/reload/failure dataplane proof. Sequential observations are
+not atomic; a future locked applier must recheck. No writes or activation occur.
+
+Fixtures use realistic iproute2 recorded-format JSON with synthetic names and
+identities, not captures from target hardware. Tests cover valid evidence, missing
+interfaces, conflicts, stale/wrong routes, invalid/partial output, command failure,
+cancellation, timeout and limits. They are not daemon or dataplane evidence.
