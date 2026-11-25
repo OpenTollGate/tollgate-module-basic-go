@@ -112,6 +112,26 @@ type UpstreamWifiConfig struct {
 	DHCPTimeoutSeconds     int  `json:"dhcp_timeout_seconds"`
 	ManualPauseSeconds     int  `json:"manual_pause_seconds"`
 	VendorIEDiscovery      bool `json:"vendor_ie_discovery"`
+	// ConsentManifest is the operator's per-AP opt-in list for non-TollGate
+	// upstreams. An open network with no pre-accepted entry is observed, never
+	// joined automatically.
+	ConsentManifest []ConsentEntryConfig `json:"consent_manifest,omitempty"`
+	// AllowAnyOpen permits open networks with no manifest entry. Off by
+	// default: an unseen open AP cannot carry informed consent.
+	AllowAnyOpen bool `json:"allow_any_open"`
+}
+
+// ConsentEntryConfig is one operator-approved upstream network.
+//
+// Match is an exact SSID or a prefix ending in '*'. Consent is
+// "pre-accepted" (automatic joins allowed) or "per-session" (a human must
+// accept this visit). TOSURL records the terms the operator reviewed; it is
+// never fetched automatically.
+type ConsentEntryConfig struct {
+	Match   string `json:"match"`
+	TOSURL  string `json:"tos_url,omitempty"`
+	Consent string `json:"consent"`
+	Recipe  string `json:"recipe,omitempty"`
 }
 
 // MPTCPBondingConfig describes an optional MPTCP multi-WAN bond.
@@ -512,6 +532,8 @@ func NewDefaultConfig() *Config {
 			DHCPTimeoutSeconds:     180,
 			ManualPauseSeconds:     120,
 			VendorIEDiscovery:      true,
+			ConsentManifest:        []ConsentEntryConfig{},
+			AllowAnyOpen:           false,
 		},
 		// Empty means "keep what the router already has" — see the field
 		// comments on Config. These two are the literals the schema declares,

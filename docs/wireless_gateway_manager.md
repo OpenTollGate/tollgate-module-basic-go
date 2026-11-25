@@ -94,6 +94,68 @@ Manual plain/streaming joins acquire an explicit writer lease before enabling ra
 
 `BeginManualOperation`/`EndManualOperation` remain nested pause-only scopes; they do not grant writer ownership. Radio-mutating callers use `BeginManualWriter` and defer its `End`. The lease coordinates this manager and its CLI handlers, not external root/UCI writers. `LoopTicks` reports loop progress without using a radio mutation as a heartbeat. These source-level concurrency tests do not qualify RF, DHCP handover or deployed-router recovery; those remain PRTA/physical acceptance gates.
 
+## Consent manifest for open upstreams
+
+Automatic selection treats two kinds of upstream differently:
+
+- a **TollGate peer** (`!<brand>-<suffix>`) is the payment network and stays
+  auto-connectable;
+- a **venue/hotel/airport AP** is someone else's network. Joining it is an
+  operator decision for that specific AP, not a side effect of a stronger
+  signal.
+
+`upstream_wifi.consent_manifest` is that decision list. An open SSID with no
+matching `pre-accepted` entry is **observed, never joined**; no portal request
+is made and no credentials are read.
+
+```json
+{
+  "upstream_wifi": {
+    "allow_any_open": false,
+    "consent_manifest": [
+      {
+        "match": "Manchester Airport*",
+        "tos_url": "https://www.manchesterairport.co.uk/terms",
+        "consent": "pre-accepted",
+        "recipe": "man-purple-free"
+      },
+      {
+        "match": "CafeGuest",
+        "tos_url": "https://cafe.example/terms",
+        "consent": "per-session"
+      }
+    ]
+  }
+}
+```
+
+- `match` is an exact SSID or a prefix ending in `*`. SSIDs are
+  case-sensitive.
+- `pre-accepted` allows automatic joins.
+- `per-session` requires a human for each visit and is never joined
+  automatically.
+- `tos_url` records the terms the operator reviewed; it is advisory and is
+  never fetched automatically.
+- `recipe` names the portal recipe for the network (advisory until the recipe
+  engine lands).
+
+Exemptions, deliberately:
+
+- TollGate peers (the payment network);
+- the `Private-` management SSID;
+- saved **encrypted** networks — the operator already supplied the key, which
+  is the consent;
+- legacy scan results with an empty encryption value, which older scanner
+  paths did not populate.
+
+`allow_any_open` is the explicit override for an unseen open AP. It is off by
+default, and setting it is the operator's acknowledgement that an unseen
+network cannot carry informed consent.
+
+This policy is only about **joining**. It does not rotate a MAC address, a
+node key or an identity, and it does not retry a portal to obtain another free
+session.
+
 ## Venue portal login window
 
 An associated venue Wi-Fi uplink that returns an unexpected HTTP probe response
