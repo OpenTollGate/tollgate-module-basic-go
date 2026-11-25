@@ -2,7 +2,7 @@
 
 ## Scope and evidence
 
-PRTA commit `67d4468`, `docs/evidence/fips-exit-ipip6-down-up.log`, records tunnel down removing the table-200 metric-100 default, while unreachable metric 42760 survives; link up does not restore the removed default. This slice adds only a pure module planner. No host/router networking changes, PRTA edits, executor, polling loop, or autonomous runtime reconciler.
+PRTA commit `67d4468`, `docs/evidence/fips-exit-ipip6-down-up.log`, records tunnel down removing the table-200 metric-100 default, while unreachable metric 42760 survives; link up does not restore the removed default. Recovery is exposed only as a pure module planner. No host/router networking changes, PRTA edits, executor, polling loop, or autonomous runtime reconciler.
 
 The behavioral regression was first run against existing `BuildPlan` with the owned tunnel present and unused-resource flags false:
 
@@ -13,9 +13,9 @@ GOTOOLCHAIN=go1.26.10 go test ./fips_exit -run TestRecoveryMeasuredDownUp -count
 FAIL
 ```
 
-This demonstrates the fresh-install API's deliberate inability to recover, not a reason to weaken it. The same expected exact restoration is now tested through the separate recovery API. An initial command from the repository root failed because the package is in the nested `src` module; all recorded behavioral/gate commands run from `src`.
+This demonstrates the fresh-install API's deliberate inability to recover, not a reason to weaken it. The same expected exact restoration is now tested through the separate recovery API. Run the package checks from the nested `src` module, not the repository root.
 
-## API for the next PRTA worker
+## Recovery API and caller contract
 
 `BuildRecoveryPlan(c Config, e RecoveryEvidence, g GuardReadiness) ([]Operation, error)`.
 
@@ -36,18 +36,18 @@ ip -4 route add default dev exit-test table 200 metric 100 proto static
 
 The healthy state returns no operations. Missing unreachable refuses; it is never repaired here. No unreachable deletion, route replace, main-table route, tunnel creation/rebinding, link-up, rule or guard mutation is emitted.
 
-Existing `CollectLinkRoutes` remains fresh-install-only and **does not produce recovery evidence**. The next worker must gather/validate the above observations and independent ownership in the existing RED lane; do not manufacture attestations from config. Revalidate immediately before applying under the same lock; execute argv directly, abort on error, never retry by replacing a route. Fresh-install `ValidateOperations` does not validate this recovery plan: regenerate via `BuildRecoveryPlan` from fresh evidence instead. Finally read back both routes and rerun guest traffic/guard assertions. Actual router recovery remains unexecuted in this slice.
+Existing `CollectLinkRoutes` remains fresh-install-only and **does not produce recovery evidence**. The integrating caller must gather/validate the above observations and independent ownership in PRTA; do not manufacture attestations from config. Revalidate immediately before applying under the same lock; execute argv directly, abort on error, never retry by replacing a route. Fresh-install `ValidateOperations` does not validate this recovery plan: regenerate via `BuildRecoveryPlan` from fresh evidence instead. Finally read back both routes and rerun guest traffic/guard assertions. Actual router recovery is not established by these package tests.
 
-## Verification
+## Recorded package verification
 
 Pinned `go version go1.26.10 linux/amd64`:
 
 ```
-GOTOOLCHAIN=go1.26.10 go test -race -count=1 -coverprofile=<scratch>/fips-recovery.cover ./fips_exit
+GOTOOLCHAIN=go1.26.10 go test -race -count=1 -coverprofile=${TMPDIR:?}/fips-recovery.cover ./fips_exit
 ok github.com/OpenTollGate/tollgate-module-basic-go/fips_exit 1.767s coverage: 86.1% of statements
 GOTOOLCHAIN=go1.26.10 go vet ./fips_exit
 # exit 0
-GOTOOLCHAIN=go1.26.10 go tool cover -func=<scratch>/fips-recovery.cover
+GOTOOLCHAIN=go1.26.10 go tool cover -func=${TMPDIR:?}/fips-recovery.cover
 # BuildRecoveryPlan 100.0%; package total 86.1%
 ```
 

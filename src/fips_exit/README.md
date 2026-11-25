@@ -171,6 +171,9 @@ on failure, and never install the final rule after a failed prerequisite. Keep
 guards and the unreachable default during faults; lifecycle, persistence,
 recovery, safe teardown and continuous drift handling need a later applier.
 Do not replay this fresh-install plan as a convergence loop.
+For the separate pure `BuildRecoveryPlan` API, see the
+[bounded route-recovery contract](../../docs/architecture/fips-exit-route-recovery.md),
+including ownership evidence, refusal conditions and verification limits.
 
 Router guest ingress is the first slice. Bonding-server proxy egress via a
 separate UID/cgroup/namespace selector remains required later, not supported or
