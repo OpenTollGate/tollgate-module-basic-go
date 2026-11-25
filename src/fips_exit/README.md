@@ -246,6 +246,25 @@ From `src/`, pin checks explicitly to Go 1.26.10:
 and `GOTOOLCHAIN=go1.26.10 GOFLAGS=-mod=readonly go vet ./fips_exit`.
 These are package-level checks, not dataplane evidence.
 
+## Pure bootstrap DNS renderer
+
+`RenderBootstrapDNS(enabled, listen, portalName, portalIP)` renders DNS-only
+dnsmasq settings, not a running resolver. Disabled returns empty output; errors
+return empty output. Listen requires a concrete unzoned unicast IP and port
+1024..65535; the portal IP must also be unzoned unicast. Loopback/private/link-local
+addresses are permitted; interface subnet broadcasts cannot be inferred here.
+The exact ASCII hostname uses 1..63-byte LDH labels, at most 253 bytes overall,
+without a trailing dot, wildcards or directive syntax. Only its `host-record` is
+provided: `local=/#/` blocks upstream forwarding for all names, with `no-resolv`,
+`no-hosts`, and `no-poll`. No DHCP ranges/services or upstream servers are enabled.
+
+A future caller **must** launch with an isolated `--conf-file` and a dedicated
+unprivileged user, with no inherited config directories, options or records.
+This helper does not choose a UID, start a process, write files, redirect guest
+DNS, alter firewall/schema/hardware, provide paid DNS, or set `GuardReadiness`.
+Binding/port availability and effective packet isolation still need separate
+runtime verification; rendering is not evidence of a working guest resolver.
+
 ## Read-only link/route collector
 
 `CollectLinkRoutes(ctx, config, runner, timeout)` requests five typed argv probes:
