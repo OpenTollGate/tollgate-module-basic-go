@@ -67,6 +67,11 @@ func TestEveryEncodingOfOneNoteHasOneFingerprint(t *testing.T) {
 
 	// And the rail itself must refuse the second presentation: the fingerprint agreeing
 	// is a means, not the end. This is the customer-visible property.
+	//
+	// The refusal must also survive a RESTART. The in-memory reservation dies with the
+	// process, so only the durable journal lookup stands after a reboot — and a test that
+	// reuses one rail instance never exercises it. The second review caught exactly that in
+	// the first version of this test.
 	store := newCrashTestStore(t)
 	melts := 0
 	rail := NewLNURLCashRail(
@@ -88,6 +93,27 @@ func TestEveryEncodingOfOneNoteHasOneFingerprint(t *testing.T) {
 	}
 	if _, err := rail.Redeem(fromCW1, 21000, "00:00:00:00:00:01", "https://mint.example"); err != ErrLNURLCashNoteAlreadyRedeemed {
 		t.Fatalf("the SAME note presented as cw1 was not refused as a replay (got %v)", err)
+	}
+
+	// RESTART: a fresh rail over the same journal has an EMPTY in-memory set, so this can
+	// only be refused by the durable record. Without this the test would pass even if the
+	// journal lookup were broken and only the in-process map worked.
+	restarted := NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			t.Fatal("a re-presented note must be refused before a second invoice is requested")
+			return "", "", nil
+		},
+		func(n lnurlcash.Note, cb IssuerCallback, invoice string) error {
+			t.Fatal("a re-presented note must never reach a second melt after a restart")
+			return nil
+		},
+	)
+	for name, note := range forms {
+		if _, err := restarted.Redeem(note, 21000, "00:00:00:00:00:01", "https://mint.example"); err != ErrLNURLCashNoteAlreadyRedeemed {
+			t.Fatalf("after a RESTART the %s form of a spent note was accepted (%v) — the in-memory guard died with the process and the journal lookup did not catch it", name, err)
+		}
 	}
 
 	ops, lerr := store.List()
