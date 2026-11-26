@@ -1,0 +1,573 @@
+package lnurlcash
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// --- test doubles ---------------------------------------------------------
+
+// fakeIssuer is the LUD-03 issuer: it serves the withdrawRequest, records every
+// redemption callback it receives, and answers with whatever the test planted.
+type fakeIssuer struct {
+	srv *httptest.Server
+
+	mu        sync.Mutex
+	callbacks int
+	// lastQuery is the query string of the last redemption callback, i.e. what
+	// the gate actually asked the issuer to do.
+	lastQuery string
+	// answer decides the redemption answer; nil means "OK".
+	answer func(w http.ResponseWriter, r *http.Request)
+	// withdraw decides the withdrawRequest answer; nil means a standard one
+	// pointing back at this same server.
+	withdraw func(w http.ResponseWriter, r *http.Request)
+	k1       string
+	maxMsat  uint64
+}
+
+func newFakeIssuer(t *testing.T, k1 string, maxMsat uint64) *fakeIssuer {
+	t.Helper()
+	f := &fakeIssuer{k1: k1, maxMsat: maxMsat}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/withdraw", func(w http.ResponseWriter, r *http.Request) {
+		if f.withdraw != nil {
+			f.withdraw(w, r)
+			return
+		}
+		writeJSON(t, w, map[string]any{
+			"tag":             "withdrawRequest",
+			"callback":        f.srv.URL + "/withdraw/cb",
+			"k1":              f.k1,
+			"maxWithdrawable": f.maxMsat,
+			"minWithdrawable": 1000,
+		})
+	})
+	mux.HandleFunc("/withdraw/cb", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.callbacks++
+		f.lastQuery = r.URL.RawQuery
+		f.mu.Unlock()
+		if f.answer != nil {
+			f.answer(w, r)
+			return
+		}
+		writeJSON(t, w, map[string]any{"status": "OK"})
+	})
+	f.srv = httptest.NewServer(mux)
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (f *fakeIssuer) note() string { return f.srv.URL + "/withdraw?k1=" + f.k1 }
+func (f *fakeIssuer) callbackCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.callbacks
+}
+
+// fakeGate is the settlement half: the gate's own accepted mint. It hands out a
+// NUT-04 quote (invoice) per request and reports the quote's settlement state.
+type fakeGate struct {
+	mu       sync.Mutex
+	quotes   int
+	invoices []string
+	mint     string
+	// settle decides the state a quote reports. nil means "never paid".
+	settle func(quoteID string) (paid bool, granted bool, err error)
+}
+
+func (g *fakeGate) RequestRedeemInvoice(macAddress, mintURL string, amountSats uint64) (string, string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.quotes++
+	id := fmt.Sprintf("quote-%d", g.quotes)
+	inv := fmt.Sprintf("lnbc%dquote%d", amountSats, g.quotes)
+	g.invoices = append(g.invoices, inv)
+	return id, inv, nil
+}
+
+func (g *fakeGate) RedemptionSettled(quoteID, macAddress string) (bool, bool, error) {
+	if g.settle != nil {
+		return g.settle(quoteID)
+	}
+	// Default: the mint confirms the quote and the grant is applied. A test
+	// that cares about the difference says so.
+	return true, true, nil
+}
+
+func (g *fakeGate) SettlementMint() (string, error) { return g.mint, nil }
+func (g *fakeGate) quoteCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.quotes
+}
+func (g *fakeGate) invoiceList() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.invoices...)
+}
+
+// --- harness --------------------------------------------------------------
+
+const testMint = "https://mint.example"
+
+type harness struct {
+	svc    *Redeemer
+	issuer *fakeIssuer
+	gate   *fakeGate
+	dir    string
+}
+
+func newHarness(t *testing.T, cfg Config) *harness {
+	t.Helper()
+	issuer := newFakeIssuer(t, "k1secret", 10_000_000) // 10 000 sats
+	gate := &fakeGate{mint: testMint}
+	dir := t.TempDir()
+	store, err := OpenIntentStore(filepath.Join(dir, "lnurlcash-intents.json"))
+	if err != nil {
+		t.Fatalf("OpenIntentStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	if cfg.MaxNoteSats == 0 && !cfg.Enabled {
+		cfg = DefaultConfig()
+	}
+	// Every harness that does not explicitly ask for the disabled path opts in:
+	// the disabled path has its own test.
+	cfg.Enabled = true
+	svc := NewRedeemer(cfg, gate, store, NewClient(ClientOptions{
+		AllowInsecureLoopbackForTests: true,
+		Timeout:                       testTimeout,
+	}))
+	svc.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
+	return &harness{svc: svc, issuer: issuer, gate: gate, dir: dir}
+}
+
+// --- the happy path -------------------------------------------------------
+
+func TestRedeemAsksTheIssuerToPayOurMintInvoice(t *testing.T) {
+	h := newHarness(t, Config{})
+
+	res, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err != nil {
+		t.Fatalf("Redeem: %v", err)
+	}
+	if res.State != StateRedeemed {
+		t.Fatalf("state = %q, want %q", res.State, StateRedeemed)
+	}
+	if res.QuoteID == "" || res.Invoice == "" {
+		t.Fatalf("result carries no quote/invoice for the portal to poll: %+v", res)
+	}
+	if h.issuer.callbackCount() != 1 {
+		t.Fatalf("issuer saw %d callbacks, want 1", h.issuer.callbackCount())
+	}
+	// The invoice in the callback must be the one OUR mint issued — that is the
+	// whole settlement argument: the issuer burns the note into our mint.
+	if got, want := queryValue(h.issuer.lastQuery, "pr"), res.Invoice; got != want {
+		t.Fatalf("callback carried pr=%q, want our mint's invoice %q", got, want)
+	}
+	if got := queryValue(h.issuer.lastQuery, "k1"); got != "k1secret" {
+		t.Fatalf("callback carried k1=%q", got)
+	}
+}
+
+// A redemption is not a grant. The mint is authoritative for value, so an
+// issuer that says OK while the mint never reports the quote paid must leave the
+// customer ungranted.
+func TestIssuerAcceptedButMintUnpaidGrantsNothing(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.gate.settle = func(string) (bool, bool, error) { return false, false, nil }
+
+	res, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err != nil {
+		t.Fatalf("Redeem: %v", err)
+	}
+	if res.Granted {
+		t.Fatal("granted access on the issuer's word alone")
+	}
+	if res.State != StateRedeemed {
+		t.Fatalf("state = %q, want %q (issuer accepted, settlement pending)", res.State, StateRedeemed)
+	}
+}
+
+// --- refusals -------------------------------------------------------------
+
+func TestIssuerRefusalGrantsNothing(t *testing.T) {
+	tests := []struct {
+		name string
+		body map[string]any
+	}{
+		{name: "spent", body: map[string]any{"status": "ERROR", "reason": "this note has already been withdrawn"}},
+		{name: "expired", body: map[string]any{"status": "ERROR", "reason": "withdraw link expired"}},
+		{name: "unknown k1", body: map[string]any{"status": "ERROR", "reason": "unknown k1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, Config{})
+			h.issuer.answer = func(w http.ResponseWriter, r *http.Request) { writeJSON(t, w, tt.body) }
+			h.gate.settle = func(string) (bool, bool, error) { return true, true, nil }
+
+			res, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+			if err != nil {
+				t.Fatalf("Redeem: %v", err)
+			}
+			if res.Granted || res.QuoteID != "" {
+				t.Fatalf("refused note produced a payable quote or a grant: %+v", res)
+			}
+			if res.State != StateAbandoned {
+				t.Fatalf("state = %q, want %q", res.State, StateAbandoned)
+			}
+		})
+	}
+}
+
+// A callback that never answers is ambiguous, not a failure: the issuer may have
+// paid our invoice. It must not be retried, and a second presentation of the
+// same note must not produce a second callback.
+func TestCallbackTimeoutIsAmbiguousAndNeverRetried(t *testing.T) {
+	h := newHarness(t, Config{RedemptionTimeoutSeconds: 1})
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	h.issuer.answer = func(w http.ResponseWriter, r *http.Request) {
+		<-release // hold the callback open past the redemption deadline
+	}
+
+	res, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err != nil {
+		t.Fatalf("Redeem: %v", err)
+	}
+	if res.Granted {
+		t.Fatalf("an ambiguous redemption produced a grant: %+v", res)
+	}
+	if res.State != StateAmbiguous {
+		t.Fatalf("state = %q, want %q", res.State, StateAmbiguous)
+	}
+
+	// Second presentation: refused from the journal, with NO new callback and NO
+	// new quote. This is the invariant that makes a timeout survivable.
+	before := h.issuer.callbackCount()
+	again, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err != nil {
+		t.Fatalf("second Redeem: %v", err)
+	}
+	if again.State != StateAmbiguous {
+		t.Fatalf("second presentation state = %q, want %q", again.State, StateAmbiguous)
+	}
+	if h.issuer.callbackCount() != before {
+		t.Fatalf("a second presentation re-sent the callback (%d -> %d): a spent-note retry is a blind retry",
+			before, h.issuer.callbackCount())
+	}
+	if h.gate.quoteCount() != 1 {
+		t.Fatalf("a second presentation asked the mint for another quote (%d total)", h.gate.quoteCount())
+	}
+}
+
+// --- duplicate presentation ----------------------------------------------
+
+func TestDuplicatePresentationGrantsOnce(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.gate.settle = func(string) (bool, bool, error) { return true, true, nil }
+
+	first, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err != nil {
+		t.Fatalf("first Redeem: %v", err)
+	}
+	if first.State != StateRedeemed {
+		t.Fatalf("first state = %q, want %q", first.State, StateRedeemed)
+	}
+
+	for i := 0; i < 3; i++ {
+		again, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+		if err != nil {
+			t.Fatalf("repeat Redeem %d: %v", i, err)
+		}
+		if again.State != StateRedeemed {
+			t.Fatalf("repeat %d state = %q, want the recorded %q", i, again.State, StateRedeemed)
+		}
+		if again.QuoteID != first.QuoteID {
+			t.Fatalf("repeat %d produced a new quote %q (first %q) — one note, one redemption",
+				i, again.QuoteID, first.QuoteID)
+		}
+	}
+	if h.issuer.callbackCount() != 1 {
+		t.Fatalf("issuer saw %d callbacks for one note, want 1", h.issuer.callbackCount())
+	}
+	if h.gate.quoteCount() != 1 {
+		t.Fatalf("mint saw %d quote requests for one note, want 1", h.gate.quoteCount())
+	}
+}
+
+// A different spelling of the same note (surrounding whitespace) is the same
+// note: the fingerprint is taken over the canonical form, so a customer who
+// pastes it twice with a stray newline cannot be granted twice.
+func TestNoteFingerprintIgnoresSurroundingWhitespace(t *testing.T) {
+	h := newHarness(t, Config{})
+	if _, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatalf("first Redeem: %v", err)
+	}
+	if _, err := h.svc.Redeem(context.Background(), "  "+h.issuer.note()+"\n", "aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatalf("second Redeem: %v", err)
+	}
+	if h.issuer.callbackCount() != 1 {
+		t.Fatalf("whitespace variant of one note produced %d callbacks, want 1", h.issuer.callbackCount())
+	}
+}
+
+// --- crash between intent and callback ------------------------------------
+
+// The point of no return is the callback. An intent that is durable but whose
+// callback was never issued is recoverable: nothing was sent, the note is
+// untouched, and the attempt may proceed exactly once.
+func TestCrashBeforeCallbackIsRecoverable(t *testing.T) {
+	h := newHarness(t, Config{})
+
+	// Plant the state a crash between "intent durable" and "callback sent" leaves
+	// behind, exactly as the store writes it.
+	note, err := decodeNote(h.issuer.note(), true)
+	if err != nil {
+		t.Fatalf("DecodeNote: %v", err)
+	}
+	fp := h.svc.Fingerprint(note)
+	if _, err := h.svc.store.Begin(fp, Intent{
+		MacAddress: "aa:bb:cc:dd:ee:ff",
+		MintURL:    testMint,
+		AmountSats: 1000,
+		IssuerHost: "issuer.example",
+	}); err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	// A real crash closes the process; reopening the store is what a restart
+	// does. The pending record must survive and must not read as a redemption.
+	if err := h.svc.store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	store, err := OpenIntentStore(filepath.Join(h.dir, "lnurlcash-intents.json"))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	h.svc.store = store
+
+	res, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err != nil {
+		t.Fatalf("Redeem after recovery: %v", err)
+	}
+	if res.State != StateRedeemed {
+		t.Fatalf("state after recovery = %q, want %q — a pending intent means nothing was sent, so the attempt may proceed",
+			res.State, StateRedeemed)
+	}
+	if h.issuer.callbackCount() != 1 {
+		t.Fatalf("issuer saw %d callbacks, want exactly 1 (the crash must not double-send, nor block)", h.issuer.callbackCount())
+	}
+}
+
+// A crash AFTER the callback was issued is a different matter: the issuer may
+// have paid. That record can never be retried, and it must never grant on a
+// guess either.
+func TestCrashAfterCallbackIsNeverRetried(t *testing.T) {
+	h := newHarness(t, Config{})
+	note, err := decodeNote(h.issuer.note(), true)
+	if err != nil {
+		t.Fatalf("DecodeNote: %v", err)
+	}
+	fp := h.svc.Fingerprint(note)
+	if _, err := h.svc.store.Begin(fp, Intent{
+		MacAddress: "aa:bb:cc:dd:ee:ff",
+		MintURL:    testMint,
+		AmountSats: 1000,
+		IssuerHost: "issuer.example",
+	}); err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	if _, err := h.svc.store.MarkSubmitted(fp, "quote-crashed"); err != nil {
+		t.Fatalf("MarkSubmitted: %v", err)
+	}
+
+	h.gate.settle = func(string) (bool, bool, error) { return false, false, nil }
+
+	res, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err != nil {
+		t.Fatalf("Redeem after crash: %v", err)
+	}
+	if h.issuer.callbackCount() != 0 {
+		t.Fatalf("re-sent a callback for an already-submitted redemption (%d)", h.issuer.callbackCount())
+	}
+	if res.Granted {
+		t.Fatal("granted from a submitted-but-unresolved record")
+	}
+	if res.State != StateAmbiguous {
+		t.Fatalf("state = %q, want %q (reconcile, never retry)", res.State, StateAmbiguous)
+	}
+}
+
+// --- SSRF ----------------------------------------------------------------
+
+func TestCallbackHostMustMatchTheNoteHost(t *testing.T) {
+	h := newHarness(t, Config{})
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("the gate dialled a host the note did not name: %s", r.URL)
+		writeJSON(t, w, map[string]any{"status": "OK"})
+	}))
+	t.Cleanup(elsewhere.Close)
+
+	h.issuer.withdraw = func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, map[string]any{
+			"tag":             "withdrawRequest",
+			"callback":        elsewhere.URL + "/cb",
+			"k1":              "k1secret",
+			"maxWithdrawable": 10_000_000,
+		})
+	}
+
+	res, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err == nil {
+		t.Fatalf("accepted a callback on a foreign host: %+v", res)
+	}
+	if !strings.Contains(err.Error(), "host") {
+		t.Fatalf("error = %q, want a host mismatch refusal", err)
+	}
+	if h.gate.quoteCount() != 0 {
+		t.Fatalf("asked the mint for a quote before validating the callback host (%d quotes)", h.gate.quoteCount())
+	}
+}
+
+// --- amount, cap, and pricing -------------------------------------------
+
+func TestRedeemableAmountIsCappedByConfigAndByTheNote(t *testing.T) {
+	tests := []struct {
+		name    string
+		maxMsat uint64
+		cfgSat  uint64
+		wantSat uint64
+	}{
+		{name: "note is the limit", maxMsat: 2_000_000, cfgSat: 10_000, wantSat: 2000},
+		{name: "config is the limit", maxMsat: 50_000_000, cfgSat: 1500, wantSat: 1500},
+		{name: "exact overlap", maxMsat: 1_500_000, cfgSat: 1500, wantSat: 1500},
+		{name: "sub-satoshi remainder is floored", maxMsat: 1_999, cfgSat: 10_000, wantSat: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issuer := newFakeIssuer(t, "k1secret", tt.maxMsat)
+			gate := &fakeGate{mint: testMint}
+			store, err := OpenIntentStore(filepath.Join(t.TempDir(), "i.json"))
+			if err != nil {
+				t.Fatalf("OpenIntentStore: %v", err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			svc := NewRedeemer(Config{Enabled: true, MaxNoteSats: tt.cfgSat, RedemptionTimeoutSeconds: 5},
+				gate, store, NewClient(ClientOptions{AllowInsecureLoopbackForTests: true, Timeout: testTimeout}))
+
+			res, err := svc.Redeem(context.Background(), issuer.note(), "aa:bb:cc:dd:ee:ff")
+			if err != nil {
+				t.Fatalf("Redeem: %v", err)
+			}
+			// The invoice the mint issued is what encodes the amount we asked for;
+			// the fake gate puts it in the invoice string.
+			want := fmt.Sprintf("lnbc%dquote1", tt.wantSat)
+			if len(gate.invoiceList()) != 1 || gate.invoiceList()[0] != want {
+				t.Fatalf("mint was asked for %v, want %q", gate.invoiceList(), want)
+			}
+			if res.AmountSats != tt.wantSat {
+				t.Fatalf("result amount = %d sats, want %d", res.AmountSats, tt.wantSat)
+			}
+		})
+	}
+}
+
+// A note worth less than one satoshi cannot buy anything, and asking for a
+// zero-value invoice is not a request any mint should receive.
+func TestDustNoteIsRefusedBeforeAnyNetworkCall(t *testing.T) {
+	issuer := newFakeIssuer(t, "k1secret", 999)
+	gate := &fakeGate{mint: testMint}
+	store, err := OpenIntentStore(filepath.Join(t.TempDir(), "i.json"))
+	if err != nil {
+		t.Fatalf("OpenIntentStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := NewRedeemer(DefaultConfig(), gate, store,
+		NewClient(ClientOptions{AllowInsecureLoopbackForTests: true, Timeout: testTimeout}))
+
+	if _, err := svc.Redeem(context.Background(), issuer.note(), "aa:bb:cc:dd:ee:ff"); err == nil {
+		t.Fatal("accepted a sub-satoshi note")
+	}
+	if gate.quoteCount() != 0 {
+		t.Fatalf("asked the mint for a zero-value quote (%d requests)", gate.quoteCount())
+	}
+	if issuer.callbackCount() != 0 {
+		t.Fatalf("sent a callback for a dust note (%d)", issuer.callbackCount())
+	}
+}
+
+// --- the note secret never reaches a log or a response --------------------
+
+func TestRedeemNeverLeaksTheNoteSecret(t *testing.T) {
+	// Capture the package's log output (the redeemer logs through the injected
+	// logger, which defaults to the standard one).
+	var buf strings.Builder
+	restore := captureLogs(&buf)
+	defer restore()
+
+	h := newHarness(t, Config{})
+	if _, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatalf("Redeem: %v", err)
+	}
+	if strings.Contains(buf.String(), "k1secret") {
+		t.Fatalf("the note secret appears in the log:\n%s", buf.String())
+	}
+
+	// And in the refusal path, which is the one an operator pastes into a ticket.
+	h2 := newHarness(t, Config{})
+	h2.issuer.answer = func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, map[string]any{"status": "ERROR", "reason": "spent"})
+	}
+	res, err := h2.svc.Redeem(context.Background(), h2.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err != nil {
+		t.Fatalf("Redeem: %v", err)
+	}
+	if strings.Contains(res.Message, "k1secret") {
+		t.Fatalf("the refusal message carries the note secret: %q", res.Message)
+	}
+}
+
+// --- config gate ---------------------------------------------------------
+
+func TestDisabledConfigRefusesEverything(t *testing.T) {
+	issuer := newFakeIssuer(t, "k1secret", 10_000_000)
+	gate := &fakeGate{mint: testMint}
+	store, err := OpenIntentStore(filepath.Join(t.TempDir(), "i.json"))
+	if err != nil {
+		t.Fatalf("OpenIntentStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := NewRedeemer(DefaultConfig(), gate, store,
+		NewClient(ClientOptions{AllowInsecureLoopbackForTests: true, Timeout: testTimeout}))
+
+	if svc.Enabled() {
+		t.Fatal("DefaultConfig enables the payment method; it must ship disabled")
+	}
+	if _, err := svc.Redeem(context.Background(), issuer.note(), "aa:bb:cc:dd:ee:ff"); !errors.Is(err, ErrDisabled) {
+		t.Fatalf("Redeem with the feature off = %v, want ErrDisabled", err)
+	}
+	if issuer.callbackCount() != 0 || gate.quoteCount() != 0 {
+		t.Fatal("a disabled redeemer touched the network")
+	}
+}
+
+// --- helpers -------------------------------------------------------------
+
+func queryValue(rawQuery, key string) string {
+	for _, pair := range strings.Split(rawQuery, "&") {
+		if k, v, ok := strings.Cut(pair, "="); ok && k == key {
+			return v
+		}
+	}
+	return ""
+}

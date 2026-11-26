@@ -17,7 +17,7 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning v0.0.0-00010101000000-000000000000
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6 // indirect
-	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
+	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10 // indirect
 	github.com/btcsuite/btcwallet v0.16.14 // indirect
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5 // indirect
