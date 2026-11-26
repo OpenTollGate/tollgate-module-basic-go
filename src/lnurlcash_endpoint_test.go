@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal"
@@ -77,6 +78,25 @@ func endpointTestRail(t *testing.T, melted *bool) *merchant.LNURLCashRail {
 			return nil
 		},
 	)
+}
+
+// installMerchantKnowingConfig puts a merchant in the provider whose accepted list is the
+// config's, which is what a fully-started gate has.
+//
+// The testenv build leaves the provider holding startingMerchant{}, whose
+// GetAcceptedMints() is nil — correct for a starting gate, and useless for testing the
+// redemption path, because mintAccepted now asks the MERCHANT (the authority the allotment
+// code consults) rather than the live config. Without this, every endpoint test is refused
+// at the mint gate before it reaches what it is testing.
+func installMerchantKnowingConfig(t *testing.T) {
+	t.Helper()
+	cfg := configManager.GetConfig()
+	if cfg == nil || len(cfg.AcceptedMints) == 0 {
+		t.Skip("no accepted mints in this config")
+	}
+	prev := merchantProvider.inner.GetMerchant()
+	merchantProvider.inner.SetMerchant(&staleMintMerchant{accepted: append([]config_manager.MintConfig(nil), cfg.AcceptedMints...)})
+	t.Cleanup(func() { merchantProvider.inner.SetMerchant(prev) })
 }
 
 // acceptedMintForTest returns a mint URL this gate's config actually accepts.
@@ -147,6 +167,7 @@ func TestRedeemRefusesWhenRailIsDisabled(t *testing.T) {
 // A DEFINITIVE issuer refusal means the note will never work. Nothing was spent,
 // and the customer must be told not to bother retrying.
 func TestRedeemReportsDefinitiveIssuerRefusal(t *testing.T) {
+	installMerchantKnowingConfig(t)
 	resolveTestDevice(t)
 	var melted bool
 	rail := endpointTestRail(t, &melted)
@@ -176,6 +197,7 @@ func TestRedeemReportsDefinitiveIssuerRefusal(t *testing.T) {
 // informational GET means we do not know the note's value; it does not mean the
 // note is bad. The critical assertion is that nothing reached the melt.
 func TestRedeemDoesNotSpendWhenIssuerLookupIsAmbiguous(t *testing.T) {
+	installMerchantKnowingConfig(t)
 	resolveTestDevice(t)
 	var melted bool
 	rail := endpointTestRail(t, &melted)
@@ -204,6 +226,7 @@ func TestRedeemDoesNotSpendWhenIssuerLookupIsAmbiguous(t *testing.T) {
 // A ZERO-VALUE ANSWER BUYS NOTHING. Reported as redeemable-but-worthless, and the
 // melt is never attempted.
 func TestRedeemRefusesAZeroValueNote(t *testing.T) {
+	installMerchantKnowingConfig(t)
 	resolveTestDevice(t)
 	var melted bool
 	rail := endpointTestRail(t, &melted)
@@ -226,6 +249,7 @@ func TestRedeemRefusesAZeroValueNote(t *testing.T) {
 // THE HAPPY PATH. Proves the endpoint actually wires issuer → amount → rail →
 // melt, which is the one thing a suite of refusal tests cannot see.
 func TestRedeemHappyPathReturnsAQuoteAndGrantsNothing(t *testing.T) {
+	installMerchantKnowingConfig(t)
 	resolveTestDevice(t)
 	var melted bool
 	rail := endpointTestRail(t, &melted)
@@ -265,6 +289,7 @@ func TestRedeemHappyPathReturnsAQuoteAndGrantsNothing(t *testing.T) {
 // A NOTE WITH NO ISSUER HINT CANNOT BE PARSED. A bare k1 names no host, and guessing
 // one would let the caller choose which host we talk to.
 func TestRedeemRefusesABareSpendWithNoIssuer(t *testing.T) {
+	installMerchantKnowingConfig(t)
 	resolveTestDevice(t)
 	var melted bool
 	rail := endpointTestRail(t, &melted)
@@ -290,6 +315,7 @@ func TestRedeemRefusesABareSpendWithNoIssuer(t *testing.T) {
 // THE ALLOWLIST IS THE SSRF BOUNDARY. A note naming a host the operator did not
 // allow must be refused before any network call.
 func TestRedeemRefusesAnIssuerOutsideTheAllowlist(t *testing.T) {
+	installMerchantKnowingConfig(t)
 	resolveTestDevice(t)
 	var melted bool
 	rail := endpointTestRail(t, &melted)
@@ -357,6 +383,7 @@ func TestRedeemRejectsAnOversizedBody(t *testing.T) {
 // note was already redeemed and a grant exists, "no" without "check your session"
 // loses them their money.
 func TestRedeemReportsAReplayAsRecoverable(t *testing.T) {
+	installMerchantKnowingConfig(t)
 	resolveTestDevice(t)
 	var melted bool
 	rail := endpointTestRail(t, &melted)
@@ -442,6 +469,7 @@ func TestRedeemRouteIsRateLimited(t *testing.T) {
 // The refusal must be 400 mint_not_accepted, and it must happen before Redeem, so no
 // record is created at all.
 func TestRedeemRefusesAnUnacceptedMintBeforeJournaling(t *testing.T) {
+	installMerchantKnowingConfig(t)
 	resolveTestDevice(t) // otherwise the identity guard short-circuits and this proves nothing
 	melted := false
 	rail, store := endpointTestRailWithStore(t, &melted)
@@ -503,6 +531,7 @@ func TestRedeemRefusesAnUnacceptedMintBeforeJournaling(t *testing.T) {
 // This drives every refusal the rail can produce and asserts none of them is a 200, then
 // asserts the one success carries a quote.
 func TestRedeemNeverReportsSuccessWithoutAQuote(t *testing.T) {
+	installMerchantKnowingConfig(t)
 	resolveTestDevice(t)
 
 	type tc struct {
@@ -632,3 +661,75 @@ func TestJournalRefusalIsNotReportedAsAnAmbiguousMelt(t *testing.T) {
 			"round a loop that cannot succeed", rec.Body.String())
 	}
 }
+
+// THE MINT CHECK MUST ASK THE SAME AUTHORITY THE ALLOTMENT CODE ASKS.
+//
+// The check originally read configManager.GetConfig() — the LIVE config, swapped by
+// ReloadConfig on every `tollgate config` save. The allotment code reads m.config, a snapshot
+// captured when the merchant was built and never reassigned. After an operator added a mint,
+// this check said yes while allotment still said "mint configuration not found": Prepare had
+// already journalled a record, the invoice step failed, the record was marked Failed, and the
+// note retried its full budget. That is the exact journal-consumption loop the mint check was
+// added to close, reopened by a config reload.
+//
+// The fix asks the merchant. This test pins the SOURCE of the answer, because a future reader
+// "simplifying" it back to configManager would look correct and be wrong.
+func TestMintAcceptanceAsksTheMerchantNotTheLiveConfig(t *testing.T) {
+	resolveTestDevice(t)
+
+	// Build a merchant whose accepted list EXCLUDES a mint the live config contains, then
+	// install it. That divergence is the whole danger: after an operator adds a mint, the
+	// live config says yes while the boot-time snapshot the allotment code reads still says
+	// no. Without this divergence the two sources agree by accident and any implementation
+	// passes.
+	live := acceptedMintForTest(t)
+	const onlyInLiveConfig = "https://added-after-boot.invalid"
+
+	prev := merchantProvider.inner.GetMerchant()
+	merchantProvider.inner.SetMerchant(&staleMintMerchant{})
+	t.Cleanup(func() { merchantProvider.inner.SetMerchant(prev) })
+
+	if mintAccepted(onlyInLiveConfig) {
+		t.Fatal("the check accepted a mint the MERCHANT does not know — it is reading the live config, and after a reload that admits mints the allotment code still rejects, reopening the journal-consumption loop")
+	}
+	if mintAccepted(live) {
+		t.Fatal("the check accepted a mint the merchant does not know")
+	}
+
+	// Now install a merchant that DOES know the config's mints — what a fully-started gate
+	// has — and assert it accepts. Restoring `prev` here would be wrong: in the testenv build
+	// `prev` is startingMerchant{}, whose accepted list is nil, so the assertion would fail
+	// for a reason that has nothing to do with what this test is about.
+	merchantProvider.inner.SetMerchant(&staleMintMerchant{accepted: configManager.GetConfig().AcceptedMints})
+	if !mintAccepted(live) {
+		t.Fatal("a merchant that reports this mint as accepted was still refused — the check is not consulting the merchant at all")
+	}
+
+	// A mint nobody accepts is refused, and refused BEFORE any journal write.
+	melted := false
+	rail, store := endpointTestRailWithStore(t, &melted)
+	_ = store
+	h := handleLNURLCashRedeem(rail, func() (bool, string) { return true, "" },
+		func(string) (lnurlCashIssuer, error) {
+			return &stubIssuer{state: lnurlcash.IssuerState{WithdrawableMSat: 21000}}, nil
+		})
+	body := `{"note":"` + endpointTestSpend + `","mint":"https://nobody-accepts-this.invalid","issuer":"mint.example"}`
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/lnurlcash/redeem", strings.NewReader(body)))
+
+	if melted {
+		t.Fatal("an unaccepted mint reached the melt")
+	}
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "mint_not_accepted") {
+		t.Fatalf("expected 400 mint_not_accepted, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// staleMintMerchant stands in for a merchant built before a config reload: it reports the
+// accepted list it was constructed with and nothing else.
+type staleMintMerchant struct {
+	merchant.MerchantInterface
+	accepted []config_manager.MintConfig
+}
+
+func (m *staleMintMerchant) GetAcceptedMints() []config_manager.MintConfig { return m.accepted }

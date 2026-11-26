@@ -100,6 +100,13 @@ type IssuerState struct {
 	// the note's own domain before use, so a hostile issuer cannot redirect the
 	// spend to another host.
 	Callback *url.URL
+	// CallbackParams carries the issuer's OWN query parameters from that callback,
+	// minus any that would collide with ours (k1, pr, signature...). LUD-25 lets the
+	// withdraw response name a callback with a query string; discarding it sent the
+	// melt to a URL the issuer did not publish, which 404s and leaves the note
+	// reserved but unredeemable. Only NAMES are carried that we did not invent, and
+	// the values are the issuer's own, validated for shape below.
+	CallbackParams url.Values
 }
 
 // Client talks to ONE issuer domain. A Client is created per redemption from the
@@ -176,6 +183,21 @@ func publicAddress(ip net.IP) bool {
 	// both reach an IPv4 host. To4() handles the first; NAT64 must be unwrapped by
 	// hand, or 64:ff9b::7f00:1 sneaks past every v4 rule below and dials 127.0.0.1.
 	if v4 := ip.To4(); v4 != nil {
+		return publicIPv4(v4)
+	}
+	// 6to4 (2002::/16) embeds an IPv4 address in bits 16..48, and Teredo (2001::/32) in the
+	// last 32 bits (bit-inverted). Both are a route to an internal v4 address that no v4 rule
+	// above would ever see, and both passed before this check: 2002:7f00:0001:: IS 127.0.0.1.
+	// Unwrap them so the same rules apply, and refuse anything malformed rather than guess.
+	if len(ip) == net.IPv6len && ip[0] == 0x20 && ip[1] == 0x02 {
+		return publicIPv4(net.IP(ip[2:6]))
+	}
+	if len(ip) == net.IPv6len && ip[0] == 0x20 && ip[1] == 0x01 && ip[2] == 0x00 && ip[3] == 0x00 {
+		// Teredo: the client's tunnelled address is the last four bytes, bitwise inverted.
+		v4 := make(net.IP, 4)
+		for i := 0; i < 4; i++ {
+			v4[i] = ^ip[12+i]
+		}
 		return publicIPv4(v4)
 	}
 	if len(ip) == net.IPv6len && ip[0] == 0x00 && ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b {
@@ -373,8 +395,53 @@ func (c *Client) parseWithdrawRequest(body []byte, domain string) (IssuerState, 
 		MintPubkey:       strings.TrimSpace(wr.MintPubkey),
 		Certificate:      strings.TrimSpace(wr.C),
 		Callback:         &url.URL{Scheme: "https", Host: domain, Path: cb.Path},
+		CallbackParams:   callbackParams(cb),
 	}
 	return state, nil
+}
+
+// callbackParams returns the query parameters an issuer published on its callback, minus
+// anything that could interfere with our own request.
+//
+// Why names are filtered at all: the melt URL is built here from OUR k1/pr parameters, and a
+// hostile issuer that could contribute a parameter of the same name would be dictating the
+// spend. So parameters we set ourselves are dropped, and so is anything whose name is not a
+// plain token — no "k1 ", no "%6b1", no empty name. The values are the issuer's own and are
+// only ever sent back to the issuer's own host.
+func callbackParams(cb *url.URL) url.Values {
+	if cb == nil || cb.RawQuery == "" {
+		return nil
+	}
+	ours := map[string]bool{"k1": true, "pr": true, "sig": true, "signature": true, "amount": true}
+	out := url.Values{}
+	for name, vals := range cb.Query() {
+		if ours[strings.ToLower(name)] || !plainToken(name) {
+			continue
+		}
+		for _, v := range vals {
+			out.Add(name, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// plainToken reports whether s is a bare query-parameter name: letters, digits, and the
+// separators a real API uses. Nothing that could be re-encoded into a different name.
+func plainToken(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-', r == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // isPermanentRefusal reports whether an issuer reason means the note will never
@@ -396,7 +463,7 @@ func isPermanentRefusal(reason string) bool {
 // re-sending the identical request is safe. A DIFFERENT invoice for the same
 // spend is refused by the issuer as `already in use`, and that refusal is
 // definitive — the note went somewhere else.
-func (c *Client) Melt(ctx context.Context, n Note, callback *url.URL, invoice string) error {
+func (c *Client) Melt(ctx context.Context, n Note, callback *url.URL, params url.Values, invoice string) error {
 	if callback == nil || callback.Host == "" {
 		return fmt.Errorf("%w: no callback to redeem at", ErrMalformedNote)
 	}
@@ -406,7 +473,16 @@ func (c *Client) Melt(ctx context.Context, n Note, callback *url.URL, invoice st
 	if !strings.HasPrefix(invoice, "lnbc") && !strings.HasPrefix(invoice, "lntb") {
 		return fmt.Errorf("%w: a melt needs a bolt11 invoice", ErrMalformedNote)
 	}
-	u, err := c.issuerURL(callback.Path, map[string]string{"k1": n.Spend(), "pr": invoice})
+	// Our parameters win: k1 and pr are set after the issuer's, so a callback that names
+	// either of them cannot dictate the spend or the invoice.
+	merged := map[string]string{"k1": n.Spend(), "pr": invoice}
+	for name, vals := range params {
+		if _, ours := merged[name]; ours || len(vals) == 0 {
+			continue
+		}
+		merged[name] = vals[0]
+	}
+	u, err := c.issuerURL(callback.Path, merged)
 	if err != nil {
 		return err
 	}

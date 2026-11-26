@@ -82,6 +82,9 @@ const maxRedeemAttemptsPerNote = 8
 type IssuerCallback struct {
 	Host string
 	Path string
+	// Params are the issuer's own callback query parameters, already filtered by the
+	// client to exclude ours. Nil for a callback that published none.
+	Params map[string]string
 }
 
 // LNURLCashRail coordinates one redemption. It holds no wallet of its own:
@@ -184,6 +187,11 @@ func (r *LNURLCashRail) Redeem(note lnurlcash.Note, confirmedMSat uint64, macAdd
 // An empty callbackPath keeps the old behaviour (the note's own path), which is what a
 // bare k1 note with no issuer answer gets.
 func (r *LNURLCashRail) RedeemAt(note lnurlcash.Note, confirmedMSat uint64, macAddress, mintURL, callbackPath string) (quoteID string, err error) {
+	return r.RedeemAtWith(note, confirmedMSat, macAddress, mintURL, callbackPath, nil)
+}
+
+// RedeemAtWith is RedeemAt with the issuer's own callback parameters.
+func (r *LNURLCashRail) RedeemAtWith(note lnurlcash.Note, confirmedMSat uint64, macAddress, mintURL, callbackPath string, callbackParams map[string]string) (quoteID string, err error) {
 	if !r.Open() {
 		return "", ErrLNURLCashRailClosed
 	}
@@ -320,7 +328,7 @@ func (r *LNURLCashRail) RedeemAt(note lnurlcash.Note, confirmedMSat uint64, macA
 	if callbackPath != "" {
 		meltPath = callbackPath
 	}
-	err = r.melt(note, IssuerCallback{Host: note.Domain, Path: meltPath}, bolt11)
+	err = r.melt(note, IssuerCallback{Host: note.Domain, Path: meltPath, Params: callbackParams}, bolt11)
 	if err != nil {
 		// The note is NOT released. Whether the issuer burned it is exactly what we
 		// no longer know, so the record stays `awaiting` and the fingerprint refuses

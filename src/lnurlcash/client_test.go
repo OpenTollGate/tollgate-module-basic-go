@@ -177,7 +177,7 @@ func TestRefusalClassificationIsDefinitiveOnlyWhenItIs(t *testing.T) {
 			defer srv.Close()
 
 			err := testClient(t, vecDomain, srv).Melt(context.Background(), testNote(t),
-				mustURL(t, "https://"+vecDomain+"/w/cb"), "lnbc1stub")
+				mustURL(t, "https://"+vecDomain+"/w/cb"), nil, "lnbc1stub")
 			var ie *IssuerError
 			if !errors.As(err, &ie) {
 				t.Fatalf("Melt error is not an IssuerError: %v", err)
@@ -214,7 +214,7 @@ func TestTransportFailureIsAmbiguous(t *testing.T) {
 	defer srv.Close()
 
 	err := testClient(t, vecDomain, srv).Melt(context.Background(), testNote(t),
-		mustURL(t, "https://"+vecDomain+"/w/cb"), "lnbc1stub")
+		mustURL(t, "https://"+vecDomain+"/w/cb"), nil, "lnbc1stub")
 	var ie *IssuerError
 	if !errors.As(err, &ie) {
 		t.Fatalf("Melt error is not an IssuerError: %v", err)
@@ -231,7 +231,7 @@ func TestMeltRefusesToSendTheSpendToAForeignCallback(t *testing.T) {
 	defer srv.Close()
 
 	err := testClient(t, vecDomain, srv).Melt(context.Background(), testNote(t),
-		mustURL(t, "https://evil.example/w/cb"), "lnbc1stub")
+		mustURL(t, "https://evil.example/w/cb"), nil, "lnbc1stub")
 	if err == nil {
 		t.Fatal("Melt accepted a callback on another host")
 	}
@@ -314,6 +314,10 @@ func TestPublicAddressRefusesNonRoutableRanges(t *testing.T) {
 		"::1", "::", "fc00::1", "fd12:3456::1", "fe80::1", "ff02::1",
 		"::ffff:127.0.0.1", "::ffff:0.0.0.1", "::ffff:10.0.0.1",
 		"64:ff9b::7f00:1", "64:ff9b::a00:1", "64:ff9b::c0a8:101",
+		// 6to4 and Teredo embed an IPv4 address and reached loopback/private through every
+		// v4 rule: 2002:7f00:0001:: IS 127.0.0.1.
+		"2002:7f00:0001::", "2002:0a00:0001::", "2002:c0a8:0101::",
+		"2001:0000:4136:e378:8000:63bf:80ff:fffe", // Teredo, last 4 bytes = ^127.0.0.1
 	}
 	for _, s := range refused {
 		ip := net.ParseIP(s)
@@ -335,5 +339,63 @@ func TestPublicAddressRefusesNonRoutableRanges(t *testing.T) {
 		if !publicAddress(ip) {
 			t.Errorf("publicAddress(%s) = false; a real issuer could live here", s)
 		}
+	}
+}
+
+// AN ISSUER'S CALLBACK QUERY MUST BE HONOURED — BUT NEVER OVER OUR OWN PARAMETERS.
+//
+// LUD-25 lets the withdraw response name a callback with a query string. The rebuild kept
+// only Scheme/Host/Path, so the melt went to a URL the issuer never published: the issuer
+// 404s, the melt is ambiguous, the record stays `awaiting` and the note can never be
+// presented again. Stranded funds, from an answer we had already validated.
+//
+// The other half matters more: the melt carries OUR k1 and pr. If an issuer could contribute
+// a parameter of either name, it would be dictating the spend or the invoice.
+func TestCallbackParamsAreHonouredButCannotOverrideOurs(t *testing.T) {
+	base, err := url.Parse("https://mint.example/cb?ref=abc123&tenant=blue&k1=HOSTILE&pr=HOSTILE&signature=x&bad%20name=y&")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	got := callbackParams(base)
+
+	if got.Get("ref") != "abc123" {
+		t.Errorf("the issuer's own parameter was dropped: ref=%q — the melt will 404", got.Get("ref"))
+	}
+	if got.Get("tenant") != "blue" {
+		t.Errorf("a second issuer parameter was dropped: tenant=%q", got.Get("tenant"))
+	}
+	for _, ours := range []string{"k1", "pr", "signature"} {
+		if got.Has(ours) {
+			t.Errorf("%s survived filtering; an issuer must not contribute a parameter we set ourselves", ours)
+		}
+	}
+	if got.Has("bad name") || got.Has("bad%20name") {
+		t.Error("a parameter name that is not a plain token survived; it could re-encode into something else")
+	}
+
+	// And a callback with no query yields nil, not an empty non-nil map that a caller might
+	// treat as "the issuer named parameters".
+	if p := callbackParams(&url.URL{Scheme: "https", Host: "mint.example", Path: "/cb"}); p != nil {
+		t.Errorf("a callback with no query produced %v; want nil", p)
+	}
+
+	// The merge itself: ours are applied after the issuer's, so ours win even if filtering
+	// were ever loosened.
+	merged := map[string]string{"k1": "OURS", "pr": "OURINVOICE"}
+	hostile := url.Values{}
+	hostile.Set("ref", "abc123")
+	hostile.Set("k1", "HOSTILE")
+	for name, vals := range hostile {
+		if _, ours := merged[name]; ours || len(vals) == 0 {
+			continue
+		}
+		merged[name] = vals[0]
+	}
+	if merged["k1"] != "OURS" {
+		t.Fatalf("k1 = %q; an issuer's callback must never be able to replace the spend", merged["k1"])
+	}
+	if merged["ref"] != "abc123" {
+		t.Fatal("the issuer's benign parameter was dropped in the merge")
 	}
 }

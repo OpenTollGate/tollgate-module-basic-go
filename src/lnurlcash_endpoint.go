@@ -102,13 +102,29 @@ type lnurlCashIssuer interface {
 // comparison the wallet and the allotment code use, so two spellings of one mint
 // (trailing slash, host case, default port) cannot disagree with each other — the
 // #375/#480 class of drift, which has bitten this repo before.
+// mintAccepted reports whether the MERCHANT will serve this mint.
+//
+// It asks the merchant for its own accepted list rather than reading configManager
+// directly, and that is the whole point: the merchant captures its config once at
+// construction (m.config, never reassigned), while configManager.GetConfig() returns the
+// LIVE config on every call and is swapped by ReloadConfig. Asking the live config here
+// meant that after an operator added a mint, this check said yes while the allotment code
+// still said "mint configuration not found" — Prepare then journalled a record, the invoice
+// step failed, the record was marked Failed, and the note retried 8 times. That is the exact
+// loop the mint check exists to prevent, reopened by a config reload.
+//
+// Fail-closed is the right direction for the remaining window: a mint the merchant does not
+// know yet is refused until the merchant is rebuilt, rather than journalled and failed.
 func mintAccepted(mintURL string) bool {
-	cfg := configManager.GetConfig()
-	if cfg == nil {
+	if merchantProvider == nil {
 		return false
 	}
-	for _, m := range cfg.AcceptedMints {
-		if tollwallet.MintURLMatches(m.URL, mintURL) {
+	m := merchantProvider.inner.GetMerchant()
+	if m == nil {
+		return false
+	}
+	for _, accepted := range m.GetAcceptedMints() {
+		if tollwallet.MintURLMatches(accepted.URL, mintURL) {
 			return true
 		}
 	}
@@ -258,10 +274,22 @@ func handleLNURLCashRedeem(
 		// rebuilt from the validated answer (host pinned to the note's domain, https
 		// required), so nothing here is attacker-chosen that was not already checked.
 		callbackPath := ""
+		var callbackParams map[string]string
 		if state.Callback != nil {
 			callbackPath = state.Callback.Path
+			// The issuer's own query string, filtered by the client to exclude k1/pr and
+			// anything that is not a plain parameter name. Dropping it sent the melt to a
+			// URL the issuer never published, which 404s and strands the note.
+			if len(state.CallbackParams) > 0 {
+				callbackParams = make(map[string]string, len(state.CallbackParams))
+				for name, vals := range state.CallbackParams {
+					if len(vals) > 0 {
+						callbackParams[name] = vals[0]
+					}
+				}
+			}
 		}
-		quoteID, err := rail.RedeemAt(note, state.WithdrawableMSat, macAddress, mintURL, callbackPath)
+		quoteID, err := rail.RedeemAtWith(note, state.WithdrawableMSat, macAddress, mintURL, callbackPath, callbackParams)
 		if err != nil {
 			switch {
 			case errors.Is(err, merchant.ErrLNURLCashNoteAlreadyRedeemed):
@@ -349,7 +377,13 @@ func newProductionLNURLCashRail(
 		ctx, cancel := context.WithTimeout(context.Background(), lnurlCashIssuerTimeout)
 		defer cancel()
 		cb := &url.URL{Scheme: "https", Host: callback.Host, Path: callback.Path}
-		return client.Melt(ctx, note, cb, bolt11)
+		// The issuer's own query parameters, already filtered by the client to exclude
+		// ours. Nil when the callback published none.
+		params := url.Values{}
+		for name, val := range callback.Params {
+			params.Set(name, val)
+		}
+		return client.Melt(ctx, note, cb, params, bolt11)
 	}
 
 	return merchant.NewLNURLCashRail(store, maxNoteMSat/1000, invoice, melt)
