@@ -80,15 +80,18 @@ type ClientOptions struct {
 	// daemon's wiring sets it.
 	AllowInsecureLoopbackForTests bool
 	// PlainTextIssuersForTests relaxes the https requirement for NON-loopback
-	// hosts. It exists for exactly one caller: tests/cloud-lab's lnurlcash lane,
-	// where the fake issuer is a container reached by hostname over the lab
-	// network and cannot be loopback from the gate's point of view.
+	// hosts, and exempts the lab bridge subnet (172.28.0.0/16) from the address
+	// guard. It exists for exactly one caller: tests/cloud-lab's lnurlcash lane,
+	// where the fake issuer is a container on that bridge, reached by hostname,
+	// and cannot be loopback from the gate's point of view.
 	//
 	// Nothing in the daemon sets it without TOLLGATE_ALLOW_PLAINTEXT_ISSUERS, which
 	// is a deliberate operator act in a lab, and the boot logs a warning when it is
-	// on. It does NOT touch the dial guard: private/CGNAT/loopback destinations stay
-	// refused unless AllowInsecureLoopbackForTests is also set, so this can widen the
-	// SCHEME for a lab, never the address classes.
+	// on. It widens BOTH rules, and only for that one range: loopback, RFC1918
+	// outside the lab subnet, CGNAT, link-local and ULA stay refused. An earlier
+	// version of this comment claimed the dial guard was untouched while the code
+	// skipped every address class — which reached the gate's own admin API. The
+	// comment now matches isLabBridgeAddress, and a test drives the real dialer.
 	PlainTextIssuersForTests bool
 }
 
@@ -385,12 +388,12 @@ func (c *Client) validateURL(u *url.URL) error {
 	case "https":
 		return nil
 	case "http":
-		// Plain http is allowed only through the explicitly named test seam,
-		// and only for a loopback literal — never for a hostname, which could
-		// resolve anywhere — unless the lab flag is set, in which case a hostname is
-		// allowed too. The DIAL GUARD is untouched either way: CGNAT, RFC1918 and
-		// loopback destinations stay refused by address, so this widens the scheme
-		// for a lab and never the address classes.
+		// Plain http is allowed only through the explicitly named test seams: for a
+		// loopback literal, or — under the lab flag — for any host, which the ADDRESS
+		// guard then narrows to the lab bridge subnet. Scheme and address are two
+		// separate decisions and both are enforced; an earlier comment here claimed the
+		// address guard was untouched, which was false at the time and is the reason a
+		// test now drives the real dialer.
 		if c.allowInsecureLoopbackForTests && isLoopbackLiteral(u.Hostname()) {
 			return nil
 		}

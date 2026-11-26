@@ -129,6 +129,17 @@ Ship LNURLcash as a **payment method**, not as a payment rail replacement:
    the unit tests can drive a local fake issuer without that being a
    production capability.
 
+   **One deliberate exception, and its exact extent.** The cloud-lab lane's fake
+   issuer is a container on the compose bridge, so `TOLLGATE_ALLOW_PLAINTEXT_ISSUERS=1`
+   exempts the lab subnet `172.28.0.0/16` — and nothing else — from both the https
+   rule and the address guard. Loopback, RFC1918 outside that subnet, CGNAT,
+   link-local and ULA remain refused. The exemption is a named function
+   (`isLabBridgeAddress`) and a test drives the real dialer to prove loopback is
+   still refused with the flag on, because an earlier version of this flag skipped
+   `blockedAddress` for *every* address class and thereby reached the gate's own
+   admin API. Nothing in the config file can set the flag; it is environment-only
+   and announced at boot. See "The lab escape hatch" below.
+
 Out of scope, deliberately: issuing notes (Role A), offline verification, and
 any claim that a certificate's timestamp substitutes for redemption. A
 `cs1`-style certificate is **at most** an input to a staleness policy, never
@@ -173,9 +184,14 @@ It is deliberately shaped so it cannot be reached by accident:
 * **one option, one constructor.** The relaxation is a named type derived from the
   client's own options, so the scheme rule and the dial guard cannot disagree about
   whether it is in force.
-* **fenced.** A test builds a client exactly as production does and requires it to
-  refuse both a plain-http hostname and a private address; only the named option
-  widens either.
+* **fenced.** Two tests, because one was not enough. `TestDefaultClientRefusesPlaintextAndPrivateHosts`
+  builds a client exactly as production does and requires it to refuse both a plain-http
+  hostname and a private address. `TestLabFlagDoesNotReachLoopbackOrTheWiderLAN` drives the
+  real `DialContext` with the flag ON and requires loopback to be refused *by the address
+  guard* — asserting the error text, not merely that dialling failed, because a closed port
+  or a DNS failure would otherwise pass the test while proving nothing. An earlier version of
+  this section cited only the first test, which exercises the scheme branch and therefore
+  proves nothing about the address guard; the reviewer was right to call that out.
 
 The honest summary: this is a **test affordance in the production binary**, not a
 feature. It is inert unless an operator sets an environment variable on a router,
