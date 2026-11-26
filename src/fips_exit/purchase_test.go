@@ -2,6 +2,7 @@ package fips_exit
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -38,18 +39,18 @@ func TestPurchaseHandlerServesTheChallenge(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	var got PurchaseOffer
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("offer is not JSON: %v", err)
+	ch, ok := challengeFromHeader(t, rec)
+	if !ok {
+		t.Fatal("the advertisement carries no challenge")
 	}
-	if got.Challenge.PriceSats != 2 || got.Challenge.Mode != BillingBytes {
-		t.Fatalf("offer does not carry the terms: %+v", got.Challenge)
+	if ch.PriceSats != 2 || ch.Mode != BillingBytes {
+		t.Fatalf("challenge does not carry the terms: %+v", ch)
 	}
-	if got.Challenge.Nonce[0] != 0x42 {
-		t.Fatal("offer did not use the injected nonce")
+	if ch.Nonce[0] != 0x42 {
+		t.Fatal("challenge did not use the injected nonce")
 	}
-	if got.Challenge.ExitKey != (PeerKey{0x11}) {
-		t.Fatal("offer did not carry the exit key")
+	if ch.ExitKey != (PeerKey{0x11}) {
+		t.Fatal("challenge did not carry the exit key")
 	}
 }
 
@@ -436,4 +437,97 @@ func TestPurchaseHandlerDefaultsTerms(t *testing.T) {
 	if ent.ByteBudget == 0 {
 		t.Fatal("a default budget of zero would be an unbounded grant")
 	}
+}
+
+// A buyer must be able to price this exit from GET / alone. The app parses the
+// module's own advertisement grammar (kind 10021 + metric/step_size/price_per_step
+// tags), so serving the challenge struct instead would be unreachable to the one
+// client that exists. This asserts the wire shape, tag order and values.
+func TestPurchaseOfferIsATollGateAdvertisement(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	svc := NewPurchaseService(PurchaseConfig{
+		Now:       func() time.Time { return now },
+		ExitKey:   PeerKey{0x11},
+		PriceSats: 2,
+		Mode:      BillingBytes,
+		StepBytes: 60000,
+		MintURL:   "https://mint.example",
+		MinSteps:  1,
+		Random:    bytes.NewReader(bytes.Repeat([]byte{0x42}, 64)),
+		Store:     &memStore{},
+		Cache:     NewNonceCache(8, now),
+		ObservedSource: func(*http.Request) (string, error) {
+			return "fd00::1", nil
+		},
+	})
+	rec := httptest.NewRecorder()
+	svc.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+
+	var advert struct {
+		Kind int        `json:"kind"`
+		Tags [][]string `json:"tags"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &advert); err != nil {
+		t.Fatalf("offer is not JSON: %v", err)
+	}
+	if advert.Kind != 10021 {
+		t.Fatalf("kind = %d, want 10021 (a TollGate advertisement)", advert.Kind)
+	}
+
+	byName := map[string][]string{}
+	for _, tag := range advert.Tags {
+		if len(tag) > 0 {
+			byName[tag[0]] = tag
+		}
+	}
+	if got := byName["metric"]; len(got) != 2 || got[1] != "bytes" {
+		t.Fatalf("metric tag = %v, want [metric bytes]", got)
+	}
+	if got := byName["step_size"]; len(got) != 2 || got[1] != "60000" {
+		t.Fatalf("step_size tag = %v, want [step_size 60000]", got)
+	}
+	price := byName["price_per_step"]
+	if len(price) != 6 {
+		t.Fatalf("price_per_step tag = %v, want 6 fields", price)
+	}
+	if price[1] != "cashu" || price[2] != "2" || price[3] != "sat" ||
+		price[4] != "https://mint.example" || price[5] != "1" {
+		t.Fatalf("price_per_step tag = %v, want [price_per_step cashu 2 sat <mint> 1]", price)
+	}
+
+	// The challenge must still be reachable, or the buyer cannot sign anything.
+	if rec.Header().Get("X-TollGate-Challenge") == "" {
+		t.Fatal("the advertisement does not carry a challenge for the buyer to sign")
+	}
+}
+
+// challengeFromHeader decodes the challenge the advertisement carries. The
+// advertisement body stays the exact tag grammar a TollGate client parses, so
+// the challenge travels beside it rather than inside it.
+func challengeFromHeader(t *testing.T, r interface{}) (Challenge, bool) {
+	t.Helper()
+	var raw string
+	switch v := r.(type) {
+	case http.Header:
+		raw = v.Get("X-TollGate-Challenge")
+	case interface{ Header() http.Header }:
+		raw = v.Header().Get("X-TollGate-Challenge")
+	case *http.Response:
+		raw = v.Header.Get("X-TollGate-Challenge")
+	}
+	if raw == "" {
+		return Challenge{}, false
+	}
+	blob, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		t.Fatalf("challenge header is not base64: %v", err)
+	}
+	var ch Challenge
+	if err := json.Unmarshal(blob, &ch); err != nil {
+		t.Fatalf("challenge header is not a challenge: %v", err)
+	}
+	return ch, true
 }

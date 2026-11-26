@@ -2,11 +2,13 @@ package fips_exit
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"time"
 )
 
@@ -66,6 +68,15 @@ type PurchaseConfig struct {
 	Mode      BillingMode
 	// TTL is how long an offered challenge stays valid. Zero means ten minutes.
 	TTL time.Duration
+	// StepBytes is how many bytes one priced step buys, quoted in the
+	// advertisement. Zero means 60000, the module's own default, so an exit that
+	// does not care still quotes a price the buyer can turn into a rate.
+	StepBytes uint64
+	// MintURL is the mint this exit accepts payment from. Required for an
+	// advertisement a buyer can pay.
+	MintURL string
+	// MinSteps is the smallest purchase the exit will sell.
+	MinSteps uint64
 	// Store persists admission state. Required for POST.
 	Store Store
 	// ClientsStore persists the rendered clients file the exit daemon reads. When
@@ -134,7 +145,38 @@ func (s *PurchaseService) serveOffer(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusInternalServerError, "challenge", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, PurchaseOffer{Challenge: ch})
+
+	// The reply is the module's own advertisement grammar (kind 10021 with
+	// metric/step_size/price_per_step tags), because the client that exists
+	// parses exactly that. Serving the challenge struct instead would be a
+	// private contract no buyer speaks.
+	step := s.cfg.StepBytes
+	if step == 0 {
+		step = 60000
+	}
+	minSteps := s.cfg.MinSteps
+	if minSteps == 0 {
+		minSteps = 1
+	}
+	advert := map[string]any{
+		"kind": 10021,
+		"tags": [][]string{
+			{"metric", string(s.cfg.Mode)},
+			{"step_size", strconv.FormatUint(step, 10)},
+			{"price_per_step", "cashu", strconv.FormatUint(s.cfg.PriceSats, 10), "sat", s.cfg.MintURL, strconv.FormatUint(minSteps, 10)},
+			{"exit", s.cfg.ExitKey.OuterAddress().String()},
+		},
+	}
+	// The challenge travels beside the advert so the buyer can sign something.
+	// A header keeps the advertisement body exactly the grammar the parser
+	// accepts, which is what makes one response serve both readers.
+	chJSON, err := json.Marshal(ch)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "challenge", err.Error())
+		return
+	}
+	w.Header().Set("X-TollGate-Challenge", base64.StdEncoding.EncodeToString(chJSON))
+	writeJSON(w, http.StatusOK, advert)
 }
 
 func (s *PurchaseService) servePurchase(w http.ResponseWriter, r *http.Request) {

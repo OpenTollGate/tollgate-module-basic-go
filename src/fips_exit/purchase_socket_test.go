@@ -112,14 +112,24 @@ func TestPurchaseOverARealSocket(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET status = %d (%s)", resp.StatusCode, offerBody)
 	}
-	var offer PurchaseOffer
-	if err := json.Unmarshal(offerBody, &offer); err != nil {
-		t.Fatalf("offer over the wire is not JSON: %v", err)
+	var advert struct {
+		Kind int        `json:"kind"`
+		Tags [][]string `json:"tags"`
 	}
-	if offer.Challenge.ExitKey != claim.Challenge.ExitKey {
+	if err := json.Unmarshal(offerBody, &advert); err != nil {
+		t.Fatalf("advertisement over the wire is not JSON: %v", err)
+	}
+	if advert.Kind != 10021 {
+		t.Fatalf("served kind = %d, want 10021", advert.Kind)
+	}
+	ch, ok := challengeFromHeader(t, resp)
+	if !ok {
+		t.Fatal("the advertisement carries no challenge over the wire")
+	}
+	if ch.ExitKey != claim.Challenge.ExitKey {
 		t.Fatal("the served challenge does not carry this exit's key")
 	}
-	if offer.Challenge.Nonce == claim.Challenge.Nonce {
+	if ch.Nonce == claim.Challenge.Nonce {
 		t.Fatal("the served challenge reused the fixture nonce")
 	}
 
