@@ -1,6 +1,7 @@
 package lnurlcash
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -20,6 +21,42 @@ func encodeLNURL(t *testing.T, rawURL string) string {
 		t.Fatalf("bech32.Encode: %v", err)
 	}
 	return enc
+}
+
+// A note has two spellings in the wild: the `lnurl1…` bech32 string a wallet
+// shows and the https URL it decodes to. The journal is keyed by fingerprint, so
+// if the two spellings hashed differently the SAME note would get two journal
+// records — and could be redeemed, and granted, twice. This is the double-grant
+// invariant, tested at the level it actually breaks.
+func TestOneNoteHasOneJournalKeyWhicheverwayItIsPresented(t *testing.T) {
+	issuer := newFakeIssuer(t, "k1secret", 10_000_000)
+	h := newHarness(t, Config{})
+
+	urlForm := issuer.note()
+	bechForm := encodeLNURL(t, urlForm)
+
+	fpURL := h.svc.FingerprintOfPresented(urlForm)
+	fpBech := h.svc.FingerprintOfPresented(bechForm)
+	if fpURL != fpBech {
+		t.Fatalf("one note produced two journal keys (%s vs %s): the same note could be redeemed twice",
+			fpURL, fpBech)
+	}
+
+	// And the behaviour, not just the key: redeem it once in one spelling, then
+	// present it in the other. The second attempt must be answered from the
+	// journal, with no second callback to the issuer.
+	if _, err := h.svc.Redeem(context.Background(), urlForm, "aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatalf("first Redeem (url form): %v", err)
+	}
+	afterFirst := issuer.callbackCount()
+
+	if _, err := h.svc.Redeem(context.Background(), bechForm, "aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatalf("second Redeem (bech32 form): %v", err)
+	}
+	if got := issuer.callbackCount(); got != afterFirst {
+		t.Fatalf("the issuer saw %d callbacks after the bech32 re-presentation, want %d: "+
+			"the same note was presented twice", got, afterFirst)
+	}
 }
 
 // A presented note is either an `lnurl1…` bech32 string or an https URL. Both

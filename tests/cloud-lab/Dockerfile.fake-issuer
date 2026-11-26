@@ -1,0 +1,18 @@
+# Dockerfile.fake-issuer — the fake LNURLcash issuer for the lnurlcash lane.
+#
+# Deliberately no dependencies: the issuer is stdlib-only Python, so the image
+# builds in seconds and carries no supply-chain surface of its own. It is a TEST
+# DOUBLE for a third party (the note's issuer), never a service this project ships.
+
+FROM python:3.12-alpine
+
+WORKDIR /issuer
+COPY fake_issuer.py /issuer/fake_issuer.py
+
+ENV FAKE_ISSUER_PORT=8099
+EXPOSE 8099
+
+HEALTHCHECK --interval=2s --timeout=2s --retries=30 \
+  CMD python3 -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8099/_state', timeout=1); sys.exit(0)"
+
+ENTRYPOINT ["python3", "/issuer/fake_issuer.py"]

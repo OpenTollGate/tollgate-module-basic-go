@@ -95,7 +95,10 @@ func decodeNote(presented string, allowInsecureLoopbackAlso bool) (Note, error) 
 
 	u, err := url.Parse(target)
 	if err != nil {
-		return Note{}, fmt.Errorf("note is not a decodable lnurl: %w", err)
+		// Do NOT wrap: url.Parse's error text quotes the input it was given, and
+		// the input is the note — a bearer secret that would then be logged verbatim
+		// by every caller that logs a refusal.
+		return Note{}, errors.New("note does not decode to a usable URL")
 	}
 	if u.Scheme != "https" {
 		if !(allowInsecureLoopbackAlso && u.Scheme == "http" && isLoopbackLiteral(u.Hostname())) {
@@ -134,17 +137,27 @@ func decodeBech32LNURL(s string) (string, error) {
 }
 
 // Fingerprint returns the stable, non-secret correlate the redemption journal
-// is keyed by. It is the plain SHA-256 of the trimmed note because a note is
-// high-entropy (a k1 secret), so there is no dictionary to attack, and because
-// the journal must be able to answer "have I seen this note?" after a restart
-// without holding the note itself. It is a fingerprint, not a MAC: nothing here
-// needs to resist a reader who is already root on the router, and the journal
-// file is 0600.
+// is keyed by.
+//
+// It is keyed on the DECODED CANONICAL URL, not the presented string. One note
+// has two spellings in the wild — the `lnurl1…` bech32 form a wallet shows and the
+// https URL it decodes to — and the QR a customer scans may be either. Hashing
+// the raw string gives those two spellings two journal records, so the same note
+// could be redeemed twice: exactly the double-grant the journal exists to prevent.
+// Canonicalising first makes "have I seen this note?" answer the question the
+// caller means. (A reviewer reproduced this: 2819fac9… for the URL, 9b0c62… for
+// the same note in bech32.)
+//
+// It stays a plain SHA-256 because a note is high-entropy (a k1 secret), so there
+// is no dictionary to attack; it is a fingerprint, not a MAC, and nothing here
+// needs to resist a reader who is already root on the router (the journal is 0600).
 func Fingerprint(note Note) string {
-	return fingerprintOf(note.Raw)
+	return fingerprintOf(note.URL)
 }
 
-func fingerprintOf(raw string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(raw)))
+// fingerprintOf hashes a canonical note URL. Callers must pass note.URL, never
+// the presented string — see Fingerprint.
+func fingerprintOf(canonicalURL string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(canonicalURL)))
 	return hex.EncodeToString(sum[:])
 }

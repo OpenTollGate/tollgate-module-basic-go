@@ -314,6 +314,84 @@ services:
         ipv4_address: 172.28.0.20
     entrypoint: ["pytest"]
 
+  # --- LNURLcash opt-in lane (run-lnurlcash-lane.sh) -- profile "lnurlcash"
+  #
+  # The gate serves the OPT-IN method enabled; a fake issuer stands in for the
+  # third party that holds the note's promise. The issuer cannot influence the
+  # gate's own mint, which is exactly the boundary under test: issuer OK must not
+  # be enough to grant access.
+
+  fake-issuer:
+    build:
+      network: host
+      context: .
+      dockerfile: Dockerfile.fake-issuer
+    container_name: tg-fake-issuer
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
+    profiles: ["lnurlcash"]
+    environment:
+      # The callback host the issuer advertises must match the host the gate
+      # dialled, or a correct gate refuses it.
+      FAKE_ISSUER_PUBLIC_HOST: fake-issuer:8099
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.12
+
+  upstream-lnurlcash:
+    build:
+      network: host
+      context: ../..
+      dockerfile: tests/cloud-lab/Dockerfile.tollgate
+      args:
+        GO_VERSION: ${TG_GO_VERSION:-1.26.10}
+        PACKAGE_VERSION: ${TG_PACKAGE_VERSION:-0.0.0-r0}
+        LDFLAGS: ${TG_LDFLAGS:-}
+    container_name: tg-upstream-lnurlcash
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
+    profiles: ["lnurlcash"]
+    depends_on:
+      mint:
+        condition: service_healthy
+      fake-issuer:
+        condition: service_healthy
+    environment:
+      - TOLLGATE_TEST_CONFIG_DIR=/etc/tollgate
+    volumes:
+      - ./configs/upstream-lnurlcash-config.json:/etc/tollgate/config.json
+      - ./configs/install.json:/etc/tollgate/install.json
+      - ./configs/dhcp.leases:/tmp/dhcp.leases
+    ports:
+      - "2123:2121"
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.13
+
+  client-lnurlcash:
+    build:
+      network: host
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: tg-client-lnurlcash
+    labels: ["ai-legion.lane=tollgate-cloud-lab"]
+    profiles: ["lnurlcash"]
+    depends_on:
+      upstream-lnurlcash:
+        condition: service_started
+      fake-issuer:
+        condition: service_healthy
+    volumes:
+      - .:/tests
+      - clientd-wallets:/w
+    working_dir: /tests
+    environment:
+      - LNURLCASH_GATE_URL=http://upstream-lnurlcash:2121
+      - LNURLCASH_ISSUER_URL=http://fake-issuer:8099
+    networks:
+      tollgate-lab:
+        ipv4_address: 172.28.0.21
+    entrypoint: ["pytest"]
+    command: ["-sv", "--tb=short", "test_lnurlcash_lane.py"]
+
 volumes:
   mint-data:
   mint-fees-data:

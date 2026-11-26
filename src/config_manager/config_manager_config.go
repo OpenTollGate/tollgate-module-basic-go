@@ -370,9 +370,20 @@ func LoadConfig(filePath string) (*Config, error) {
 	return &config, nil
 }
 
-// withLNURLCashDefaults fills any unset bound from DefaultLNURLCashConfig.
-// Enabled is never defaulted on: enabling is an operator act and can only
-// arrive from the file.
+// withLNURLCashDefaults fills the bounds an absent or partial `lnurlcash` section
+// leaves zero. It is the ONLY place these defaults are applied.
+//
+// Two shapes on purpose, and they are not the same rule:
+//   - MaxNoteSats and RedemptionTimeoutSeconds treat 0 as "unset" because zero is
+//     not a meaningful value for either (a 0-sat ceiling accepts nothing, a 0s
+//     timeout expires instantly).
+//   - RetentionSeconds treats only NEGATIVE as unset, because 0 IS meaningful and
+//     the schema promises it: "0 keeps everything". Filling 0 here would silently
+//     prune a week of records an operator asked to keep.
+//
+// The merchant layer deliberately re-applies none of this (see LNURLCashConfigFrom):
+// a second defaulting layer is how `retention_seconds: 0` came to mean a week in
+// the schema one release and forever in the code the next.
 func withLNURLCashDefaults(c LNURLCashConfig) LNURLCashConfig {
 	d := DefaultLNURLCashConfig()
 	if c.MaxNoteSats == 0 {

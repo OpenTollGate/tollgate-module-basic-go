@@ -115,8 +115,20 @@ func (r *Redeemer) Fingerprint(n Note) string { return Fingerprint(n) }
 
 // FingerprintOfPresented lets a caller fingerprint a note it has not yet handed
 // over (the API layer logs it before calling Redeem).
+//
+// It decodes first, so the log correlate of a note is the same string whether the
+// customer pasted the bech32 form or the URL. If it hashed the raw text, two
+// presentations of one note would show two different fingerprints in the log and
+// in the journal — the double-grant bug in a quieter form.
 func (r *Redeemer) FingerprintOfPresented(presented string) string {
-	return fingerprintOf(presented)
+	note, err := decodeNote(presented, r.client.allowInsecureLoopbackForTests)
+	if err != nil {
+		// Undecodable: there is no canonical form to key on, so the raw string is
+		// the only thing available. It will be refused by Redeem a moment later, so
+		// this value never becomes a journal key.
+		return fingerprintOf(presented)
+	}
+	return Fingerprint(note)
 }
 
 // Config returns the configuration the redeemer was built with.
@@ -157,7 +169,9 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 	// of network effects.
 	var pending *Intent
 	if rec, ok, err := r.store.Get(fp); err != nil {
-		return Result{}, err
+		// Nothing has left the box: the note is untouched and can be presented again.
+		return Result{State: StateAbandoned,
+			Message: "The router could not read its redemption journal. Your note was not used."}, err
 	} else if ok {
 		if rec.State != IntentPending {
 			return r.resume(fp, rec)
@@ -175,15 +189,27 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 		return r.refuse(fp, note, macAddress, err)
 	}
 
-	// Step 4: the amount is the note's claim, capped by the operator's ceiling.
-	amountSats := redeemableSats(withdraw.MaxWithdrawableMSat, r.cfg.MaxNoteSats)
+	// Step 4: the amount is the note's whole value. The operator the ceiling
+	// decides whether we ACCEPT the note, never how much of it we swallow.
+	amountSats := noteSats(withdraw.MaxWithdrawableMSat)
 	if amountSats == 0 {
 		return r.refuse(fp, note, macAddress, fmt.Errorf("note is worth less than one satoshi"))
+	}
+	// LUD-03 has no partial withdraw: the issuer melts the WHOLE note into the one
+	// invoice we name. Capping the invoice would burn the difference, so a note
+	// above the ceiling must be refused before anything leaves the box. This is the
+	// one failure mode an operator could otherwise inflict on a customer silently.
+	if capSats := r.cfg.MaxNoteSats; capSats > 0 && amountSats > capSats {
+		return r.refuse(fp, note, macAddress, fmt.Errorf(
+			"note is worth %d sats, above the %d-sat ceiling this gate accepts", amountSats, capSats))
 	}
 
 	mintURL, err := r.gate.SettlementMint()
 	if err != nil {
-		return Result{}, fmt.Errorf("lnurlcash: no settlement mint: %w", err)
+		// Refused before any invoice and before any callback: the note is untouched.
+		return Result{State: StateAbandoned,
+				Message: "This router has nowhere to settle a note. Your note was not used."},
+			fmt.Errorf("lnurlcash: no settlement mint: %w", err)
 	}
 
 	var rec Intent
@@ -203,7 +229,8 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 			IssuerHost: withdraw.Callback.Host,
 		})
 		if err != nil {
-			return Result{}, err
+			return Result{State: StateAbandoned,
+				Message: "The router could not record the redemption. Your note was not used."}, err
 		}
 	}
 
@@ -215,13 +242,23 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 			Message: "The router could not obtain an invoice to settle this note against. Your note was not used."}, err
 	}
 	if _, err := r.store.SetInvoice(fp, invoice); err != nil {
-		return Result{}, err
+		// No callback has been issued, so the note is still good. Reported as
+		// abandoned rather than ambiguous for exactly that reason.
+		return Result{State: StateAbandoned, QuoteID: quoteID, Invoice: invoice,
+			AmountSats: amountSats, MintURL: mintURL,
+			Message: "The router could not record the invoice. Your note was not used."}, err
 	}
 
 	// Step 5b: submitted is the point of no return.
 	rec, err = r.store.MarkSubmitted(fp, quoteID)
 	if err != nil {
-		return Result{}, err
+		// An invoice exists and the journal cannot record that we are about to use
+		// it. Do NOT proceed to the callback: without the record a crash here would
+		// leave a note burnt at the issuer with nothing on disk to explain it.
+		// Abandoned, because no callback has been sent — the note is still good.
+		return Result{State: StateAbandoned, QuoteID: quoteID, Invoice: invoice,
+			AmountSats: amountSats, MintURL: mintURL,
+			Message: "The router could not record the settlement attempt. Your note was not used."}, err
 	}
 
 	// Step 6: the callback. One attempt; a transport failure is ambiguous, not a
@@ -342,12 +379,15 @@ func (r *Redeemer) callbackTimeout() time.Duration {
 	return time.Duration(secs) * time.Second
 }
 
-func redeemableSats(maxWithdrawableMSat, maxNoteSats uint64) uint64 {
-	sats := maxWithdrawableMSat / 1000 // millisats -> sats, floored: never ask for more than the note holds
-	if maxNoteSats > 0 && sats > maxNoteSats {
-		sats = maxNoteSats
-	}
-	return sats
+// noteSats is the whole value of the note in sats.
+//
+// It deliberately does NOT take the operator's ceiling. A cap applied here would
+// silently truncate a large note into a small invoice, and because LUD-03 has no
+// partial withdraw the issuer melts the WHOLE note: the difference is destroyed,
+// not refunded. The ceiling is a refusal threshold (see Redeem step 4), never a
+// clamp on the amount.
+func noteSats(maxWithdrawableMSat uint64) uint64 {
+	return maxWithdrawableMSat / 1000 // millisats -> sats, floored: never ask for more than the note holds
 }
 
 func shortFP(fp string) string {

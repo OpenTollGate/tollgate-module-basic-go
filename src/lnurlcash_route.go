@@ -211,28 +211,28 @@ type lnurlCashResponse struct {
 
 func writeLNURLCashResponse(w http.ResponseWriter, resp lnurlCashResponse) {
 	w.Header().Set("Content-Type", "application/json")
-	status := http.StatusOK
+	// The default is NOT 200. A Result built by an error path carries no state, and
+	// answering 200 with an empty state told a portal "paid" for a redemption that
+	// never happened. An unclassified outcome is a refusal until proven otherwise.
+	status := http.StatusPaymentRequired
 	switch resp.State {
 	case lnurlcash.StateUnavailable, lnurlcash.StateAbandoned:
 		// The customer was not charged. 402 is the honest code: payment was
 		// required and did not happen.
 		status = http.StatusPaymentRequired
-		if resp.Message != "" {
-			resp.Error = resp.Message
-		}
 	case lnurlcash.StateAmbiguous:
 		// The issuer's answer was lost. 409 — the request cannot be safely
 		// repeated, which is exactly what the customer needs to know.
 		status = http.StatusConflict
-		if resp.Message != "" {
-			resp.Error = resp.Message
-		}
 	case lnurlcash.StatePending:
 		status = http.StatusAccepted
 	case lnurlcash.StateRedeemed:
 		// 200 whether or not the grant has landed yet: the note has settled or is
 		// settling, and the quote poll carries the rest.
 		status = http.StatusOK
+	}
+	if resp.Message != "" && (status == http.StatusPaymentRequired || status == http.StatusConflict) {
+		resp.Error = resp.Message
 	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(resp)

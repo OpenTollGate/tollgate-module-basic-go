@@ -138,8 +138,16 @@ func newHarness(t *testing.T, cfg Config) *harness {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
+	callerSetCeiling := cfg.MaxNoteSats != 0
 	if cfg.MaxNoteSats == 0 && !cfg.Enabled {
 		cfg = DefaultConfig()
+	}
+	// The harness note is worth 10,000 sats. Default the ceiling above it, so the
+	// tests that are about crash recovery and duplicate presentation are not
+	// failing on the (correct) refusal of a note above the ceiling. A caller that
+	// wants a ceiling sets MaxNoteSats itself.
+	if !callerSetCeiling {
+		cfg.MaxNoteSats = 100_000
 	}
 	// Every harness that does not explicitly ask for the disabled path opts in:
 	// the disabled path has its own test.
@@ -441,49 +449,103 @@ func TestCallbackHostMustMatchTheNoteHost(t *testing.T) {
 
 // --- amount, cap, and pricing -------------------------------------------
 
-func TestRedeemableAmountIsCappedByConfigAndByTheNote(t *testing.T) {
-	tests := []struct {
-		name    string
-		maxMsat uint64
-		cfgSat  uint64
-		wantSat uint64
-	}{
-		{name: "note is the limit", maxMsat: 2_000_000, cfgSat: 10_000, wantSat: 2000},
-		{name: "config is the limit", maxMsat: 50_000_000, cfgSat: 1500, wantSat: 1500},
-		{name: "exact overlap", maxMsat: 1_500_000, cfgSat: 1500, wantSat: 1500},
-		{name: "sub-satoshi remainder is floored", maxMsat: 1_999, cfgSat: 10_000, wantSat: 1},
+func TestRedeemableAmountIsCappedByTheNoteNotTruncatedByTheCeiling(t *testing.T) {
+	// The note's value is what we invoice. The operator's ceiling decides whether
+	// the note is ACCEPTABLE, never how much of it we swallow: LUD-03 has no
+	// partial withdraw, so melting a 100,000-sat note into a 1,000-sat invoice
+	// destroys 99,000 sats of the customer's money. That is why the ceiling is a
+	// refusal threshold here and not a clamp.
+	issuer := newFakeIssuer(t, "k1secret", 2_000_000) // 2,000 sat note
+	gate := &fakeGate{mint: testMint}
+	store, err := OpenIntentStore(filepath.Join(t.TempDir(), "i.json"))
+	if err != nil {
+		t.Fatalf("OpenIntentStore: %v", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			issuer := newFakeIssuer(t, "k1secret", tt.maxMsat)
-			gate := &fakeGate{mint: testMint}
-			store, err := OpenIntentStore(filepath.Join(t.TempDir(), "i.json"))
-			if err != nil {
-				t.Fatalf("OpenIntentStore: %v", err)
-			}
-			t.Cleanup(func() { _ = store.Close() })
-			svc := NewRedeemer(Config{Enabled: true, MaxNoteSats: tt.cfgSat, RedemptionTimeoutSeconds: 5},
-				gate, store, NewClient(ClientOptions{AllowInsecureLoopbackForTests: true, Timeout: testTimeout}))
+	t.Cleanup(func() { _ = store.Close() })
+	svc := NewRedeemer(Config{Enabled: true, MaxNoteSats: 10_000, RedemptionTimeoutSeconds: 5},
+		gate, store, NewClient(ClientOptions{AllowInsecureLoopbackForTests: true, Timeout: testTimeout}))
 
-			res, err := svc.Redeem(context.Background(), issuer.note(), "aa:bb:cc:dd:ee:ff")
-			if err != nil {
-				t.Fatalf("Redeem: %v", err)
-			}
-			// The invoice the mint issued is what encodes the amount we asked for;
-			// the fake gate puts it in the invoice string.
-			want := fmt.Sprintf("lnbc%dquote1", tt.wantSat)
-			if len(gate.invoiceList()) != 1 || gate.invoiceList()[0] != want {
-				t.Fatalf("mint was asked for %v, want %q", gate.invoiceList(), want)
-			}
-			if res.AmountSats != tt.wantSat {
-				t.Fatalf("result amount = %d sats, want %d", res.AmountSats, tt.wantSat)
-			}
-		})
+	res, err := svc.Redeem(context.Background(), issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err != nil {
+		t.Fatalf("Redeem: %v", err)
+	}
+	if len(gate.invoiceList()) != 1 || gate.invoiceList()[0] != "lnbc2000quote1" {
+		t.Fatalf("mint was asked for %v, want the note's full 2000 sats", gate.invoiceList())
+	}
+	if res.AmountSats != 2000 {
+		t.Fatalf("result amount = %d sats, want 2000", res.AmountSats)
+	}
+}
+
+// A note worth MORE than the operator accepts must be refused BEFORE any network
+// call, because the alternative is burning it for less than it holds.
+func TestNoteAboveTheCeilingIsRefusedBeforeAnyNetworkCall(t *testing.T) {
+	issuer := newFakeIssuer(t, "k1secret", 100_000_000) // 100,000 sat
+	gate := &fakeGate{mint: testMint}
+	store, err := OpenIntentStore(filepath.Join(t.TempDir(), "i.json"))
+	if err != nil {
+		t.Fatalf("OpenIntentStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	svc := NewRedeemer(Config{Enabled: true, MaxNoteSats: 1_000, RedemptionTimeoutSeconds: 5},
+		gate, store, NewClient(ClientOptions{AllowInsecureLoopbackForTests: true, Timeout: testTimeout}))
+
+	res, err := svc.Redeem(context.Background(), issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err == nil {
+		t.Fatal("a note above the ceiling should be refused with a reason")
+	}
+	if len(gate.invoiceList()) != 0 {
+		t.Fatalf("an invoice was requested for a note we refuse: %v — that burns the note", gate.invoiceList())
+	}
+	if issuer.callbackCount() != 0 {
+		t.Fatal("the issuer was asked to melt a note we will not honour")
+	}
+	if res.Granted {
+		t.Fatal("granted on a note above the ceiling")
+	}
+	if res.State != StateAbandoned {
+		t.Fatalf("state=%s, want abandoned (nothing was promised)", res.State)
+	}
+	if res.Message == "" {
+		t.Fatal("a refused note must tell the customer why, or they will retry forever")
 	}
 }
 
 // A note worth less than one satoshi cannot buy anything, and asking for a
 // zero-value invoice is not a request any mint should receive.
+// The withdraw path is where a transport error is RETURNED (the callback path
+// turns one into ambiguity), so it is where the note URL — and its `?k1=` — would
+// reach the log through refuse(). An unreachable issuer must be reported without
+// quoting the URL it failed to reach.
+func TestUnreachableIssuerDoesNotLeakTheNoteInItsError(t *testing.T) {
+	var buf strings.Builder
+	restore := captureLogs(&buf)
+	defer restore()
+
+	h := newHarness(t, Config{})
+
+	// A host that cannot resolve: the failure is transport-level, and net/http's
+	// error text would quote the full note URL, k1 included.
+	note := "https://issuer.invalid/withdraw?k1=" + h.issuer.k1
+	res, err := h.svc.Redeem(context.Background(), note, "aa:bb:cc:dd:ee:ff")
+	if err == nil {
+		t.Fatal("an unreachable issuer should surface a refusal")
+	}
+	if strings.Contains(err.Error(), "k1secret") {
+		t.Fatalf("the error carries the note secret: %q", err.Error())
+	}
+	if strings.Contains(res.Message, "k1secret") {
+		t.Fatalf("the refusal message carries the note secret: %q", res.Message)
+	}
+	if strings.Contains(buf.String(), "k1secret") {
+		t.Fatalf("the log carries the note secret:\n%s", buf.String())
+	}
+	// Non-vacuous: the refusal really did happen for a transport reason.
+	if !errors.Is(err, ErrIssuerUnreachable) && !errors.Is(err, ErrIssuerTimeout) {
+		t.Fatalf("expected a transport sentinel, got %v", err)
+	}
+}
+
 func TestDustNoteIsRefusedBeforeAnyNetworkCall(t *testing.T) {
 	issuer := newFakeIssuer(t, "k1secret", 999)
 	gate := &fakeGate{mint: testMint}
@@ -534,6 +596,39 @@ func TestRedeemNeverLeaksTheNoteSecret(t *testing.T) {
 	}
 	if strings.Contains(res.Message, "k1secret") {
 		t.Fatalf("the refusal message carries the note secret: %q", res.Message)
+	}
+
+	// And the TIMEOUT path, which was the leak the reviewer found: net/http's
+	// *url.Error quotes the request URL, and the callback URL carries ?k1=<secret>.
+	// A refusal logged by an operator pasting the error must not carry it either.
+	var tbuf strings.Builder
+	trestore := captureLogs(&tbuf)
+	defer trestore()
+
+	h3 := newHarness(t, Config{RedemptionTimeoutSeconds: 1})
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	h3.issuer.answer = func(w http.ResponseWriter, r *http.Request) {
+		<-release // hold the callback past the deadline so the client times out
+	}
+	tres, terr := h3.svc.Redeem(context.Background(), h3.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if terr != nil {
+		// The timeout is recorded as ambiguity, not surfaced as an error, but if it
+		// ever is surfaced, its text must be clean too.
+		if strings.Contains(terr.Error(), "k1secret") {
+			t.Fatalf("the timeout error carries the note secret: %q", terr.Error())
+		}
+	}
+	if strings.Contains(tres.Message, "k1secret") {
+		t.Fatalf("the timeout message carries the note secret: %q", tres.Message)
+	}
+	if strings.Contains(tbuf.String(), "k1secret") {
+		t.Fatalf("the timeout log carries the note secret:\n%s", tbuf.String())
+	}
+	// The callback URL is the thing that carries the secret; make sure the log
+	// did see this path at all, so the assertion above is not vacuous.
+	if h3.issuer.callbackCount() == 0 {
+		t.Fatal("no callback was attempted: the timeout-path assertions above are vacuous")
 	}
 }
 

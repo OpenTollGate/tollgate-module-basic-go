@@ -35,6 +35,27 @@ const (
 	cgnatHigh = 100<<24 | 127<<16 | 255<<8 | 255
 )
 
+// ErrIssuerTimeout reports that the issuer did not answer in time.
+//
+// A SENTINEL on purpose, carrying no operand: net/http returns a *url.Error whose
+// Error() text quotes the request URL, and both the note URL and the callback URL
+// carry `?k1=` — the note's bearer secret. Returning that error raw put the secret
+// into every log line that printed the refusal.
+var ErrIssuerTimeout = errors.New("lnurlcash: the issuer did not answer in time")
+
+// ErrIssuerUnreachable reports that the issuer could not be reached at all.
+// Sentinel for the same reason as ErrIssuerTimeout: the underlying error quotes a
+// URL that carries the note's k1.
+var ErrIssuerUnreachable = errors.New("lnurlcash: the issuer could not be reached")
+
+// errIssuerUnreachable classifies a transport failure without echoing its text.
+func errIssuerUnreachable(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return ErrIssuerTimeout
+	}
+	return ErrIssuerUnreachable
+}
+
 // ClientOptions configures an issuer Client.
 type ClientOptions struct {
 	// Timeout bounds one issuer request, body included.
@@ -164,6 +185,11 @@ func (c *Client) FetchWithdrawRequest(ctx context.Context, noteURL string) (*Wit
 
 	body, err := c.get(ctx, noteTarget)
 	if err != nil {
+		// getRaw already sanitises the transport branch (ErrIssuerTimeout /
+		// ErrIssuerUnreachable) precisely because net/http's *url.Error quotes the
+		// URL it dialled — and the note URL carries `?k1=`. The remaining errors here
+		// are its own wording (size cap, read failure), safe to pass through: they
+		// name the problem, not the note.
 		return nil, err
 	}
 
@@ -329,10 +355,15 @@ func (c *Client) getRaw(ctx context.Context, u *url.URL) (int, []byte, error) {
 	resp, err := c.http.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return 0, nil, err
+			// A sentinel, not the operand. net/http returns a *url.Error whose Error()
+			// text quotes the full request URL — and for a redemption callback that URL
+			// carries `?k1=`, the note's bearer secret. Returning it raw put the secret
+			// into every log line that printed the refusal.
+			return 0, nil, ErrIssuerTimeout
 		}
-		// Wrapped without the URL: net/http's own error text includes it.
-		return 0, nil, fmt.Errorf("issuer request failed: %T", err)
+		// Wrapped without the URL: net/http's own error text includes it, and for a
+		// withdraw request that URL is the note itself.
+		return 0, nil, ErrIssuerUnreachable
 	}
 	defer resp.Body.Close()
 

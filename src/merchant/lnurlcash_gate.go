@@ -157,26 +157,18 @@ func WalletDataDir(configManager *config_manager.ConfigManager) string {
 // LNURLCashConfigFrom translates the operator's config section into the
 // redeemer's own Config.
 //
-// Missing bounds fall back to the shipped defaults for the same reason the
-// loader does: a section written by hand with only `enabled` must not run with a
-// zero timeout and a zero note cap. Enabled is passed through untouched — only
-// the file can turn this on.
+// It passes values through and does NOT re-apply defaults. The config loader is
+// the one place that fills them (withLNURLCashDefaults), and a second defaulting
+// layer here made the retention field mean two different things: the schema says
+// "0 keeps everything", the loader filled only negatives, and this function
+// filled 0 too — so an operator writing `"retention_seconds": 0` got a week of
+// retention while the schema promised forever. One declaration per fact: the
+// loader decides, this translates.
 func LNURLCashConfigFrom(c config_manager.LNURLCashConfig) lnurlcash.Config {
-	out := lnurlcash.Config{
+	return lnurlcash.Config{
 		Enabled:                  c.Enabled,
 		MaxNoteSats:              c.MaxNoteSats,
 		RedemptionTimeoutSeconds: c.RedemptionTimeoutSeconds,
 		RetentionSeconds:         c.RetentionSeconds,
 	}
-	d := lnurlcash.DefaultConfig()
-	if out.MaxNoteSats == 0 {
-		out.MaxNoteSats = d.MaxNoteSats
-	}
-	if out.RedemptionTimeoutSeconds <= 0 {
-		out.RedemptionTimeoutSeconds = d.RedemptionTimeoutSeconds
-	}
-	if out.RetentionSeconds <= 0 {
-		out.RetentionSeconds = d.RetentionSeconds
-	}
-	return out
 }
