@@ -370,6 +370,67 @@ func mustURL(t *testing.T, raw string) *url.URL {
 	return u
 }
 
+// A note is single-use, and the grant lands on ONE device. If a second client
+// presents a note that was already redeemed for a different device, telling that
+// second client "granted" is a false report: it has no session, and a portal acting
+// on it will let the customer sit at a captive portal that never opens. The
+// journal knows who the grant was for; this asserts we actually consult it.
+func TestSecondClientOnARedeemedNoteIsNotToldItWasGranted(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.gate.settle = func(string) (bool, bool, error) { return true, true, nil }
+
+	const aliceMAC = "aa:aa:aa:aa:aa:aa"
+	const bobMAC = "bb:bb:bb:bb:bb:bb"
+
+	first, err := h.svc.Redeem(context.Background(), h.issuer.note(), aliceMAC)
+	if err != nil {
+		t.Fatalf("first Redeem: %v", err)
+	}
+	if !first.Granted {
+		t.Fatalf("the first presentation should have been granted: %+v", first)
+	}
+
+	// Bob presents the SAME note, from a different device.
+	second, err := h.svc.Redeem(context.Background(), h.issuer.note(), bobMAC)
+	if err != nil {
+		t.Fatalf("second Redeem: %v", err)
+	}
+	if second.Granted {
+		t.Fatalf("client %s was told granted=true for a note redeemed for %s: "+
+			"a false grant report sends the customer to a portal that will never open",
+			bobMAC, aliceMAC)
+	}
+	if second.Message == "" {
+		t.Fatal("a client that was not granted must be told why")
+	}
+	// Still only one callback and one quote: the journal decided, not the network.
+	if got := h.issuer.callbackCount(); got != 1 {
+		t.Fatalf("issuer saw %d callbacks, want 1", got)
+	}
+	if got := h.gate.quoteCount(); got != 1 {
+		t.Fatalf("mint was asked for %d quotes, want 1", got)
+	}
+}
+
+// The original grantee asking again IS still granted — the answer is idempotent for
+// the device that owns the grant, so a portal retry does not look like a failure.
+func TestTheOriginalGranteeIsStillToldGrantedOnRePresentation(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.gate.settle = func(string) (bool, bool, error) { return true, true, nil }
+
+	const mac = "aa:aa:aa:aa:aa:aa"
+	if _, err := h.svc.Redeem(context.Background(), h.issuer.note(), mac); err != nil {
+		t.Fatalf("first Redeem: %v", err)
+	}
+	again, err := h.svc.Redeem(context.Background(), h.issuer.note(), mac)
+	if err != nil {
+		t.Fatalf("second Redeem: %v", err)
+	}
+	if !again.Granted {
+		t.Fatalf("the device that owns the grant was told granted=false: %+v", again)
+	}
+}
+
 // --- duplicate presentation ----------------------------------------------
 
 func TestDuplicatePresentationGrantsOnce(t *testing.T) {

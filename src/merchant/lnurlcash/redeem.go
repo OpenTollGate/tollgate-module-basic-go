@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -217,7 +218,7 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 			Message: "The router could not read its redemption journal. Your note was not used."}, err
 	} else if ok {
 		if rec.State != IntentPending {
-			return r.resume(fp, rec)
+			return r.resume(fp, rec, macAddress)
 		}
 		// A pending record means an earlier attempt died before anything left the
 		// box. Nothing was promised to the issuer and the note is untouched, so
@@ -337,9 +338,20 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 }
 
 // resume answers a presentation of a note the journal already knows.
-func (r *Redeemer) resume(fp string, rec Intent) (Result, error) {
+func (r *Redeemer) resume(fp string, rec Intent, requestingMAC string) (Result, error) {
+	// A note's grant lands on ONE device. Answering "granted" to a different device
+	// is a false report — it has no session, and a portal that trusts it will leave
+	// the customer at a captive portal that never opens. The journal records who the
+	// grant was for, so the answer is derived from that, not assumed.
+	ownsGrant := sameDevice(rec.MacAddress, requestingMAC)
+
 	switch rec.State {
 	case IntentRedeemed:
+		if !ownsGrant {
+			return Result{State: StateRedeemed, Granted: false, QuoteID: rec.QuoteID, Invoice: rec.Invoice,
+				AmountSats: rec.AmountSats, MintURL: rec.MintURL,
+				Message: "This note was already redeemed, for a different device. It cannot buy access twice."}, nil
+		}
 		// Already resolved as paid. Report the recorded outcome; the grant itself is
 		// idempotent (the merchant applies it by MAC), so answering does not need to
 		// grant again.
@@ -355,7 +367,8 @@ func (r *Redeemer) resume(fp string, rec Intent) (Result, error) {
 			Message: "This note's earlier redemption did not confirm. Do NOT present it again."}, nil
 	case IntentSubmitted:
 		// The callback went out and the answer was lost. The mint's quote state is
-		// the authoritative recovery source — never a second callback.
+		// the authoritative recovery source — never a second callback. Settle against
+		// the record's OWN device: that is whose grant we are recovering.
 		return r.settle(fp, rec, rec.QuoteID, rec.Invoice, rec.AmountSats, rec.MintURL, rec.MacAddress, false)
 	default: // IntentPending
 		// Nothing was sent. Report it that way; the caller may retry the flow,
@@ -363,6 +376,19 @@ func (r *Redeemer) resume(fp string, rec Intent) (Result, error) {
 		return Result{State: StatePending, AmountSats: rec.AmountSats, MintURL: rec.MintURL,
 			Message: "This note's earlier attempt never reached the issuer."}, nil
 	}
+}
+
+// sameDevice compares two device identities without being fooled by spelling.
+// MACs arrive from a DHCP lease, an ARP table or a socket, and the merchant already
+// canonicalises them; compare lower-case so a capitalised lease cannot look like a
+// different device and deny the rightful holder their own grant.
+func sameDevice(a, b string) bool {
+	if a == "" || b == "" {
+		// An empty identity is not a match for anything: with no MAC recorded there is
+		// no device the grant can be attributed to, so it is not "granted" to a caller.
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
 }
 
 // settle asks the mint whether the quote we invoiced has been paid, and reports the
