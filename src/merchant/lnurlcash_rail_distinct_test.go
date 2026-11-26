@@ -31,8 +31,12 @@ import (
 // The honest fix is a pruner or a retention policy for Failed records, which is a change to
 // shared payment-journal behaviour and does not belong in this PR. See the PR body.
 func TestDistinctNotesCanStillFillTheJournal(t *testing.T) {
+	// This is the expensive one: 1024 real redemptions, ~140s under -race. It is kept because
+	// it is the only MEASUREMENT of the attack's actual cost — everything else about the
+	// exhaustion finding is inference. It is skipped under -short, so `go test -short` keeps the
+	// package usable while the full suite still pays for the evidence.
 	if testing.Short() {
-		t.Skip("fills a 1024-record journal; slow by construction")
+		t.Skip("1024 real redemptions (~140s under -race); run without -short for the measurement")
 	}
 	const cap = 1024 // the store's maxRecords
 	store := newCrashTestStore(t)
@@ -62,18 +66,17 @@ func TestDistinctNotesCanStillFillTheJournal(t *testing.T) {
 		if _, err := rail.Redeem(note, 1000, "00:00:00:00:00:01", "https://mint.example"); err == nil {
 			t.Fatalf("expected the invoice step to fail")
 		}
-		ops, lerr := store.List()
-		if lerr != nil {
-			t.Fatalf("list: %v", lerr)
+	}
+	// List ONCE, after the loop. Listing inside it is O(n^2) over a 1024-record store and made
+	// this test cost two minutes of pure bookkeeping for an assertion that does not need it.
+	ops, lerr := store.List()
+	if lerr != nil {
+		t.Fatalf("list: %v", lerr)
+	}
+	for _, op := range ops {
+		if op.Direction == paymentjournal.Incoming {
+			records++
 		}
-		n := 0
-		for _, op := range ops {
-			if op.Direction == paymentjournal.Incoming {
-				n++
-			}
-		}
-		records = n
-
 	}
 	if records < cap {
 		t.Fatalf("only %d records accumulated from %d distinct notes", records, cap+8)
