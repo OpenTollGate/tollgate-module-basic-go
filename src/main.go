@@ -1992,6 +1992,10 @@ func registerAPIHandlers(mux *http.ServeMux) {
 		CorsMiddleware(requireStarted(handleLNInvoiceRoute))(w, r)
 	})
 
+	// The opt-in LNURLcash method registers itself only when the operator has
+	// enabled it; with the flag off this is a no-op and the path stays 404.
+	registerLNURLCashRoute(mux)
+
 	mux.HandleFunc("/balance", func(w http.ResponseWriter, r *http.Request) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /balance endpoint")
 		CorsMiddleware(requireStarted(HandleBalance))(w, r)

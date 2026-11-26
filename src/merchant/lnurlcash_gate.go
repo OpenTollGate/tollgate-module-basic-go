@@ -19,6 +19,14 @@ import (
 // reports what the mint says; the redeemer grants only on that.
 type LNURLCashGate struct {
 	m *Merchant
+	// provider returns the CURRENT merchant. The merchant value is swapped at
+	// runtime (a reachable-mint change rebuilds it, see swapMerchant), so a
+	// redeemer holding only a concrete pointer would keep settling against a
+	// merchant that has been replaced. When both are set, provider wins.
+	provider func() *Merchant
+	// accepted reads the accepted-mint list per call, so a config reload is
+	// honoured without rebuilding the redeemer.
+	accepted func() []config_manager.MintConfig
 
 	// Test seams. Nil in production, where the real merchant paths are used.
 	settlementMintForTest func() (string, error)
@@ -28,6 +36,20 @@ type LNURLCashGate struct {
 
 // NewLNURLCashGate wraps a merchant as the redeemer's settlement gate.
 func NewLNURLCashGate(m *Merchant) *LNURLCashGate { return &LNURLCashGate{m: m} }
+
+// NewLNURLCashGateLive is the production constructor: it resolves the merchant
+// at each call, and reads the accepted mints from the live configuration.
+func NewLNURLCashGateLive(provider func() *Merchant, accepted func() []config_manager.MintConfig) *LNURLCashGate {
+	return &LNURLCashGate{provider: provider, accepted: accepted}
+}
+
+// merchant resolves the merchant this call must settle through.
+func (g *LNURLCashGate) merchant() *Merchant {
+	if g.provider != nil {
+		return g.provider()
+	}
+	return g.m
+}
 
 // RequestRedeemInvoice asks the settlement mint for a NUT-04 quote and returns
 // the quote id plus the BOLT11 the issuer is asked to pay.
@@ -41,10 +63,11 @@ func (g *LNURLCashGate) RequestRedeemInvoice(macAddress, mintURL string, amountS
 	if g.requestInvoiceForTest != nil {
 		return g.requestInvoiceForTest(macAddress, mintURL, amountSats)
 	}
-	if g.m == nil {
+	mm := g.merchant()
+	if mm == nil {
 		return "", "", fmt.Errorf("lnurlcash: no merchant")
 	}
-	inv, err := g.m.RequestLightningInvoice(macAddress, mintURL, amountSats)
+	inv, err := mm.RequestLightningInvoice(macAddress, mintURL, amountSats)
 	if err != nil {
 		return "", "", err
 	}
@@ -71,10 +94,11 @@ func (g *LNURLCashGate) RedemptionSettled(quoteID, macAddress string) (bool, boo
 	if g.statusForTest != nil {
 		status, err = g.statusForTest(quoteID, macAddress)
 	} else {
-		if g.m == nil {
+		mm := g.merchant()
+		if mm == nil {
 			return false, false, fmt.Errorf("lnurlcash: no merchant")
 		}
-		status, err = g.m.GetLightningInvoiceStatus(quoteID, macAddress)
+		status, err = mm.GetLightningInvoiceStatus(quoteID, macAddress)
 	}
 	if err != nil {
 		return false, false, err
@@ -91,10 +115,14 @@ func (g *LNURLCashGate) SettlementMint() (string, error) {
 	if g.settlementMintForTest != nil {
 		return g.settlementMintForTest()
 	}
-	if g.m == nil || g.m.configManager == nil {
+	if g.accepted != nil {
+		return firstAcceptedMint(g.accepted())
+	}
+	mm := g.merchant()
+	if mm == nil || mm.configManager == nil {
 		return "", fmt.Errorf("lnurlcash: no configuration")
 	}
-	return firstAcceptedMint(g.m.configManager.GetConfig().AcceptedMints)
+	return firstAcceptedMint(mm.configManager.GetConfig().AcceptedMints)
 }
 
 // firstAcceptedMint applies the settlement-target rule: the first entry in
@@ -114,14 +142,26 @@ func firstAcceptedMint(mints []config_manager.MintConfig) (string, error) {
 	return "", fmt.Errorf("lnurlcash: no accepted mints configured: nowhere to settle a note")
 }
 
-// lnurlcashConfigFrom translates the operator's config section into the
+// WalletDataDir is the directory the wallet's durable files live in: next to the
+// config, or in its `wallet/` subdirectory when that is a mountpoint. It is
+// exported so the LNURLcash journal lands on the same filesystem as quotes.json
+// and wallet.db — same durability assumptions, same backup surface — without a
+// second copy of the mountpoint rule (the one-declaration-per-fact rule).
+func WalletDataDir(configManager *config_manager.ConfigManager) string {
+	if configManager == nil {
+		return ""
+	}
+	return walletDirFor(configManager)
+}
+
+// LNURLCashConfigFrom translates the operator's config section into the
 // redeemer's own Config.
 //
 // Missing bounds fall back to the shipped defaults for the same reason the
 // loader does: a section written by hand with only `enabled` must not run with a
 // zero timeout and a zero note cap. Enabled is passed through untouched — only
 // the file can turn this on.
-func lnurlcashConfigFrom(c config_manager.LNURLCashConfig) lnurlcash.Config {
+func LNURLCashConfigFrom(c config_manager.LNURLCashConfig) lnurlcash.Config {
 	out := lnurlcash.Config{
 		Enabled:                  c.Enabled,
 		MaxNoteSats:              c.MaxNoteSats,

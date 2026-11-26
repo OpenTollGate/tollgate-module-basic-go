@@ -97,7 +97,7 @@ func TestLNURLCashConfigTranslationKeepsEveryBound(t *testing.T) {
 		RedemptionTimeoutSeconds: 77,
 		RetentionSeconds:         12345,
 	}
-	out := lnurlcashConfigFrom(in)
+	out := LNURLCashConfigFrom(in)
 	if out.Enabled != in.Enabled || out.MaxNoteSats != in.MaxNoteSats ||
 		out.RedemptionTimeoutSeconds != in.RedemptionTimeoutSeconds ||
 		out.RetentionSeconds != in.RetentionSeconds {
@@ -111,7 +111,7 @@ func TestLNURLCashConfigTranslationKeepsEveryBound(t *testing.T) {
 // An absent section must translate to DISABLED, whatever the other fields say.
 // A zero Config is the shape a config written before this feature produces.
 func TestLNURLCashTranslationOfAbsentSectionIsDisabled(t *testing.T) {
-	out := lnurlcashConfigFrom(config_manager.LNURLCashConfig{})
+	out := LNURLCashConfigFrom(config_manager.LNURLCashConfig{})
 	if out.Enabled {
 		t.Fatal("a zero LNURLCashConfig translated to ENABLED")
 	}
