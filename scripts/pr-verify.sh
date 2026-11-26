@@ -171,20 +171,9 @@ baseline_failed() {
         "$BASELINE/summary.tsv"
 }
 
-# The canonical repo is not always `origin`: a contributor worktree has `origin` at their
-# fork (where the branch lives) and the PR raised against `upstream`. Deriving the slug from
-# `origin` alone then queries the wrong repo and reports "gh pr view N failed". Prefer an
-# explicit override, then `upstream` when one exists, and fall back to `origin`.
-SLUG="${PR_VERIFY_SLUG:-}"
-if [ -z "$SLUG" ] && git -C "$ROOT" remote get-url upstream >/dev/null 2>&1; then
-    SLUG="$(git -C "$ROOT" remote get-url upstream 2>/dev/null \
-        | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
-fi
-if [ -z "$SLUG" ]; then
-    SLUG="$(git -C "$ROOT" remote get-url origin 2>/dev/null \
-        | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
-fi
-[ -n "$SLUG" ] || die "cannot derive the GitHub slug from the origin or upstream remote"
+SLUG="$(git -C "$ROOT" remote get-url origin 2>/dev/null \
+    | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
+[ -n "$SLUG" ] || die "cannot derive the GitHub slug from the origin remote"
 
 PR_NUMBER=""
 PR_TITLE=""
