@@ -237,7 +237,7 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 	// decides whether we ACCEPT the note, never how much of it we swallow.
 	amountSats := noteSats(withdraw.MaxWithdrawableMSat)
 	if amountSats == 0 {
-		return r.refuse(fp, note, macAddress, fmt.Errorf("note is worth less than one satoshi"))
+		return r.refuse(fp, note, macAddress, ErrNoteIsDust)
 	}
 	// LUD-03 has no partial withdraw: the issuer melts the WHOLE note into the one
 	// invoice we name. Capping the invoice would burn the difference, so a note
@@ -245,7 +245,8 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 	// one failure mode an operator could otherwise inflict on a customer silently.
 	if capSats := r.cfg.MaxNoteSats; capSats > 0 && amountSats > capSats {
 		return r.refuse(fp, note, macAddress, fmt.Errorf(
-			"note is worth %d sats, above the %d-sat ceiling this gate accepts", amountSats, capSats))
+			"%w: note is worth %d sats, above the %d-sat ceiling this gate accepts",
+			ErrNoteAboveCeiling, amountSats, capSats))
 	}
 
 	mintURL, err := r.gate.SettlementMint()
@@ -271,7 +272,8 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 		// the partial burn this gate exists to prevent, reached by a different door.
 		if capSats := r.cfg.MaxNoteSats; capSats > 0 && amountSats > capSats {
 			return r.refuse(fp, note, macAddress, fmt.Errorf(
-				"journalled note value %d sats is above the %d-sat ceiling this gate now accepts", amountSats, capSats))
+				"%w: journalled note value %d sats is above the %d-sat ceiling this gate now accepts",
+				ErrNoteAboveJournalledCeiling, amountSats, capSats))
 		}
 	} else {
 		// Step 5a: the intent is durable BEFORE any invoice exists, so a crash here
@@ -447,7 +449,36 @@ func (r *Redeemer) settle(fp string, rec Intent, quoteID, invoice string, amount
 // otherwise it is simply an error the caller answers.
 func (r *Redeemer) refuse(fp string, note Note, macAddress string, cause error) (Result, error) {
 	log.Printf("lnurlcash: note %s refused before any callback: %v", shortFP(fp), cause)
-	return Result{State: StateAbandoned, Message: "The note's issuer did not answer usefully. Your note was not used."}, cause
+	return Result{State: StateAbandoned, Message: refusalMessage(cause)}, cause
+}
+
+// Refusal causes that the CUSTOMER has to be told about accurately. Each is a sentinel so
+// the wording never depends on matching prose, and so a caller can classify a refusal
+// without parsing a message.
+var (
+	// ErrNoteAboveCeiling says the note is fine and the ROUTER will not take it. This is
+	// operator policy, not an issuer fault — saying otherwise sends the customer back to
+	// retry a note that will never be accepted here.
+	ErrNoteAboveCeiling = errors.New("lnurlcash: the note is above this router's value limit")
+	// ErrNoteIsDust says the note cannot buy anything at all.
+	ErrNoteIsDust = errors.New("lnurlcash: the note is worth less than one satoshi")
+	// ErrNoteAboveJournalledCeiling says a previously-seen note is now above the limit,
+	// because the operator lowered it between attempts.
+	ErrNoteAboveJournalledCeiling = errors.New("lnurlcash: the note was journalled above this router's current value limit")
+)
+
+// refusalMessage says what the CUSTOMER needs to hear, keyed on the sentinel so it cannot
+// drift from the cause.
+func refusalMessage(cause error) string {
+	switch {
+	case errors.Is(cause, ErrNoteAboveCeiling), errors.Is(cause, ErrNoteAboveJournalledCeiling):
+		// Operator policy, stated as such. Nothing about the note is wrong.
+		return "This router does not accept notes that large. Your note was not used — " +
+			"it is still yours, and it will work at a gate with a higher limit."
+	case errors.Is(cause, ErrNoteIsDust):
+		return "This note is worth less than one satoshi, so it cannot buy anything. Your note was not used."
+	}
+	return "The note's issuer did not answer usefully. Your note was not used."
 }
 
 func (r *Redeemer) callbackTimeout() time.Duration {

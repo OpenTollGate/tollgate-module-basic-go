@@ -620,6 +620,39 @@ func mustParseIP(t *testing.T, s string) net.IP {
 	return ip
 }
 
+// The message a customer sees must match WHO caused the refusal. Telling them the
+// issuer failed when the operator's ceiling is the reason sends them back to retry a
+// note this gate will never accept, and makes the operator look like the victim of a bad
+// issuer rather than the author of the limit.
+func TestRefusalMessageBlamesTheRightParty(t *testing.T) {
+	h := newHarness(t, Config{MaxNoteSats: 1_000}) // harness note is 10,000 sats
+
+	res, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err == nil {
+		t.Fatal("expected the ceiling refusal")
+	}
+	if !errors.Is(err, ErrNoteAboveCeiling) {
+		t.Fatalf("error = %v, want ErrNoteAboveCeiling", err)
+	}
+	if strings.Contains(strings.ToLower(res.Message), "issuer") {
+		t.Fatalf("an operator-caused refusal blames the issuer: %q", res.Message)
+	}
+	if res.Message == "" {
+		t.Fatal("a refusal must say something")
+	}
+
+	// And the opposite: a genuine issuer failure must still be attributed to the issuer.
+	h2 := newHarness(t, Config{})
+	h2.issuer.withdraw = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}
+	res2, _ := h2.svc.Redeem(context.Background(), h2.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if !strings.Contains(strings.ToLower(res2.Message), "issuer") {
+		t.Fatalf("an issuer-caused refusal does not mention the issuer: %q", res2.Message)
+	}
+}
+
 // --- duplicate presentation ----------------------------------------------
 
 func TestDuplicatePresentationGrantsOnce(t *testing.T) {
