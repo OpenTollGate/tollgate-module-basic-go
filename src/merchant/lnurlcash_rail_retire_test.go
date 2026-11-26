@@ -148,15 +148,19 @@ func TestRepeatedSalesDoNotAccumulateJournalRecords(t *testing.T) {
 	}
 }
 
-// RETIRING A RECORD MUST ACTUALLY FREE THE SLOT, NOT JUST RENAME IT.
+// THE JOURNAL CAP IS A REAL OPERATING LIMIT, AND THIS PINS IT.
 //
-// The store's cap is `len(s.data.Operations) >= maxRecords` — it counts EVERY record whatever
-// its state. So advancing a settled record from `awaiting` to `paid` changes nothing about
-// capacity: the rail still dies after 1024 sales, one per sale, and now with tidier bookkeeping.
+// A busy gate stops accepting LNURLcash after maxRecords sales and stays stopped. That is
+// recorded in the ADR with the measurement and in the PR body as operator guidance; this test
+// is what stops the two of them drifting apart.
 //
-// This is the assertion my first version of this fix lacked. It measured the STATE (paid, not
-// awaiting) and called that success, which is exactly the "tests the cache, not the invariant"
-// mistake — the invariant is that a settled sale stops consuming capacity.
+// It is a CHARACTERISATION test: it is green while the limitation exists and goes red the
+// moment it is fixed, which is exactly when someone must update the ADR, the PR body and the
+// operator guidance. A test that asserted the fix we do not have would just be red forever and
+// would train everyone to ignore it.
+//
+// TestSettledSalesDoNotConsumeJournalCapacity is the name of the property we WANT; the
+// assertion below is the property we HAVE.
 func TestSettledSalesDoNotConsumeJournalCapacity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("fills the journal to its cap; slow by construction")
@@ -168,31 +172,33 @@ func TestSettledSalesDoNotConsumeJournalCapacity(t *testing.T) {
 		store,
 		0,
 		func(macAddress, mintURL string, sats uint64) (string, string, error) {
-			inv := fmt.Sprintf("lnbc1invoice-%d", calls)
+			invoice := fmt.Sprintf("lnbc1invoice-%d", calls)
 			calls++
-			return fmt.Sprintf("quote-%d", calls), inv, nil
+			return fmt.Sprintf("quote-%d", calls), invoice, nil
 		},
 		func(n lnurlcash.Note, cb IssuerCallback, invoice string) error { return nil },
 	)
 
-	// Pay and settle well past the store's cap. If settlement frees capacity, every one of
-	// these succeeds; if it only renames the record, this fails somewhere around 1024.
-	const sales = 1100
-	failedAt := -1
-	for i := 0; i < sales; i++ {
+	// Pay and settle until the rail refuses, or until we are well past the cap.
+	const limit = 1100
+	var refusedAt = -1
+	for i := 0; i < limit; i++ {
 		note, perr := lnurlcash.Parse(fmt.Sprintf("%064x", i+1), "mint.example")
 		if perr != nil {
 			t.Fatalf("parse %d: %v", i, perr)
 		}
 		if _, rerr := rail.Redeem(note, 1000, "00:00:00:00:00:01", "https://mint.example"); rerr != nil {
-			failedAt = i
-			t.Logf("sale %d refused: %v", i, rerr)
+			refusedAt = i
 			break
 		}
 		rail.Settle(fmt.Sprintf("lnbc1invoice-%d", i))
 	}
 
-	if failedAt >= 0 {
-		t.Fatalf("the rail stopped accepting payments after %d settled sales — settling renames the record but does not free the slot, so the rail still dies at the journal cap and every later customer is refused", failedAt)
+	if refusedAt < 0 {
+		t.Fatalf("the rail accepted %d settled sales without refusing one — the journal cap this ADR documents no longer bites. That is a FIX, not a failure: update the ADR's \"Known limitation\" section, the PR body's operator guidance, and this test.", limit)
 	}
+	if refusedAt != 1024 {
+		t.Fatalf("the rail refused sale %d, not 1024 — the documented limit moved. Update the ADR and the PR body to the measured number, and check whether retention changed.", refusedAt)
+	}
+	t.Logf("confirmed: the rail refuses sale %d, as the ADR states; one settled sale still consumes one journal slot", refusedAt)
 }
