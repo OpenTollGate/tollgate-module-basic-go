@@ -23,8 +23,10 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/cli"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/identity"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	merchant_types "github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/utils"
@@ -2006,6 +2008,59 @@ func registerAPIHandlers(mux *http.ServeMux) {
 		mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /session-state endpoint")
 		CorsMiddleware(requireStarted(HandleSessionState))(w, r)
 	})
+
+	// --- LNURLcash redemption (opt-in, disabled by default) -----------------
+	// A guest hands the gate a bearer note and the gate redeems it at the note's
+	// issuer. Registered only when the operator has opted in; when they have not,
+	// the route does not exist at all, so an untouched router cannot be probed for
+	// the feature and cannot have it enabled by a config edit alone.
+	//
+	// The handler re-checks activation per request on purpose: a live config
+	// reload that turns the rail off takes effect without a reboot.
+	lnurlcashActivation := func() (bool, string) {
+		return configManager.GetConfig().LNURLCashActivation()
+	}
+	if ok, reason := lnurlcashActivation(); !ok {
+		mainLogger.WithField("reason", reason).Info("LNURLcash redemption rail is off (opt-in, disabled by default)")
+	} else {
+		journalDir := filepath.Join(filepath.Dir(configManager.ConfigFilePath), "lnurlcash-journal")
+		journal, jerr := paymentjournal.Open(journalDir)
+		if jerr != nil {
+			// A rail that cannot persist intent must not serve: without the journal
+			// there is no record to stop a second presentation of a note the issuer
+			// may already have burned.
+			mainLogger.WithError(jerr).Error("LNURLcash rail is enabled but its journal could not be opened — the rail stays off")
+		} else {
+			rail := newProductionLNURLCashRail(
+				lnurlcashActivation,
+				configManager.GetConfig().LNURLCashIssuerAllowed,
+				configManager.GetConfig().LNURLCash.MaxNoteMSat,
+				journal,
+				func(macAddress, mintURL string, sats uint64) (string, string, error) {
+					inv, werr := merchantProvider.inner.GetMerchant().RequestLightningInvoice(macAddress, mintURL, sats)
+					if werr != nil {
+						return "", "", werr
+					}
+					return inv.QuoteID, inv.Invoice, nil
+				},
+			)
+			if rail == nil {
+				mainLogger.Warn("LNURLcash rail is enabled but could not be wired — the endpoint stays off")
+			} else {
+				mainLogger.Info("LNURLcash redemption rail is ON")
+				handler := handleLNURLCashRedeem(rail, lnurlcashActivation, func(domain string) (lnurlCashIssuer, error) {
+					if _, allowed := configManager.GetConfig().LNURLCashIssuerAllowed(domain); !allowed {
+						return nil, fmt.Errorf("lnurlcash: issuer %q is not allowlisted", domain)
+					}
+					return lnurlcash.NewIssuerClient(domain)
+				})
+				mux.HandleFunc("/lnurlcash/redeem", func(w http.ResponseWriter, r *http.Request) {
+					mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /lnurlcash/redeem endpoint")
+					CorsMiddleware(requireStarted(handler))(w, r)
+				})
+			}
+		}
+	}
 
 	// /wan-health is intentionally not gated: the upstream Wi-Fi snapshot is
 	// useful while the wallet/mint is still starting, and it carries no money
