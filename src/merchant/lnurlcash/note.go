@@ -162,28 +162,50 @@ func decodeBech32LNURL(s string) (string, error) {
 	return string(decoded), nil
 }
 
-// Fingerprint returns the stable, non-secret correlate the redemption journal
-// is keyed by.
+// Fingerprint returns the stable, non-secret correlate the redemption journal is
+// keyed by.
 //
-// It is keyed on the DECODED CANONICAL URL, not the presented string. One note
-// has two spellings in the wild — the `lnurl1…` bech32 form a wallet shows and the
-// https URL it decodes to — and the QR a customer scans may be either. Hashing
-// the raw string gives those two spellings two journal records, so the same note
-// could be redeemed twice: exactly the double-grant the journal exists to prevent.
-// Canonicalising first makes "have I seen this note?" answer the question the
-// caller means. (A reviewer reproduced this: 2819fac9… for the URL, 9b0c62… for
-// the same note in bech32.)
+// It is keyed on the note's IDENTITY: the issuer host (lower-case, default port
+// dropped) and the k1 secret. NOT the URL string.
 //
-// It stays a plain SHA-256 because a note is high-entropy (a k1 secret), so there
-// is no dictionary to attack; it is a fingerprint, not a MAC, and nothing here
-// needs to resist a reader who is already root on the router (the journal is 0600).
+// Why this matters, and it is the whole point of the function: a note is burnt ONCE
+// by its issuer. If two spellings of one note hash differently they become two
+// journal records, and "a second presentation never grants twice" quietly stops being
+// true — an attacker changes the host's case, or appends a query parameter the issuer
+// ignores, and buys a second redemption with the same note. A probe measured seven
+// distinct keys for one note across ordinary spellings before this was fixed.
+//
+// The identity is (host, k1) rather than the URL because those are the two things the
+// issuer keys its ledger on. Everything else in the URL — scheme, port, path, extra
+// parameters — is a way of writing the same claim.
+//
+// It stays a plain SHA-256: a k1 is high-entropy, so there is no dictionary to attack.
+// It is a fingerprint, not a MAC; nothing here needs to resist a reader who is already
+// root on the router (the journal is 0600).
 func Fingerprint(note Note) string {
-	return fingerprintOf(note.URL)
+	host, k1 := noteIdentity(note)
+	return fingerprintOf(host + "\x00" + k1)
 }
 
-// fingerprintOf hashes a canonical note URL. Callers must pass note.URL, never
-// the presented string — see Fingerprint.
-func fingerprintOf(canonicalURL string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(canonicalURL)))
+// noteIdentity extracts what the issuer's ledger keys on. An unparseable note falls
+// back to its raw URL, which cannot collide with a parsed identity because the
+// separator above is not a URL character.
+func noteIdentity(n Note) (host, k1 string) {
+	u, err := url.Parse(n.URL)
+	if err != nil || u.Host == "" {
+		return "raw:" + n.URL, ""
+	}
+	host = strings.ToLower(u.Hostname()) // Hostname() already drops the port
+	if p := u.Port(); p != "" && p != "443" && p != "80" {
+		host += ":" + p
+	}
+	k1 = u.Query().Get("k1")
+	return host, k1
+}
+
+// fingerprintOf hashes a canonical identity string. Callers must pass an identity built
+// by noteIdentity, never a presented string.
+func fingerprintOf(identity string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(identity)))
 	return hex.EncodeToString(sum[:])
 }

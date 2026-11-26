@@ -481,6 +481,70 @@ func TestCeilingIsEnforcedAgainstTheAmountWeInvoiceNotTheLiveClaim(t *testing.T)
 	}
 }
 
+// A note's journal key must be its IDENTITY, not its spelling. Two spellings of one
+// note that differ only in host case, a default port, or a harmless extra query
+// parameter are the SAME note to the issuer — and the issuer will burn it once. If
+// they hash differently they become two journal records, and "a second presentation
+// never grants twice" stops being true: an attacker only has to change the spelling
+// to get a second grant out of an issuer that pays on each presentation.
+func TestOneNoteHasOneJournalKeyAcrossURLSpellings(t *testing.T) {
+	base := "https://issuer.example/withdraw?k1=abc123"
+	spellings := []string{
+		base,
+		"https://ISSUER.example/withdraw?k1=abc123",         // host case
+		"https://Issuer.Example/withdraw?k1=abc123",         // host case again
+		"https://issuer.example:443/withdraw?k1=abc123",     // default port
+		"https://issuer.example/withdraw?k1=abc123&x=1",     // extra param
+		"https://issuer.example/withdraw?x=1&k1=abc123",     // param order
+		"https://issuer.example/withdraw?k1=abc123&x=1&y=2", // more extra params
+	}
+
+	keys := map[string]string{}
+	for _, s := range spellings {
+		n, err := decodeNote(s, relaxScheme{})
+		if err != nil {
+			t.Fatalf("decodeNote(%q): %v", s, err)
+		}
+		fp := Fingerprint(n)
+		if prev, seen := keys[fp]; seen {
+			// Same key for two spellings is the goal; remember the first spelling.
+			_ = prev
+			continue
+		}
+		keys[fp] = s
+	}
+	if len(keys) != 1 {
+		for fp, s := range keys {
+			t.Logf("  key %s <- %s", fp[:16], s)
+		}
+		t.Fatalf("%d distinct journal keys for one note across spellings, want 1: "+
+			"changing the spelling would buy a second redemption", len(keys))
+	}
+
+	// And the behaviour, not just the key: redeem under one spelling, then present the
+	// same note with a harmless extra query parameter. The journal must answer, with no
+	// second callback and no second invoice.
+	issuer := newFakeIssuer(t, "k1secret", 10_000_000)
+	h := newHarness(t, Config{})
+	if _, err := h.svc.Redeem(context.Background(), issuer.note(), "aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatalf("first Redeem: %v", err)
+	}
+	beforeCallbacks := issuer.callbackCount()
+	beforeQuotes := h.gate.quoteCount()
+
+	respelled := issuer.note() + "&utm_source=wallet"
+	if _, err := h.svc.Redeem(context.Background(), respelled, "aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatalf("second Redeem: %v", err)
+	}
+	if got := issuer.callbackCount(); got != beforeCallbacks {
+		t.Fatalf("a re-spelled note produced a second callback (%d -> %d): the journal did not decide",
+			beforeCallbacks, got)
+	}
+	if got := h.gate.quoteCount(); got != beforeQuotes {
+		t.Fatalf("a re-spelled note opened a second mint quote (%d -> %d)", beforeQuotes, got)
+	}
+}
+
 // --- duplicate presentation ----------------------------------------------
 
 func TestDuplicatePresentationGrantsOnce(t *testing.T) {
