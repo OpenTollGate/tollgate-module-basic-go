@@ -110,13 +110,32 @@ func TestLNURLCashConfigTranslationKeepsEveryBound(t *testing.T) {
 
 // An absent section must translate to DISABLED, whatever the other fields say.
 // A zero Config is the shape a config written before this feature produces.
+//
+// The bounds are NOT defaulted here, deliberately: the config LOADER owns that
+// (withLNURLCashDefaults), and the schema declares min 1 for both, so a zeroed
+// section is invalid input the loader has already rejected. When this layer
+// re-applied defaults too, `retention_seconds: 0` meant "keep forever" in the
+// schema and "a week" in the code. This test asserts the ownership split rather
+// than the papering-over.
 func TestLNURLCashTranslationOfAbsentSectionIsDisabled(t *testing.T) {
 	out := LNURLCashConfigFrom(config_manager.LNURLCashConfig{})
 	if out.Enabled {
 		t.Fatal("a zero LNURLCashConfig translated to ENABLED")
 	}
-	if out.MaxNoteSats == 0 || out.RedemptionTimeoutSeconds <= 0 {
-		t.Fatalf("translated bounds are unusable: %+v", out)
+	// Pass-through: the loader's values arrive unmodified, including a legitimate
+	// zero retention ("keep everything").
+	in := config_manager.LNURLCashConfig{
+		Enabled:                  true,
+		MaxNoteSats:              4242,
+		RedemptionTimeoutSeconds: 17,
+		RetentionSeconds:         0, // meaningful: keep everything
+	}
+	got := LNURLCashConfigFrom(in)
+	if got.MaxNoteSats != 4242 || got.RedemptionTimeoutSeconds != 17 {
+		t.Fatalf("translation altered the loader's bounds: %+v", got)
+	}
+	if got.RetentionSeconds != 0 {
+		t.Fatalf("retention 0 became %d: the gate re-defaulted a value the schema promises", got.RetentionSeconds)
 	}
 	var _ = lnurlcash.DefaultConfig
 }
