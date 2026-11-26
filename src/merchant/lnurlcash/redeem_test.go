@@ -653,6 +653,40 @@ func TestRefusalMessageBlamesTheRightParty(t *testing.T) {
 	}
 }
 
+// The key must not COLLIDE. Distinct notes at one issuer are distinct claims, and the
+// path shape (`/withdraw/<secret>`) carries the secret in the path with no k1 parameter
+// at all. Keying on (host, k1) alone collapsed every path-shape note at one issuer into a
+// single key, so the first note redeemed would deny every other note from that issuer —
+// a legitimate customer turned away, or worse, invoiced against another note's record.
+// Measured before the fix: /withdraw/aaaaaaaa and /withdraw/bbbbbbbb both hashed to
+// 428f46e1235fdbca.
+func TestDistinctNotesAtOneIssuerHaveDistinctJournalKeys(t *testing.T) {
+	pairs := [][2]string{
+		// LUD-03 path shape: secret in the path, no k1 parameter.
+		{"https://issuer.example/withdraw/aaaaaaaaaaaaaaaa", "https://issuer.example/withdraw/bbbbbbbbbbbbbbbb"},
+		// LUD-03 query shape.
+		{"https://issuer.example/withdraw?k1=aaa", "https://issuer.example/withdraw?k1=bbb"},
+		// Two different issuers, same secret (different notes by definition).
+		{"https://a.example/withdraw?k1=abc", "https://b.example/withdraw?k1=abc"},
+		// Same host, different endpoint.
+		{"https://issuer.example/one?k1=abc", "https://issuer.example/two?k1=abc"},
+	}
+	for _, pair := range pairs {
+		var fps []string
+		for _, s := range pair {
+			n, err := decodeNote(s, relaxScheme{})
+			if err != nil {
+				t.Fatalf("decodeNote(%q): %v", s, err)
+			}
+			fps = append(fps, Fingerprint(n))
+		}
+		if fps[0] == fps[1] {
+			t.Errorf("%q and %q share journal key %s: two different notes, one record",
+				pair[0], pair[1], fps[0][:16])
+		}
+	}
+}
+
 // --- duplicate presentation ----------------------------------------------
 
 func TestDuplicatePresentationGrantsOnce(t *testing.T) {

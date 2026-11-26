@@ -194,12 +194,19 @@ func TestIntentStoreBeginRefusesRebinding(t *testing.T) {
 	}
 }
 
-// Retention bounds the journal on a router with a small, flash-backed /var: a
-// terminal record older than the configured window is dropped, a live one never
-// is, and a drop never resurrects a grant licence for the dropped note's
-// fingerprint (the drop is only allowed once the record can no longer influence a
-// decision, and the access session outlives it by design).
-func TestIntentStoreRetentionDropsOnlyOldTerminalRecords(t *testing.T) {
+// Retention bounds the journal on a router with a small, flash-backed /var.
+//
+// The rule is NOT "drop old terminal records". A `redeemed` record is the only thing that
+// makes a replay refused locally; deleting it means the gate's protection reduces to the
+// issuer refusing a spent note, which is exactly the dependency this feature exists to
+// avoid. So:
+//
+//   - `redeemed` is COMPACTED to a tombstone: state and time survive, the per-payment
+//     detail (quote, invoice, MAC) is dropped.
+//   - `ambiguous` likewise — "do not present this again" is the entire remedy.
+//   - `abandoned` is deleted: nothing was promised, so a fresh attempt is legitimate.
+//   - a pending or submitted record is NEVER touched; dropping one re-opens its note.
+func TestIntentStoreRetentionCompactsGuardsAndDropsOnlyRefusals(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	store, err := OpenIntentStore(filepath.Join(t.TempDir(), "intents.json"))
 	if err != nil {
@@ -208,34 +215,66 @@ func TestIntentStoreRetentionDropsOnlyOldTerminalRecords(t *testing.T) {
 	defer store.Close()
 	store.now = func() time.Time { return now }
 
-	if _, err := store.Begin(fpFor("old-terminal"), Intent{MacAddress: "aa:bb:cc:dd:ee:ff", MintURL: testMint, AmountSats: 1, IssuerHost: "i"}); err != nil {
+	// A redeemed note: must survive as a tombstone.
+	if _, err := store.Begin(fpFor("old-redeemed"), Intent{MacAddress: "aa:bb:cc:dd:ee:ff", MintURL: testMint, AmountSats: 1, IssuerHost: "i"}); err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	rec, err := store.MarkSubmitted(fpFor("old-terminal"), "q")
+	rec, err := store.MarkSubmitted(fpFor("old-redeemed"), "q-1")
 	if err != nil {
 		t.Fatalf("MarkSubmitted: %v", err)
 	}
-	if _, err := store.Advance(fpFor("old-terminal"), rec.Version, IntentRedeemed, ""); err != nil {
+	if _, err := store.Advance(fpFor("old-redeemed"), rec.Version, IntentRedeemed, "paid"); err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
+
+	// An abandoned note: may be deleted, nothing was promised.
+	if _, err := store.Begin(fpFor("old-abandoned"), Intent{MacAddress: "aa:bb:cc:dd:ee:ff", MintURL: testMint, AmountSats: 1, IssuerHost: "i"}); err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	ab, _, err := store.Get(fpFor("old-abandoned"))
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if _, err := store.Advance(fpFor("old-abandoned"), ab.Version, IntentAbandoned, "refused"); err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+
+	// A pending note: never touched.
 	if _, err := store.Begin(fpFor("still-pending"), Intent{MacAddress: "aa:bb:cc:dd:ee:ff", MintURL: testMint, AmountSats: 1, IssuerHost: "i"}); err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
 
-	// Everything is old now.
 	now = now.Add(365 * 24 * time.Hour)
-	dropped, err := store.Prune(24 * time.Hour)
-	if err != nil {
+	if _, err := store.Prune(24 * time.Hour); err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
-	if dropped != 1 {
-		t.Fatalf("Prune dropped %d records, want 1 (the old terminal one)", dropped)
+
+	// The redeemed record survives as a guard, with its detail gone.
+	kept, ok, err := store.Get(fpFor("old-redeemed"))
+	if err != nil || !ok {
+		t.Fatalf("dropped a redeemed record (ok=%v err=%v): a replay now depends on the issuer refusing it", ok, err)
 	}
-	if _, ok, _ := store.Get(fpFor("old-terminal")); ok {
-		t.Fatal("kept an expired terminal record")
+	if kept.State != IntentRedeemed {
+		t.Fatalf("tombstone state = %q, want %q: the replay guard depends on it", kept.State, IntentRedeemed)
+	}
+	if !kept.Compacted {
+		t.Fatal("the redeemed record was not marked compacted")
+	}
+	if kept.QuoteID != "" || kept.Invoice != "" || kept.MacAddress != "" {
+		t.Fatalf("tombstone still carries per-payment detail: %+v", kept)
+	}
+
+	// The abandoned record is gone; the pending one is untouched.
+	if _, ok, _ := store.Get(fpFor("old-abandoned")); ok {
+		t.Fatal("kept an abandoned record: nothing was promised, so it need not be remembered")
 	}
 	if _, ok, _ := store.Get(fpFor("still-pending")); !ok {
 		t.Fatal("dropped a pending record — that re-opens its note for a second grant")
+	}
+
+	// A second prune must not keep re-writing already-compacted tombstones.
+	if n, err := store.Prune(24 * time.Hour); err != nil || n != 0 {
+		t.Fatalf("second Prune changed %d records (err=%v), want 0: the tombstone is idempotent", n, err)
 	}
 }
 

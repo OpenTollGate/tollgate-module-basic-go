@@ -80,6 +80,10 @@ type Intent struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 	Resolution   string    `json:"resolution,omitempty"`
 	AttemptCount int       `json:"attempt_count"`
+	// Compacted marks a tombstone: the note's state is remembered so a replay is still
+	// refused, but the bulky per-payment detail (quote, invoice, MAC, amounts) has been
+	// dropped by Prune. It is never set on a pending or submitted record.
+	Compacted bool `json:"compacted,omitempty"`
 }
 
 type intentFile struct {
@@ -377,13 +381,23 @@ func (s *IntentStore) SetInvoice(fp, invoice string) (Intent, error) {
 	return rec, nil
 }
 
-// Prune drops terminal records older than retention. It never drops a pending or
-// submitted record: dropping one of those is exactly the state that re-opens a
-// note for a second grant. A non-positive retention prunes nothing.
+// Prune compacts old terminal records. It never drops a pending or submitted record:
+// dropping one of those is exactly the state that re-opens a note for a second grant.
 //
-// The access session a redeemed record produced outlives the record by design
-// (the entitlement lives in the session/gate, not here), so dropping the record
-// cannot take access away from a customer who already paid.
+// A terminal record is COMPACTED, not deleted, when it carries a guarantee:
+//
+//   - `redeemed` must be remembered, because forgetting it means a replay depends
+//     entirely on the issuer refusing a spent note — and the whole point of this
+//     feature is not to depend on the issuer's word. The tombstone keeps the state and
+//     the time and drops the bulky, revealing detail (quote, invoice, MAC).
+//   - `ambiguous` must be remembered for the same reason, more so: "do not present this
+//     again" is the only thing standing between an unclear outcome and a second attempt.
+//   - `abandoned` MAY be deleted. The note was refused before any callback, so nothing
+//     was promised and a later presentation is a legitimate fresh attempt.
+//
+// A non-positive retention prunes nothing. The access a redeemed record produced lives in
+// the session, not in the record, so compaction cannot take access away from a customer
+// who already paid.
 func (s *IntentStore) Prune(retention time.Duration) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -391,25 +405,38 @@ func (s *IntentStore) Prune(retention time.Duration) (int, error) {
 		return 0, nil
 	}
 	cutoff := s.now().Add(-retention)
-	dropped := 0
+	changed := 0
 	next := s.copyFile()
 	for fp, rec := range next.Records {
-		if rec.State != IntentRedeemed && rec.State != IntentAbandoned && rec.State != IntentAmbiguous {
-			continue
+		switch rec.State {
+		case IntentRedeemed, IntentAmbiguous:
+			if rec.UpdatedAt.After(cutoff) || rec.Compacted {
+				continue
+			}
+			// Keep the guard, drop the detail.
+			next.Records[fp] = Intent{
+				Version:   rec.Version,
+				State:     rec.State,
+				CreatedAt: rec.CreatedAt,
+				UpdatedAt: rec.UpdatedAt,
+				Compacted: true,
+			}
+			changed++
+		case IntentAbandoned:
+			if rec.UpdatedAt.After(cutoff) {
+				continue
+			}
+			delete(next.Records, fp)
+			changed++
 		}
-		if rec.UpdatedAt.After(cutoff) {
-			continue
-		}
-		delete(next.Records, fp)
-		dropped++
 	}
-	if dropped == 0 {
+	if changed == 0 {
 		return 0, nil
 	}
 	if err := s.persist(next); err != nil {
 		return 0, err
 	}
-	return dropped, nil
+	return changed, nil
 }
 
 func (s *IntentStore) advanceTime(rec Intent) time.Time {

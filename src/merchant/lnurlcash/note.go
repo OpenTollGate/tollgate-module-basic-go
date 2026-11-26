@@ -187,9 +187,18 @@ func Fingerprint(note Note) string {
 	return fingerprintOf(host + "\x00" + k1)
 }
 
-// noteIdentity extracts what the issuer's ledger keys on. An unparseable note falls
-// back to its raw URL, which cannot collide with a parsed identity because the
-// separator above is not a URL character.
+// noteIdentity extracts what the issuer's ledger keys on.
+//
+// The PATH is part of the identity, not just the query. LUD-03 has two shapes in the
+// wild: `/withdraw?k1=<secret>` and `/withdraw/<secret>`. In the path shape there is no
+// k1 parameter at all, and keying on (host, k1) alone collapsed every note at one issuer
+// to a single key — so the first note redeemed would block every other note from that
+// issuer. Measured: /withdraw/aaaaaaaa and /withdraw/bbbbbbbb both hashed to
+// 428f46e1235fdbca before this was fixed.
+//
+// What is deliberately NOT part of the identity: scheme, port (default), query parameter
+// ORDER, and parameters the issuer ignores. Those are spellings of the same claim, and
+// including them is how one note became seven journal keys.
 func noteIdentity(n Note) (host, k1 string) {
 	u, err := url.Parse(n.URL)
 	if err != nil || u.Host == "" {
@@ -199,7 +208,14 @@ func noteIdentity(n Note) (host, k1 string) {
 	if p := u.Port(); p != "" && p != "443" && p != "80" {
 		host += ":" + p
 	}
-	k1 = u.Query().Get("k1")
+	// The secret lives in the query for the LUD-03 query shape and in the path for the
+	// path shape; include both, so neither shape collides and neither needs special
+	// casing. Path case is preserved: paths are case-sensitive, unlike hosts.
+	path := u.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	k1 = path + "\x00" + u.Query().Get("k1")
 	return host, k1
 }
 
