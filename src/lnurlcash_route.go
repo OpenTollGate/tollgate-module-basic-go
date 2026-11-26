@@ -106,10 +106,45 @@ func initLNURLCash() {
 	})
 
 	setLNURLCashRedeemer(lnurlcash.NewRedeemer(redeemerCfg, gate, store, client))
+
+	// Retention is a promise the schema makes ("0 keeps everything"), so something has
+	// to actually enforce it: Prune existed but nothing called it, and the journal grew
+	// for the life of the install while the operator's config said otherwise. Prune
+	// never drops a pending/submitted record, so a sweep cannot reopen a note.
+	go lnurlcashPruneLoop(store, redeemerCfg.RetentionSeconds)
+
 	mainLogger.WithFields(log.Fields{
 		"max_note_sats": redeemerCfg.MaxNoteSats,
 		"timeout_s":     redeemerCfg.RedemptionTimeoutSeconds,
+		"retention_s":   redeemerCfg.RetentionSeconds,
 	}).Info("LNURLcash payment method ENABLED (opt-in); issuer custody is accepted between presentation and redemption")
+}
+
+// lnurlcashPruneLoop drops terminal redemption records past their retention, hourly.
+//
+// Hourly rather than on a timer per record: the journal is small, the sweep is a file
+// rewrite, and a coarse schedule cannot be the reason a payment path misbehaves. A
+// retention of 0 means "keep everything" and is honoured by not starting the loop's
+// work at all — Prune(0) is a no-op, but skipping the ticker is clearer in a log.
+func lnurlcashPruneLoop(store *lnurlcash.IntentStore, retentionSeconds int) {
+	if retentionSeconds <= 0 {
+		mainLogger.Info("LNURLcash: retention_seconds=0 — finished redemption records are kept indefinitely")
+		return
+	}
+	retention := time.Duration(retentionSeconds) * time.Second
+	// One sweep shortly after boot so a long-running install converges without waiting
+	// an hour, then hourly.
+	timer := time.NewTimer(time.Minute)
+	defer timer.Stop()
+	for {
+		<-timer.C
+		if dropped, err := store.Prune(retention); err != nil {
+			mainLogger.WithError(err).Warn("LNURLcash: could not prune finished redemption records; the journal will grow until this succeeds")
+		} else if dropped > 0 {
+			mainLogger.WithField("dropped", dropped).Info("LNURLcash: pruned finished redemption records past retention")
+		}
+		timer.Reset(time.Hour)
+	}
 }
 
 func setLNURLCashRedeemer(r *lnurlcash.Redeemer) {
