@@ -279,6 +279,64 @@ func TestCallbackTimeoutIsAmbiguousAndNeverRetried(t *testing.T) {
 	}
 }
 
+// Eight parallel presentations of ONE note must produce one redemption, not
+// eight. The journal alone cannot stop this: each request can read "no record"
+// before any of them writes one, so without an in-memory claim the gate opens one
+// mint quote per request — eight invoices for one note, against a quote table
+// capped at three per MAC.
+func TestConcurrentPresentationsOfOneNoteRedeemOnce(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.gate.settle = func(string) (bool, bool, error) { return true, true, nil }
+
+	// Hold the callback open so all eight really do overlap.
+	gate := make(chan struct{})
+	h.issuer.answer = func(w http.ResponseWriter, r *http.Request) {
+		<-gate
+		writeJSON(t, w, map[string]any{"status": "OK"})
+	}
+
+	const n = 8
+	var wg sync.WaitGroup
+	results := make([]Result, n)
+	errs := make([]error, n)
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			results[i], errs[i] = h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+		}(i)
+	}
+	close(start)
+
+	// Let the one real redemption proceed.
+	time.Sleep(100 * time.Millisecond)
+	close(gate)
+	wg.Wait()
+
+	if got := h.gate.quoteCount(); got != 1 {
+		t.Fatalf("asked the mint for %d quotes, want 1: concurrent presentations each opened one", got)
+	}
+	if got := h.issuer.callbackCount(); got != 1 {
+		t.Fatalf("sent %d callbacks, want 1", got)
+	}
+
+	granted := 0
+	for i := 0; i < n; i++ {
+		if results[i].Granted {
+			granted++
+		}
+		// The losers must be told something actionable, not left with an empty state.
+		if !results[i].Granted && results[i].Message == "" && errs[i] == nil {
+			t.Fatalf("loser %d got neither a grant nor a message: %+v", i, results[i])
+		}
+	}
+	if granted != 1 {
+		t.Fatalf("%d of %d presentations reported a grant, want exactly 1", granted, n)
+	}
+}
+
 // --- duplicate presentation ----------------------------------------------
 
 func TestDuplicatePresentationGrantsOnce(t *testing.T) {

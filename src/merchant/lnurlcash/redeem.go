@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -99,6 +100,14 @@ type Redeemer struct {
 	store  *IntentStore
 	client *Client
 	now    func() time.Time
+
+	// inflight holds the fingerprints currently being redeemed, so eight parallel
+	// presentations of ONE note produce one redemption rather than eight mint
+	// quotes. The journal is the durable guard; this is the concurrency guard, and
+	// both are needed: the journal is read once per call, so two requests can both
+	// see "no record" before either writes one.
+	inflightMu sync.Mutex
+	inflight   map[string]struct{}
 }
 
 // NewRedeemer wires a redeemer. store may not be nil when the feature is enabled:
@@ -106,7 +115,32 @@ type Redeemer struct {
 // would rather refuse at boot than grant twice at 3 a.m.
 func NewRedeemer(cfg Config, gate Gate, store *IntentStore, client *Client) *Redeemer {
 	return &Redeemer{cfg: cfg, gate: gate, store: store, client: client,
-		now: func() time.Time { return time.Now().UTC() }}
+		now:      func() time.Time { return time.Now().UTC() },
+		inflight: make(map[string]struct{})}
+}
+
+// claim marks a note as being redeemed. It returns false when another call
+// already holds it, which the caller answers as "in progress" rather than
+// starting a second redemption.
+func (r *Redeemer) claim(fp string) bool {
+	r.inflightMu.Lock()
+	defer r.inflightMu.Unlock()
+	if r.inflight == nil {
+		r.inflight = make(map[string]struct{})
+	}
+	if _, busy := r.inflight[fp]; busy {
+		return false
+	}
+	r.inflight[fp] = struct{}{}
+	return true
+}
+
+// release clears a claim. It must run on every exit path; a leaked claim would
+// wedge that note until restart.
+func (r *Redeemer) release(fp string) {
+	r.inflightMu.Lock()
+	defer r.inflightMu.Unlock()
+	delete(r.inflight, fp)
 }
 
 // Fingerprint is the journal key for a note. It is also the log correlate: a
@@ -164,6 +198,15 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 		return Result{State: StateAbandoned, Message: "That is not a usable LNURLcash note."}, err
 	}
 	fp := Fingerprint(note)
+
+	// Concurrency guard: two requests can both read "no record" from the journal
+	// before either writes one, so the durable check alone does not stop eight
+	// parallel presentations from opening eight mint quotes for one note.
+	if !r.claim(fp) {
+		return Result{State: StatePending,
+			Message: "This note is already being redeemed. Wait for the current attempt to finish."}, nil
+	}
+	defer r.release(fp)
 
 	// Step 2: the journal decides. This is what makes a second presentation free
 	// of network effects.
