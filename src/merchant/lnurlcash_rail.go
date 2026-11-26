@@ -272,8 +272,16 @@ func (r *LNURLCashRail) RedeemAt(note lnurlcash.Note, confirmedMSat uint64, macA
 
 	// Our invoice, for the confirmed amount. From here the note is payable.
 	issuedQuote, bolt11, err := r.invoice(macAddress, mintURL, sats)
-	if err != nil {
+	if err != nil || issuedQuote == "" || bolt11 == "" {
 		release()
+		// An empty quote id or invoice is NOT a success: the endpoint reports status:1
+		// with whatever quote id it is handed, so an invoice function that "succeeds"
+		// empty would tell the customer they are paid with nothing behind it. Treat it
+		// as the pre-issuer failure it is — nothing has been sent to the issuer, so the
+		// note is still free to try again.
+		if err == nil {
+			err = fmt.Errorf("lnurlcash rail: the invoice step returned no quote")
+		}
 		// Nothing was spent. Marking the record failed frees the note for a later
 		// attempt: a mint that is down is not the customer's fault, and the
 		// issuer was never contacted.

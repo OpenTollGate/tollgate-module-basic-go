@@ -617,3 +617,56 @@ func TestMeltUsesTheIssuersCallbackPath(t *testing.T) {
 		t.Fatalf("with no issuer answer the melt should use the note's path %q, got %q", other.WithdrawURL.Path, defaultPath)
 	}
 }
+
+// A NOTE ABOVE THE CEILING IS REFUSED, NEVER PARTIALLY REDEEMED.
+//
+// LUD-03 has no partial withdraw: the issuer melts the WHOLE note. So an implementation
+// that clamps the invoice to its own ceiling — invoice 1,000 sats for a 100,000-sat note —
+// gets one quote, one callback, and destroys the other 99,000 sats at the issuer. That is
+// a fund loss, not a limit.
+//
+// This rail must refuse instead: no invoice, no melt, nothing spent, and the note still
+// worth what it was. The refusal happens before any network call.
+func TestANoteAboveTheCeilingIsRefusedNotClamped(t *testing.T) {
+	store := newCrashTestStore(t)
+
+	const ceilingSats = 1000
+	melted := false
+	invoicedFor := uint64(0)
+	rail := NewLNURLCashRail(
+		store,
+		ceilingSats,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			invoicedFor = sats
+			return "quote-big", "lnbc10u1pexample", nil
+		},
+		func(n lnurlcash.Note, cb IssuerCallback, invoice string) error {
+			melted = true
+			return nil
+		},
+	)
+
+	// 100,000 sats, as the issuer confirmed it.
+	const noteMSat = 100_000_000
+	if _, err := rail.Redeem(crashTestNote(t), noteMSat, "00:00:00:00:00:01", "https://mint.example"); err == nil {
+		t.Fatal("a note far above the ceiling must be refused, not accepted")
+	}
+	if invoicedFor != 0 {
+		t.Fatalf("an invoice was requested for %d sats; requesting a PARTIAL amount would melt the whole note and destroy the remainder", invoicedFor)
+	}
+	if melted {
+		t.Fatal("the melt ran for an over-ceiling note; the remainder of the note is unrecoverable once it does")
+	}
+
+	// The refusal must not consume the note's single chance: nothing was spent, and the
+	// record must not block a later presentation at a gate whose ceiling covers it.
+	ops, err := store.List()
+	if err != nil {
+		t.Fatalf("listing the journal: %v", err)
+	}
+	for _, op := range ops {
+		if op.Direction == paymentjournal.Incoming && op.State != paymentjournal.Failed && op.State != paymentjournal.Prepared {
+			t.Fatalf("an over-ceiling refusal left a %q record, which would reserve the note against a future legitimate attempt", op.State)
+		}
+	}
+}

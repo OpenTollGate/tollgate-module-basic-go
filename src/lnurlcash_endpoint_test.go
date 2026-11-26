@@ -491,3 +491,90 @@ func TestRedeemRefusesAnUnacceptedMintBeforeJournaling(t *testing.T) {
 		t.Fatalf("expected the mint_not_accepted refusal, got: %s", rec.Body.String())
 	}
 }
+
+// A SUCCESS RESPONSE MUST ALWAYS NAME A QUOTE.
+//
+// A sibling implementation returned HTTP 200 with an empty state on paths that should
+// have been errors — a customer told "you are paid, your access is pending" with nothing
+// behind it. The rule here: status:1 is only ever written when a quote id exists, and the
+// portal must never have to guess.
+//
+// This drives every refusal the rail can produce and asserts none of them is a 200, then
+// asserts the one success carries a quote.
+func TestRedeemNeverReportsSuccessWithoutAQuote(t *testing.T) {
+	resolveTestDevice(t)
+
+	type tc struct {
+		name  string
+		issue func(macAddress, mintURL string, sats uint64) (string, string, error)
+		melt  func(n lnurlcash.Note, cb merchant.IssuerCallback, invoice string) error
+		want  int
+	}
+	cases := []tc{
+		{
+			name: "invoice failed before the issuer",
+			issue: func(string, string, uint64) (string, string, error) {
+				return "", "", errors.New("mint down")
+			},
+			melt: func(lnurlcash.Note, merchant.IssuerCallback, string) error { return nil },
+			want: http.StatusBadGateway,
+		},
+		{
+			name: "melt returned an error",
+			issue: func(string, string, uint64) (string, string, error) {
+				return "quote-x", "lnbc1", nil
+			},
+			melt: func(lnurlcash.Note, merchant.IssuerCallback, string) error {
+				return errors.New("issuer unreachable — outcome unknown")
+			},
+			want: http.StatusBadGateway,
+		},
+		{
+			name: "melt succeeded but returned no quote id",
+			issue: func(string, string, uint64) (string, string, error) {
+				// An invoice function that "succeeds" with an empty quote id must not
+				// become a 200: this is the empty-state bug in its exact shape.
+				return "", "lnbc1", nil
+			},
+			melt: func(lnurlcash.Note, merchant.IssuerCallback, string) error { return nil },
+			// NOT 200. Before the fix this returned {"status":1} with no quote id; the
+			// rail now treats an empty quote as the pre-issuer failure it is, which is
+			// a 502 redeem_unconfirmed refusal. The test asserting 200 was asserting
+			// the bug — which is why it passed before the fix went in and failed after.
+			want: http.StatusBadGateway,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			store, err := paymentjournal.Open(filepath.Join(t.TempDir(), "journal"))
+			if err != nil {
+				t.Fatalf("journal: %v", err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			rail := merchant.NewLNURLCashRail(store, 0, c.issue, c.melt)
+			h := handleLNURLCashRedeem(rail, func() (bool, string) { return true, "" },
+				func(string) (lnurlCashIssuer, error) {
+					return &stubIssuer{state: lnurlcash.IssuerState{WithdrawableMSat: 21000}}, nil
+				})
+
+			body := `{"note":"` + endpointTestSpend + `","mint":"` + acceptedMintForTest(t) +
+				`","issuer":"mint.example"}`
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/lnurlcash/redeem", strings.NewReader(body))
+			h.ServeHTTP(rec, req)
+
+			if rec.Code == http.StatusOK {
+				var got lnurlCashRedeemResponse
+				if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+					t.Fatalf("a 200 carried no parsable body: %s", rec.Body.String())
+				}
+				if got.QuoteID == "" {
+					t.Fatalf("HTTP 200 with no quote id — the customer is told they are paid and nothing exists behind it: %s", rec.Body.String())
+				}
+			} else if c.want == http.StatusOK {
+				t.Fatalf("expected success for this case but got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
