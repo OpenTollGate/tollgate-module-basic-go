@@ -4,7 +4,9 @@ go 1.26.0
 
 require (
 	github.com/OpenTollGate/gonuts-tollgate v0.17.0
+	github.com/OpenTollGate/tollgate-module-basic-go v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
@@ -59,8 +61,11 @@ require (
 )
 
 replace (
+	github.com/OpenTollGate/tollgate-module-basic-go => ..
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ../config_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash => ../lnurlcash
+	github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal => ../paymentjournal
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ../tollwallet
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ../utils
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ../valve
@@ -68,6 +73,7 @@ replace (
 
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
+	github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal v0.0.0-00010101000000-000000000000 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
