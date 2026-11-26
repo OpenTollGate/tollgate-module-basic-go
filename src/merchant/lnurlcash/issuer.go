@@ -56,7 +56,21 @@ func errIssuerUnreachable(err error) error {
 	return ErrIssuerUnreachable
 }
 
-// ClientOptions configures an issuer Client.
+// isLabBridgeAddress reports whether ip is on the cloud-lab bridge subnet
+// (172.28.0.0/16), which is what tests/cloud-lab/docker-compose.yml declares.
+//
+// This is the ONLY thing TOLLGATE_ALLOW_PLAINTEXT_ISSUERS unblocks. It is a narrow
+// range rather than "any address": a blanket skip would let a note point the gate at
+// loopback (this router's own admin API) or at anything else on the LAN, which is not
+// what a fake issuer in a container needs.
+func isLabBridgeAddress(ip net.IP) bool {
+	v4 := ip.To4()
+	if v4 == nil {
+		return false
+	}
+	return v4[0] == 172 && v4[1] == 28
+}
+
 type ClientOptions struct {
 	// Timeout bounds one issuer request, body included.
 	Timeout time.Duration
@@ -117,12 +131,13 @@ func NewClient(opts ClientOptions) *Client {
 			// that mixes a public and a private answer must not be reachable
 			// through whichever one the resolver happened to return first.
 			//
-			// The lab flag deliberately relaxes this too, and ONLY as far as the
-			// fake issuer needs: an address on the lab bridge. It is one switch for
-			// one caller, logged loudly at boot, and it cannot be reached from the
-			// config file — an operator cannot turn it on by editing JSON.
+			// The lab flag narrows this to ONE range, never to "no check at all":
+			// the cloud-lab bridge (172.28.0.0/16, the subnet docker-compose.yml
+			// declares). A blanket skip turned the lab affordance into an
+			// arbitrary-host dialler — it reached loopback with only this flag set,
+			// which no test double needs and no operator should be able to do.
 			for _, candidate := range ips {
-				if c.plainTextIssuersForTests {
+				if c.plainTextIssuersForTests && isLabBridgeAddress(candidate.IP) {
 					continue
 				}
 				if blockedAddress(candidate.IP) && !(c.allowInsecureLoopbackForTests && candidate.IP.IsLoopback()) {

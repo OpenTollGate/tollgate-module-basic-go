@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -543,6 +544,80 @@ func TestOneNoteHasOneJournalKeyAcrossURLSpellings(t *testing.T) {
 	if got := h.gate.quoteCount(); got != beforeQuotes {
 		t.Fatalf("a re-spelled note opened a second mint quote (%d -> %d)", beforeQuotes, got)
 	}
+}
+
+// The lab flag must not become an arbitrary-host dialler. It exists so a fake issuer
+// on the lab bridge is reachable; it must NOT reach loopback (this router's own admin
+// API) or the wider LAN. Review round 3 measured that a blanket skip did exactly that:
+// with only PlainTextIssuersForTests set, a note pointing at 127.0.0.1 was dialled.
+func TestLabFlagDoesNotReachLoopbackOrTheWiderLAN(t *testing.T) {
+	// The lab bridge itself is allowed — that is the entire purpose of the flag.
+	if !isLabBridgeAddress(mustParseIP(t, "172.28.0.12")) {
+		t.Fatal("the lab bridge subnet should be reachable under the lab flag")
+	}
+
+	// Every other interesting address is NOT the lab bridge, so the lab flag does not
+	// exempt it and the ordinary dial guard decides — which refuses all of these.
+	for _, addr := range []string{
+		"127.0.0.1",    // loopback: the router's own admin surface
+		"::1",          // loopback v6
+		"192.168.1.1",  // the LAN
+		"10.0.0.1",     // private
+		"100.64.0.1",   // CGNAT — the range Go's IsPrivate misses
+		"169.254.1.1",  // link-local
+		"172.29.0.1",   // private, but NOT the lab bridge
+		"172.28.0.300", // malformed, parses to nil -> must not be a lab address
+	} {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue // malformed literals cannot be dialled at all
+		}
+		if isLabBridgeAddress(ip) {
+			t.Fatalf("%s is treated as the lab bridge; the flag would allow it", addr)
+		}
+	}
+
+	// And the behaviour, through the real dial guard: a lab client must still refuse a
+	// hostname that resolves to LOOPBACK. This is the exact case round 3 measured as
+	// reachable — the router's own admin API, from a note.
+	//
+	// `localhost` and not a made-up name: the guard runs AFTER resolution, so a name that
+	// fails to resolve would pass this assertion for the wrong reason and prove nothing.
+	dial := labDialFunc(t)
+	for _, host := range []string{"localhost:8099", "127.0.0.1:8099"} {
+		if _, err := dial(context.Background(), "tcp", host); err == nil {
+			t.Fatalf("the lab flag let a note dial %s: that is loopback, i.e. this router's own admin API", host)
+		} else if !strings.Contains(err.Error(), "blocked address") {
+			t.Fatalf("dialling %s failed for the wrong reason (%v): the ADDRESS guard did not refuse it", host, err)
+		}
+	}
+
+	// The lab bridge, by contrast, must be dialable in principle (it is where the fake
+	// issuer lives) — assert the guard does not refuse it by CLASS.
+	if blockedAddress(mustParseIP(t, "172.28.0.12")) && !isLabBridgeAddress(mustParseIP(t, "172.28.0.12")) {
+		t.Fatal("the lab bridge address is blocked and not exempted: the lane could never run")
+	}
+}
+
+// labDialFunc extracts the client's real DialContext so the guard's decision can be
+// exercised without any network traffic leaving the box.
+func labDialFunc(t *testing.T) func(context.Context, string, string) (net.Conn, error) {
+	t.Helper()
+	c := NewClient(ClientOptions{Timeout: testTimeout, PlainTextIssuersForTests: true})
+	tr, ok := c.http.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport is %T, want *http.Transport", c.http.Transport)
+	}
+	return tr.DialContext
+}
+
+func mustParseIP(t *testing.T, s string) net.IP {
+	t.Helper()
+	ip := net.ParseIP(s)
+	if ip == nil {
+		t.Fatalf("net.ParseIP(%q) = nil", s)
+	}
+	return ip
 }
 
 // --- duplicate presentation ----------------------------------------------
