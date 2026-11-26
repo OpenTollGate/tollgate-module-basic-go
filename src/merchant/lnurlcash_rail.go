@@ -361,3 +361,42 @@ func (r *LNURLCashRail) priorAttempts(fingerprint string) ([]paymentjournal.Oper
 	}
 	return out, nil
 }
+
+// Settle records that a quote this rail created has been paid and granted, and retires the
+// matching journal record.
+//
+// This is the missing half of the transaction. Redeem journals its intent and binds the
+// note to our invoice before the melt; without this, the record stays `awaiting` for ever
+// and the rail leaks one permanent journal slot per SALE. At the store's cap that is a hard
+// lifetime of 1024 honest redemptions before every customer is refused — no attacker, no
+// malformed note, just people paying.
+//
+// It is keyed on the bolt11 invoice, which the rail already stores on the record: the quote
+// monitor knows the invoice for the quote it just granted, and the rail journalled the same
+// string. A record that does not match is left alone, and a failure here is logged rather
+// than returned: the customer has already been granted access, and a stale journal record
+// is an operator problem, not a reason to disturb a completed sale.
+func (r *LNURLCashRail) Settle(bolt11 string) {
+	if bolt11 == "" {
+		return
+	}
+	ops, err := r.store.List()
+	if err != nil {
+		log.Printf("ERROR: lnurlcash rail: cannot list the journal to retire a settled record: %v", err)
+		return
+	}
+	for _, op := range ops {
+		if op.Direction != paymentjournal.Incoming || op.State != paymentjournal.Awaiting {
+			continue
+		}
+		if string(op.Invoice) != bolt11 {
+			continue
+		}
+		if _, aerr := r.store.Advance(op.ID, op.Version, paymentjournal.Paid, op.ActualFeeMSat); aerr != nil {
+			log.Printf("ERROR: lnurlcash rail: cannot retire settled record %s: %v", op.ID, aerr)
+			return
+		}
+		log.Printf("lnurlcash rail: retired settled record %s (quote paid and granted)", op.ID)
+		return
+	}
+}

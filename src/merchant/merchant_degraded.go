@@ -417,6 +417,10 @@ func (m *MerchantDegraded) GetLightningInvoiceStatus(quoteID, macAddress string)
 	return nil, m.notInitializedError()
 }
 
+// SetQuoteSettled is a no-op on the degraded merchant: it never creates quotes, so it
+// never has one to settle.
+func (m *MerchantDegraded) SetQuoteSettled(fn QuoteSettledFunc) {}
+
 func (m *MerchantDegraded) GetAcceptedMints() []config_manager.MintConfig {
 	return m.mintHealthTracker.GetAllConfiguredMintConfigs()
 }

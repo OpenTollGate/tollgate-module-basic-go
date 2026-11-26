@@ -25,6 +25,8 @@ func (m *mockMerchantForProvider) DrainMint(mintURL string) (string, uint64, err
 	return "", 0, fmt.Errorf("mock: %s", m.name)
 }
 
+func (m *mockMerchantForProvider) SetQuoteSettled(fn QuoteSettledFunc) {}
+
 func (m *mockMerchantForProvider) GetAcceptedMints() []config_manager.MintConfig {
 	return nil
 }

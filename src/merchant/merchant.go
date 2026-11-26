@@ -407,7 +407,27 @@ type MerchantInterface interface {
 }
 
 // Merchant represents the financial decision maker for the tollgate
+// QuoteSettledFunc is notified when a quote this merchant created has been granted.
+//
+// It exists so a payment rail that journals its own intent can retire that record once the
+// money has actually arrived. Without it the two halves — the journal and the grant — are
+// never joined, and a rail that journals before it acts leaks one permanent record per
+// successful sale.
+type QuoteSettledFunc func(bolt11 string)
+
+// QuoteSettler is the optional capability a merchant exposes when it can report that a
+// quote has been paid and granted.
+//
+// It is NOT part of MerchantInterface on purpose: the degraded and starting merchants can
+// never settle anything, and every test double in the tree would otherwise have to grow a
+// method it does not use. Callers type-assert for it.
+type QuoteSettler interface {
+	SetQuoteSettled(fn QuoteSettledFunc)
+}
+
 type Merchant struct {
+	// quoteSettled, when set, is called after access has been granted for a quote.
+	quoteSettled  QuoteSettledFunc
 	config        *config_manager.Config
 	configManager *config_manager.ConfigManager
 	tollwallet    tollwallet.WalletPort
@@ -2701,6 +2721,12 @@ func (m *Merchant) CreatePaymentTokenWithOverpayment(mintURL string, amount uint
 }
 
 // GetAcceptedMints returns the list of accepted mints from the configuration
+// SetQuoteSettled registers a callback for settled quotes. It is called at most once per
+// quote, after the grant, and must not block: the monitor goroutine calls it.
+func (m *Merchant) SetQuoteSettled(fn QuoteSettledFunc) {
+	m.quoteSettled = fn
+}
+
 func (m *Merchant) GetAcceptedMints() []config_manager.MintConfig {
 	return m.mintHealthTracker.GetReachableMintConfigs()
 }

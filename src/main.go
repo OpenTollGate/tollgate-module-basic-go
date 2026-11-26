@@ -2054,6 +2054,23 @@ func registerAPIHandlers(mux *http.ServeMux) {
 					}
 					return lnurlcash.NewIssuerClient(domain)
 				})
+				// Join the two halves of the transaction: the rail journals its
+				// intent before the melt, and the quote monitor is the only thing that
+				// learns the money arrived. Without this the record stays `awaiting`
+				// for ever and every SALE leaks a permanent journal slot — the rail
+				// would refuse everyone after 1024 honest payments.
+				// SetQuoteSettled is an OPTIONAL capability, deliberately not part of
+				// MerchantInterface: adding it there would force every test double in the
+				// tree to grow a method it does not need, and the degraded and starting
+				// merchants would carry no-ops that can never fire. Assert instead.
+				if settler, ok := merchantProvider.inner.GetMerchant().(merchant.QuoteSettler); ok {
+					settler.SetQuoteSettled(func(bolt11 string) { rail.Settle(bolt11) })
+				} else {
+					// A merchant that cannot report settlement would let every sale leak
+					// its journal slot until the rail dies at the store's cap.
+					mainLogger.Warn("LNURLcash rail: the merchant does not report settled quotes; journal records will not be retired")
+				}
+
 				mux.HandleFunc("/lnurlcash/redeem", func(w http.ResponseWriter, r *http.Request) {
 					mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /lnurlcash/redeem endpoint")
 					// Rate limited, unlike /ln-invoice. Each redemption makes the gate
