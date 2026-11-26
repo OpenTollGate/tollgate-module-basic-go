@@ -172,17 +172,58 @@ func publicAddress(ip net.IP) bool {
 		ip.IsInterfaceLocalMulticast() {
 		return false
 	}
-	// 100.64.0.0/10 (carrier NAT), 192.0.0.0/24 and the documentation ranges are
-	// not things a real issuer lives at, and are the usual SSRF stand-ins.
+	// A v4-mapped address (::ffff:a.b.c.d) and a NAT64 address (64:ff9b::a.b.c.d)
+	// both reach an IPv4 host. To4() handles the first; NAT64 must be unwrapped by
+	// hand, or 64:ff9b::7f00:1 sneaks past every v4 rule below and dials 127.0.0.1.
 	if v4 := ip.To4(); v4 != nil {
-		switch {
-		case v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127:
-			return false
-		case v4[0] == 192 && v4[1] == 0 && v4[2] == 0:
-			return false
-		case v4[0] == 198 && (v4[1] == 18 || v4[1] == 19):
-			return false
+		return publicIPv4(v4)
+	}
+	if len(ip) == net.IPv6len && ip[0] == 0x00 && ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b {
+		// 64:ff9b::/96 — the last four bytes are the embedded IPv4 address.
+		allZero := true
+		for _, b := range ip[4:12] {
+			if b != 0 {
+				allZero = false
+				break
+			}
 		}
+		if allZero {
+			return publicIPv4(net.IP(ip[12:16]))
+		}
+		return false
+	}
+	return true
+}
+
+// publicIPv4 applies the IPv4 rules to a 4-byte address.
+//
+// isPrivate/IsLoopback do not cover everything that must not be dialled. Named
+// explicitly: 0.0.0.0/8 (only the exact 0.0.0.0 counts as unspecified, but the whole
+// /8 is "this network"), 192.0.0.0/24, 198.18.0.0/15 (benchmarking), 240.0.0.0/4 and
+// 255.255.255.255 (reserved/broadcast), and 100.64.0.0/10 (carrier NAT, where a
+// router's own LAN peers often live).
+func publicIPv4(v4 net.IP) bool {
+	switch {
+	case v4[0] == 0:
+		return false
+	case v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127:
+		return false
+	case v4[0] == 127:
+		return false
+	case v4[0] == 169 && v4[1] == 254:
+		return false
+	case v4[0] == 192 && v4[1] == 0 && v4[2] == 0:
+		return false
+	case v4[0] == 198 && (v4[1] == 18 || v4[1] == 19):
+		return false
+	case v4[0] >= 240:
+		return false
+	case v4[0] == 10:
+		return false
+	case v4[0] == 172 && v4[1] >= 16 && v4[1] <= 31:
+		return false
+	case v4[0] == 192 && v4[1] == 168:
+		return false
 	}
 	return true
 }

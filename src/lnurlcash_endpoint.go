@@ -14,6 +14,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 )
 
 // /lnurlcash/redeem — the customer-facing entry point for the opt-in rail.
@@ -95,6 +96,25 @@ type lnurlCashIssuer interface {
 	Info(ctx context.Context, n lnurlcash.Note, withdrawPath string) (lnurlcash.IssuerState, error)
 }
 
+// mintAccepted reports whether this gate serves the given mint.
+//
+// The comparison goes through tollwallet.MintURLMatches, the same canonicalising
+// comparison the wallet and the allotment code use, so two spellings of one mint
+// (trailing slash, host case, default port) cannot disagree with each other — the
+// #375/#480 class of drift, which has bitten this repo before.
+func mintAccepted(mintURL string) bool {
+	cfg := configManager.GetConfig()
+	if cfg == nil {
+		return false
+	}
+	for _, m := range cfg.AcceptedMints {
+		if tollwallet.MintURLMatches(m.URL, mintURL) {
+			return true
+		}
+	}
+	return false
+}
+
 // handleLNURLCashRedeem serves POST /lnurlcash/redeem.
 //
 // rail and issuer are injected rather than looked up globally, so a test can drive
@@ -146,6 +166,20 @@ func handleLNURLCashRedeem(
 		if rawNote == "" || mintURL == "" {
 			writeLNURLCashRefusal(w, http.StatusBadRequest, "missing_fields",
 				"note and mint are required.", 0)
+			return
+		}
+
+		// The mint is ours to choose, not the caller's. Rejected HERE, before any
+		// journal write, because the cost of getting this wrong is not a bad request:
+		// Redeem() journals its intent before it asks the mint for an invoice, so an
+		// unaccepted mint would leave a durable record behind on every attempt. A
+		// definitive failure frees the note for retry, and each retry allocates a new
+		// record, so a caller looping one note against a mint we do not serve walks the
+		// journal to its cap — after which Prepare refuses for EVERYONE, including
+		// honest customers. Nothing prunes those records.
+		if !mintAccepted(mintURL) {
+			writeLNURLCashRefusal(w, http.StatusBadRequest, "mint_not_accepted",
+				"This gate does not accept payments via that mint.", 0)
 			return
 		}
 
@@ -232,10 +266,16 @@ func handleLNURLCashRedeem(
 				writeLNURLCashRefusal(w, http.StatusConflict, "note_already_presented",
 					"This note has already been presented to this gate. Check your session; if no access was granted, contact the operator with this message.", 0)
 				return
+			case errors.Is(err, merchant.ErrLNURLCashRetriesExhausted):
+				// Nothing was spent and nothing will be: this note is out of attempts.
+				// Saying "ambiguous, retry" would be a lie that sends the customer round
+				// a loop that can never succeed.
+				mainLogger.WithField("remote_addr", r.RemoteAddr).
+					Warn("Refused an LNURLcash note that has exhausted its retry budget")
+				writeLNURLCashRefusal(w, http.StatusConflict, "note_retries_exhausted",
+					"This note has failed too many times to retry automatically. Nothing was spent. Contact the operator with this message.", 0)
+				return
 			default:
-				// Includes an ambiguous melt. The note is NOT released: whether the
-				// issuer burned it is exactly what is unknown, and if it did the quote
-				// settles and the monitor grants anyway.
 				mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
 					Warn("LNURLcash redemption did not confirm; note stays reserved")
 				writeLNURLCashRefusal(w, http.StatusBadGateway, "redeem_unconfirmed",

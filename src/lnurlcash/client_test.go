@@ -296,3 +296,44 @@ func TestClientRefusesNonPublicAddressesForTheRealDialer(t *testing.T) {
 		}
 	}
 }
+
+// THE ADDRESS CLASSIFIER IS AN SSRF BOUNDARY, SO IT GETS A TABLE.
+//
+// The doc comment promised loopback, private, link-local, multicast and unspecified are
+// refused — but 0.0.0.1, 240.0.0.1, 255.255.255.255, ::ffff:0.0.0.1 and the NAT64 form
+// 64:ff9b::7f00:1 (which is 127.0.0.1) all passed. The allowlist is the first boundary,
+// so this needs an allowlisted hostname resolving into those ranges to bite — on a
+// router, NAT64 makes 64:ff9b::/96 exactly that path to loopback.
+func TestPublicAddressRefusesNonRoutableRanges(t *testing.T) {
+	refused := []string{
+		"127.0.0.1", "127.1.2.3", "0.0.0.0", "0.0.0.1", "0.1.2.3",
+		"10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.1",
+		"169.254.169.254", "100.64.0.1", "100.127.255.254",
+		"192.0.0.1", "198.18.0.1", "198.19.255.255",
+		"240.0.0.1", "255.255.255.255",
+		"::1", "::", "fc00::1", "fd12:3456::1", "fe80::1", "ff02::1",
+		"::ffff:127.0.0.1", "::ffff:0.0.0.1", "::ffff:10.0.0.1",
+		"64:ff9b::7f00:1", "64:ff9b::a00:1", "64:ff9b::c0a8:101",
+	}
+	for _, s := range refused {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			t.Fatalf("test bug: %q does not parse", s)
+		}
+		if publicAddress(ip) {
+			t.Errorf("publicAddress(%s) = true; this address must never be dialled for an issuer", s)
+		}
+	}
+
+	// And it must not be so strict that no real issuer can be reached.
+	allowed := []string{"1.1.1.1", "8.8.8.8", "93.184.216.34", "2606:4700:4700::1111", "2a00:1450:4001:80a::200e"}
+	for _, s := range allowed {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			t.Fatalf("test bug: %q does not parse", s)
+		}
+		if !publicAddress(ip) {
+			t.Errorf("publicAddress(%s) = false; a real issuer could live here", s)
+		}
+	}
+}

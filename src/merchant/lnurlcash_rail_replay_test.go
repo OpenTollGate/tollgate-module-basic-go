@@ -472,3 +472,87 @@ func TestConcurrentRedemptionsOfOneNoteMeltOnlyOnce(t *testing.T) {
 		t.Fatalf("expected %d callers refused as already-redeemed, got %d", racers-1, refused)
 	}
 }
+
+// ONE NOTE MUST NOT BE ABLE TO EXHAUST THE JOURNAL.
+//
+// Every attempt on a note that fails pre-issuer costs one permanent journal record, and
+// nothing ever reclaims it. At the store's cap, Prepare refuses for EVERY caller — so an
+// unbounded retry loop on a single note is a denial of service against every other
+// customer, delivered through a path that looks like an ordinary failed payment.
+//
+// This drives one note past the budget and asserts the refusal is the bounded one, not
+// an ever-growing trail of records.
+func TestRetriesAreBoundedPerNote(t *testing.T) {
+	store := newCrashTestStore(t)
+
+	// A mint that always refuses to issue us an invoice: the pre-issuer failure path
+	// that frees the note for retry. This is the shape of attack.
+	rail := NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			return "", "", errors.New("mint configuration not found")
+		},
+		func(note lnurlcash.Note, callback IssuerCallback, invoice string) error {
+			t.Fatal("the melt must never be reached when the invoice step fails")
+			return nil
+		},
+	)
+
+	note := crashTestNote(t)
+	attempts := 0
+	var lastErr error
+	for i := 0; i < 40; i++ {
+		_, err := rail.Redeem(note, 1000, "00:00:00:00:00:01", "https://mint.example")
+		if err == nil {
+			t.Fatal("a note whose invoice cannot be issued must not succeed")
+		}
+		if errors.Is(err, ErrLNURLCashRetriesExhausted) {
+			lastErr = err
+			break
+		}
+		attempts++
+	}
+	if lastErr == nil {
+		t.Fatalf("40 attempts on one note never hit the retry bound; it consumed %d journal records", attempts)
+	}
+	if attempts > maxRedeemAttemptsPerNote {
+		t.Fatalf("the note consumed %d journal records before the bound bit; the bound is %d", attempts, maxRedeemAttemptsPerNote)
+	}
+
+	// The bound must be on RECORDS, not just on the error: a bound that still writes a
+	// record per attempt would be decoration.
+	ops, err := store.List()
+	if err != nil {
+		t.Fatalf("listing the journal: %v", err)
+	}
+	incoming := 0
+	for _, op := range ops {
+		if op.Direction == paymentjournal.Incoming {
+			incoming++
+		}
+	}
+	if incoming > maxRedeemAttemptsPerNote {
+		t.Fatalf("one note left %d permanent journal records (bound %d) — at the store's cap this refuses everyone else", incoming, maxRedeemAttemptsPerNote)
+	}
+
+	// And an unrelated note must still get through: the DoS claim is about OTHER
+	// customers, so assert on another customer.
+	// A DIFFERENT note, from a different preimage, so it is a different fingerprint.
+	const otherSpend = "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"
+	other, perr := lnurlcash.Parse(otherSpend, "mint.example")
+	if perr != nil {
+		t.Fatalf("parsing the second note: %v", perr)
+	}
+	okRail := NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			return "quote-other", "lnbc10u1pexample", nil
+		},
+		func(note lnurlcash.Note, callback IssuerCallback, invoice string) error { return nil },
+	)
+	if _, err := okRail.Redeem(other, 1000, "00:00:00:00:00:02", "https://mint.example"); err != nil {
+		t.Fatalf("a different customer's note was blocked by one repeated note: %v", err)
+	}
+}

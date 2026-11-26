@@ -14,6 +14,7 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet"
 )
 
 // The endpoint is the only place a bearer secret enters the gate from an
@@ -36,6 +37,27 @@ func (s *stubIssuer) Info(_ context.Context, _ lnurlcash.Note, _ string) (lnurlc
 	return s.state, s.err
 }
 
+func endpointTestRailWithStore(t *testing.T, melted *bool) (*merchant.LNURLCashRail, *paymentjournal.Store) {
+	t.Helper()
+	store, err := paymentjournal.Open(filepath.Join(t.TempDir(), "journal"))
+	if err != nil {
+		t.Fatalf("opening the journal: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	return merchant.NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			t.Fatal("an unaccepted mint must be refused before any invoice is requested")
+			return "", "", nil
+		},
+		func(note lnurlcash.Note, callback merchant.IssuerCallback, invoice string) error {
+			*melted = true
+			return nil
+		},
+	), store
+}
+
 func endpointTestRail(t *testing.T, melted *bool) *merchant.LNURLCashRail {
 	t.Helper()
 	store, err := paymentjournal.Open(filepath.Join(t.TempDir(), "journal"))
@@ -54,6 +76,20 @@ func endpointTestRail(t *testing.T, melted *bool) *merchant.LNURLCashRail {
 			return nil
 		},
 	)
+}
+
+// acceptedMintForTest returns a mint URL this gate's config actually accepts.
+//
+// The handler refuses an unaccepted mint before journaling (that is the fix), so these
+// tests must pay through a mint the gate serves. Reading it from config keeps the test
+// from hardcoding a third-party host that could be added or removed in config.
+func acceptedMintForTest(t *testing.T) string {
+	t.Helper()
+	cfg := configManager.GetConfig()
+	if cfg == nil || len(cfg.AcceptedMints) == 0 {
+		t.Skip("no accepted mints in this config; the redemption path needs one")
+	}
+	return cfg.AcceptedMints[0].URL
 }
 
 // resolveTestDevice makes the request's socket address resolve to a MAC, so the
@@ -94,7 +130,7 @@ func TestRedeemRefusesWhenRailIsDisabled(t *testing.T) {
 			return &stubIssuer{}, nil
 		})
 
-	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"https://mint.example","issuer":"mint.example"}`)
+	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"`+acceptedMintForTest(t)+`","issuer":"mint.example"}`)
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("a disabled rail must answer 404, got %d", rec.Code)
@@ -122,7 +158,7 @@ func TestRedeemReportsDefinitiveIssuerRefusal(t *testing.T) {
 		func() (bool, string) { return true, "" },
 		func(string) (lnurlCashIssuer, error) { return issuer, nil })
 
-	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"https://mint.example","issuer":"mint.example"}`)
+	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"`+acceptedMintForTest(t)+`","issuer":"mint.example"}`)
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409 for a definitive refusal, got %d", rec.Code)
@@ -151,7 +187,7 @@ func TestRedeemDoesNotSpendWhenIssuerLookupIsAmbiguous(t *testing.T) {
 		func() (bool, string) { return true, "" },
 		func(string) (lnurlCashIssuer, error) { return issuer, nil })
 
-	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"https://mint.example","issuer":"mint.example"}`)
+	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"`+acceptedMintForTest(t)+`","issuer":"mint.example"}`)
 
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502 for an ambiguous lookup, got %d", rec.Code)
@@ -176,7 +212,7 @@ func TestRedeemRefusesAZeroValueNote(t *testing.T) {
 		func() (bool, string) { return true, "" },
 		func(string) (lnurlCashIssuer, error) { return issuer, nil })
 
-	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"https://mint.example","issuer":"mint.example"}`)
+	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"`+acceptedMintForTest(t)+`","issuer":"mint.example"}`)
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409 for a zero-value note, got %d", rec.Code)
@@ -203,7 +239,7 @@ func TestRedeemHappyPathReturnsAQuoteAndGrantsNothing(t *testing.T) {
 			return issuer, nil
 		})
 
-	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"https://mint.example","issuer":"mint.example"}`)
+	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"`+acceptedMintForTest(t)+`","issuer":"mint.example"}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -240,7 +276,7 @@ func TestRedeemRefusesABareSpendWithNoIssuer(t *testing.T) {
 			return &stubIssuer{state: lnurlcash.IssuerState{WithdrawableMSat: 1000}}, nil
 		})
 
-	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"https://mint.example"}`)
+	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"`+acceptedMintForTest(t)+`"}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("a bare spend without an issuer must be refused as invalid, got %d", rec.Code)
@@ -265,7 +301,7 @@ func TestRedeemRefusesAnIssuerOutsideTheAllowlist(t *testing.T) {
 			return nil, errors.New("not allowlisted")
 		})
 
-	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"https://mint.example","issuer":"evil.example"}`)
+	rec := postRedeem(t, h, `{"note":"`+endpointTestSpend+`","mint":"`+acceptedMintForTest(t)+`","issuer":"evil.example"}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for a disallowed issuer, got %d", rec.Code)
@@ -305,7 +341,7 @@ func TestRedeemRejectsAnOversizedBody(t *testing.T) {
 		func() (bool, string) { return true, "" },
 		func(string) (lnurlCashIssuer, error) { return &stubIssuer{}, nil })
 
-	big := `{"note":"` + strings.Repeat("a", maxLNURLCashBodyBytes+100) + `","mint":"https://mint.example"}`
+	big := `{"note":"` + strings.Repeat("a", maxLNURLCashBodyBytes+100) + `","mint":"` + acceptedMintForTest(t) + `"}`
 	rec := postRedeem(t, h, big)
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
@@ -329,7 +365,7 @@ func TestRedeemReportsAReplayAsRecoverable(t *testing.T) {
 		func() (bool, string) { return true, "" },
 		func(string) (lnurlCashIssuer, error) { return issuer, nil })
 
-	body := `{"note":"` + endpointTestSpend + `","mint":"https://mint.example","issuer":"mint.example"}`
+	body := `{"note":"` + endpointTestSpend + `","mint":"` + acceptedMintForTest(t) + `","issuer":"mint.example"}`
 
 	if rec := postRedeem(t, h, body); rec.Code != http.StatusOK {
 		t.Fatalf("first presentation should succeed, got %d: %s", rec.Code, rec.Body.String())
@@ -391,5 +427,67 @@ func TestRedeemRouteIsRateLimited(t *testing.T) {
 	// Outermost: RateLimitMiddleware(CorsMiddleware(requireStarted(...)))
 	if !strings.Contains(registration, "RateLimitMiddleware(CorsMiddleware(requireStarted(handler)))") {
 		t.Fatalf("the limiter must be the outermost wrapper so the budget is spent before the handler runs; got:\n%s", registration)
+	}
+}
+
+// AN UNACCEPTED MINT MUST BE REFUSED BEFORE THE JOURNAL IS TOUCHED.
+//
+// Redeem() journals its intent before it asks the mint for an invoice, and a pre-issuer
+// failure frees the note for retry — each retry writing a fresh record that nothing
+// reclaims. With the mint taken from the request body and never checked, a caller could
+// loop one note against a mint this gate does not serve and walk the journal to its cap,
+// after which Prepare refuses for EVERY customer.
+//
+// The refusal must be 400 mint_not_accepted, and it must happen before Redeem, so no
+// record is created at all.
+func TestRedeemRefusesAnUnacceptedMintBeforeJournaling(t *testing.T) {
+	resolveTestDevice(t) // otherwise the identity guard short-circuits and this proves nothing
+	melted := false
+	rail, store := endpointTestRailWithStore(t, &melted)
+
+	h := handleLNURLCashRedeem(rail, func() (bool, string) { return true, "" },
+		func(domain string) (lnurlCashIssuer, error) {
+			return &stubIssuer{state: lnurlcash.IssuerState{WithdrawableMSat: 1000}}, nil
+		})
+
+	// A mint this gate definitely does not serve. Not "mint.example" by luck: assert it
+	// is absent from the accepted list, so the test cannot silently become a happy-path
+	// test if someone adds that host to the config.
+	unaccepted := "https://definitely-not-an-accepted-mint.invalid"
+	for _, m := range configManager.GetConfig().AcceptedMints {
+		if tollwallet.MintURLMatches(m.URL, unaccepted) {
+			t.Fatalf("%s is an accepted mint in this config; pick another for this test", unaccepted)
+		}
+	}
+
+	body := `{"note":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",` +
+		`"mint":"` + unaccepted + `","issuer":"mint.example"}`
+	rec := httptest.NewRecorder()
+	// Keep httptest's default RemoteAddr (192.0.2.1) — resolveTestDevice seeds a lease for
+	// exactly that address. Overriding it made the identity guard refuse first, and the
+	// "no journal records" assertion then passed for the wrong reason.
+	req := httptest.NewRequest(http.MethodPost, "/lnurlcash/redeem", strings.NewReader(body))
+	h.ServeHTTP(rec, req)
+
+	if melted {
+		t.Fatal("the handler reached the melt for a mint this gate does not serve")
+	}
+	// The testenv config has no accepted mints, so this exercises the reject path. Assert
+	// the journal was not written to: that is the whole point.
+	ops, err := store.List()
+	if err != nil {
+		t.Fatalf("listing the journal: %v", err)
+	}
+	if len(ops) != 0 {
+		t.Fatalf("an unaccepted mint left %d journal record(s); each one is permanent and a retry loop consumes one per attempt", len(ops))
+	}
+	// Assert the SPECIFIC refusal. Without this the test passed with the mint check
+	// removed, because the identity guard refused first and the journal stayed empty
+	// either way — the negative control is the only reason that was caught.
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an unaccepted mint, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "mint_not_accepted") {
+		t.Fatalf("expected the mint_not_accepted refusal, got: %s", rec.Body.String())
 	}
 }

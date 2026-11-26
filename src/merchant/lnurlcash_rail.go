@@ -53,6 +53,21 @@ var ErrLNURLCashRailClosed = errors.New("lnurlcash rail: no durable journal avai
 // double-taps gets an answer that tells them to look at their existing session.
 var ErrLNURLCashNoteAlreadyRedeemed = errors.New("lnurlcash rail: this note has already been presented")
 
+// ErrLNURLCashRetriesExhausted reports that this note has already failed as many
+// times as the rail will allow.
+//
+// The retry budget exists because every attempt costs a permanent journal record and
+// the journal has no pruner: at its cap, Prepare refuses for everyone. Bounding the
+// attempts per note keeps one unlucky (or hostile) note from disabling redemption for
+// the whole gate. A note that reaches this bound needs an operator, not another try.
+var ErrLNURLCashRetriesExhausted = errors.New("lnurlcash rail: this note has exhausted its redemption attempts")
+
+// maxRedeemAttemptsPerNote bounds how many times one note may be retried after a
+// definitive, pre-issuer failure. Each attempt consumes one journal record that nothing
+// ever reclaims, so this is the difference between a bad note and a gate that can no
+// longer record any payment at all.
+const maxRedeemAttemptsPerNote = 8
+
 // IssuerCallback is the redemption endpoint the issuer published for a note,
 // validated against the note's own domain. It is a struct, not a *url.URL, so a
 // caller cannot mutate a URL that has already been checked.
@@ -201,6 +216,19 @@ func (r *LNURLCashRail) Redeem(note lnurlcash.Note, confirmedMSat uint64, macAdd
 		// A definitive failure frees the note, but the journal has no
 		// failed→submitted transition (by design). A fresh, distinct id for the
 		// next attempt keeps the history and the audit trail intact.
+		//
+		// BOUNDED ON PURPOSE. Each retry costs one permanent journal slot, and the
+		// journal has no pruner: at its cap, Prepare refuses for everyone, so an
+		// unbounded retry loop lets one caller disable redemption for the whole gate
+		// (the endpoint rejects unaccepted mints before we get here, but a mint that
+		// is accepted and merely down reaches this path through no fault of the
+		// caller). A note that has failed this many times is not going to work on the
+		// next try; it needs a human, and refusing is honest about that.
+		if len(prior) >= maxRedeemAttemptsPerNote {
+			log.Printf("lnurlcash rail: refusing a note that has already failed %d times (issuer %s) — retries are bounded so one note cannot exhaust the payment journal",
+				len(prior), note.Domain)
+			return "", ErrLNURLCashRetriesExhausted
+		}
 		opID += "-r" + strconv.Itoa(len(prior)+1)
 	}
 
