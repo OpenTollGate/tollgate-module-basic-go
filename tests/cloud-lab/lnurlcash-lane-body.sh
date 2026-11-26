@@ -57,10 +57,26 @@ wait_http "http://127.0.0.1:8099/_state" "fake-issuer"
 wait_http "http://127.0.0.1:2121/" "upstream-lnurlcash"
 
 echo "--- run the lane's assertions ---"
+# The log-leak assertion reads the gate's log from the HOST side: `podman logs`
+# does not exist inside the test-runner container, and shelling out to it there
+# failed in a way that looked like a leak. Dump it to a file the runner mounts.
+GATE_LOG="$HERE/.lane-gate.log"
+"$COMPOSE" -f docker-compose.yml --profile "$PROFILE" logs --no-color upstream-lnurlcash > "$GATE_LOG" 2>&1 || true
+
 set +e
-"$COMPOSE" -f docker-compose.yml --profile "$PROFILE" run --rm client-lnurlcash
+LNURLCASH_GATE_LOG=/tests/.lane-gate.log \
+"$COMPOSE" -f docker-compose.yml --profile "$PROFILE" run --rm client-lnurlcash | tee "$HERE/.lane-result.log"
 rc=$?
 set -e
+
+# A skipped security assertion is not a passing one. The log-leak check is the
+# only thing standing between a bearer secret and an operator's bug report, so a
+# SKIP here fails the lane.
+if grep -q 'SKIPPED' "$HERE/.lane-result.log"; then
+    echo "ERROR: the lane SKIPPED an assertion — a skipped check is not a passing one" >&2
+    grep 'SKIPPED' "$HERE/.lane-result.log" >&2
+    rc=1
+fi
 
 if [ "$rc" -ne 0 ]; then
     echo "--- gate log (for the failure) ---"

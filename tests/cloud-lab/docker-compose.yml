@@ -359,6 +359,11 @@ services:
       - fake-issuer
     environment:
       - TOLLGATE_TEST_CONFIG_DIR=/etc/tollgate
+      # The fake issuer is a container on the lab bridge, reached over plain http
+      # by hostname. The production guards refuse exactly that, so this lane — and
+      # only this lane — sets the escape hatch. Environment-only by design; see
+      # ClientOptions.PlainTextIssuersForTests.
+      - TOLLGATE_ALLOW_PLAINTEXT_ISSUERS=1
     volumes:
       - ./configs/upstream-lnurlcash-config.json:/etc/tollgate/config.json
       - ./configs/install.json:/etc/tollgate/install.json
@@ -387,6 +392,11 @@ services:
     environment:
       - LNURLCASH_GATE_URL=http://upstream-lnurlcash:2121
       - LNURLCASH_ISSUER_URL=http://fake-issuer:8099
+      # Set by the driver to the host-side gate log mounted at /tests/.lane-gate.log.
+      # Passed through the compose service rather than the shell: `compose run` does
+      # not forward arbitrary host env, and an unset value makes the log-leak
+      # assertion SKIP — which is indistinguishable from passing at a glance.
+      - LNURLCASH_GATE_LOG
     networks:
       tollgate-lab:
         ipv4_address: 172.28.0.21

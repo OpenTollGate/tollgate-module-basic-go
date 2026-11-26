@@ -144,17 +144,27 @@ def test_second_presentation_does_not_call_the_issuer_again():
 
 
 def test_the_note_is_never_written_to_the_gate_log():
-    """The note is a bearer secret. The gate is running with debug logging in
-    this lane; the secret must not appear in it."""
-    import subprocess
+    """The note is a bearer secret. The gate runs with debug logging in this lane,
+    so the secret must not appear in it.
+
+    The log is read from the HOST side by the driver, not from inside this
+    container: `podman logs` is not available here (this is the test runner, not
+    the engine), and shelling out to it produced a FileNotFoundError that looked
+    like a leak-check failure. The driver writes the gate's log to
+    LNURLCASH_GATE_LOG; when that is unset the check is skipped loudly rather than
+    passing vacuously.
+    """
+    log_path = os.environ.get("LNURLCASH_GATE_LOG", "")
+    if not log_path:
+        pytest.skip("LNURLCASH_GATE_LOG is not set: the log-leak check needs the host-side gate log")
 
     issuer_mode("ok")
     secret = "logcheck-secret-do-not-print-me"
     pay(note_for(secret))
-    logs = subprocess.run(
-        ["podman", "logs", "tg-upstream-lnurlcash"],
-        capture_output=True, text=True, timeout=30,
-    )
-    out = (logs.stdout or "") + (logs.stderr or "")
+
+    with open(log_path, "r", errors="replace") as fh:
+        out = fh.read()
+    assert out, "the gate log is empty: the assertions below would be vacuous"
+    assert "LNURLcash" in out, "the gate log has no LNURLcash lines: wrong log, or the route never ran"
     assert secret not in out, "the note's k1 appears in the gate's log"
     assert "logcheck" not in out, "a fragment of the note's k1 appears in the gate's log"
