@@ -346,3 +346,50 @@ func TestRedeemReportsAReplayAsRecoverable(t *testing.T) {
 		t.Fatalf("the replay message must point the customer at their session, got %s", rec.Body.String())
 	}
 }
+
+// AN UNTHROTTLED REDEMPTION IS AN AMPLIFIER.
+//
+// Every redemption makes the gate issue an outbound request to a third-party issuer
+// from the gate's own address. Without the limiter on this route, one guest behind the
+// portal can make the gate hammer each issuer on the allowlist as fast as they can
+// type — burning the operator's standing with issuers that rate-limit or block by IP,
+// and degrading redemptions for every other guest behind the same NAT address.
+//
+// WHY THIS READS THE SOURCE INSTEAD OF DRIVING THE MUX: the redemption route is only
+// registered when the operator has opted in, and the testenv config has the rail off
+// (correctly — that is the shipped default). A mux-driven version of this test therefore
+// exercised the "/" catch-all, passed with the limiter REMOVED, and proved nothing. The
+// negative control is what caught it: red-without-the-fix is the only thing that makes a
+// green meaningful, and this one stayed green.
+//
+// So assert the wiring where it is unambiguous: the registration line must carry the
+// limiter, and it must sit outermost so the budget is spent before any network call.
+func TestRedeemRouteIsRateLimited(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("reading main.go: %v", err)
+	}
+	body := string(src)
+
+	const route = `mux.HandleFunc("/lnurlcash/redeem"`
+	i := strings.Index(body, route)
+	if i < 0 {
+		t.Fatal("the /lnurlcash/redeem route is not registered at all")
+	}
+	// Look at the registration block only: from the HandleFunc to the following
+	// top-level closing brace.
+	rest := body[i:]
+	end := strings.Index(rest, "\n\t\t\t\t})")
+	if end < 0 {
+		end = len(rest)
+	}
+	registration := rest[:end]
+
+	if !strings.Contains(registration, "RateLimitMiddleware(") {
+		t.Fatal("the redemption route is not behind RateLimitMiddleware: one guest can make the gate hammer every allowlisted issuer, using the gate's own address")
+	}
+	// Outermost: RateLimitMiddleware(CorsMiddleware(requireStarted(...)))
+	if !strings.Contains(registration, "RateLimitMiddleware(CorsMiddleware(requireStarted(handler)))") {
+		t.Fatalf("the limiter must be the outermost wrapper so the budget is spent before the handler runs; got:\n%s", registration)
+	}
+}

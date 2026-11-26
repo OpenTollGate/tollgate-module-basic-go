@@ -2056,7 +2056,14 @@ func registerAPIHandlers(mux *http.ServeMux) {
 				})
 				mux.HandleFunc("/lnurlcash/redeem", func(w http.ResponseWriter, r *http.Request) {
 					mainLogger.WithField("remote_addr", r.RemoteAddr).Debug("Hit /lnurlcash/redeem endpoint")
-					CorsMiddleware(requireStarted(handler))(w, r)
+					// Rate limited, unlike /ln-invoice. Each redemption makes the gate
+					// issue an outbound request to a third-party issuer, using the
+					// gate's own address; unbounded, one guest can spend the gate's
+					// reputation with every issuer on the allowlist and degrade
+					// redemptions for everyone behind it. The limiter is outermost so
+					// it bounds the work before any network call, and it exempts
+					// loopback so the local installer is unaffected.
+					RateLimitMiddleware(CorsMiddleware(requireStarted(handler)))(w, r)
 				})
 			}
 		}
