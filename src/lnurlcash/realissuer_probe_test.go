@@ -15,7 +15,10 @@ import (
 )
 
 func TestProbeRealIssuer(t *testing.T) {
-	// A syntactically valid bolt11 is enough: the fake funding source does not route anything.
+	// The invoice to melt into. Against the fake funding backend any well-formed bolt11 will do,
+	// because nothing routes. Set it to a REAL invoice from a different node and the melt becomes
+	// a genuine HTLC over a genuine channel; then check the far side's listinvoices for `paid`,
+	// which is the only thing that proves money moved rather than a mint saying yes.
 	probeInvoice := os.Getenv("LNURLCASH_REAL_INVOICE")
 	raw := os.Getenv("LNURLCASH_REAL_ISSUER")
 	if raw == "" {
