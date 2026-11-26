@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash"
+	"github.com/OpenTollGate/tollgate-module-basic-go/src/merchant"
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal"
 )
 
@@ -160,5 +163,73 @@ func TestJournalCommandDoesNotFlagAPreIssuerFailure(t *testing.T) {
 	}
 	if entries[0].NeedsOperator {
 		t.Fatal("a pre-issuer failure frees the note; flagging it as needing an operator would send someone chasing a non-issue")
+	}
+}
+
+// THE RAIL WRITES THE IDS THE CLI READS.
+//
+// Every other test in this file crafts its records by hand, which proves the formatter
+// and the filter but not that the two packages AGREE. The CLI recognises redemptions by
+// the "lnurlcash-" id prefix and the rail derives that prefix inside Redeem — an
+// assumption about a private convention, held in two places, which is precisely the kind
+// of thing that silently diverges.
+//
+// This drives the REAL rail to journal a real attempt, closes it the way a stopped daemon
+// would, and reads it back through the REAL CLI reader.
+func TestCLIReadsARecordTheRailActuallyWrote(t *testing.T) {
+	dir := t.TempDir()
+	store, err := paymentjournal.Open(filepath.Join(dir, "lnurlcash-journal"))
+	if err != nil {
+		t.Fatalf("opening the journal: %v", err)
+	}
+
+	note, perr := lnurlcash.Parse(
+		"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "issuer.example")
+	if perr != nil {
+		t.Fatalf("parsing the bearer note: %v", perr)
+	}
+
+	// The invoice step fails: this is the pre-issuer failure that journals a record and
+	// then marks it Failed. It is the only path that writes before contacting a third
+	// party, so it is the one a lab can drive without an issuer.
+	rail := merchant.NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			return "", "", errors.New("mint configuration not found")
+		},
+		func(n lnurlcash.Note, cb merchant.IssuerCallback, invoice string) error {
+			t.Fatal("no melt may happen on this path")
+			return nil
+		},
+	)
+	if _, rerr := rail.Redeem(note, 21000, "00:00:00:00:00:01", "https://mint.example"); rerr == nil {
+		t.Fatal("expected the redemption to fail at the invoice step")
+	}
+
+	// Stop the writer, as a stopped daemon would leave it (single-writer flock, #504).
+	if err := store.Close(); err != nil {
+		t.Fatalf("closing the journal: %v", err)
+	}
+
+	entries, err := lnurlCashJournalEntries(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatalf("the CLI could not read a journal the rail wrote: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("the CLI saw %d of the rail's records; it recognises ids by a prefix the rail must actually produce", len(entries))
+	}
+	e := entries[0]
+	if e.Issuer != "issuer.example" {
+		t.Fatalf("issuer = %q, want the note's domain", e.Issuer)
+	}
+	if e.AmountMSat != 21000 {
+		t.Fatalf("amount = %d, want 21000", e.AmountMSat)
+	}
+	if e.State != "failed" {
+		t.Fatalf("state = %q; the invoice step failed before any issuer contact, so this is a Failed record", e.State)
+	}
+	if e.NeedsOperator {
+		t.Fatal("a pre-issuer failure frees the note and must not be flagged for an operator")
 	}
 }
