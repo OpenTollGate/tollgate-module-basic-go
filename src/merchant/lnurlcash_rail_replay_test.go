@@ -1,6 +1,7 @@
 package merchant
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -261,5 +262,135 @@ func TestRedeemReachesTheMeltForAFreshNote(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("a completed redemption left no awaiting record bound to its invoice")
+	}
+}
+
+// THE MELT FAILURE IS THE POINT OF NO RETURN, AND THE NOTE MUST STAY RESERVED.
+//
+// When the melt fails, the gate does not know whether the issuer burned the note.
+// Both answers must lead to the same local action: keep the note reserved. Releasing
+// it would let a second presentation melt a note that may already be spent — a
+// double-melt, and the issuer's own replay protection is the only thing that would
+// catch it, on someone else's server.
+//
+// This is the property the whole rail exists to hold, and until now it was asserted
+// only in a comment.
+func TestMeltFailureKeepsTheNoteReserved(t *testing.T) {
+	store := newCrashTestStore(t)
+
+	meltErr := errors.New("lnurlcash: issuer unreachable — outcome unknown: context deadline exceeded")
+	rail := NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			return "quote-meltfail", "lnbc10u1pexample", nil
+		},
+		func(note lnurlcash.Note, callback IssuerCallback, invoice string) error {
+			return meltErr
+		},
+	)
+
+	note := crashTestNote(t)
+	quoteID, err := rail.Redeem(note, 1000, "00:00:00:00:00:01", "https://mint.example")
+	if err == nil {
+		t.Fatal("Redeem must report the melt failure, not swallow it")
+	}
+	if quoteID != "" {
+		t.Fatalf("a failed melt must not return a quote id; got %q", quoteID)
+	}
+
+	// The durable record must survive as a reservation, not as a failure that frees
+	// the note. Assert the STATE, because "the note is refused" is only correct for
+	// the right reason — a bug that refused it via a different path would pass a
+	// weaker test.
+	ops, lerr := store.List()
+	if lerr != nil {
+		t.Fatalf("listing the journal: %v", lerr)
+	}
+	var found bool
+	for _, op := range ops {
+		if op.Direction != paymentjournal.Incoming {
+			continue
+		}
+		found = true
+		if op.State == paymentjournal.Failed {
+			t.Fatalf("the melt failed but the record was marked %q — that FREES the note for a retry and risks a double-melt", op.State)
+		}
+		if op.State != paymentjournal.Awaiting {
+			t.Fatalf("expected the interrupted redemption to stay %q, got %q", paymentjournal.Awaiting, op.State)
+		}
+	}
+	if !found {
+		t.Fatal("the melt failure left no journal record at all — nothing would stop a replay")
+	}
+
+	// And a restart must refuse the note. This is the assertion that matters to a
+	// customer and to the operator's float.
+	restarted := NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			t.Fatal("a re-presented note must be refused BEFORE a second invoice is requested")
+			return "", "", nil
+		},
+		func(note lnurlcash.Note, callback IssuerCallback, invoice string) error {
+			t.Fatal("a re-presented note must never reach a second melt")
+			return nil
+		},
+	)
+	if _, rerr := restarted.Redeem(note, 1000, "00:00:00:00:00:01", "https://mint.example"); rerr != ErrLNURLCashNoteAlreadyRedeemed {
+		t.Fatalf("after an ambiguous melt the note must stay reserved across a restart; got %v", rerr)
+	}
+}
+
+// A SHORT ID FROM AN UNRELATED JOURNAL WRITER MUST NOT PANIC THE REDEMPTION PATH.
+//
+// priorAttempts compares every Incoming record's id against the note's derived id.
+// It used to slice op.ID[:42] behind a `len(op.ID) > 32` guard — true for a 35-char
+// id, false for the slice. Any other subsystem that journalled an Incoming operation
+// with an id of 33..41 characters made every LNURLcash redemption panic with
+// "slice bounds out of range [:42] with length 35".
+//
+// A panic here is not a crash on a quiet path: it is a customer with a note in hand
+// and a gate that falls over, and net/http recovers it into a closed connection.
+func TestShortForeignJournalIDDoesNotPanic(t *testing.T) {
+	store := newCrashTestStore(t)
+
+	// 35 characters: long enough to pass the old len>32 guard, too short to slice.
+	const foreignID = "lightning-short-id-0123456789012345"
+	if len(foreignID) <= 32 || len(foreignID) >= 42 {
+		t.Fatalf("this test only bites in the 33..41 window; id is %d chars", len(foreignID))
+	}
+	if _, err := store.Prepare(paymentjournal.Operation{
+		ID:         foreignID,
+		WalletID:   "wallet-key",
+		Direction:  paymentjournal.Incoming,
+		AmountMSat: 1000,
+		Recipient:  "someone-else",
+		Request:    []byte("x"),
+	}, paymentjournal.Budget{}); err != nil {
+		t.Fatalf("seeding the foreign record: %v", err)
+	}
+
+	melted := false
+	rail := NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			return "quote-panic", "lnbc10u1pexample", nil
+		},
+		func(note lnurlcash.Note, callback IssuerCallback, invoice string) error {
+			melted = true
+			return nil
+		},
+	)
+
+	// Must not panic. An unrelated record must not match this note either, so the
+	// redemption should proceed normally rather than be refused as a replay.
+	if _, err := rail.Redeem(crashTestNote(t), 1000, "00:00:00:00:00:01", "https://mint.example"); err != nil {
+		t.Fatalf("an unrelated short journal id must not affect this note: %v", err)
+	}
+	if !melted {
+		t.Fatal("expected the redemption to reach the melt once the unrelated record was ignored")
 	}
 }

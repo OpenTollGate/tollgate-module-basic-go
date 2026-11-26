@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash"
@@ -288,8 +289,10 @@ func (r *LNURLCashRail) priorAttempts(fingerprint string) ([]paymentjournal.Oper
 			continue
 		}
 		// A record that was prepared but never bound still names the note through
-		// its id, which is derived from the fingerprint.
-		if op.ID == "lnurlcash-"+fingerprint[:32] || len(op.ID) > 32 && op.ID[:len("lnurlcash-")+32] == "lnurlcash-"+fingerprint[:32] {
+		// its id, which is derived from the fingerprint. Compare by prefix rather
+		// than slicing: op.ID comes from any journal writer, and a short id from an
+		// unrelated subsystem must not panic the redemption path.
+		if strings.HasPrefix(op.ID, "lnurlcash-"+fingerprint[:32]) {
 			out = append(out, op)
 		}
 	}
