@@ -8,6 +8,18 @@ import (
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal"
 )
 
+// WHAT Settle IS AND IS NOT.
+//
+// It IS: the record stops claiming to be `awaiting` after the money arrived, so the operator
+// report and `tollgate lnurlcash` stop flagging sales that are perfectly fine. Before it,
+// every sale a gate ever made was reported as "the melt was attempted and the outcome is
+// unknown", which is a lie that would send someone chasing nothing.
+//
+// It IS NOT: a fix for the journal's hard cap. The store refuses Prepare when
+// len(s.data.Operations) >= maxRecords, counting EVERY record whatever its state, so moving a
+// record to `paid` renames it and frees nothing. TestSettledSalesDoNotConsumeJournalCapacity
+// measures that: the rail still refuses the 1025th sale.
+//
 // A SALE MUST RETIRE ITS JOURNAL RECORD, OR THE RAIL HAS A HARD LIFETIME.
 //
 // Redeem binds the note to our invoice, which sets the record to `awaiting` (BindInvoice),
@@ -133,5 +145,54 @@ func TestRepeatedSalesDoNotAccumulateJournalRecords(t *testing.T) {
 	}
 	if awaiting != 0 {
 		t.Fatalf("%d settled sales left %d records still awaiting; each one is a slot the rail can never reclaim", payments, awaiting)
+	}
+}
+
+// RETIRING A RECORD MUST ACTUALLY FREE THE SLOT, NOT JUST RENAME IT.
+//
+// The store's cap is `len(s.data.Operations) >= maxRecords` — it counts EVERY record whatever
+// its state. So advancing a settled record from `awaiting` to `paid` changes nothing about
+// capacity: the rail still dies after 1024 sales, one per sale, and now with tidier bookkeeping.
+//
+// This is the assertion my first version of this fix lacked. It measured the STATE (paid, not
+// awaiting) and called that success, which is exactly the "tests the cache, not the invariant"
+// mistake — the invariant is that a settled sale stops consuming capacity.
+func TestSettledSalesDoNotConsumeJournalCapacity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("fills the journal to its cap; slow by construction")
+	}
+	store := newCrashTestStore(t)
+
+	calls := 0
+	rail := NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			inv := fmt.Sprintf("lnbc1invoice-%d", calls)
+			calls++
+			return fmt.Sprintf("quote-%d", calls), inv, nil
+		},
+		func(n lnurlcash.Note, cb IssuerCallback, invoice string) error { return nil },
+	)
+
+	// Pay and settle well past the store's cap. If settlement frees capacity, every one of
+	// these succeeds; if it only renames the record, this fails somewhere around 1024.
+	const sales = 1100
+	failedAt := -1
+	for i := 0; i < sales; i++ {
+		note, perr := lnurlcash.Parse(fmt.Sprintf("%064x", i+1), "mint.example")
+		if perr != nil {
+			t.Fatalf("parse %d: %v", i, perr)
+		}
+		if _, rerr := rail.Redeem(note, 1000, "00:00:00:00:00:01", "https://mint.example"); rerr != nil {
+			failedAt = i
+			t.Logf("sale %d refused: %v", i, rerr)
+			break
+		}
+		rail.Settle(fmt.Sprintf("lnbc1invoice-%d", i))
+	}
+
+	if failedAt >= 0 {
+		t.Fatalf("the rail stopped accepting payments after %d settled sales — settling renames the record but does not free the slot, so the rail still dies at the journal cap and every later customer is refused", failedAt)
 	}
 }

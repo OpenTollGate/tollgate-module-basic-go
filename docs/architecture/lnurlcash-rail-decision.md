@@ -144,6 +144,38 @@ URL believes that issuer is allowed.
 - Replacing the Cashu purchase path, the Lightning top-up path, or their records.
 - Any change to the portal's visual design; the portal repo owns that surface.
 
+## Known limitation: the journal has a hard record cap
+
+`paymentjournal` refuses `Prepare` once it holds `maxRecords` (1024) operations, and it counts
+**every** record whatever its state — a settled sale occupies a slot exactly as much as a
+failed one. There is no prune, no expiry, and no delete path anywhere in the store; it is
+append-only by design.
+
+The consequence for this rail, measured rather than reasoned:
+
+```
+sale 1024 refused: lnurlcash rail: the payment journal refused a record
+```
+
+A busy gate therefore stops accepting LNURLcash after 1024 sales, and stays stopped. This is
+NOT an attack precondition: it needs no malformed note, no ambiguity and no adversary, only
+customers paying.
+
+The rail's own `Settle` (which marks a sold record `paid` when the quote settles) does NOT
+change this. It corrects the OPERATOR's view — before it, every sale a gate ever made was
+reported as "the melt was attempted and the outcome is unknown", which is a lie that would
+send someone chasing nothing — but the cap counts records, not live redemptions, so retirement
+frees no capacity.
+
+**Not fixed here, deliberately.** The remedy is a retention policy for terminal records
+(`paid`, `failed`, `completed`) in `paymentjournal` itself: prune past a bound, or keep a
+separate small reservation table sized for concurrent redemptions rather than sales. That is
+shared code with its own crash-consistency obligations, and it belongs in its own change with
+its own review rather than being smuggled into this one.
+
+Until it lands, the rail must not be enabled on a gate that expects more than ~1000 lifetime
+LNURLcash sales. That is a real product limit and it is stated in the PR body.
+
 ## References
 
 - LUD-25 / LUD-26 (draft): notes, canonical spend transaction, certificates,
