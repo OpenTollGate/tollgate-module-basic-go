@@ -95,6 +95,38 @@ type Config struct {
 	// keeps the legacy mapping rather than fighting over a port. See
 	// docs/architecture/default-ui-and-entry-port-decision.md (D1-D4).
 	EntryUI string `json:"entry_ui"`
+	// LNURLCash opts this router into the LNURLcash (LUD-25/LUD-26) note
+	// redemption rail, as a payment instrument beside Cashu. The zero value is
+	// OFF and an upgrade never turns it on: enabling requires the operator to
+	// set enabled=true AND to record the disclosure acknowledgement in
+	// acknowledgement (see docs/architecture/lnurlcash-rail-decision.md). A
+	// value present but unacknowledged is refused, not silently honoured.
+	LNURLCash LNURLCashConfig `json:"lnurlcash,omitempty"`
+}
+
+// LNURLCashConfig is the operator's opt-in for the LNURLcash redemption rail.
+//
+// This is a policy record, not a credential: no issuer key, bearer secret or
+// spend is ever stored here. Notes travel in the customer's own request, and
+// the gate holds only the value it has already confirmed with the issuer.
+type LNURLCashConfig struct {
+	// Enabled turns the rail on. Default false; an upgrade cannot set it.
+	Enabled bool `json:"enabled,omitempty"`
+	// Issuers is the allowlist of SERVICE domains this gate will redeem at,
+	// canonicalised hosts (no scheme, port or path). A note naming any other
+	// domain is refused before any network call: the gate reaches the issuer,
+	// so an unlisted issuer is an unvetted counterparty. Empty means the rail
+	// is unusable even when Enabled is true — the allowlist is not optional.
+	Issuers []string `json:"issuers,omitempty"`
+	// MaxNoteMSat bounds a single note's value in millisatoshis. A note above
+	// the bound is refused rather than truncated: paying less than the note
+	// is worth would strand the remainder, and the issuer's own record is the
+	// only authority on what it will honour.
+	MaxNoteMSat uint64 `json:"max_note_msat,omitempty"`
+	// Acknowledgement is the operator's recorded consent: the exact disclosure
+	// version string this router was configured under. The rail stays off
+	// while it is empty or names a version the binary does not know.
+	Acknowledgement string `json:"acknowledgement,omitempty"`
 }
 
 type UpstreamWifiConfig struct {

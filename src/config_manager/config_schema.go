@@ -208,6 +208,16 @@ func GetConfigSchema() []FieldSchema {
 			Enum: []string{"board", "luci"},
 		},
 		{
+			Name: "LNURLCash", JSONKey: "lnurlcash", Type: "object", Required: false, Editable: true,
+			Description: "Opt-in LNURLcash (LUD-25/26) note redemption rail. Disabled by default; an upgrade never enables it. Enabling needs both enabled=true and the operator's recorded acknowledgement, plus at least one allowlisted issuer domain. This router redeems a note with its issuer before it grants access — it holds no issuer key and stores no bearer secret. See docs/architecture/lnurlcash-rail-decision.md.",
+			Children: []FieldSchema{
+				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Turn the LNURLcash redemption rail on. Refused unless acknowledgement is current and at least one issuer is allowlisted.", Editable: true},
+				{Name: "Issuers", JSONKey: "issuers", Type: "array", Description: "Allowlisted LNURLcash issuer hosts (canonical host only: no scheme, port or path, e.g. mint.example). Notes naming any other host are refused before any network call.", Editable: true, Children: []FieldSchema{{Type: "string"}}},
+				{Name: "MaxNoteMSat", JSONKey: "max_note_msat", Type: "uint64", Description: "Largest single note value this gate will redeem, in millisatoshis. A larger note is refused, never truncated.", Editable: true},
+				{Name: "Acknowledgement", JSONKey: "acknowledgement", Type: "string", Description: "The operator disclosure version acknowledged for this rail (currently lnurlcash-issuer-redeem-v1). Empty or unknown keeps the rail off.", Editable: true},
+			},
+		},
+		{
 			Name: "MultiWAN", JSONKey: "multi_wan", Type: "object", Description: "Optional multi-uplink policy intent; omission leaves existing behavior unchanged. Validation and derivation do not apply router configuration.", Editable: true,
 			Children: []FieldSchema{
 				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Enable multi-WAN policy intent.", Editable: true},
