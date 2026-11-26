@@ -260,8 +260,13 @@ func TestIntentStoreRetentionCompactsGuardsAndDropsOnlyRefusals(t *testing.T) {
 	if !kept.Compacted {
 		t.Fatal("the redeemed record was not marked compacted")
 	}
-	if kept.QuoteID != "" || kept.Invoice != "" || kept.MacAddress != "" {
-		t.Fatalf("tombstone still carries per-payment detail: %+v", kept)
+	// Compaction drops the BULKY and REVEALING parts, not the fields that make the record
+	// valid — dropping those makes the whole journal unreadable on the next boot.
+	if kept.QuoteID != "" || kept.Invoice != "" {
+		t.Fatalf("tombstone still carries the payment's invoice/quote reference: %+v", kept)
+	}
+	if kept.MacAddress == "" || kept.MintURL == "" || kept.IssuerHost == "" || kept.AmountSats == 0 {
+		t.Fatalf("tombstone lost a field validIntent requires, so the journal cannot be reloaded: %+v", kept)
 	}
 
 	// The abandoned record is gone; the pending one is untouched.
@@ -313,5 +318,114 @@ func TestIntentStoreFileHoldsNoNoteMaterial(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "k1secret") || strings.Contains(string(raw), "lnurl1") {
 		t.Fatalf("journal holds note material: %s", raw)
+	}
+}
+
+// A tombstone must still be a VALID record. Compaction drops per-payment detail, but
+// validIntent requires the fields that make a record meaningful, and the store rejects the
+// whole journal when one record is invalid — so a tombstone that failed validation would
+// make the file unreadable on the next boot, disable the payment method, and discard every
+// replay guard at once. That is far worse than the unbounded growth compaction was meant to
+// fix.
+//
+// This writes a tombstone, reopens the store from disk, and requires the guard to survive.
+func TestCompactedTombstoneSurvivesAReopen(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "intents.json")
+	now := time.Unix(1_700_000_000, 0)
+
+	store, err := OpenIntentStore(path)
+	if err != nil {
+		t.Fatalf("OpenIntentStore: %v", err)
+	}
+	store.now = func() time.Time { return now }
+
+	fp := fpFor("tombstone-note")
+	if _, err := store.Begin(fp, Intent{MacAddress: "aa:bb:cc:dd:ee:ff", MintURL: testMint, AmountSats: 5, IssuerHost: "issuer.example"}); err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	rec, err := store.MarkSubmitted(fp, "q-1")
+	if err != nil {
+		t.Fatalf("MarkSubmitted: %v", err)
+	}
+	if _, err := store.Advance(fp, rec.Version, IntentRedeemed, "paid"); err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+
+	now = now.Add(365 * 24 * time.Hour)
+	if _, err := store.Prune(24 * time.Hour); err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// The reboot. If the tombstone is not a valid record this fails, and with it goes every
+	// replay guard in the file.
+	reopened, err := OpenIntentStore(path)
+	if err != nil {
+		t.Fatalf("reopening the journal after a prune failed: %v\n"+
+			"a tombstone that fails validIntent makes the file unreadable on the next boot", err)
+	}
+	defer reopened.Close()
+
+	got, ok, err := reopened.Get(fp)
+	if err != nil {
+		t.Fatalf("Get after reopen: %v", err)
+	}
+	if !ok {
+		t.Fatal("the replay guard did not survive the reboot: a spent note could be granted twice")
+	}
+	if got.State != IntentRedeemed {
+		t.Fatalf("state after reopen = %q, want %q", got.State, IntentRedeemed)
+	}
+}
+
+// The crash window between SetInvoice and MarkSubmitted must not wedge a note.
+//
+// A crash there leaves `pending` WITH an invoice. The retry mints a new quote and calls
+// SetInvoice with it; refusing the replacement made every retry collide, so the note was
+// abandoned forever while still unspent at the issuer — a customer's money silently
+// stranded, with no operator-visible signal.
+//
+// Pending means the callback was never sent, so the old invoice was never shown to anyone
+// and replacing it promises nothing new. Once submitted, the invoice is binding.
+func TestPendingRecordCanReplaceItsInvoiceAfterACrash(t *testing.T) {
+	store, err := OpenIntentStore(filepath.Join(t.TempDir(), "intents.json"))
+	if err != nil {
+		t.Fatalf("OpenIntentStore: %v", err)
+	}
+	defer store.Close()
+
+	fp := fpFor("crash-window")
+	if _, err := store.Begin(fp, Intent{MacAddress: "aa:bb:cc:dd:ee:ff", MintURL: testMint, AmountSats: 5, IssuerHost: "issuer.example"}); err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+
+	// The first attempt wrote its invoice, then died before MarkSubmitted.
+	if _, err := store.SetInvoice(fp, "lnbc-first"); err != nil {
+		t.Fatalf("SetInvoice(first): %v", err)
+	}
+
+	// The retry mints a fresh quote and tries to record it. It must be accepted: nothing was
+	// ever sent to the issuer for the first invoice.
+	rec, err := store.SetInvoice(fp, "lnbc-second")
+	if err != nil {
+		t.Fatalf("a retry could not record its new invoice, so the note is wedged forever: %v", err)
+	}
+	if rec.Invoice != "lnbc-second" {
+		t.Fatalf("invoice = %q, want the retry's own invoice", rec.Invoice)
+	}
+	if rec.State != IntentPending {
+		t.Fatalf("state = %q, want pending", rec.State)
+	}
+
+	// Once submitted, the invoice is binding: a later different invoice is a second payment
+	// attempt against a note already in flight, and must be refused.
+	if _, err := store.MarkSubmitted(fp, "q-1"); err != nil {
+		t.Fatalf("MarkSubmitted: %v", err)
+	}
+	if _, err := store.SetInvoice(fp, "lnbc-third"); err == nil {
+		t.Fatal("a submitted record adopted a different invoice: that is a second payment attempt")
 	}
 }

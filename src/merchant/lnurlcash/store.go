@@ -365,6 +365,24 @@ func (s *IntentStore) SetInvoice(fp, invoice string) (Intent, error) {
 	if !ok {
 		return Intent{}, ErrIntentNotFound
 	}
+	// A `pending` record may REPLACE its invoice. Pending means the callback was never sent,
+	// so the issuer never saw the old invoice and nothing was promised on it — the record is
+	// the crash window between SetInvoice and MarkSubmitted. Refusing the replacement is what
+	// wedged the note: every retry asked the mint for a new quote and collided here, so the
+	// note was abandoned forever while still unspent at the issuer.
+	//
+	// Once submitted, the invoice is binding: replacing it would be a second payment attempt
+	// against a note already in flight.
+	if rec.State == IntentPending {
+		rec.Invoice = invoice
+		rec.UpdatedAt = s.advanceTime(rec)
+		next := s.copyFile()
+		next.Records[fp] = rec
+		if err := s.persist(next); err != nil {
+			return Intent{}, err
+		}
+		return rec, nil
+	}
 	if rec.Invoice == invoice {
 		return rec, nil
 	}
@@ -413,13 +431,24 @@ func (s *IntentStore) Prune(retention time.Duration) (int, error) {
 			if rec.UpdatedAt.After(cutoff) || rec.Compacted {
 				continue
 			}
-			// Keep the guard, drop the detail.
+			// Keep the record VALID, drop only the bulky and revealing parts. validIntent
+			// requires MacAddress, MintURL, IssuerHost, AmountSats and Version: dropping any
+			// of them makes the record invalid, and the store rejects the WHOLE journal when
+			// one record is invalid — so a leaner tombstone would make the file unreadable on
+			// the next boot and take every replay guard with it.
+			//
+			// What compaction actually removes: the BOLT11 invoice (long), the quote id, and
+			// the per-attempt narration. What it keeps is what the guard needs.
 			next.Records[fp] = Intent{
-				Version:   rec.Version,
-				State:     rec.State,
-				CreatedAt: rec.CreatedAt,
-				UpdatedAt: rec.UpdatedAt,
-				Compacted: true,
+				MacAddress: rec.MacAddress,
+				MintURL:    rec.MintURL,
+				AmountSats: rec.AmountSats,
+				IssuerHost: rec.IssuerHost,
+				State:      rec.State,
+				Version:    rec.Version,
+				CreatedAt:  rec.CreatedAt,
+				UpdatedAt:  rec.UpdatedAt,
+				Compacted:  true,
 			}
 			changed++
 		case IntentAbandoned:
