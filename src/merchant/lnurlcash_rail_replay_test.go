@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash"
@@ -392,5 +393,82 @@ func TestShortForeignJournalIDDoesNotPanic(t *testing.T) {
 	}
 	if !melted {
 		t.Fatal("expected the redemption to reach the melt once the unrelated record was ignored")
+	}
+}
+
+// TWO SIMULTANEOUS REQUESTS FOR ONE NOTE MUST NOT BOTH REACH THE MELT.
+//
+// The in-memory reservation is the only thing standing between a double-clicked
+// "pay" button and two melts of the same bearer note. The issuer's own replay
+// protection would catch the second one — on someone else's server, after the
+// first may already have been paid, and only if that issuer implements it. The
+// gate must not depend on that.
+//
+// The check and the insert share one mutex, but "the code looks atomic" is not
+// evidence. This drives N goroutines at one note and counts melts.
+func TestConcurrentRedemptionsOfOneNoteMeltOnlyOnce(t *testing.T) {
+	store := newCrashTestStore(t)
+
+	var mu sync.Mutex
+	melts := 0
+	release := make(chan struct{})
+
+	rail := NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			return "quote-conc", "lnbc10u1pexample", nil
+		},
+		func(note lnurlcash.Note, callback IssuerCallback, invoice string) error {
+			mu.Lock()
+			melts++
+			mu.Unlock()
+			return nil
+		},
+	)
+
+	const racers = 8
+	note := crashTestNote(t)
+	var wg sync.WaitGroup
+	results := make([]error, racers)
+	start := make(chan struct{})
+	for i := 0; i < racers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start // release them together, so they contend for the same reservation
+			_, results[i] = rail.Redeem(note, 1000, "00:00:00:00:00:01", "https://mint.example")
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(release)
+
+	mu.Lock()
+	got := melts
+	mu.Unlock()
+
+	if got != 1 {
+		t.Fatalf("%d concurrent redemptions of ONE note reached the melt %d time(s); exactly one must win", racers, got)
+	}
+
+	// Exactly one caller may be told "here is your quote". The rest must be refused as
+	// already-redeemed, not handed a second quote for the same note.
+	winners, refused := 0, 0
+	for _, err := range results {
+		switch {
+		case err == nil:
+			winners++
+		case errors.Is(err, ErrLNURLCashNoteAlreadyRedeemed):
+			refused++
+		default:
+			t.Fatalf("unexpected error from a concurrent redemption: %v", err)
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("expected exactly one caller to receive a quote, got %d", winners)
+	}
+	if refused != racers-1 {
+		t.Fatalf("expected %d callers refused as already-redeemed, got %d", racers-1, refused)
 	}
 }
