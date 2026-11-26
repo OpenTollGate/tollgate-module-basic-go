@@ -157,6 +157,32 @@ the grant condition.
   paths (spent note, refused payment, timeout, crash between intent and
   callback) each need a planted case.
 
+## The lab escape hatch, and why it is not a production feature
+
+`TOLLGATE_ALLOW_PLAINTEXT_ISSUERS=1` relaxes two things for the cloud-lab
+integration lane: the https requirement, and the private-address dial guard. Both
+are relaxed because the lane's fake issuer is a container reached over plain http
+by hostname on the lab bridge, which the production guards correctly refuse — and a
+lane that cannot reach its issuer executes no assertions while appearing to pass.
+
+It is deliberately shaped so it cannot be reached by accident:
+
+* **environment only.** There is no config-file field for it, so an operator cannot
+  enable it by editing JSON, and a config migration cannot carry it forward.
+* **announced.** Boot logs a warning naming the risk whenever it is on.
+* **one option, one constructor.** The relaxation is a named type derived from the
+  client's own options, so the scheme rule and the dial guard cannot disagree about
+  whether it is in force.
+* **fenced.** A test builds a client exactly as production does and requires it to
+  refuse both a plain-http hostname and a private address; only the named option
+  widens either.
+
+The honest summary: this is a **test affordance in the production binary**, not a
+feature. It is inert unless an operator sets an environment variable on a router,
+and a router that sets it has accepted that notes may point at internal addresses.
+The alternative — building a separate test binary — would mean the lane no longer
+exercises the artifact that ships, which is the property the lane exists to have.
+
 ## Invariants the implementation must satisfy
 
 1. Disabled by default; no endpoint, no listener, no background poller when
