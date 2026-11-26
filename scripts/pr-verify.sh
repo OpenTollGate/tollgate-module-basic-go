@@ -171,9 +171,26 @@ baseline_failed() {
         "$BASELINE/summary.tsv"
 }
 
-SLUG="$(git -C "$ROOT" remote get-url origin 2>/dev/null \
-    | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
-[ -n "$SLUG" ] || die "cannot derive the GitHub slug from the origin remote"
+# WHICH REPO OWNS THE PR (not: where does the branch live)
+#
+# `origin` is the branch's remote, which in a contributor worktree is that contributor's FORK —
+# the PR itself lives in the repo it was raised against. Deriving the slug from `origin` alone
+# therefore asks the fork for a PR number it has never seen and dies with the useless message
+# "gh pr view N failed", on every contributor worktree, with no hint that the remote is the
+# problem.
+#
+# Order: an explicit override for anything unusual, then `upstream` (present exactly when this
+# checkout is a fork), then `origin` (the maintainer's own clone, where origin IS canonical).
+SLUG="${PR_VERIFY_SLUG:-}"
+if [ -z "$SLUG" ] && git -C "$ROOT" remote get-url upstream >/dev/null 2>&1; then
+    SLUG="$(git -C "$ROOT" remote get-url upstream 2>/dev/null \
+        | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
+fi
+if [ -z "$SLUG" ]; then
+    SLUG="$(git -C "$ROOT" remote get-url origin 2>/dev/null \
+        | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
+fi
+[ -n "$SLUG" ] || die "cannot derive the GitHub slug from the origin or upstream remote"
 
 PR_NUMBER=""
 PR_TITLE=""
