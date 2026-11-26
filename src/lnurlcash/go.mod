@@ -7,4 +7,4 @@ require (
 	github.com/btcsuite/btcd/btcutil v1.1.6
 )
 
-require github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
+require github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
