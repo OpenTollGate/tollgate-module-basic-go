@@ -556,3 +556,64 @@ func TestRetriesAreBoundedPerNote(t *testing.T) {
 		t.Fatalf("a different customer's note was blocked by one repeated note: %v", err)
 	}
 }
+
+// THE MELT MUST GO WHERE THE ISSUER SAID, NOT WHERE THE NOTE'S URL HAPPENED TO POINT.
+//
+// LUD-03/LUD-25 allow the withdraw response to name a callback endpoint distinct from the
+// informational URL. The client validated that callback (host, scheme, same domain) and
+// then dropped it, so the melt used the note's path unconditionally. For a conforming
+// issuer that publishes a different path, every redemption 404s: the note is reserved but
+// never redeemed, so the customer's money is stuck in limbo with no recovery path.
+func TestMeltUsesTheIssuersCallbackPath(t *testing.T) {
+	store := newCrashTestStore(t)
+
+	var gotPath string
+	rail := NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			return "quote-cb", "lnbc10u1pexample", nil
+		},
+		func(note lnurlcash.Note, callback IssuerCallback, invoice string) error {
+			gotPath = callback.Path
+			return nil
+		},
+	)
+
+	note := crashTestNote(t)
+	const issuerCallback = "/lnurl/cash/redeem"
+	if note.WithdrawURL.Path == issuerCallback {
+		t.Fatalf("test bug: the note's path already equals the issuer's, so this proves nothing")
+	}
+	if _, err := rail.RedeemAt(note, 1000, "00:00:00:00:00:01", "https://mint.example", issuerCallback); err != nil {
+		t.Fatalf("redeem: %v", err)
+	}
+	if gotPath != issuerCallback {
+		t.Fatalf("the melt went to %q; the issuer named %q — a conforming issuer would 404 and the note would be stuck", gotPath, issuerCallback)
+	}
+
+	// And with no issuer answer, the note's own path is still the default: that is the
+	// bare-k1 case, and changing it would be a regression.
+	var defaultPath string
+	rail2 := NewLNURLCashRail(
+		store,
+		0,
+		func(macAddress, mintURL string, sats uint64) (string, string, error) {
+			return "quote-cb2", "lnbc10u1pexample", nil
+		},
+		func(note lnurlcash.Note, callback IssuerCallback, invoice string) error {
+			defaultPath = callback.Path
+			return nil
+		},
+	)
+	other, perr := lnurlcash.Parse("202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f", "mint.example")
+	if perr != nil {
+		t.Fatalf("parsing the second note: %v", perr)
+	}
+	if _, err := rail2.Redeem(other, 1000, "00:00:00:00:00:02", "https://mint.example"); err != nil {
+		t.Fatalf("redeem: %v", err)
+	}
+	if defaultPath != other.WithdrawURL.Path {
+		t.Fatalf("with no issuer answer the melt should use the note's path %q, got %q", other.WithdrawURL.Path, defaultPath)
+	}
+}

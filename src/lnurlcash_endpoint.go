@@ -254,7 +254,14 @@ func handleLNURLCashRedeem(
 			return
 		}
 
-		quoteID, err := rail.Redeem(note, state.WithdrawableMSat, macAddress, mintURL)
+		// Pass the issuer's own callback path when it named one. IssuerState.Callback is
+		// rebuilt from the validated answer (host pinned to the note's domain, https
+		// required), so nothing here is attacker-chosen that was not already checked.
+		callbackPath := ""
+		if state.Callback != nil {
+			callbackPath = state.Callback.Path
+		}
+		quoteID, err := rail.RedeemAt(note, state.WithdrawableMSat, macAddress, mintURL, callbackPath)
 		if err != nil {
 			switch {
 			case errors.Is(err, merchant.ErrLNURLCashNoteAlreadyRedeemed):

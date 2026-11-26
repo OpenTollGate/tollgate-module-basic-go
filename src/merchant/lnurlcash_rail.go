@@ -161,6 +161,21 @@ func walletKeyForMint(mintURL string) string {
 }
 
 func (r *LNURLCashRail) Redeem(note lnurlcash.Note, confirmedMSat uint64, macAddress, mintURL string) (quoteID string, err error) {
+	return r.RedeemAt(note, confirmedMSat, macAddress, mintURL, "")
+}
+
+// RedeemAt is Redeem with the issuer's own callback path.
+//
+// LUD-03/LUD-25 let the withdraw response name a callback endpoint that differs from the
+// informational URL. Using the note's path unconditionally meant that a conforming issuer
+// which does so would 404 every melt: the note is then reserved but never redeemed, which
+// is a burned-in-limbo failure with no recovery. callbackPath comes from IssuerState,
+// which already validated the host, the scheme and that it shares the note's domain — so
+// this adds no trust, it stops discarding an answer we paid for.
+//
+// An empty callbackPath keeps the old behaviour (the note's own path), which is what a
+// bare k1 note with no issuer answer gets.
+func (r *LNURLCashRail) RedeemAt(note lnurlcash.Note, confirmedMSat uint64, macAddress, mintURL, callbackPath string) (quoteID string, err error) {
 	if !r.Open() {
 		return "", ErrLNURLCashRailClosed
 	}
@@ -285,7 +300,11 @@ func (r *LNURLCashRail) Redeem(note lnurlcash.Note, confirmedMSat uint64, macAdd
 
 	// The melt. This is the point of no return: the issuer may burn the note and
 	// lose the response.
-	err = r.melt(note, IssuerCallback{Host: note.Domain, Path: note.WithdrawURL.Path}, bolt11)
+	meltPath := note.WithdrawURL.Path
+	if callbackPath != "" {
+		meltPath = callbackPath
+	}
+	err = r.melt(note, IssuerCallback{Host: note.Domain, Path: meltPath}, bolt11)
 	if err != nil {
 		// The note is NOT released. Whether the issuer burned it is exactly what we
 		// no longer know, so the record stays `awaiting` and the fingerprint refuses
