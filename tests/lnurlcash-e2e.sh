@@ -26,6 +26,19 @@ ok()  { printf 'PASS  %s\n' "$*"; }
 bad() { printf 'FAIL  %s\n' "$*"; FAIL=$((FAIL+1)); }
 
 say "fixture: /tmp/dhcp.leases for the payer's address"
+# /tmp/dhcp.leases is a SHARED path: the module hardcodes it, and another lab on
+# this host may rely on its contents. Back up whatever is there and restore it on
+# exit, rather than leaving this run's MAC behind for the next one to inherit.
+if [ -f /tmp/dhcp.leases ]; then
+  cp /tmp/dhcp.leases "$LAB/dhcp.leases.bak"
+  HAD_LEASES=1
+else
+  HAD_LEASES=0
+fi
+restore_leases() {
+  if [ "$HAD_LEASES" = "1" ]; then cp "$LAB/dhcp.leases.bak" /tmp/dhcp.leases
+  else rm -f /tmp/dhcp.leases; fi
+}
 printf '1700000000 02:00:00:00:00:42 127.0.0.1 tg-client *\n' > /tmp/dhcp.leases
 
 say "stub mint on 127.0.0.1:3338 (enough to clear the wallet/mint health gate)"
@@ -50,7 +63,7 @@ class H(http.server.BaseHTTPRequestHandler):
 http.server.HTTPServer(("127.0.0.1",3338),H).serve_forever()
 PY
 python3 "$LAB/mint.py" & MINT_PID=$!
-trap 'kill $ISSUER_PID $MINT_PID $GATE_PID 2>/dev/null' EXIT
+trap 'kill $ISSUER_PID $MINT_PID $GATE_PID 2>/dev/null; restore_leases' EXIT
 sleep 1
 curl -sf "http://127.0.0.1:3338/v1/keysets" >/dev/null && ok "stub mint answers /v1/keysets" || bad "stub mint did not start"
 
