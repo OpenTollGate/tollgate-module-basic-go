@@ -48,7 +48,10 @@ type LNURLCashJournalEntry struct {
 // an error.
 func lnurlCashJournalEntries(configPath string) ([]LNURLCashJournalEntry, error) {
 	journalDir := filepath.Join(filepath.Dir(configPath), "lnurlcash-journal")
-	store, err := paymentjournal.Open(journalDir)
+	// READ-ONLY, and deliberately not paymentjournal.Open: that takes the exclusive
+	// writer lock and is refused whenever the daemon is running, which is the only time
+	// an operator needs this command. The reader never mutates a record.
+	store, err := paymentjournal.OpenReadOnly(journalDir)
 	if err != nil {
 		return nil, fmt.Errorf("open the LNURLcash journal at %s: %w", journalDir, err)
 	}

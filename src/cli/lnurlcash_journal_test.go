@@ -233,3 +233,41 @@ func TestCLIReadsARecordTheRailActuallyWrote(t *testing.T) {
 		t.Fatal("a pre-issuer failure frees the note and must not be flagged for an operator")
 	}
 }
+
+// THE COMMAND MUST WORK WHILE THE DAEMON IS RUNNING.
+//
+// The store takes an EXCLUSIVE, non-blocking flock on writer.lock. `tollgate lnurlcash`
+// opens the same store, so against a live daemon it gets ErrRefused and reports "payment
+// journal refused operation" — useless at exactly the moment an operator needs it, which
+// is a running router with a stuck redemption. My own earlier test hid this: it closed the
+// store before reading, which is the stopped-daemon case and the easy one.
+func TestJournalCommandReadsWhileTheDaemonHoldsTheWriteLock(t *testing.T) {
+	dir := t.TempDir()
+
+	// The daemon: holds the write lock for the whole test.
+	daemon, err := paymentjournal.Open(filepath.Join(dir, "lnurlcash-journal"))
+	if err != nil {
+		t.Fatalf("daemon could not open the journal: %v", err)
+	}
+	defer func() { _ = daemon.Close() }()
+
+	if _, err := daemon.Prepare(paymentjournal.Operation{
+		ID:         "lnurlcash-live01",
+		WalletID:   "mint-key",
+		Direction:  paymentjournal.Incoming,
+		AmountMSat: 21000,
+		Recipient:  "issuer.example",
+		Request:    []byte("cp1"),
+	}, paymentjournal.Budget{}); err != nil {
+		t.Fatalf("daemon prepare: %v", err)
+	}
+
+	// The operator, concurrent with the daemon. This must succeed.
+	entries, err := lnurlCashJournalEntries(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatalf("the command cannot read the journal while the daemon is running, which is the only time it matters: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("saw %d records while the daemon was live, want 1", len(entries))
+	}
+}
