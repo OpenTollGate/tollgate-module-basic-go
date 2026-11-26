@@ -263,6 +263,16 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 		amountSats = pending.AmountSats
 		mintURL = pending.MintURL
 		rec = *pending
+
+		// Re-check the ceiling against the amount we are ACTUALLY about to invoice.
+		// The check above ran against the live claim, and on this path the live claim
+		// is discarded in favour of the journalled one: if the issuer now says less, the
+		// live check passes and we would invoice the larger journalled amount. That is
+		// the partial burn this gate exists to prevent, reached by a different door.
+		if capSats := r.cfg.MaxNoteSats; capSats > 0 && amountSats > capSats {
+			return r.refuse(fp, note, macAddress, fmt.Errorf(
+				"journalled note value %d sats is above the %d-sat ceiling this gate now accepts", amountSats, capSats))
+		}
 	} else {
 		// Step 5a: the intent is durable BEFORE any invoice exists, so a crash here
 		// leaves a `pending` record that plainly says "nothing was sent".

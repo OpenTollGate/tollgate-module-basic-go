@@ -82,6 +82,9 @@ type fakeGate struct {
 	quotes   int
 	invoices []string
 	mint     string
+	// quoteErr, when set, makes the invoice request fail. It is how a test reaches
+	// the "nothing was promised, the note is still good" state.
+	quoteErr error
 	// settle decides the state a quote reports. nil means "never paid".
 	settle func(quoteID string) (paid bool, granted bool, err error)
 }
@@ -89,6 +92,9 @@ type fakeGate struct {
 func (g *fakeGate) RequestRedeemInvoice(macAddress, mintURL string, amountSats uint64) (string, string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.quoteErr != nil {
+		return "", "", g.quoteErr
+	}
 	g.quotes++
 	id := fmt.Sprintf("quote-%d", g.quotes)
 	inv := fmt.Sprintf("lnbc%dquote%d", amountSats, g.quotes)
@@ -428,6 +434,50 @@ func TestTheOriginalGranteeIsStillToldGrantedOnRePresentation(t *testing.T) {
 	}
 	if !again.Granted {
 		t.Fatalf("the device that owns the grant was told granted=false: %+v", again)
+	}
+}
+
+// The ceiling must be enforced against the amount we are actually going to INVOICE.
+//
+// The pending-resume path keeps the JOURNALLED amount, because a second fetch of the
+// issuer's claim may say anything. That is correct on its own — but it means the
+// ceiling cannot be checked only against the live claim: if the issuer now claims
+// LESS than it did, the live check passes and the code then invoices the larger
+// journalled amount. The customer's 50,000-sat note gets melted against a ceiling the
+// operator set to 1,000, which is precisely the partial-burn class this gate exists
+// to prevent.
+func TestCeilingIsEnforcedAgainstTheAmountWeInvoiceNotTheLiveClaim(t *testing.T) {
+	h := newHarness(t, Config{MaxNoteSats: 100_000}) // note is 10,000 sats
+	h.gate.settle = func(string) (bool, bool, error) { return true, true, nil }
+
+	// First attempt: the invoice request fails, leaving a PENDING record journalled at
+	// the note's full 10,000 sats. Nothing was promised to the issuer.
+	h.gate.quoteErr = fmt.Errorf("mint refused to quote for now")
+	if _, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff"); err == nil {
+		t.Fatal("expected the first attempt to fail at the invoice step")
+	}
+
+	// The issuer now claims the note is worth only 500 sats (it may say anything), and
+	// the operator has lowered the ceiling to 1,000. The LIVE claim passes the ceiling
+	// check; the journalled amount does not.
+	h.gate.quoteErr = nil
+	h.svc.cfg.MaxNoteSats = 1_000
+	h.issuer.mu.Lock()
+	h.issuer.maxMsat = 500_000 // 500 sats
+	h.issuer.mu.Unlock()
+
+	res, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err == nil {
+		t.Fatal("a journalled amount above the ceiling should be refused, however small the live claim")
+	}
+	if res.Granted {
+		t.Fatal("granted a note whose journalled amount is above the current ceiling")
+	}
+	if n := len(h.gate.invoiceList()); n != 0 {
+		t.Fatalf("an invoice was requested for an amount above the ceiling: %v", h.gate.invoiceList())
+	}
+	if got := h.issuer.callbackCount(); got != 0 {
+		t.Fatalf("the issuer was asked to melt a note above the ceiling (%d callbacks)", got)
 	}
 }
 
