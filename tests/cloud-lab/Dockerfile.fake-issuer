@@ -6,6 +6,10 @@
 
 FROM python:3.12-alpine
 
+# curl is here for the lane driver's readiness probe (`compose exec ... curl`).
+# The issuer itself is stdlib-only.
+RUN apk add --no-cache curl
+
 WORKDIR /issuer
 COPY fake_issuer.py /issuer/fake_issuer.py
 

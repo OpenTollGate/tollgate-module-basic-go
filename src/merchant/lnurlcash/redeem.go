@@ -155,7 +155,7 @@ func (r *Redeemer) Fingerprint(n Note) string { return Fingerprint(n) }
 // presentations of one note would show two different fingerprints in the log and
 // in the journal — the double-grant bug in a quieter form.
 func (r *Redeemer) FingerprintOfPresented(presented string) string {
-	note, err := decodeNote(presented, r.client.allowInsecureLoopbackForTests)
+	note, err := decodeNote(presented, forClient(r.client))
 	if err != nil {
 		// Undecodable: there is no canonical form to key on, so the raw string is
 		// the only thing available. It will be refused by Redeem a moment later, so
@@ -193,7 +193,7 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 		return Result{}, errors.New("lnurlcash: no redemption journal; refusing to redeem")
 	}
 
-	note, err := decodeNote(presentedNote, r.client.allowInsecureLoopbackForTests)
+	note, err := decodeNote(presentedNote, forClient(r.client))
 	if err != nil {
 		return Result{State: StateAbandoned, Message: "That is not a usable LNURLcash note."}, err
 	}

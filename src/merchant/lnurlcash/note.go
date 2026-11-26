@@ -70,14 +70,40 @@ func (n Note) String() string {
 //   - userinfo is refused: `https://user:pw@host/` is a credential-smuggling and
 //     mis-attribution shape, and no issuer emits it.
 func DecodeNote(presented string) (Note, error) {
-	return decodeNote(presented, false)
+	return decodeNote(presented, relaxScheme{})
 }
 
-// decodeNote is DecodeNote with the test seam: allowInsecureLoopbackAlso permits
-// a plain-http URL whose host is a loopback LITERAL, which is what an
-// httptest.Server is. It is threaded from the same ClientOptions field that lets
-// the client dial one, so there is exactly one way to relax this and it is named.
-func decodeNote(presented string, allowInsecureLoopbackAlso bool) (Note, error) {
+// relaxScheme names how far the https requirement is relaxed for one client,
+// derived from that client's own options so there is exactly one source of truth.
+//
+// Production is the zero value: https only, nothing relaxed. The two test flags
+// each widen a DIFFERENT thing — allowLoopback lets a real httptest server on a
+// loopback literal be dialled, allowPlaintext lets a lab container be reached by
+// hostname. Neither is set by the daemon's default wiring.
+type relaxScheme struct {
+	allowLoopback  bool
+	allowPlaintext bool
+}
+
+// forClient derives the relaxation from a client's own options; this is the only
+// constructor used outside tests.
+func forClient(c *Client) relaxScheme {
+	return relaxScheme{
+		allowLoopback:  c.allowInsecureLoopbackForTests,
+		allowPlaintext: c.plainTextIssuersForTests,
+	}
+}
+
+func (r relaxScheme) accepts(u *url.URL) bool {
+	if u.Scheme != "http" {
+		return false
+	}
+	if r.allowPlaintext {
+		return true
+	}
+	return r.allowLoopback && isLoopbackLiteral(u.Hostname())
+}
+func decodeNote(presented string, relax relaxScheme) (Note, error) {
 	raw := strings.TrimSpace(presented)
 	if raw == "" {
 		return Note{}, errors.New("note is empty")
@@ -101,7 +127,7 @@ func decodeNote(presented string, allowInsecureLoopbackAlso bool) (Note, error) 
 		return Note{}, errors.New("note does not decode to a usable URL")
 	}
 	if u.Scheme != "https" {
-		if !(allowInsecureLoopbackAlso && u.Scheme == "http" && isLoopbackLiteral(u.Hostname())) {
+		if !relax.accepts(u) {
 			return Note{}, fmt.Errorf("note must decode to an https URL (got scheme %q)", u.Scheme)
 		}
 	}

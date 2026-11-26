@@ -65,6 +65,17 @@ type ClientOptions struct {
 	// httptest.Server; production leaves it false, and nothing in the
 	// daemon's wiring sets it.
 	AllowInsecureLoopbackForTests bool
+	// PlainTextIssuersForTests relaxes the https requirement for NON-loopback
+	// hosts. It exists for exactly one caller: tests/cloud-lab's lnurlcash lane,
+	// where the fake issuer is a container reached by hostname over the lab
+	// network and cannot be loopback from the gate's point of view.
+	//
+	// Nothing in the daemon sets it without TOLLGATE_ALLOW_PLAINTEXT_ISSUERS, which
+	// is a deliberate operator act in a lab, and the boot logs a warning when it is
+	// on. It does NOT touch the dial guard: private/CGNAT/loopback destinations stay
+	// refused unless AllowInsecureLoopbackForTests is also set, so this can widen the
+	// SCHEME for a lab, never the address classes.
+	PlainTextIssuersForTests bool
 }
 
 // Client talks to note issuers over LUD-03, with the SSRF and redirect
@@ -72,6 +83,7 @@ type ClientOptions struct {
 type Client struct {
 	http                          *http.Client
 	allowInsecureLoopbackForTests bool
+	plainTextIssuersForTests      bool
 	timeout                       time.Duration
 }
 
@@ -84,6 +96,7 @@ func NewClient(opts ClientOptions) *Client {
 	}
 	c := &Client{
 		allowInsecureLoopbackForTests: opts.AllowInsecureLoopbackForTests,
+		plainTextIssuersForTests:      opts.PlainTextIssuersForTests,
 		timeout:                       timeout,
 	}
 	transport := &http.Transport{
@@ -103,7 +116,15 @@ func NewClient(opts ClientOptions) *Client {
 			// Every resolved address is checked before any is dialled: a name
 			// that mixes a public and a private answer must not be reachable
 			// through whichever one the resolver happened to return first.
+			//
+			// The lab flag deliberately relaxes this too, and ONLY as far as the
+			// fake issuer needs: an address on the lab bridge. It is one switch for
+			// one caller, logged loudly at boot, and it cannot be reached from the
+			// config file — an operator cannot turn it on by editing JSON.
 			for _, candidate := range ips {
+				if c.plainTextIssuersForTests {
+					continue
+				}
 				if blockedAddress(candidate.IP) && !(c.allowInsecureLoopbackForTests && candidate.IP.IsLoopback()) {
 					return nil, fmt.Errorf("issuer dial: %q resolves to the blocked address %s", host, candidate.IP)
 				}
@@ -313,8 +334,14 @@ func (c *Client) validateURL(u *url.URL) error {
 	case "http":
 		// Plain http is allowed only through the explicitly named test seam,
 		// and only for a loopback literal — never for a hostname, which could
-		// resolve anywhere.
+		// resolve anywhere — unless the lab flag is set, in which case a hostname is
+		// allowed too. The DIAL GUARD is untouched either way: CGNAT, RFC1918 and
+		// loopback destinations stay refused by address, so this widens the scheme
+		// for a lab and never the address classes.
 		if c.allowInsecureLoopbackForTests && isLoopbackLiteral(u.Hostname()) {
+			return nil
+		}
+		if c.plainTextIssuersForTests {
 			return nil
 		}
 		return errors.New("issuer URL must be https")

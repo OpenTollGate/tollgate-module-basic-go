@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -90,7 +91,19 @@ func initLNURLCash() {
 	)
 
 	timeout := time.Duration(redeemerCfg.RedemptionTimeoutSeconds) * time.Second
-	client := lnurlcash.NewClient(lnurlcash.ClientOptions{Timeout: timeout})
+
+	// A lab-only escape hatch: the cloud-lab lane's fake issuer is a container
+	// reachable only over plain http on the lab bridge, which the production
+	// guards correctly refuse. It is environment-only (never a config-file field,
+	// so an operator cannot enable it by editing JSON) and it is announced.
+	plaintextIssuers := os.Getenv("TOLLGATE_ALLOW_PLAINTEXT_ISSUERS") == "1"
+	if plaintextIssuers {
+		mainLogger.Warn("LNURLcash: TOLLGATE_ALLOW_PLAINTEXT_ISSUERS=1 — plain-http and private-address issuers are ACCEPTED. This is for a lab only; never run it on a router handling real payments.")
+	}
+	client := lnurlcash.NewClient(lnurlcash.ClientOptions{
+		Timeout:                  timeout,
+		PlainTextIssuersForTests: plaintextIssuers,
+	})
 
 	setLNURLCashRedeemer(lnurlcash.NewRedeemer(redeemerCfg, gate, store, client))
 	mainLogger.WithFields(log.Fields{

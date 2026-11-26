@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -337,6 +338,38 @@ func TestConcurrentPresentationsOfOneNoteRedeemOnce(t *testing.T) {
 	}
 }
 
+// The lab escape hatch must be unreachable from ordinary client options: a client
+// built the way the daemon builds it in production still refuses a plain-http
+// hostname AND a private address. This is the fence on TOLLGATE_ALLOW_PLAINTEXT_ISSUERS
+// — the switch exists, but only the explicitly-named option turns it on.
+func TestDefaultClientRefusesPlaintextAndPrivateHosts(t *testing.T) {
+	// Default options, as every production path builds them.
+	c := NewClient(ClientOptions{Timeout: testTimeout})
+
+	if _, err := decodeNote("http://issuer.example/withdraw?k1=abc", forClient(c)); err == nil {
+		t.Fatal("the default client accepted a plain-http hostname")
+	}
+
+	// And the dial guard still refuses a private address even with the scheme
+	// relaxed, unless the lab flag is the thing doing the relaxing.
+	lab := NewClient(ClientOptions{Timeout: testTimeout, PlainTextIssuersForTests: true})
+	if err := lab.validateURL(mustURL(t, "http://172.28.0.12:8099/withdraw")); err != nil {
+		t.Fatalf("the lab client should accept a lab-bridge http issuer: %v", err)
+	}
+	if err := c.validateURL(mustURL(t, "http://172.28.0.12:8099/withdraw")); err == nil {
+		t.Fatal("a production client accepted a private-address http issuer")
+	}
+}
+
+func mustURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("url.Parse(%q): %v", raw, err)
+	}
+	return u
+}
+
 // --- duplicate presentation ----------------------------------------------
 
 func TestDuplicatePresentationGrantsOnce(t *testing.T) {
@@ -398,7 +431,7 @@ func TestCrashBeforeCallbackIsRecoverable(t *testing.T) {
 
 	// Plant the state a crash between "intent durable" and "callback sent" leaves
 	// behind, exactly as the store writes it.
-	note, err := decodeNote(h.issuer.note(), true)
+	note, err := decodeNote(h.issuer.note(), relaxScheme{allowLoopback: true})
 	if err != nil {
 		t.Fatalf("DecodeNote: %v", err)
 	}
@@ -440,7 +473,7 @@ func TestCrashBeforeCallbackIsRecoverable(t *testing.T) {
 // guess either.
 func TestCrashAfterCallbackIsNeverRetried(t *testing.T) {
 	h := newHarness(t, Config{})
-	note, err := decodeNote(h.issuer.note(), true)
+	note, err := decodeNote(h.issuer.note(), relaxScheme{allowLoopback: true})
 	if err != nil {
 		t.Fatalf("DecodeNote: %v", err)
 	}

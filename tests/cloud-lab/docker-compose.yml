@@ -349,11 +349,14 @@ services:
     container_name: tg-upstream-lnurlcash
     labels: ["ai-legion.lane=tollgate-cloud-lab"]
     profiles: ["lnurlcash"]
+    # Plain list form, NOT `condition: service_healthy`: podman-compose runs
+    # healthchecks through systemd user units, which are unavailable in a rootless
+    # session, so a health condition never resolves and the lane hangs in
+    # "starting" forever. Readiness is polled by lnurlcash-lane-body.sh instead,
+    # which is honest about what it waits for and fails with a real message.
     depends_on:
-      mint:
-        condition: service_healthy
-      fake-issuer:
-        condition: service_healthy
+      - mint
+      - fake-issuer
     environment:
       - TOLLGATE_TEST_CONFIG_DIR=/etc/tollgate
     volumes:
@@ -375,10 +378,8 @@ services:
     labels: ["ai-legion.lane=tollgate-cloud-lab"]
     profiles: ["lnurlcash"]
     depends_on:
-      upstream-lnurlcash:
-        condition: service_started
-      fake-issuer:
-        condition: service_healthy
+      - upstream-lnurlcash
+      - fake-issuer
     volumes:
       - .:/tests
       - clientd-wallets:/w
