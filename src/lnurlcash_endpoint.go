@@ -273,6 +273,16 @@ func handleLNURLCashRedeem(
 				writeLNURLCashRefusal(w, http.StatusConflict, "note_already_presented",
 					"This note has already been presented to this gate. Check your session; if no access was granted, contact the operator with this message.", 0)
 				return
+			case errors.Is(err, merchant.ErrLNURLCashJournalRefused):
+				// The gate cannot record payments AT ALL. Nothing was sent to the issuer, no
+				// invoice exists, and the note is untouched — so there is nothing ambiguous
+				// and nothing to retry. Say so plainly, and log at Error because this is an
+				// operator problem: a full or unwritable journal blocks every customer.
+				mainLogger.WithError(err).WithField("remote_addr", r.RemoteAddr).
+					Error("LNURLcash refusal: the payment journal would not accept a record — the gate cannot record payments")
+				writeLNURLCashRefusal(w, http.StatusServiceUnavailable, "journal_unavailable",
+					"This gate could not record the payment, so nothing was spent and nothing was sent to the issuer. Contact the operator.", 0)
+				return
 			case errors.Is(err, merchant.ErrLNURLCashRetriesExhausted):
 				// Nothing was spent and nothing will be: this note is out of attempts.
 				// Saying "ambiguous, retry" would be a lie that sends the customer round

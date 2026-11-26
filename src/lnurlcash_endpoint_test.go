@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -576,5 +577,58 @@ func TestRedeemNeverReportsSuccessWithoutAQuote(t *testing.T) {
 				t.Fatalf("expected success for this case but got %d: %s", rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func itoa(i int) string { return strconv.Itoa(i) }
+
+// A JOURNAL REFUSAL MUST NOT BE REPORTED AS AN AMBIGUOUS MELT.
+//
+// The first independent review found this and it was marked fixed. It was not: the
+// endpoint had cases for already-redeemed and retries-exhausted, and EVERYTHING else fell
+// to the default branch, which answers 502 redeem_unconfirmed with retry_after 30 and
+// "if payment went through, access will follow shortly".
+//
+// For a Prepare refusal that is false in every particular: nothing was sent to the issuer,
+// no invoice exists, no payment can go through, and the portal retries forever against a
+// journal that will never accept the write. An operator gets no signal that the gate cannot
+// record payments at all.
+func TestJournalRefusalIsNotReportedAsAnAmbiguousMelt(t *testing.T) {
+	resolveTestDevice(t)
+	store, err := paymentjournal.Open(filepath.Join(t.TempDir(), "journal"))
+	if err != nil {
+		t.Fatalf("journal: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	rail := merchant.NewLNURLCashRail(store, 0,
+		func(string, string, uint64) (string, string, error) { return "q", "lnbc1", nil },
+		func(lnurlcash.Note, merchant.IssuerCallback, string) error { return nil })
+
+	// Fill the journal to its cap so Prepare refuses. This stands in for ANY Prepare
+	// refusal — a corrupt file, a failed fsync, a full journal — because the store returns
+	// the same ErrRefused for all of them and the endpoint cannot tell them apart either.
+	for i := 0; i < 1100; i++ {
+		_, _ = store.Prepare(paymentjournal.Operation{
+			ID:       "fill-" + strings.Repeat("a", 1) + strings.Repeat("b", 0) + itoa(i),
+			WalletID: "w", Direction: paymentjournal.Incoming,
+			AmountMSat: 1000, Recipient: "r", Request: []byte("x"),
+		}, paymentjournal.Budget{})
+	}
+
+	h := handleLNURLCashRedeem(rail, func() (bool, string) { return true, "" },
+		func(string) (lnurlCashIssuer, error) {
+			return &stubIssuer{state: lnurlcash.IssuerState{WithdrawableMSat: 21000}}, nil
+		})
+	body := `{"note":"` + endpointTestSpend + `","mint":"` + acceptedMintForTest(t) + `","issuer":"mint.example"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/lnurlcash/redeem", strings.NewReader(body))
+	h.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusBadGateway && strings.Contains(rec.Body.String(), "redeem_unconfirmed") {
+		t.Fatalf("a journal refusal was reported as an ambiguous melt (502 redeem_unconfirmed): %s\n"+
+			"nothing was sent to the issuer and no invoice exists, so telling the customer "+
+			"\"if payment went through, access will follow\" is false, and retry_after sends them "+
+			"round a loop that cannot succeed", rec.Body.String())
 	}
 }

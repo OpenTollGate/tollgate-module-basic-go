@@ -62,6 +62,14 @@ var ErrLNURLCashNoteAlreadyRedeemed = errors.New("lnurlcash rail: this note has 
 // the whole gate. A note that reaches this bound needs an operator, not another try.
 var ErrLNURLCashRetriesExhausted = errors.New("lnurlcash rail: this note has exhausted its redemption attempts")
 
+// ErrLNURLCashJournalRefused reports that the payment journal would not accept a record.
+//
+// Nothing has been sent to the issuer when this is returned: no invoice exists, no payment
+// can follow, and the note has not been spent. It must NOT be reported to a customer as an
+// ambiguous melt — the portal would retry forever against a journal that will never accept
+// the write, and the operator would never learn that the gate cannot record payments.
+var ErrLNURLCashJournalRefused = errors.New("lnurlcash rail: the payment journal refused a record")
+
 // maxRedeemAttemptsPerNote bounds how many times one note may be retried after a
 // definitive, pre-issuer failure. Each attempt consumes one journal record that nothing
 // ever reclaims, so this is the difference between a bad note and a gate that can no
@@ -267,7 +275,7 @@ func (r *LNURLCashRail) RedeemAt(note lnurlcash.Note, confirmedMSat uint64, macA
 	}, paymentjournal.Budget{})
 	if err != nil {
 		release()
-		return "", fmt.Errorf("lnurlcash rail: cannot record the note's intent: %w", err)
+		return "", fmt.Errorf("%w: cannot record the note's intent: %v", ErrLNURLCashJournalRefused, err)
 	}
 
 	// Our invoice, for the confirmed amount. From here the note is payable.
