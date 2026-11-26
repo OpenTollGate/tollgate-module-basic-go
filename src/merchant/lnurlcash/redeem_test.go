@@ -687,6 +687,38 @@ func TestDistinctNotesAtOneIssuerHaveDistinctJournalKeys(t *testing.T) {
 	}
 }
 
+// Percent-encoding and dot-segments are SPELLINGS of one path, not different notes. The
+// issuers' servers decode them before routing, so all of these reach the same resource and
+// the same note — but they used to hash differently, and each distinct key was a fresh
+// redemption. Measured before the fix: six spellings produced four journal keys.
+func TestPercentEncodedSpellingsShareOneKey(t *testing.T) {
+	spellings := []string{
+		"https://issuer.example/withdraw?k1=k1secret",
+		"https://issuer.example/with%64raw?k1=k1secret", // 'd' as %64
+		"https://issuer.example/%77ithdraw?k1=k1secret", // 'w' as %77
+		"https://issuer.example/./withdraw?k1=k1secret", // dot-segment
+		"https://issuer.example/x/../withdraw?k1=k1secret",
+		"https://issuer.example//withdraw?k1=k1secret",  // doubled slash
+		"https://issuer.example/withdraw?k1=k1%73ecret", // s in the query
+	}
+	var base string
+	for i, s := range spellings {
+		n, err := decodeNote(s, relaxScheme{})
+		if err != nil {
+			t.Fatalf("decodeNote(%q): %v", s, err)
+		}
+		fp := Fingerprint(n)
+		if i == 0 {
+			base = fp
+			continue
+		}
+		if fp != base {
+			t.Errorf("%q hashes to %s, want %s: a re-spelled note buys a second redemption",
+				s, fp[:12], base[:12])
+		}
+	}
+}
+
 // --- duplicate presentation ----------------------------------------------
 
 func TestDuplicatePresentationGrantsOnce(t *testing.T) {

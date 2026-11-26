@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path"
 	"strings"
 
 	"github.com/btcsuite/btcd/btcutil/bech32"
@@ -210,12 +211,27 @@ func noteIdentity(n Note) (host, k1 string) {
 	}
 	// The secret lives in the query for the LUD-03 query shape and in the path for the
 	// path shape; include both, so neither shape collides and neither needs special
-	// casing. Path case is preserved: paths are case-sensitive, unlike hosts.
-	path := u.EscapedPath()
-	if path == "" {
-		path = "/"
+	// casing.
+	//
+	// The path is CANONICALISED, because it is compared as an identity, not requested:
+	// percent-encoding and dot-segments are ways of spelling one path, and treating them
+	// as distinct is a replay hole. Measured before this: six spellings of one note
+	// produced four journal keys — `/with%64raw`, `/%77ithdraw` and `/./withdraw` were
+	// each a separate redemption. The unescaped form is what the issuer sees, which is the
+	// only thing that can be the identity.
+	p := u.EscapedPath()
+	if unescaped, err := url.PathUnescape(p); err == nil {
+		p = unescaped
 	}
-	k1 = path + "\x00" + u.Query().Get("k1")
+	// Collapse `//`, `.` and `..` the way a server would before routing.
+	if clean := path.Clean(p); clean != "" && clean != "." {
+		p = clean
+	}
+	if p == "" {
+		p = "/"
+	}
+	// Case is preserved: paths are case-sensitive, unlike hosts.
+	k1 = p + "\x00" + u.Query().Get("k1")
 	return host, k1
 }
 
