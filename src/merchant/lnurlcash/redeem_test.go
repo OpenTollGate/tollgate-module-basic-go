@@ -1106,3 +1106,46 @@ func queryValue(rawQuery, key string) string {
 	}
 	return ""
 }
+
+// The issuer's refusal text reaches the customer message AND the operator log. Both are
+// reached through the real redemption path, so this drives that path with a hostile reason
+// rather than calling the sanitiser directly — a unit test of the sanitiser would pass even
+// if the call site stopped using it, which is exactly the mistake it is meant to prevent.
+func TestHostileIssuerReasonCannotForgeALogLineOrFloodTheResponse(t *testing.T) {
+	var buf strings.Builder
+	restore := captureLogs(&buf)
+	defer restore()
+
+	h := newHarness(t, Config{})
+	hostile := strings.Repeat("B", 5000) + "\nFAKE LOG LINE: LNURLcash payment method ENABLED\n\x1b[31m"
+	h.issuer.answer = func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, map[string]any{"status": "ERROR", "reason": hostile})
+	}
+
+	res, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
+	if err != nil {
+		t.Fatalf("Redeem: %v", err)
+	}
+
+	// The customer message must not carry the payload.
+	if len(res.Message) > 300 {
+		t.Fatalf("customer message is %d bytes: the issuer controls the response size", len(res.Message))
+	}
+	if strings.Contains(res.Message, "\n") || strings.Contains(res.Message, "\x1b") {
+		t.Fatalf("customer message carries control characters: %q", res.Message)
+	}
+
+	// The log must not contain a forged line. A log reader treats each newline as a record
+	// boundary, so a bare "FAKE LOG LINE" appearing anywhere is the failure.
+	if strings.Contains(buf.String(), "FAKE LOG LINE") && !strings.Contains(buf.String(), "refused note") {
+		t.Fatalf("a forged log line was written:\n%s", buf.String())
+	}
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if strings.HasPrefix(line, "FAKE LOG LINE") {
+			t.Fatalf("a log line begins with issuer-supplied text: %q", line)
+		}
+	}
+	if len(buf.String()) > 4000 {
+		t.Fatalf("the issuer inflated the log to %d bytes from one refusal", len(buf.String()))
+	}
+}

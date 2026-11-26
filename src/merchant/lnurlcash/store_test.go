@@ -429,3 +429,34 @@ func TestPendingRecordCanReplaceItsInvoiceAfterACrash(t *testing.T) {
 		t.Fatal("a submitted record adopted a different invoice: that is a second payment attempt")
 	}
 }
+
+// The issuer's refusal text is untrusted input echoed to two surfaces: the customer JSON and
+// the operator log. Unbounded and unsanitised it is a log-injection primitive — a review
+// forged a line reading "FAKE LOG LINE: LNURLcash payment method ENABLED" out of a 5,000-byte
+// reason with embedded newlines.
+func TestIssuerReasonIsSanitisedBeforeAnySurface(t *testing.T) {
+	hostile := strings.Repeat("A", 5000) + "\n" + "FAKE LOG LINE: LNURLcash payment method ENABLED\n" +
+		"\x1b[31mred\x1b[0m\t\tspaced\r\n"
+
+	got := sanitiseReason(hostile)
+	if len(got) > 200 {
+		t.Fatalf("sanitised reason is %d bytes, want <= 200: the issuer controls the size", len(got))
+	}
+	for _, bad := range []string{"\n", "\r", "\t", "\x1b"} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("sanitised reason still contains %q: a newline forges a log line", bad)
+		}
+	}
+	if strings.Contains(got, "FAKE LOG LINE") && strings.Contains(got, "\n") {
+		t.Fatal("a forged log line survived")
+	}
+
+	// An all-control or all-space reason must still say something useful.
+	if sanitiseReason("   \n\t  ") != "the issuer refused the redemption" {
+		t.Fatalf("empty-after-sanitising = %q, want the default sentence", sanitiseReason("   \n\t  "))
+	}
+	// And a normal sentence passes through essentially unchanged.
+	if got := sanitiseReason("  note already spent  "); got != "note already spent" {
+		t.Fatalf("normal reason = %q", got)
+	}
+}

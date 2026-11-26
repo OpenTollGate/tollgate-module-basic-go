@@ -319,14 +319,52 @@ func (c *Client) RequestRedemption(ctx context.Context, callback *url.URL, k1, p
 	case status == http.StatusOK && parsed && strings.EqualFold(wire.Status, "OK"):
 		return Redemption{OK: true}, nil
 	case parsed && strings.EqualFold(wire.Status, "ERROR"):
-		reason := strings.TrimSpace(wire.Reason)
-		if reason == "" {
-			reason = "the issuer refused the redemption"
-		}
-		return Redemption{Reason: reason}, nil
+		return Redemption{Reason: sanitiseReason(wire.Reason)}, nil
 	default:
 		return Redemption{Ambiguous: true, Reason: "the issuer's answer could not be classified"}, nil
 	}
+}
+
+// sanitiseReason bounds and cleans the ISSUER'S refusal text, which is untrusted input on
+// two surfaces at once: it is echoed to the customer in the JSON response, and it is written
+// to the operator's log.
+//
+// Unbounded, it is a log-injection primitive: a 5,000-byte reason containing newlines and
+// ANSI escapes produced a 5,107-byte response body and forged a log line reading
+// "FAKE LOG LINE: LNURLcash payment method ENABLED". A line that LOOKS like this daemon's
+// own output but came from a third party is worse than no line at all — an operator reading
+// the journal would believe a payment method had been switched on.
+//
+// So: strip control characters (newlines, ANSI escapes, NULs), collapse whitespace, and
+// truncate to a length that fits a log line and a customer message. A refusal reason is a
+// sentence, not a payload.
+func sanitiseReason(raw string) string {
+	const maxReason = 200
+	var b strings.Builder
+	lastSpace := false
+	for _, r := range raw {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t' || r == ' ':
+			if b.Len() > 0 && !lastSpace {
+				b.WriteByte(' ')
+				lastSpace = true
+			}
+			continue
+		case r < 0x20 || r == 0x7f:
+			// Control characters and ANSI escape introducers: dropped, never rendered.
+			continue
+		}
+		lastSpace = false
+		if b.Len() >= maxReason {
+			break
+		}
+		b.WriteRune(r)
+	}
+	out := strings.TrimSpace(b.String())
+	if out == "" {
+		return "the issuer refused the redemption"
+	}
+	return out
 }
 
 // validateURL is the per-hop check applied to every URL this client is about to
