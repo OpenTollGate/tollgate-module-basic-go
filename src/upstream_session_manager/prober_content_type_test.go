@@ -6,11 +6,68 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager"
 	"github.com/sirupsen/logrus"
 )
+
+// syncBuffer is a bytes.Buffer that logrus can write to while a test reads from it.
+// bytes.Buffer is not safe for concurrent use, and the global logger it stands in
+// for is written from goroutines this package does not join.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+// captureLogs points the GLOBAL logrus output at a local, concurrency-safe buffer
+// for the duration of the test and restores it afterwards.
+//
+// The buffer has to be synchronized because logrus.StandardLogger() is process-wide
+// and this package logs from goroutines a test never joins — `go triggerNdsSession`
+// in bootstrap.go is one. Before this helper existed, three tests in this file put a
+// plain bytes.Buffer in place of the global output and then read it; when a goroutine
+// leaked by an earlier test wrote a log line during that read, `go test -race`
+// reported a data race in the TEST, not in the prober:
+//
+//	Read at 0x... by goroutine 155:  bytes.(*Buffer).String()   prober_content_type_test.go:50
+//	Previous write by goroutine 38:  bytes.(*Buffer).grow() <- logrus Entry.write()
+//	                                 triggerNdsSession()       session.go:497
+//	                                 (*UpstreamSession).ForwardFirstProof.gowrap1()  bootstrap.go:305
+//
+// That flake failed 4 runs in 5 at untouched base 959280db, which makes -race
+// untrustworthy for everyone working on this tree. Serializing the buffer removes the
+// report without weakening a single assertion: the tests still read the same text.
+//
+// t.Cleanup rather than a bare defer, so a t.Fatalf part-way through still restores the
+// global logger — leaving the whole test binary writing into a dead buffer would turn
+// one failure into a cascade.
+func captureLogs(t *testing.T) *syncBuffer {
+	t.Helper()
+	logs := &syncBuffer{}
+	prevOut := logrus.StandardLogger().Out
+	prevLevel := logrus.GetLevel()
+	logrus.SetOutput(logs)
+	logrus.SetLevel(logrus.DebugLevel)
+	t.Cleanup(func() {
+		logrus.SetOutput(prevOut)
+		logrus.SetLevel(prevLevel)
+	})
+	return logs
+}
 
 // #628, client-side root cause. The prober's Content-Type check compared the
 // whole header string against "application/json", so every spec-valid
@@ -28,15 +85,7 @@ func TestPerformRequest_AcceptsParameterisedJSONContentType(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	var logs bytes.Buffer
-	prevOut := logrus.StandardLogger().Out
-	prevLevel := logrus.GetLevel()
-	logrus.SetOutput(&logs)
-	logrus.SetLevel(logrus.DebugLevel)
-	defer func() {
-		logrus.SetOutput(prevOut)
-		logrus.SetLevel(prevLevel)
-	}()
+	logs := captureLogs(t)
 
 	prober := NewTollGateProber(&config_manager.UpstreamDetectorConfig{}).(*tollGateProber)
 	body, err := prober.performRequestWithContext(context.Background(), srv.URL)
@@ -62,15 +111,7 @@ func TestPerformRequest_StillWarnsOnNonJSONContentType(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	var logs bytes.Buffer
-	prevOut := logrus.StandardLogger().Out
-	prevLevel := logrus.GetLevel()
-	logrus.SetOutput(&logs)
-	logrus.SetLevel(logrus.DebugLevel)
-	defer func() {
-		logrus.SetOutput(prevOut)
-		logrus.SetLevel(prevLevel)
-	}()
+	logs := captureLogs(t)
 
 	prober := NewTollGateProber(&config_manager.UpstreamDetectorConfig{}).(*tollGateProber)
 	if _, err := prober.performRequestWithContext(context.Background(), srv.URL); err != nil {
@@ -91,15 +132,7 @@ func TestPerformRequest_UnparseableContentTypeWarns(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	var logs bytes.Buffer
-	prevOut := logrus.StandardLogger().Out
-	prevLevel := logrus.GetLevel()
-	logrus.SetOutput(&logs)
-	logrus.SetLevel(logrus.DebugLevel)
-	defer func() {
-		logrus.SetOutput(prevOut)
-		logrus.SetLevel(prevLevel)
-	}()
+	logs := captureLogs(t)
 
 	prober := NewTollGateProber(&config_manager.UpstreamDetectorConfig{}).(*tollGateProber)
 	if _, err := prober.performRequestWithContext(context.Background(), srv.URL); err != nil {
