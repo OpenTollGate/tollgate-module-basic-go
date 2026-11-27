@@ -1,6 +1,7 @@
 package lnurlcash
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -465,6 +466,14 @@ func (c *Client) getRaw(ctx context.Context, u *url.URL) (int, []byte, error) {
 // or malformed value is an error, not a zero.
 func parseMsat(raw json.RawMessage) (uint64, error) {
 	if len(raw) == 0 {
+		return 0, errors.New("absent")
+	}
+	// JSON null unmarshals into a uint64 as 0 with NO error, so it has to be
+	// refused explicitly: `{"maxWithdrawable": null}` from an issuer would
+	// otherwise be indistinguishable from a claim of zero, and the caller acts on
+	// a zero (dust refusal, or the journalled fallback) rather than seeing a parse
+	// failure. A field the issuer did not send is not a value.
+	if string(bytes.TrimSpace(raw)) == "null" {
 		return 0, errors.New("absent")
 	}
 	var n uint64
