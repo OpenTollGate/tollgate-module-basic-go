@@ -53,11 +53,23 @@ recovered from an issuer's response proves only that *the issuer says* it paid
 So the rail inverts, and the inversion is the whole design:
 
 1. The gate asks **its own settlement mint** for a NUT-04 quote for the note's
-   `maxWithdrawable`, capped by the operator's ceiling. That quote is a BOLT11
-   invoice the gate's wallet already knows how to reconcile.
+   `maxWithdrawable`, refused outright when that value is above the operator's
+   ceiling. That quote is a BOLT11 invoice the gate's wallet already knows how to
+   reconcile. The ceiling is a *refusal threshold*, never a cap on the invoice:
+   `LUD-03` has no partial withdraw, so the issuer melts the whole note into the
+   one invoice named, and invoicing less than the note is worth destroys the
+   difference silently.
 2. The gate asks the **issuer** to melt the note into that invoice — the
    callback carries `k1` and `pr`.
 3. Access is granted only when **our mint** reports the quote `PAID`/`ISSUED`.
+
+On a resumed attempt the invoice amount is `max(journalled, live)`. The
+journalled figure burns value when the note is worth more now; the live claim
+burns it when the issuer revises its own claim down between attempts. A note is
+never worth less than the value its issuer once stated, nor less than what it
+states now. Over-invoicing cannot destroy value — the issuer cannot melt the
+note, and the customer keeps it. Journalled above the ceiling is a refusal: no
+invoice, no callback, note still good.
 
 The issuer is authoritative for the burn (it decides whether the note is
 still good, and it holds the sats). Our mint is authoritative for the value
