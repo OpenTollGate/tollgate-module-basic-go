@@ -17,9 +17,7 @@ name: router-test
 on:
   push:
     branches: [main]
-  # pull_request dropped (#816): the router lanes' home is ngit-ci's act
-  # containers and the bench; the GitHub twin proves merges, not every
-  # push to a review branch.
+  pull_request:
   workflow_dispatch:
     inputs:
       target:
