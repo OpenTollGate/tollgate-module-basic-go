@@ -1149,3 +1149,80 @@ func TestHostileIssuerReasonCannotForgeALogLineOrFloodTheResponse(t *testing.T) 
 		t.Fatalf("the issuer inflated the log to %d bytes from one refusal", len(buf.String()))
 	}
 }
+
+// LUD-03 has no partial withdraw: the issuer melts the WHOLE note into the one invoice we
+// name. So the amount we invoice must track the note's CURRENT value; keeping a stale
+// journalled number destroys the difference when the note is worth more than it was.
+//
+// Review measured it end to end: a journalled 100 sats against a note now worth 10,000, the
+// gate invoiced 100, the issuer melted 10,000 into it, the customer was told "granted", and
+// 9,900 sats were gone with no error and no log line.
+func TestResumeReconcilesAStaleJournalledAmountInsteadOfBurningTheDifference(t *testing.T) {
+	h := newHarness(t, Config{MaxNoteSats: 100_000})
+
+	// The issuer's claim changes between the two attempts: 100 sats the first time (the
+	// invoice request then fails, leaving that number journalled), 10,000 sats the second.
+	h.issuer.mu.Lock()
+	h.issuer.maxMsat = 100_000 // 100 sats
+	h.issuer.mu.Unlock()
+	h.gate.quoteErr = fmt.Errorf("mint refused to quote for now")
+	if _, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff"); err == nil {
+		t.Fatal("expected the first attempt to fail at the invoice step")
+	}
+
+	h.issuer.mu.Lock()
+	h.issuer.maxMsat = 10_000_000 // 10,000 sats
+	h.issuer.mu.Unlock()
+	h.gate.quoteErr = nil
+	h.gate.settle = func(string) (bool, bool, error) { return true, true, nil }
+
+	if _, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+
+	invs := h.gate.invoiceList()
+	if len(invs) != 1 {
+		t.Fatalf("invoices = %v, want exactly one", invs)
+	}
+	if invs[0] != "lnbc10000quote1" {
+		t.Fatalf("invoiced %q for a note now worth 10000 sats: the issuer melts the whole note "+
+			"into this invoice, so everything not invoiced is destroyed", invs[0])
+	}
+}
+
+// The mirror of the burn above: an issuer that REVISES ITS OWN CLAIM DOWN between attempts.
+// The note was worth 10,000 sats when the first attempt journalled it; on the resume the
+// issuer says 100. Invoicing the new, smaller claim destroys the other 9,900 exactly as the
+// stale-low case does — the issuer owns the note and melts all of it either way, so the
+// amount we name is the only thing that decides how much survives. A note cannot become
+// worth less because its issuer changed its mind; the journalled claim is the floor.
+func TestResumeInvoicesTheLargerOfTheTwoClaimsNotTheReducedLiveOne(t *testing.T) {
+	h := newHarness(t, Config{MaxNoteSats: 100_000})
+
+	// First attempt: worth 10,000 sats, journalled; the invoice request fails.
+	h.gate.quoteErr = fmt.Errorf("mint refused to quote for now")
+	if _, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff"); err == nil {
+		t.Fatal("expected the first attempt to fail at the invoice step")
+	}
+
+	// The issuer now understates its own note.
+	h.issuer.mu.Lock()
+	h.issuer.maxMsat = 100_000 // 100 sats
+	h.issuer.mu.Unlock()
+	h.gate.quoteErr = nil
+	h.gate.settle = func(string) (bool, bool, error) { return true, true, nil }
+
+	if _, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+
+	invs := h.gate.invoiceList()
+	if len(invs) != 1 {
+		t.Fatalf("invoices = %v, want exactly one", invs)
+	}
+	if invs[0] != "lnbc10000quote1" {
+		t.Fatalf("invoiced %q after the issuer revised its claim down to 100 sats: the note was "+
+			"journalled at 10000 and the issuer melts all of it into this invoice, so the "+
+			"difference is destroyed", invs[0])
+	}
+}

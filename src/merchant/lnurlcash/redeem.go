@@ -259,17 +259,33 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 
 	var rec Intent
 	if pending != nil {
-		// Keep the amount that was journalled: the note's own claim is the
-		// issuer's, and a second fetch of it may say anything.
-		amountSats = pending.AmountSats
+		// Never invoice LESS than the note is worth, and never more. LUD-03 has no partial
+		// withdraw — the issuer melts the WHOLE note into the invoice we name — so everything
+		// below the note's value is destroyed (measured: a 100-sat invoice against a 10,000-sat
+		// note, "granted", 9,900 sats gone silently with no error and no log line).
+		//
+		// Neither number alone is safe. The live claim alone is the issuer's word on this
+		// request; it can be revised down between attempts to make us invoice a smaller
+		// figure than the note we already saw it claim. The journalled figure alone is a
+		// snapshot that may now be too LOW, which is the same burn from the other side.
+		// We therefore invoice the LARGER of the two: a note is never worth less than the
+		// value its issuer once stated, and never less than what it states now. Invoicing
+		// above a note's real value cannot destroy value — the issuer simply cannot melt
+		// it, and the customer keeps the note.
+		liveSats := noteSats(withdraw.MaxWithdrawableMSat)
+		if liveSats > pending.AmountSats {
+			amountSats = liveSats
+		} else {
+			amountSats = pending.AmountSats
+		}
 		mintURL = pending.MintURL
 		rec = *pending
 
-		// Re-check the ceiling against the amount we are ACTUALLY about to invoice.
-		// The check above ran against the live claim, and on this path the live claim
-		// is discarded in favour of the journalled one: if the issuer now says less, the
-		// live check passes and we would invoice the larger journalled amount. That is
-		// the partial burn this gate exists to prevent, reached by a different door.
+		// Re-check the ceiling against the amount we are ACTUALLY about to invoice. Step 4
+		// already refused a live claim above the ceiling, so the only way to get here above
+		// it is the journalled side of the max() above — a note we once saw at a value this
+		// router no longer accepts. Refusing it costs nothing: no invoice exists, no callback
+		// was sent, and the customer keeps the note.
 		if capSats := r.cfg.MaxNoteSats; capSats > 0 && amountSats > capSats {
 			return r.refuse(fp, note, macAddress, fmt.Errorf(
 				"%w: journalled note value %d sats is above the %d-sat ceiling this gate now accepts",
