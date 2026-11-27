@@ -1,0 +1,1 @@
+- **Test-only:** register the post-switch verifier's connector calls so its detached goroutine cannot panic on a finished test's mock ([#1271](https://github.com/OpenTollGate/tollgate-module-basic-go/pull/1271))
