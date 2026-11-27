@@ -19,7 +19,9 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"time"
@@ -76,6 +78,14 @@ func main() {
 	priceSats := flag.Uint64("price", 2, "price in sats per step")
 	mint := flag.String("mint", "", "mint URL this exit accepts (advertised to buyers)")
 	stepBytes := flag.Uint64("step-bytes", 60000, "bytes bought per priced step")
+	// Test-only. A `?bind=` query parameter is the CALLER's word for who it is,
+	// and trusting it would let anyone claim any peer's tunnel and be admitted
+	// free - precisely the impersonation the claim signature exists to prevent.
+	// So the hook is off unless an operator turns it on, and it refuses to run
+	// alongside a listener that could be reached from off-box.
+	allowTestBind := flag.Bool("allow-test-bind", false,
+		"TEST ONLY: honour a ?bind= query parameter as the observed peer address. "+
+			"Never use where a real buyer can reach it.")
 	flag.Parse()
 
 	if *dir == "" {
@@ -115,16 +125,55 @@ func main() {
 		// derived outer address only when the caller asked for it explicitly with
 		// -bind-to, so the harness cannot silently pretend to have a tunnel.
 		ObservedSource: func(r *http.Request) (string, error) {
-			if bindTo := r.URL.Query().Get("bind"); bindTo != "" {
-				return bindTo, nil
+			if *allowTestBind {
+				if bindTo := r.URL.Query().Get("bind"); bindTo != "" {
+					return bindTo, nil
+				}
 			}
-			return "", fmt.Errorf("no FIPS source binding on this listener")
+			// The real answer: the source address the transport observed for this
+			// tunnel. This listener learns it from the accepted connection, which
+			// over FIPS is the peer's outer address and is not something the caller
+			// can set.
+			return observedSource(r)
 		},
 	})
 
+	if *allowTestBind {
+		log.Printf("WARNING: -allow-test-bind is on: any caller may name its own "+
+			"peer address with ?bind=, so a purchase proves nothing about identity. "+
+			"Test only.")
+	}
 	log.Printf("exit key %s", key.Hex())
 	log.Printf("listening on %s, state in %s", *listen, *dir)
 	if err := http.ListenAndServe(*listen, svc.Handler()); err != nil {
 		log.Fatalf("serve: %v", err)
 	}
+}
+
+// observedSource reports the address the transport says this caller is.
+//
+// This is the answer the bind check trusts, so it must come from outside the
+// request. A caller can write any header, any query parameter and any body; the
+// one thing it cannot choose is the source address its packets arrive from, and
+// under FIPS that is the peer's outer tunnel address rather than a spoofable IP.
+//
+// Loopback is refused deliberately. On this harness the emulator reaches the host
+// over 127.0.0.1, so a loopback peer would bind every buyer to the same address and
+// a purchase would prove nothing about identity. An exit that cannot see who is
+// calling must refuse to sell, not guess.
+func observedSource(r *http.Request) (string, error) {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return "", fmt.Errorf("the peer address is unreadable: %w", err)
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return "", fmt.Errorf("the peer address is not an address: %w", err)
+	}
+	if addr.IsLoopback() {
+		return "", fmt.Errorf(
+			"this listener cannot see the peer: %s is loopback, where there is no "+
+				"tunnel to bind a purchase to", addr)
+	}
+	return addr.String(), nil
 }
