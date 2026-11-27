@@ -88,6 +88,10 @@ type fakeGate struct {
 	quoteErr error
 	// settle decides the state a quote reports. nil means "never paid".
 	settle func(quoteID string) (paid bool, granted bool, err error)
+	// settles counts calls to RedemptionSettled. It is how a test distinguishes
+	// "answered from the journal" from "asked the mint", which is the difference
+	// between stranding a payment and recovering it.
+	settles int
 }
 
 func (g *fakeGate) RequestRedeemInvoice(macAddress, mintURL string, amountSats uint64) (string, string, error) {
@@ -104,6 +108,9 @@ func (g *fakeGate) RequestRedeemInvoice(macAddress, mintURL string, amountSats u
 }
 
 func (g *fakeGate) RedemptionSettled(quoteID, macAddress string) (bool, bool, error) {
+	g.mu.Lock()
+	g.settles++
+	g.mu.Unlock()
 	if g.settle != nil {
 		return g.settle(quoteID)
 	}
@@ -117,6 +124,11 @@ func (g *fakeGate) quoteCount() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.quotes
+}
+func (g *fakeGate) settleCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.settles
 }
 func (g *fakeGate) invoiceList() []string {
 	g.mu.Lock()
@@ -268,15 +280,27 @@ func TestCallbackTimeoutIsAmbiguousAndNeverRetried(t *testing.T) {
 		t.Fatalf("state = %q, want %q", res.State, StateAmbiguous)
 	}
 
-	// Second presentation: refused from the journal, with NO new callback and NO
-	// new quote. This is the invariant that makes a timeout survivable.
+	// The record must stay `submitted`, NOT go terminal-ambiguous: `submitted` is the
+	// one state resume() reconciles against the mint. Marking it ambiguous would strand
+	// a payment the mint may already hold and delete the quote id that could recover it.
+	rec, ok, err := h.svc.store.Get(h.svc.FingerprintOfPresented(h.issuer.note()))
+	if err != nil || !ok {
+		t.Fatalf("journal lookup: ok=%v err=%v", ok, err)
+	}
+	if rec.State != IntentSubmitted {
+		t.Fatalf("journal state = %q, want %q: a lost callback answer must stay reconcilable",
+			rec.State, IntentSubmitted)
+	}
+
+	// Second presentation: NO new callback and NO new quote — but it MUST ask the mint,
+	// because the mint is the authoritative source for whether the money arrived.
 	before := h.issuer.callbackCount()
+	settlesBefore := h.gate.settleCount()
+	h.gate.settle = func(string) (bool, bool, error) { return true, true, nil }
+
 	again, err := h.svc.Redeem(context.Background(), h.issuer.note(), "aa:bb:cc:dd:ee:ff")
 	if err != nil {
 		t.Fatalf("second Redeem: %v", err)
-	}
-	if again.State != StateAmbiguous {
-		t.Fatalf("second presentation state = %q, want %q", again.State, StateAmbiguous)
 	}
 	if h.issuer.callbackCount() != before {
 		t.Fatalf("a second presentation re-sent the callback (%d -> %d): a spent-note retry is a blind retry",
@@ -284,6 +308,17 @@ func TestCallbackTimeoutIsAmbiguousAndNeverRetried(t *testing.T) {
 	}
 	if h.gate.quoteCount() != 1 {
 		t.Fatalf("a second presentation asked the mint for another quote (%d total)", h.gate.quoteCount())
+	}
+	if h.gate.settleCount() == settlesBefore {
+		t.Fatalf("a second presentation never asked the mint whether the quote was paid: the mint is " +
+			"the authoritative recovery source for a lost callback answer")
+	}
+	// The mint says it was paid and the grant landed: the customer is made whole.
+	if !again.Granted {
+		t.Fatalf("re-presentation after the mint confirmed payment did not grant: %+v", again)
+	}
+	if again.State != StateRedeemed {
+		t.Fatalf("re-presentation state = %q, want %q", again.State, StateRedeemed)
 	}
 }
 

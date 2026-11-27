@@ -239,11 +239,20 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 	if amountSats == 0 {
 		return r.refuse(fp, note, macAddress, ErrNoteIsDust)
 	}
-	// LUD-03 has no partial withdraw: the issuer melts the WHOLE note into the one
-	// invoice we name. Capping the invoice would burn the difference, so a note
-	// above the ceiling must be refused before anything leaves the box. This is the
-	// one failure mode an operator could otherwise inflict on a customer silently.
-	if capSats := r.cfg.MaxNoteSats; capSats > 0 && amountSats > capSats {
+	// A note above the ceiling must be refused before anything leaves the box. Clamping
+	// the invoice instead would strand the difference: k1 is single-use, so once the
+	// callback succeeds the residual cannot be withdrawn again. This is the one failure
+	// mode an operator could otherwise inflict on a customer silently.
+
+	// (LUD-03 step 4 lets the wallet name an exact sum bounded by min/maxWithdrawable,
+	// so a compliant issuer CAN pay less than the note's face value. The reason not to
+	// clamp is not that the difference is melted into the invoice — it is that k1 is
+	// burnt by the successful callback, which strands whatever we did not ask for.)
+	// MaxNoteSats is a REFUSAL threshold (see ErrNoteAboveCeiling), and an unset
+	// ceiling refuses everything rather than accepting everything. `capSats > 0 &&`
+	// here would turn a hand-built Config{Enabled:true} — a migration, a CLI override,
+	// a future caller — into an unbounded money path.
+	if capSats := r.cfg.MaxNoteSats; amountSats > capSats {
 		return r.refuse(fp, note, macAddress, fmt.Errorf(
 			"%w: note is worth %d sats, above the %d-sat ceiling this gate accepts",
 			ErrNoteAboveCeiling, amountSats, capSats))
@@ -259,25 +268,27 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 
 	var rec Intent
 	if pending != nil {
-		// Never invoice LESS than the note is worth, and never more. LUD-03 has no partial
-		// withdraw — the issuer melts the WHOLE note into the invoice we name — so everything
-		// below the note's value is destroyed (measured: a 100-sat invoice against a 10,000-sat
-		// note, "granted", 9,900 sats gone silently with no error and no log line).
+		// Invoice the note's high-water mark: the largest value its issuer has ever
+		// claimed for it, across every attempt. k1 is single-use and LUD-03's callback
+		// takes the whole of what remains, so anything below the note's real value is
+		// stranded — there is no second chance to withdraw the residual.
 		//
-		// Neither number alone is safe. The live claim alone is the issuer's word on this
-		// request; it can be revised down between attempts to make us invoice a smaller
-		// figure than the note we already saw it claim. The journalled figure alone is a
-		// snapshot that may now be too LOW, which is the same burn from the other side.
-		// We therefore invoice the LARGER of the two: a note is never worth less than the
-		// value its issuer once stated, and never less than what it states now. Invoicing
-		// above a note's real value cannot destroy value — the issuer simply cannot melt
-		// it, and the customer keeps the note.
+		// Neither a single live claim nor the first journalled figure is enough. A live
+		// claim revised DOWN between attempts understates the note; the journal's first
+		// sample misses every later increase (measured: claims of 10,000 → 50,000 →
+		// 20,000 invoiced 20,000 on the third attempt while the gate itself had seen
+		// 50,000, stranding 30,000). The ratchet is persisted before this invoice is
+		// requested, so it survives a crash mid-attempt.
 		liveSats := noteSats(withdraw.MaxWithdrawableMSat)
-		if liveSats > pending.AmountSats {
-			amountSats = liveSats
-		} else {
-			amountSats = pending.AmountSats
+		rec2, err := r.store.ObserveAmount(fp, liveSats)
+		if err != nil {
+			// The journal cannot record the observation. Do not invoice a number we are
+			// not able to persist, or a crash here loses the knowledge that the note was
+			// worth more.
+			return Result{State: StateAbandoned,
+				Message: "The router could not record the redemption. Your note was not used."}, err
 		}
+		amountSats = rec2.MaxObservedSats
 		mintURL = pending.MintURL
 		rec = *pending
 
@@ -286,7 +297,7 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 		// it is the journalled side of the max() above — a note we once saw at a value this
 		// router no longer accepts. Refusing it costs nothing: no invoice exists, no callback
 		// was sent, and the customer keeps the note.
-		if capSats := r.cfg.MaxNoteSats; capSats > 0 && amountSats > capSats {
+		if capSats := r.cfg.MaxNoteSats; amountSats > capSats {
 			return r.refuse(fp, note, macAddress, fmt.Errorf(
 				"%w: journalled note value %d sats is above the %d-sat ceiling this gate now accepts",
 				ErrNoteAboveJournalledCeiling, amountSats, capSats))
@@ -347,11 +358,15 @@ func (r *Redeemer) Redeem(ctx context.Context, presentedNote, macAddress string)
 			Message: "The note's issuer address was unusable; your note was not used."}, err
 	}
 	if outcome.Ambiguous {
-		_, _ = r.store.Advance(fp, rec.Version, IntentAmbiguous, outcome.Reason)
-		log.Printf("lnurlcash: redemption for note %s is AMBIGUOUS (%s) — not retried; reconcile against mint quote %s",
+		// Do NOT advance to the terminal `ambiguous` state. `submitted` is exactly the
+		// state resume() knows how to reconcile: the mint's quote is authoritative and
+		// we never send a second callback. Marking it ambiguous here would destroy that
+		// recovery path and strand a payment the mint may already hold — the customer
+		// paid, we have the quote id on disk, and nothing would ever ask again.
+		log.Printf("lnurlcash: redemption for note %s is AMBIGUOUS (%s) — not retried; will reconcile against mint quote %s",
 			shortFP(fp), outcome.Reason, quoteID)
 		return Result{State: StateAmbiguous, QuoteID: quoteID, Invoice: invoice, AmountSats: amountSats, MintURL: mintURL,
-			Message: "The note's issuer did not confirm. Do NOT present the note again — ask the operator to check it."}, nil
+			Message: "The note's issuer did not answer. Your note was not sent a second time — present it again and the router will check the mint."}, nil
 	}
 	if !outcome.OK {
 		_, _ = r.store.Advance(fp, rec.Version, IntentAbandoned, outcome.Reason)
@@ -445,16 +460,29 @@ func (r *Redeemer) settle(fp string, rec Intent, quoteID, invoice string, amount
 			Message: "The issuer accepted the note; the mint has not confirmed settlement yet."}, nil
 	}
 
-	// The mint has the money. Resolve the record if it is not resolved yet.
-	if rec.State == IntentSubmitted {
-		if _, err := r.store.Advance(fp, rec.Version, IntentRedeemed, "mint reported the quote paid"); err != nil {
+	// The mint has the money. Resolve the record only if the grant ACTUALLY landed.
+	//
+	// `redeemed` is terminal, and resume() answers Granted:true from it without asking
+	// anyone. Advancing before checking `granted` therefore turns "we took your sats but
+	// could not open the gate" into "already redeemed, granted" on the customer's next
+	// poll, and no code path ever retries the grant. Measured: the redeemer loses exactly
+	// this race to its own 5 s quote monitor, which calls ensureLightningAccessGranted
+	// while another goroutine holds record.Processing and returns nil WITHOUT granting.
+	//
+	// So a paid-but-ungranted record stays `submitted`: resume() re-reaches settle(),
+	// which re-asks the mint and re-applies the grant, which is idempotent by MAC.
+	if rec.State == IntentSubmitted && granted {
+		if _, err := r.store.Advance(fp, rec.Version, IntentRedeemed, "mint reported the quote paid and the grant was applied"); err != nil {
 			log.Printf("lnurlcash: could not mark note %s redeemed: %v", rec.QuoteID, err)
 		}
+	}
+	if rec.State == IntentSubmitted && !granted && paid {
+		log.Printf("lnurlcash: note %s settled at the mint but the grant did NOT land; leaving it submitted so resume() retries the grant", rec.QuoteID)
 	}
 
 	if !granted {
 		return Result{State: StateRedeemed, QuoteID: quoteID, Invoice: invoice, AmountSats: amountSats, MintURL: mintURL,
-			Message: "Your note settled, but the router could not open the gate yet. Do NOT present the note again."}, nil
+			Message: "Your note settled, but the router could not open the gate yet. Present it again to retry — your note will not be spent twice."}, nil
 	}
 	return Result{State: StateRedeemed, Granted: true, QuoteID: quoteID, Invoice: invoice,
 		AmountSats: amountSats, MintURL: mintURL, Message: "Redeemed and granted."}, nil

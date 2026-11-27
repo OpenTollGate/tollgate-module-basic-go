@@ -68,18 +68,26 @@ const (
 // Intent is one redemption's durable record. It holds a fingerprint (never the
 // note) and the client's MAC, and no secret of any kind.
 type Intent struct {
-	MacAddress   string    `json:"mac_address"`
-	MintURL      string    `json:"mint_url"`
-	AmountSats   uint64    `json:"amount_sats"`
-	IssuerHost   string    `json:"issuer_host"`
-	QuoteID      string    `json:"quote_id,omitempty"`
-	Invoice      string    `json:"invoice,omitempty"`
-	State        string    `json:"state"`
-	Version      uint64    `json:"version"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Resolution   string    `json:"resolution,omitempty"`
-	AttemptCount int       `json:"attempt_count"`
+	MacAddress string `json:"mac_address"`
+	MintURL    string `json:"mint_url"`
+	AmountSats uint64 `json:"amount_sats"`
+	// MaxObservedSats is the highest value this note's issuer has ever claimed for it,
+	// across every attempt. It is a monotonic high-water mark and is NEVER lowered:
+	// `AmountSats` is written once by Begin, so a max() of the two is only the first
+	// sample against the current one, and every intermediate observation would be lost.
+	// A note cannot honestly become worth less than it once was, and invoicing below a
+	// value we ourselves saw strands the difference (k1 is single-use, so the residual
+	// is unrecoverable after the callback).
+	MaxObservedSats uint64    `json:"max_observed_sats,omitempty"`
+	IssuerHost      string    `json:"issuer_host"`
+	QuoteID         string    `json:"quote_id,omitempty"`
+	Invoice         string    `json:"invoice,omitempty"`
+	State           string    `json:"state"`
+	Version         uint64    `json:"version"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	Resolution      string    `json:"resolution,omitempty"`
+	AttemptCount    int       `json:"attempt_count"`
 	// Compacted marks a tombstone: the note's state is remembered so a replay is still
 	// refused, but the bulky per-payment detail (quote, invoice, MAC, amounts) has been
 	// dropped by Prune. It is never set on a pending or submitted record.
@@ -273,14 +281,15 @@ func (s *IntentStore) beginLocked(fp string, in Intent) (Intent, error) {
 	}
 
 	rec := Intent{
-		MacAddress: in.MacAddress,
-		MintURL:    in.MintURL,
-		AmountSats: in.AmountSats,
-		IssuerHost: in.IssuerHost,
-		State:      IntentPending,
-		Version:    1,
-		CreatedAt:  s.now(),
-		UpdatedAt:  s.now(),
+		MacAddress:      in.MacAddress,
+		MintURL:         in.MintURL,
+		AmountSats:      in.AmountSats,
+		MaxObservedSats: in.AmountSats,
+		IssuerHost:      in.IssuerHost,
+		State:           IntentPending,
+		Version:         1,
+		CreatedAt:       s.now(),
+		UpdatedAt:       s.now(),
 	}
 	if rec.UpdatedAt.Before(rec.CreatedAt) {
 		rec.UpdatedAt = rec.CreatedAt
@@ -299,6 +308,37 @@ func (s *IntentStore) beginLocked(fp string, in Intent) (Intent, error) {
 
 // MarkSubmitted records that a quote was obtained and the callback is about to
 // leave. From here the redemption can never be re-sent; only reconciled.
+// ObserveAmount ratchets a note's high-water mark upward and returns the record with
+// the resulting value. It NEVER lowers the mark: a note's value cannot honestly
+// decrease, and an issuer that revises its own claim down must not be believed into
+// making us invoice below a value we already saw (k1 is single-use, so anything not
+// invoiced is stranded once the callback succeeds).
+//
+// AmountSats itself is left alone: it is the value Begin recorded, i.e. what the
+// journal was opened against. MaxObservedSats is the thing an invoice amount is
+// computed from.
+func (s *IntentStore) ObserveAmount(fp string, observedSats uint64) (Intent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return Intent{}, ErrIntentConflict
+	}
+	rec, ok := s.data.Records[fp]
+	if !ok {
+		return Intent{}, ErrIntentNotFound
+	}
+	if observedSats <= rec.MaxObservedSats {
+		return rec, nil
+	}
+	rec.MaxObservedSats = observedSats
+	next := s.copyFile()
+	next.Records[fp] = rec
+	if err := s.persist(next); err != nil {
+		return Intent{}, err
+	}
+	return rec, nil
+}
+
 func (s *IntentStore) MarkSubmitted(fp, quoteID string) (Intent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
