@@ -330,6 +330,32 @@ func (r *LNURLCashRail) RedeemAtWith(note lnurlcash.Note, confirmedMSat uint64, 
 	}
 	err = r.melt(note, IssuerCallback{Host: note.Domain, Path: meltPath, Params: callbackParams}, bolt11)
 	if err != nil {
+		// A DEFINITIVE refusal is not an ambiguous one, and conflating them wedges the
+		// note for good. `Client.Melt` sets IssuerError.Definitive precisely to record
+		// the distinction ("already in use", "unknown note": the note will never work at
+		// this issuer, and nothing was spent by this request) — so the honest response is
+		// to retire the record as failed, which frees the note's slot, lets the caller
+		// answer truthfully, and keeps the fingerprint refusing a replay through the
+		// ordinary `failed` path.
+		//
+		// Everything else stays `awaiting`: a transport error, a timeout, a 5xx or a
+		// non-JSON answer all mean the issuer may have burned the note and we cannot know.
+		// There the current behaviour is right — the record keeps refusing, and if the
+		// melt did land the quote settles and the monitor grants anyway.
+		var ie *lnurlcash.IssuerError
+		if errors.As(err, &ie) && ie.Definitive {
+			// `bound` is the record as it stands after BindInvoice — the version to CAS on.
+			// Using `op.Version` here would fail the compare-and-set (the record has
+			// advanced twice since), and the failure would be silent because the advance is
+			// best-effort.
+			if _, aerr := r.store.Advance(bound.ID, bound.Version, paymentjournal.Failed, 0); aerr != nil {
+				log.Printf("ERROR: lnurlcash rail: could not retire note %s after a definitive issuer refusal: %v — the note stays refused, but its journal slot is not freed", op.ID, aerr)
+			} else {
+				log.Printf("lnurlcash rail: issuer DEFINITIVELY refused note %s at %s (%s) — the note is spent, not stranded",
+					op.ID, note.Domain, ie.Reason)
+			}
+			return "", err
+		}
 		// The note is NOT released. Whether the issuer burned it is exactly what we
 		// no longer know, so the record stays `awaiting` and the fingerprint refuses
 		// a re-presentation. If the melt did succeed, the quote settles and the
