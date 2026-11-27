@@ -176,6 +176,40 @@ its own review rather than being smuggled into this one.
 Until it lands, the rail must not be enabled on a gate that expects more than ~1000 lifetime
 LNURLcash sales. That is a real product limit and it is stated in the PR body.
 
+## What has actually been verified, and what has not
+
+Stated this way because the gap between "tests pass" and "money moved" is where
+payment changes go wrong.
+
+**Verified against a real issuer.** `src/lnurlcash/realissuer_probe_test.go`
+runs the client, unmodified, against **moneyer** — an independent LUD-25
+implementation sharing no code with the reference mint. Skipped unless
+`LNURLCASH_REAL_ISSUER` is set.
+
+**Verified over a real Lightning channel.** moneyer backed by a CLN node,
+against a second CLN node on regtest with a channel in each direction:
+
+```
+B pays the mint's invoice for a 21 sat note -> complete, 21000 msat
+the note is withdrawable at the mint        -> maxWithdrawable 21000
+our client melts it into B's own invoice    -> accepted
+B's melt invoice                            -> paid, amount_received 21000
+the note re-presented                       -> {"status":"ERROR","reason":"already in use"}
+A->B channel 79999979000/80000000000 · B->A channel 21000/80000000000
+```
+
+The channel balances are the load-bearing evidence: 21,000 msat moved one way to
+fund the note and back the other way on melt, netting to zero. A mint answering
+"accepted" proves nothing by itself; the far node reporting the invoice `paid`
+does. This also confirms the replay defence exists **at the issuer**, so the
+journal guard is a second line rather than the only one.
+
+**Not verified.** No mainnet redemption: regtest coins are worthless, so this
+says nothing about a funded public mint's fees, rate limits, or behaviour under
+load. No router test — the local lab exercises the binary and a mock issuer, not
+NDS, the firewall, or the captive portal. No funded operator wallet has ever
+redeemed a note on hardware.
+
 ## References
 
 - LUD-25 / LUD-26 (draft): notes, canonical spend transaction, certificates,
