@@ -275,6 +275,8 @@ func (s *CLIServer) processCommand(msg CLIMessage) CLIResponse {
 		return s.handleConfigCommand(msg.Args, msg.Flags)
 	case "health":
 		return s.handleHealthCommand()
+	case "lnurlcash":
+		return s.handleLNURLCashCommand(msg.Args, msg.Flags)
 	default:
 		return CLIResponse{
 			Success:   false,

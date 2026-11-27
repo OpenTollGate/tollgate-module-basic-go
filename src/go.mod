@@ -6,15 +6,20 @@ require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/cli v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/identity v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/mptcp_bonding v0.0.0-00010101000000-000000000000
+	github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_session_manager v0.0.0-00010101000000-000000000000
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager v0.0.0
+	github.com/btcsuite/btcd/btcec/v2 v2.3.4
+	github.com/coder/websocket v1.8.13
 	github.com/nbd-wtf/go-nostr v0.51.12
+	github.com/nbd-wtf/ln-decodepay v1.13.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/time v0.15.0
@@ -25,9 +30,11 @@ replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ./config_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/identity => ./identity
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ./lightning
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash => ./lnurlcash
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ./merchant
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant_types => ./merchant_types
 	github.com/OpenTollGate/tollgate-module-basic-go/src/mptcp_bonding => ./mptcp_bonding
+	github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal => ./paymentjournal
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollgate_protocol => ./tollgate_protocol
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ./tollwallet
 	github.com/OpenTollGate/tollgate-module-basic-go/src/upstream_detector => ./upstream_detector
@@ -48,7 +55,6 @@ require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6 // indirect
-	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
@@ -68,7 +74,6 @@ require (
 	github.com/cashubtc/cdk-go v0.18.3 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
-	github.com/coder/websocket v1.8.13 // indirect
 	github.com/containerd/continuity v0.4.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
@@ -103,7 +108,6 @@ require (
 	github.com/miekg/dns v1.1.66 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/nbd-wtf/ln-decodepay v1.13.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect

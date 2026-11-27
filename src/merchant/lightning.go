@@ -490,6 +490,12 @@ func (m *Merchant) monitorLightningQuote(quoteID string) {
 		if state == tollwallet.StatePaid || state == tollwallet.StateIssued {
 			if err := m.ensureLightningAccessGranted(quoteID, state); err == nil {
 				log.Printf("monitorLightningQuote: stopping for %s — access granted", quoteID)
+				// Tell any rail that journalled this quote that the money arrived, so it
+				// can retire its record. A rail that journals intent and is never told
+				// about settlement leaks one permanent slot per sale.
+				if m.quoteSettled != nil {
+					m.quoteSettled(record.Bolt11)
+				}
 				return
 			} else {
 				log.Printf("monitorLightningQuote: ensureLightningAccessGranted failed for %s: %v", quoteID, err)

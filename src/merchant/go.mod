@@ -5,6 +5,8 @@ go 1.26.0
 require (
 	github.com/OpenTollGate/gonuts-tollgate v0.17.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve v0.0.0
@@ -59,8 +61,11 @@ require (
 )
 
 replace (
+	github.com/OpenTollGate/tollgate-module-basic-go => ..
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ../config_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash => ../lnurlcash
+	github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal => ../paymentjournal
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ../tollwallet
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ../utils
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ../valve
@@ -76,11 +81,16 @@ require (
 	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
 	github.com/cashubtc/cdk-go v0.18.3 // indirect
+	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/coder/websocket v1.8.13 // indirect
+	github.com/containerd/continuity v0.4.3 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
@@ -94,6 +104,8 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/nbd-wtf/ln-decodepay v1.13.0 // indirect
+	github.com/prometheus/client_model v0.6.1 // indirect
+	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
@@ -101,7 +113,13 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	go.etcd.io/etcd/client/v2 v2.305.16 // indirect
+	go.etcd.io/etcd/pkg/v3 v3.5.16 // indirect
+	go.etcd.io/etcd/raft/v3 v3.5.16 // indirect
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0 // indirect
 	go.opentelemetry.io/otel v1.47.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.47.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/arch v0.17.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect

@@ -183,6 +183,9 @@ func (startingMerchant) GetLightningInvoiceStatus(string, string) (*merchant.Lig
 // advertisement is built from, and every route that serves it is gated.
 func (startingMerchant) GetAcceptedMints() []config_manager.MintConfig { return nil }
 
+// SetQuoteSettled is a no-op while the gate is starting: no quote exists yet.
+func (startingMerchant) SetQuoteSettled(merchant.QuoteSettledFunc) {}
+
 func (startingMerchant) GetBalance() uint64 { return 0 }
 
 func (startingMerchant) GetBalanceByMint(string) uint64 { return 0 }

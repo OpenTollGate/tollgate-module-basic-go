@@ -391,6 +391,88 @@ func (s *Store) Get(id string) (Operation, error) {
 	}
 	return clone(o), nil
 }
+
+// ReadOnlyEntry is one operation as an outside reader sees it.
+//
+// It is a separate type on purpose: a reader must not be handed a live Operation that
+// looks mutable, and the read path must not be able to reach Advance, Prepare or Close on
+// a store it does not own.
+
+// ReadOnly opens the journal for READING ONLY, without taking the writer lock.
+//
+// The writer lock is exclusive and non-blocking, so a process that opens the journal the
+// normal way is refused while the daemon runs — which is exactly when an operator needs to
+// look at it. A shared lock is compatible with a shared lock and refuses nothing, and the
+// reader never writes: no Prepare, no Advance, no rename, no fsync of the data file.
+//
+// What makes this safe is NOT the lock. A shared flock CONFLICTS with the exclusive lock the
+// daemon holds, so a reader that insisted on one could never read a live journal — the
+// first version of this function did exactly that and was useless. The real guarantee is
+// persist(): it writes a temporary file and renames it over the target, and rename is
+// atomic, so a concurrent reader opens either the whole old snapshot or the whole new one
+// and never a torn file. The shared lock is therefore taken opportunistically — it is held
+// when nothing else is, and given up without complaint when the daemon owns the file.
+func OpenReadOnly(dir string) (*ReadOnly, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, ErrRefused
+	}
+	fd, e := syscall.Open(filepath.Join(abs, "writer.lock"), syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
+	if e != nil {
+		return nil, ErrRefused
+	}
+	f := os.NewFile(uintptr(fd), "payment-journal-readlock")
+	// Opportunistic: hold the shared lock when it is free, but a daemon's exclusive lock is
+	// not a reason to refuse the read — that is the case this command exists for.
+	if err := syscall.Flock(fd, syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+		// Keep the descriptor open for Close symmetry; just do not hold a lock.
+		return &ReadOnly{dir: abs, lock: f, locking: false}, nil
+	}
+	return &ReadOnly{dir: abs, lock: f, locking: true}, nil
+}
+
+// ReadOnly is a journal opened for inspection. Close it when done.
+type ReadOnly struct {
+	dir     string
+	lock    *os.File
+	locking bool
+}
+
+// List returns every operation in the journal, sorted by id.
+func (r *ReadOnly) List() ([]Operation, error) {
+	raw, err := os.ReadFile(filepath.Join(r.dir, "operations.json"))
+	if err != nil {
+		// A journal that has never been written is empty, not broken.
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, ErrRefused
+	}
+	var snap snapshot
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		return nil, ErrRefused
+	}
+	out := make([]Operation, 0, len(snap.Operations))
+	for _, o := range snap.Operations {
+		out = append(out, clone(o))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// Close releases the shared lock.
+func (r *ReadOnly) Close() error {
+	if r == nil || r.lock == nil {
+		return nil
+	}
+	if r.locking {
+		_ = syscall.Flock(int(r.lock.Fd()), syscall.LOCK_UN)
+	}
+	err := r.lock.Close()
+	r.lock = nil
+	return err
+}
+
 func (s *Store) List() ([]Operation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

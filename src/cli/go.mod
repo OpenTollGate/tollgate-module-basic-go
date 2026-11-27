@@ -4,7 +4,9 @@ go 1.26.0
 
 require (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant v0.0.0
+	github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal v0.0.0
 	github.com/OpenTollGate/tollgate-module-basic-go/src/wireless_gateway_manager v0.0.0
 	github.com/nbd-wtf/go-nostr v0.51.12
 	github.com/sirupsen/logrus v1.9.3
@@ -101,7 +103,9 @@ require (
 replace (
 	github.com/OpenTollGate/tollgate-module-basic-go/src/config_manager => ../config_manager
 	github.com/OpenTollGate/tollgate-module-basic-go/src/lightning => ../lightning
+	github.com/OpenTollGate/tollgate-module-basic-go/src/lnurlcash => ../lnurlcash
 	github.com/OpenTollGate/tollgate-module-basic-go/src/merchant => ../merchant
+	github.com/OpenTollGate/tollgate-module-basic-go/src/paymentjournal => ../paymentjournal
 	github.com/OpenTollGate/tollgate-module-basic-go/src/tollwallet => ../tollwallet
 	github.com/OpenTollGate/tollgate-module-basic-go/src/utils => ../utils
 	github.com/OpenTollGate/tollgate-module-basic-go/src/valve => ../valve
