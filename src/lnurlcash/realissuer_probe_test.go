@@ -22,7 +22,7 @@ func TestProbeRealIssuer(t *testing.T) {
 	probeInvoice := os.Getenv("LNURLCASH_REAL_INVOICE")
 	raw := os.Getenv("LNURLCASH_REAL_ISSUER")
 	if raw == "" {
-		t.Skip("set LNURLCASH_REAL_ISSUER to a note URL (e.g. http://127.0.0.1:3737/w?k1=...&amount=21000)")
+		t.Skip("set LNURLCASH_REAL_ISSUER to a note URL (e.g. https://1.2.3.7/w?k1=...&amount=21000)")
 	}
 
 	note, err := Parse(raw, "")
@@ -31,8 +31,10 @@ func TestProbeRealIssuer(t *testing.T) {
 	}
 	t.Logf("parsed note: domain=%q spend=%x", note.Domain, note.Spend())
 
-	// Our SSRF guard rejects loopback by design; this probe runs against a local mint, so it
-	// measures the PROTOCOL, not the address policy. Say so rather than pretending.
+	// Our SSRF guard rejects loopback and cleartext by design, so this probe cannot be pointed
+	// at 127.0.0.1 at all: it needs a public-looking address reached over https, which is why
+	// the rig behind it binds 1.2.3.7 on lo with a matching SAN. The address policy therefore
+	// DOES apply here — it is satisfied, not bypassed.
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
