@@ -1,3 +1,5 @@
 .rotation-state.json
 walletd-socket/
 kp-state/
+.lane-gate.log
+.lane-result.log

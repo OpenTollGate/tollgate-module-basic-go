@@ -98,6 +98,17 @@ func GetConfigSchema() []FieldSchema {
 			},
 		},
 		{
+			Name: "LNURLCash", JSONKey: "lnurlcash", Type: "object",
+			Description: "Opt-in LNURLcash withdraw notes (LUD-03). The note is a promise by its ISSUER, not money in hand: the gate redeems it against that issuer and settles into the operator's own mint. Off by default, and with it off the payment endpoint does not exist. Enabling it means accepting issuer custody between presentation and redemption, and accepting that a bearer secret transits this router.",
+			Required:    false, Editable: true,
+			Children: []FieldSchema{
+				{Name: "Enabled", JSONKey: "enabled", Type: "bool", Description: "Accept LNURLcash withdraw notes as payment. Off by default: the endpoint is absent (404) while disabled. Turning this on accepts ISSUER CUSTODY of the note's value until the redemption completes, and depends on the issuer being reachable at payment time.", Default: false, Required: true, Editable: true},
+				{Name: "MaxNoteSats", JSONKey: "max_note_sats", Type: "uint64", Description: "Largest note value this router will accept, in sats. The note's own maxWithdrawable is the ISSUER's claim, so this is the operator's ceiling on value at risk and on the invoice the settlement mint is asked for.", Default: uint64(1000), Required: true, Editable: true, Min: uint64(1)},
+				{Name: "RedemptionTimeoutSeconds", JSONKey: "redemption_timeout_seconds", Type: "int", Description: "Upper bound on the whole issuer interaction. Past it the outcome is ambiguous and the note is never re-sent; the record is reconciled instead.", Default: 30, Required: true, Editable: true, Min: 1},
+				{Name: "RetentionSeconds", JSONKey: "retention_seconds", Type: "int", Description: "How long a finished redemption record is kept before pruning. Unfinished records are never pruned. 0 keeps everything.", Default: 7 * 24 * 60 * 60, Required: true, Editable: true, Min: 0},
+			},
+		},
+		{
 			Name: "UpstreamDetector", JSONKey: "upstream_detector", Type: "object",
 			Description: "Upstream gateway detector configuration", Required: true, Editable: true,
 			Children: []FieldSchema{

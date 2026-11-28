@@ -33,7 +33,12 @@ type Config struct {
 	// section), "cdk" = the cdk-walletd sidecar daemon over AF_UNIX at
 	// Socket. The selection seam is tollwallet.OpenWallet; the merchant
 	// service routes every wallet construction through it.
-	Wallet                 WalletBackendConfig          `json:"wallet,omitempty"`
+	Wallet WalletBackendConfig `json:"wallet,omitempty"`
+	// LNURLCash is the opt-in LNURLcash (LUD-03 withdraw note) payment
+	// method. It ships DISABLED: see docs/architecture/
+	// lnurlcash-opt-in-payment-method-decision.md for why it is opt-in and
+	// what the operator accepts by turning it on.
+	LNURLCash              LNURLCashConfig              `json:"lnurlcash"`
 	UpstreamDetector       UpstreamDetectorConfig       `json:"upstream_detector"`
 	UpstreamSessionManager UpstreamSessionManagerConfig `json:"upstream_session_manager"`
 	UpstreamWifi           UpstreamWifiConfig           `json:"upstream_wifi"`
@@ -213,6 +218,50 @@ type WalletBackendConfig struct {
 	Socket string `json:"socket,omitempty"`
 }
 
+// LNURLCashConfig is the opt-in LNURLcash payment method.
+//
+// LNURLcash is a LUD-03 withdraw note: a bearer link that an issuer will redeem
+// once. Accepting one means the gate performs the redemption on the customer's
+// behalf and settles it into the operator's own mint. Two consequences the
+// operator is accepting by turning this on, and both are stated in the field
+// descriptions so nobody has to read a design doc to find them:
+//
+//   - CUSTODY IS THE ISSUER'S until the redemption completes. The note is a
+//     promise by a third party, not money in hand; an issuer that disappears
+//     between presentation and redemption takes the value with it.
+//   - The NOTE IS A BEARER SECRET and it transits this router.
+//
+// It ships disabled, and the endpoint is not registered at all while it is
+// disabled (404, not 403): the gate does not advertise a payment method it
+// will not honour.
+type LNURLCashConfig struct {
+	// Enabled turns the payment method on. Default false.
+	Enabled bool `json:"enabled"`
+	// MaxNoteSats caps what a single note may be worth to this router, in
+	// satoshis. The note's own maxWithdrawable is the ISSUER's claim, so this
+	// is the operator's ceiling on both value at risk and the size of the
+	// invoice the settlement mint is asked for.
+	MaxNoteSats uint64 `json:"max_note_sats"`
+	// RedemptionTimeoutSeconds bounds the whole issuer interaction (the
+	// withdrawRequest fetch and the redemption callback). Past it the outcome
+	// is ambiguous and the note is never re-sent.
+	RedemptionTimeoutSeconds int `json:"redemption_timeout_seconds"`
+	// RetentionSeconds is how long a finished redemption record is kept before
+	// pruning. Unfinished records are never pruned. Zero keeps everything.
+	RetentionSeconds int `json:"retention_seconds"`
+}
+
+// DefaultLNURLCashConfig is the shipped default: off, with bounds that are in
+// force from the moment an operator enables it.
+func DefaultLNURLCashConfig() LNURLCashConfig {
+	return LNURLCashConfig{
+		Enabled:                  false,
+		MaxNoteSats:              1000,
+		RedemptionTimeoutSeconds: 30,
+		RetentionSeconds:         7 * 24 * 60 * 60,
+	}
+}
+
 // UpstreamDetectorConfig holds configuration for the upstream_detector module
 type UpstreamDetectorConfig struct {
 	// Probing settings
@@ -313,7 +362,40 @@ func LoadConfig(filePath string) (*Config, error) {
 	if err := config.ValidateAdvertisedUnitsForConfig(); err != nil {
 		return nil, fmt.Errorf("config %s advertises a unit it does not issue: %w", filePath, err)
 	}
+	// An absent lnurlcash section unmarshals to the zero value, which would
+	// leave an operator who later edits `enabled` alone with a zero timeout and
+	// a zero note cap. Fill the shipped defaults for anything unset, so the
+	// section is safe to enable from the file even when the file predates it.
+	config.LNURLCash = withLNURLCashDefaults(config.LNURLCash)
 	return &config, nil
+}
+
+// withLNURLCashDefaults fills the bounds an absent or partial `lnurlcash` section
+// leaves zero. It is the ONLY place these defaults are applied.
+//
+// Two shapes on purpose, and they are not the same rule:
+//   - MaxNoteSats and RedemptionTimeoutSeconds treat 0 as "unset" because zero is
+//     not a meaningful value for either (a 0-sat ceiling accepts nothing, a 0s
+//     timeout expires instantly).
+//   - RetentionSeconds treats only NEGATIVE as unset, because 0 IS meaningful and
+//     the schema promises it: "0 keeps everything". Filling 0 here would silently
+//     prune a week of records an operator asked to keep.
+//
+// The merchant layer deliberately re-applies none of this (see LNURLCashConfigFrom):
+// a second defaulting layer is how `retention_seconds: 0` came to mean a week in
+// the schema one release and forever in the code the next.
+func withLNURLCashDefaults(c LNURLCashConfig) LNURLCashConfig {
+	d := DefaultLNURLCashConfig()
+	if c.MaxNoteSats == 0 {
+		c.MaxNoteSats = d.MaxNoteSats
+	}
+	if c.RedemptionTimeoutSeconds <= 0 {
+		c.RedemptionTimeoutSeconds = d.RedemptionTimeoutSeconds
+	}
+	if c.RetentionSeconds < 0 {
+		c.RetentionSeconds = d.RetentionSeconds
+	}
+	return c
 }
 
 // SaveConfig saves config.json.
@@ -465,6 +547,7 @@ func NewDefaultConfig() *Config {
 			Backend: "default",
 			Socket:  "/var/run/cdk-walletd.sock",
 		},
+		LNURLCash:    DefaultLNURLCashConfig(),
 		StepSize:     22020096, // 21 MiB
 		Margin:       0.1,
 		Metric:       "bytes",

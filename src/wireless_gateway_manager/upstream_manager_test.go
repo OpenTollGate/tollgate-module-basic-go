@@ -1,6 +1,7 @@
 package wireless_gateway_manager
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -191,6 +192,12 @@ func TestUpstreamManager_RunScanCycle_NoActiveUpstream(t *testing.T) {
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "", "upstream_mynet", "MyNet", "").Return(nil)
+	// The post-switch verifier is detached and reads GetActiveSTA unconditionally
+	// (upstream_manager.go:680). Register it so the goroutine can finish without
+	// panicking on a mock that no longer belongs to a running test.
+	connector.On("GetActiveSTA").Return(&STASection{Name: "", SSID: "MyNet", Device: "radio0"}, nil).Maybe()
+	connector.On("GetSTANetdev", mock.Anything).Return("wlan0", nil).Maybe()
+	connector.On("iwinfo", mock.Anything, mock.Anything).Return(nil, errors.New("no wireless in fixture")).Maybe()
 
 	um.runScanCycle("", "", "", 0, "no-active-upstream", false)
 
@@ -233,6 +240,12 @@ func TestUpstreamManager_RunScanCycle_AboveHysteresis_Switches(t *testing.T) {
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_othernet", "upstream_mynet", "MyNet", "").Return(nil)
+	// The post-switch verifier is detached and reads GetActiveSTA unconditionally
+	// (upstream_manager.go:680). Register it so the goroutine can finish without
+	// panicking on a mock that no longer belongs to a running test.
+	connector.On("GetActiveSTA").Return(&STASection{Name: "upstream_othernet", SSID: "MyNet", Device: "radio0"}, nil).Maybe()
+	connector.On("GetSTANetdev", mock.Anything).Return("wlan0", nil).Maybe()
+	connector.On("iwinfo", mock.Anything, mock.Anything).Return(nil, errors.New("no wireless in fixture")).Maybe()
 
 	um.runScanCycle("upstream_othernet", "OtherNet", "", -60, "scheduled", false)
 
@@ -255,6 +268,12 @@ func TestUpstreamManager_RunScanCycle_BelowSignalFloor(t *testing.T) {
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_othernet", "upstream_mynet", "MyNet", "").Return(nil)
+	// The post-switch verifier is detached and reads GetActiveSTA unconditionally
+	// (upstream_manager.go:680). Register it so the goroutine can finish without
+	// panicking on a mock that no longer belongs to a running test.
+	connector.On("GetActiveSTA").Return(&STASection{Name: "upstream_othernet", SSID: "MyNet", Device: "radio0"}, nil).Maybe()
+	connector.On("GetSTANetdev", mock.Anything).Return("wlan0", nil).Maybe()
+	connector.On("iwinfo", mock.Anything, mock.Anything).Return(nil, errors.New("no wireless in fixture")).Maybe()
 
 	um.runScanCycle("upstream_othernet", "OtherNet", "", -90, "scheduled", false)
 
@@ -572,6 +591,12 @@ func TestUpstreamManager_PostSwitch_NoBlacklistWhenConnectivityOK(t *testing.T) 
 		{Name: "upstream_mynet", SSID: "MyNet", Device: "radio0", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_old", "upstream_mynet", "MyNet", "").Return(nil)
+	// The post-switch verifier is detached and reads GetActiveSTA unconditionally
+	// (upstream_manager.go:680). Register it so the goroutine can finish without
+	// panicking on a mock that no longer belongs to a running test.
+	connector.On("GetActiveSTA").Return(&STASection{Name: "upstream_old", SSID: "MyNet", Device: "radio0"}, nil).Maybe()
+	connector.On("GetSTANetdev", mock.Anything).Return("wlan0", nil).Maybe()
+	connector.On("iwinfo", mock.Anything, mock.Anything).Return(nil, errors.New("no wireless in fixture")).Maybe()
 
 	um.runScanCycle("upstream_old", "OldNet", "", -90, "emergency", false)
 
@@ -719,6 +744,12 @@ func TestUpstreamManager_StartupCheck_NoInternet_SwitchesToCandidate(t *testing.
 		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet", "").Return(nil)
+	// The post-switch verifier is detached and reads GetActiveSTA unconditionally
+	// (upstream_manager.go:680). Register it so the goroutine can finish without
+	// panicking on a mock that no longer belongs to a running test.
+	connector.On("GetActiveSTA").Return(&STASection{Name: "upstream_badnet", SSID: "GoodNet", Device: "radio0"}, nil).Maybe()
+	connector.On("GetSTANetdev", mock.Anything).Return("wlan0", nil).Maybe()
+	connector.On("iwinfo", mock.Anything, mock.Anything).Return(nil, errors.New("no wireless in fixture")).Maybe()
 
 	um.startupConnectivityCheck()
 
@@ -815,6 +846,12 @@ func TestUpstreamManager_StartupCheck_ResellerMode(t *testing.T) {
 		{Name: "upstream_homewifi", SSID: "HomeWiFi", Device: "radio0", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_badnet", "upstream_homewifi", "HomeWiFi", "").Return(nil)
+	// The post-switch verifier is detached and reads GetActiveSTA unconditionally
+	// (upstream_manager.go:680). Register it so the goroutine can finish without
+	// panicking on a mock that no longer belongs to a running test.
+	connector.On("GetActiveSTA").Return(&STASection{Name: "upstream_badnet", SSID: "HomeWiFi", Device: "radio0"}, nil).Maybe()
+	connector.On("GetSTANetdev", mock.Anything).Return("wlan0", nil).Maybe()
+	connector.On("iwinfo", mock.Anything, mock.Anything).Return(nil, errors.New("no wireless in fixture")).Maybe()
 
 	um.startupConnectivityCheck()
 
@@ -866,6 +903,12 @@ func TestUpstreamManager_StartupCheck_ScanFailsThenSucceedsOnRetry(t *testing.T)
 		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet", "").Return(nil)
+	// The post-switch verifier is detached and reads GetActiveSTA unconditionally
+	// (upstream_manager.go:680). Register it so the goroutine can finish without
+	// panicking on a mock that no longer belongs to a running test.
+	connector.On("GetActiveSTA").Return(&STASection{Name: "upstream_badnet", SSID: "GoodNet", Device: "radio0"}, nil).Maybe()
+	connector.On("GetSTANetdev", mock.Anything).Return("wlan0", nil).Maybe()
+	connector.On("iwinfo", mock.Anything, mock.Anything).Return(nil, errors.New("no wireless in fixture")).Maybe()
 
 	um.startupConnectivityCheck()
 
@@ -902,6 +945,12 @@ func TestUpstreamManager_StartupCheck_CandidateNotFoundFirstScan(t *testing.T) {
 		{Name: "upstream_goodnet", SSID: "GoodNet", Device: "radio1", Disabled: true},
 	}, nil)
 	connector.On("SwitchUpstream", "upstream_badnet", "upstream_goodnet", "GoodNet", "").Return(nil)
+	// The post-switch verifier is detached and reads GetActiveSTA unconditionally
+	// (upstream_manager.go:680). Register it so the goroutine can finish without
+	// panicking on a mock that no longer belongs to a running test.
+	connector.On("GetActiveSTA").Return(&STASection{Name: "upstream_badnet", SSID: "GoodNet", Device: "radio0"}, nil).Maybe()
+	connector.On("GetSTANetdev", mock.Anything).Return("wlan0", nil).Maybe()
+	connector.On("iwinfo", mock.Anything, mock.Anything).Return(nil, errors.New("no wireless in fixture")).Maybe()
 
 	um.startupConnectivityCheck()
 
